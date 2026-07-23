@@ -1,93 +1,209 @@
-# Auto Action Trigger
+# auto-action-trigger
 
+Automated node bring-up and validation framework for HPC clusters managed by **Bright Cluster Manager (BCM)**. When a node boots and its device status becomes `UP`, BCM monitoring triggers fire two action scripts that run hardware health checks and sequence through Slurm benchmark jobs — draining the node in Slurm automatically on any failure.
 
-
-## Getting started
-
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+## How it works
 
 ```
-cd existing_repo
-git remote add origin https://gitlab-master.nvidia.com/nvis-ova/auto-action-trigger.git
-git branch -M main
-git push -uf origin main
+Node boots → BCM device status = UP
+    ├── NodeHealthTrigger → node_health.sh
+    │       Compares hardware/software state against a known-good baseline.
+    │       Sets node IDLE (all checks pass) or DOWN with a reason (any fail).
+    │
+    └── LaunchJobTrigger → launch_job.sh
+            Sequences through benchmarks (dcgm → allreduce → alltoall).
+            Submits the next Slurm job when the node is idle and the prior run passed.
+            Drains the node if a benchmark fails or runs too long.
 ```
 
-## Integrate with your tools
+Both triggers fire continuously while the device is UP (`duringactions`), so they re-evaluate on each BCM monitoring cycle without manual intervention.
 
-- [ ] [Set up project integrations](https://gitlab-master.nvidia.com/nvis-ova/auto-action-trigger/-/settings/integrations)
+## Directory layout
 
-## Collaborate with your team
+```
+.
+├── pre-post/
+│   ├── create-action-trigger.sh   # Register actions and triggers in BCM
+│   └── delete-action-trigger.sh   # Remove actions and triggers from BCM
+│
+├── actions/
+│   ├── node_health.sh             # Hardware/software health checks → Slurm node state
+│   ├── launch_job.sh              # Benchmark sequencer → Slurm job submissions
+│   ├── file_copy.sh               # Rsync containers to node (category-gated)
+│   └── valid-node-check.sh        # BCM health-check script (category-based PASS/FAIL)
+│
+├── jobs/
+│   ├── example.sbatch             # Annotated template for adding new benchmarks
+│   ├── dcgm.sbatch                # DCGM diagnostics (level 3)
+│   ├── allreduce.sbatch           # NCCL all-reduce performance (5 runs)
+│   ├── alltoall.sbatch            # NCCL all-to-all performance
+│   ├── hpl.sbatch                 # HPL (Linpack) benchmark
+│   ├── mnubergemm.sbatch          # Multi-node GEMM benchmark
+│   └── hpl/
+│       ├── hpl1N.dat              # HPL config for 1-node runs
+│       └── hpl2N.dat              # HPL config for 2-node runs
+│
+├── set-valid-default.sh           # Capture a validated node as the health baseline
+├── node-health-refresh.sh         # Trigger a re-health-check on one or more nodes
+├── single-node-purge.sh           # Clear benchmark results for a node
+├── status-check.sh                # Live per-node benchmark status (all nodes)
+├── status-daily-report.sh         # Generate dated CSV report with performance metrics
+├── sync-check.sh                  # Diff a drained node's health output vs baseline
+└── watch-rack.sh                  # Watch a nodelist for DOWN/drained nodes
+```
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+## First-time setup
 
-## Test and Deploy
+### 1. Set up the BCM actions and triggers
 
-Use the built-in continuous integration in GitLab.
+```bash
+bash pre-post/create-action-trigger.sh
+```
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+This registers two actions (`node_health_action`, `launch_job_action`) and two triggers (`NodeHealthTrigger`, `LaunchJobTrigger`) in BCM monitoring. To remove them:
 
-***
+```bash
+bash pre-post/delete-action-trigger.sh
+```
 
-# Editing this README
+### 2. Establish a valid-config baseline
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+Run the health script manually on a node that has been fully validated, then capture its output as the reference:
 
-## Suggestions for a good README
+```bash
+bash set-valid-default.sh <node_name>
+# e.g. bash set-valid-default.sh node001
+```
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+This copies `logs/<node_name>/` to `valid-config/<node_name>/` and symlinks it as `valid-config/default/`. All subsequent health checks diff against this baseline.
 
-## Name
-Choose a self-explaining name for your project.
+## Expected directory paths
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+Scripts assume the repo is deployed at `/home/cmods/bringup/`. Adjust the paths at the top of each script if deploying elsewhere.
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+| Path | Purpose |
+|------|---------|
+| `/home/cmods/bringup/logs/<node>/` | Per-node health check output files |
+| `/home/cmods/bringup/valid-config/default/` | Symlink to the reference baseline node |
+| `/home/cmods/bringup/results/<node>/` | Per-node benchmark result files |
+| `/home/cmods/bringup/reports/` | CSV reports from `status-daily-report.sh` |
+| `/home/cmods/bringup/containers/` | Container images rsync'd to nodes |
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+## Health checks (`node_health.sh`)
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+The script runs each check, writes output to `logs/<node>/<check-name>`, and diffs against the baseline. Any mismatch appends to a `reason` string. After all checks, it either sets the node `IDLE` (no failures) or `DOWN` with the accumulated reason.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+| Check | What it validates |
+|-------|-------------------|
+| `bios` | BIOS version and settings |
+| `os` | Kernel version, OS readiness |
+| `kernel-params` | Kernel command-line parameters |
+| `cpu-specs` | CPU architecture and topology |
+| `cpu-freq` | CPU governor and per-socket frequency (must be >1800 MHz in performance mode) |
+| `memory` | DIMM count and size |
+| `numa-settings` | `kernel.numa_balancing=0`, THP=madvise |
+| `numa` | NUMA node memory sizes |
+| `nvidia-smi-ecc` | GPU ECC errors, remapped rows, power state |
+| `nvlinks` | NVLink count and fabric state (72 links expected on GB/B series) |
+| `nvlink-ber` | NVLink Bit Error Rate |
+| `nvidia-smi-p2p-nvlink` | GPU P2P NVLink capability |
+| `nvidia-smi-p2p-pcie` | GPU P2P PCIe capability |
+| `nvidia-smi-cuuid` | GPU ClusterUUID (rack consistency check) |
+| `ib-status` | InfiniBand port state (all up and active) |
+| `ib-down` | IB link recommendation flags via mlxlink |
+| `ib-link` | IB link_downed and symbol_error counters |
+| `ib-pkey` | IB partition key consistency |
+| `ib-firmware` | IB HCA firmware versions |
+| `pcie-lnk-stat` | PCIe LnkCap vs LnkSta speed/width mismatches |
+| `pcie-acs` | PCIe ACS (Access Control Services) settings |
+| `pcie-mrrs` | PCIe Max Read Request Size (expected 4096) |
+| `iface` | Default gateway network interface |
+| `bond` | Bond interface mode, speed, and member status |
+| `imex-channels` | NVIDIA IMEX channel devices (GB series) |
+| `imex-profile` | IMEX configuration |
+| `imex-node-config` | IMEX nodes_config.cfg checksum |
+| `imex-service` | IMEX service status and ports |
+| `imex-readiness` | IMEX ready state via nvidia-imex-ctl |
+| `imex-status` | IMEX domain and node connection status |
+| `enroot` | Enroot runtime directory writability |
+| `dmesg-nv_err` | NVIDIA driver NV_ERR_* errors |
+| `dmesg-trace` | Kernel call traces |
+| `dmesg-hw_err` | Hardware errors |
+| `dmesg-xid` | NVIDIA Xid events |
+| `dmesg-knvlink` | NVLink discovery failures |
+| `dmesg-ipmi_ssif` | IPMI SSIF errors |
+| `dmesg-mlx5_core` | Mellanox health issue errors |
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+A `refresh` sentinel file in `logs/<node>/` must exist for the health script to run (prevents redundant re-checks). Use `node-health-refresh.sh` to set it.
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+## Benchmark sequencer (`launch_job.sh`)
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+The active benchmark list is controlled by the `benchmarks=` variable at the top of `actions/launch_job.sh`. Jobs run in order; each must complete with `DONE` before the next starts.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+Benchmarks support multiple runs via `totalRuns=N` in the `.sbatch` file (see `allreduce.sbatch` for an example with 5 runs). Result files are named `<job>.txt` (single run) or `<job>-run<N>.txt` (multiple runs).
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+If a job has been running longer than `MAX_JOB_HOURS` (default: 6), the node is drained with a timeout reason.
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+## Operational scripts
 
-## License
-For open source projects, say how it is licensed.
+### Check status across all nodes
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+```bash
+bash status-check.sh
+```
+
+Reads `results/` and prints per-node status (`NOT_RUN`, `IN_PROGRESS`, `DONE`, `FAIL`) for each benchmark column, grouped by identical status via `dshbak`.
+
+### Generate a CSV performance report
+
+```bash
+bash status-daily-report.sh
+```
+
+Writes `reports/report-YYYY-MM-DD_HH-MM-SS.csv` with one row per node. Completed jobs show extracted performance metrics (Gflops for HPL, busbw GB/s for allreduce/alltoall) instead of a status string.
+
+### Re-trigger health checks
+
+```bash
+bash node-health-refresh.sh node001
+bash node-health-refresh.sh "node00[1-18]"
+```
+
+### Investigate a drained node
+
+```bash
+bash sync-check.sh node001
+```
+
+Diffs the node's health check output files against the valid-config baseline for each check listed in the Slurm drain reason.
+
+### Watch a rack for node failures
+
+```bash
+bash watch-rack.sh "rack01-node[1-32]"
+```
+
+Refreshes every 20 seconds, showing only nodes that are DOWN or drained.
+
+### Purge benchmark results (e.g., after hardware swap)
+
+```bash
+bash single-node-purge.sh node001
+```
+
+Removes `results/node001/` so the benchmark sequence restarts from scratch.
+
+## Adding a new benchmark
+
+1. Copy `jobs/example.sbatch` to `jobs/<name>.sbatch`.
+2. Set `job_name=<name>` and optionally `totalRuns=N`.
+3. Add your workload between the job and parse sections.
+4. The parse section must `echo DONE` on success or `echo FAIL` on failure as the last line.
+5. Add `<name>` to the `benchmarks=` list in `actions/launch_job.sh`.
+
+## Dependencies
+
+- **Bright Cluster Manager** (BCM / `cmsh`) for monitoring triggers and actions
+- **Slurm** for job scheduling and node state management
+- Standard HPC tools: `nvidia-smi`, `ibstatus`, `mlxlink`, `lspci`, `numactl`, `dmidecode`, `dcgmi`, `nvidia-imex-ctl`
+- `dshbak` for grouped output in `status-check.sh`
