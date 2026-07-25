@@ -20,7 +20,8 @@ STRESS_SECONDS=1200
 
 unset CUDA_VISIBLE_DEVICES
 
-## nvsm must run as root on the node under test
+## nvsm is installed on the host alongside dcgmi -- no container. Must run as
+## root on the node under test.
 srun --ntasks-per-node=1 nvsm stress-test --force --duration="${STRESS_SECONDS}"
 
 ## Follow-on health summary for the same node

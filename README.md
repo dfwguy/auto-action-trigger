@@ -27,7 +27,8 @@ A local user named `cmods` must exist on the **headnode and every compute node**
 | `lspci` | `node_health.sh` (PCIe checks) |
 | `numactl` | `node_health.sh` (NUMA checks) |
 | `dmidecode` | `node_health.sh` (BIOS/memory checks) |
-| `dcgmi` | `jobs/dcgm.sbatch` |
+| `dcgmi` | `jobs/dcgm.sbatch`, `jobs/dcgm-r2.sbatch`, `jobs/dcgm-r4.sbatch` |
+| `nvsm` | `jobs/nvsm.sbatch` (runs on the host, no container) |
 | `nvidia-imex-ctl` | `node_health.sh` (IMEX checks, GB series only) |
 | `dshbak` | `status-check.sh` |
 | `rsync` | `actions/file_copy.sh` (optional) |
@@ -142,11 +143,27 @@ Health Check (CVT)** are externally deployed collectors with their own MOPs, and
 **Pre-Flight Checks** run through `actions/node_health.sh` and the Slurm prolog
 rather than as a submitted job.
 
-Every new job ships with placeholder site values — container image paths,
-binary locations (`/home/cmods/bringup/bin/`), interface names, the `ethr`
-server host, the `fio` scratch directory, and the pass thresholds in
-`stream.sbatch` and `cublasmatmul.sbatch`. Set these per platform before adding
-a job to the `benchmarks=` list.
+Most new jobs ship with placeholder site values — binary locations
+(`/home/cmods/bringup/bin/`), interface names, the `ethr` server host, the
+`fio` scratch directory, and the pass thresholds in `stream.sbatch` and
+`cublasmatmul.sbatch`. Set these per platform before adding a job to the
+`benchmarks=` list.
+
+### Container images
+
+| Job | Image | Source |
+|-----|-------|--------|
+| `allreduce`, `alltoall`, `*-nonvlink`, `hpl`, `cublasmatmul` | `nvidia+hpc-benchmarks+26.02.sqsh` | NGC |
+| `mnubergemm` | `mnubergemm-26.03-v1.17-arm.sqsh` | NVIDIA internal |
+| `nvbandwidth` | `nvbandwidth-arm.sqsh` / `nvbandwidth-x86.sqsh` | `nvcr.io/0948245400141054/nvbandwidth-single-node:v0.9-{arm,x86}` |
+| `nvloom` | `nvidian+nvis+nvloom+v2.0.0-arm.sqsh` | NVIDIA internal (nvloom MOP §2.2) |
+
+Images live in `/home/cmods/bringup/containers/` and are rsync'd to nodes by
+`actions/file_copy.sh`. `nvbandwidth` is published per **CPU** architecture
+(Grace/Vera are ARM; Intel/AMD are x86) — the job selects by `uname -m`, so
+both `.sqsh` files must exist on mixed-arch clusters.
+
+`dcgm*` and `nvsm` run against host-installed binaries, not containers.
 
 ## First-time setup
 
