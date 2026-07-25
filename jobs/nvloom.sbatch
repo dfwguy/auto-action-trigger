@@ -16,9 +16,15 @@
 ## Follows incubation/nvloom_MOP.md sections 4 (Scope 1, basic health) and
 ## 5 (Scope 2, burn-in) in the validation-mops repo.
 ##
-## Prerequisites on the node: nvidia-fabricmanager active, IMEX channels
-## present in /dev/nvidia-caps-imex-channels/, and the container readable from
-## the compute node (MOP section 2.2).
+## Prerequisites on the node: IMEX channels present in
+## /dev/nvidia-caps-imex-channels/ with the IMEX service healthy, and the
+## container readable from the compute node.
+##
+## MOP section 2.2 also lists `systemctl status nvidia-fabricmanager` -- that
+## does not apply to NVL72, where the NVLink domain is managed by NMX-C on the
+## switch trays and the hosts run nvidia-imex instead. node_health.sh already
+## covers the IMEX checks that matter here (imex-channels, imex-service,
+## imex-readiness, imex-status).
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=nvloom
