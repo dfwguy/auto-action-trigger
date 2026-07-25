@@ -32,7 +32,12 @@
 ## nvcr.io#nvidia/hpc-benchmarks image. Jobs needing a container we have to
 ## build or import (nvbandwidth, nvloom, mnubergemm) are covered in
 ## MAKE_CONTAINERS.md and are added here once their image exists.
-benchmarks="dcgm allreduce alltoall allreduce-nonvlink alltoall-nonvlink nvsm"
+##
+## nvsm sits between the NVLink NCCL jobs and the no-NVLink ones: the
+## sequencer drains the node on the first FAIL, so anything after the
+## -nonvlink jobs is gated on the HCAs working. nvsm is a GPU stress test
+## with no fabric dependency and should not be blocked by an IB problem.
+benchmarks="dcgm allreduce alltoall nvsm allreduce-nonvlink alltoall-nonvlink"
 MAX_JOB_HOURS=6
 
 source /etc/profile.d/modules.sh
