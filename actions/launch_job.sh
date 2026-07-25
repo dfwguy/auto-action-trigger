@@ -4,8 +4,8 @@
 
 #[[ "$CMD_CATEGORY" == "spcx-hosts" ]] || exit 0
 
-## Active single-node benchmark sequence. Jobs run in order; each must finish
-## DONE before the next starts.
+## Active single-node benchmark list. Everything without a passing result is
+## queued once an hour, in the order listed here.
 ##
 ## Available single-node jobs in jobs/ (AI Factory Testing Plan, SNT tiers):
 ##   dcgm-r2                TTM DCGM gate      (dcgmi diag -r 2)
@@ -33,10 +33,9 @@
 ## build or import (nvbandwidth, nvloom, mnubergemm) are covered in
 ## MAKE_CONTAINERS.md and are added here once their image exists.
 ##
-## nvsm sits between the NVLink NCCL jobs and the no-NVLink ones: the
-## sequencer drains the node on the first FAIL, so anything after the
-## -nonvlink jobs is gated on the HCAs working. nvsm is a GPU stress test
-## with no fabric dependency and should not be blocked by an IB problem.
+## nvsm sits between the NVLink NCCL jobs and the no-NVLink ones so that a
+## fabric problem does not push a GPU stress test to the back of the queue --
+## nvsm has no fabric dependency and should report early.
 benchmarks="dcgm allreduce alltoall nvsm allreduce-nonvlink alltoall-nonvlink"
 MAX_JOB_HOURS=6
 
@@ -72,32 +71,6 @@ home=/home/cmods/bringup
 logs="$home/results/$HOSTNAME"
 quickview="$logs/quick-view.txt"
 
-## Check if node is in slurm; if not - quit
-state=$(sinfo -N -n "$HOSTNAME" -h -o '%T')
-[[ -z "$state" ]] && exit 0
-
-## If a job is actively running or pending on this node, wait.
-## Check elapsed time against MAX_JOB_HOURS and drain if stuck.
-job_info=$(squeue -h -w "$HOSTNAME" -o '%M %T' 2>/dev/null | head -1)
-if [[ -n "$job_info" ]]; then
-    elapsed="${job_info%% *}"
-    job_state="${job_info##* }"
-
-    # Parse elapsed time — squeue formats: MM:SS, HH:MM:SS, D-HH:MM:SS
-    elapsed_hours=0
-    if [[ "$elapsed" =~ ^([0-9]+)-([0-9]+):([0-9]+):([0-9]+)$ ]]; then
-        elapsed_hours=$(( ${BASH_REMATCH[1]} * 24 + ${BASH_REMATCH[2]} ))
-    elif [[ "$elapsed" =~ ^([0-9]+):([0-9]+):([0-9]+)$ ]]; then
-        elapsed_hours=${BASH_REMATCH[1]}
-    fi
-
-    if [[ "$elapsed_hours" -ge "$MAX_JOB_HOURS" ]]; then
-        scontrol update nodename="$HOSTNAME" state=DRAIN \
-            reason="benchmark timeout after ${elapsed_hours}h (${job_state})"
-    fi
-    exit 0
-fi
-
 ## Result file for run $2 of job $1. Single-run jobs use <job>.txt.
 result_file() {
     local job="$1" run="$2" total="$3"
@@ -120,8 +93,14 @@ archive_result() {
 
 ## Drain only if the node is currently usable and not already drained by us.
 ## A node drained for any other reason is left alone.
+##
+## `touch /home/cmods/bringup/NODRAIN` disables every drain this script would
+## issue, including the MAX_JOB_HOURS timeout drain. Testing continues exactly
+## as before — results are still recorded and failures still retry hourly — the
+## node is just never taken out of service. Remove the file to re-enable.
 drain_node() {
     local reason="$1"
+    [[ -f "$home/NODRAIN" ]] && return 0
     case "$state" in
         *drain*|*down*|*fail*|*maint*) return 0 ;;
     esac
@@ -135,6 +114,31 @@ resume_node() {
     [[ "$current" == *"$DRAIN_MARKER"* ]] || return 0
     scontrol update nodename="$HOSTNAME" state=RESUME
 }
+
+## Check if node is in slurm; if not - quit
+state=$(sinfo -N -n "$HOSTNAME" -h -o '%T')
+[[ -z "$state" ]] && exit 0
+
+## If a job is actively running or pending on this node, wait.
+## Check elapsed time against MAX_JOB_HOURS and drain if stuck.
+job_info=$(squeue -h -w "$HOSTNAME" -o '%M %T' 2>/dev/null | head -1)
+if [[ -n "$job_info" ]]; then
+    elapsed="${job_info%% *}"
+    job_state="${job_info##* }"
+
+    # Parse elapsed time — squeue formats: MM:SS, HH:MM:SS, D-HH:MM:SS
+    elapsed_hours=0
+    if [[ "$elapsed" =~ ^([0-9]+)-([0-9]+):([0-9]+):([0-9]+)$ ]]; then
+        elapsed_hours=$(( ${BASH_REMATCH[1]} * 24 + ${BASH_REMATCH[2]} ))
+    elif [[ "$elapsed" =~ ^([0-9]+):([0-9]+):([0-9]+)$ ]]; then
+        elapsed_hours=${BASH_REMATCH[1]}
+    fi
+
+    if [[ "$elapsed_hours" -ge "$MAX_JOB_HOURS" ]]; then
+        drain_node "benchmark timeout after ${elapsed_hours}h (${job_state})"
+    fi
+    exit 0
+fi
 
 mkdir -p "$logs"
 

@@ -105,6 +105,7 @@ Both triggers fire continuously while the device is UP (`duringactions`), so the
 │       ├── hpl1N.dat              # HPL config for 1-node runs
 │       └── hpl2N.dat              # HPL config for 2-node runs
 │
+├── NODRAIN                        # Present = never drain on failure (delete to enable)
 ├── set-valid-default.sh           # Capture a validated node as the health baseline
 ├── node-health-refresh.sh         # Trigger a re-health-check on one or more nodes
 ├── single-node-purge.sh           # Clear benchmark results for a node
@@ -269,6 +270,58 @@ sweep runs → some fail           → drain "<jobs> FAIL (auto-retry)"
 ```
 
 If a job has been running longer than `MAX_JOB_HOURS` (default: 6), the node is drained with a timeout reason. That reason carries no marker, so a stuck job stops the retry loop and waits for a human.
+
+### Disabling drains (`NODRAIN`)
+
+A file named `NODRAIN` in the bringup root disables every drain the sequencer would issue, including the `MAX_JOB_HOURS` timeout drain:
+
+```bash
+touch /home/cmods/bringup/NODRAIN     # stop draining on failure
+rm /home/cmods/bringup/NODRAIN        # resume normal behaviour
+```
+
+Nothing else changes — benchmarks still run, results are still recorded, and failures still re-queue hourly. The node is simply never taken out of service, so failures show up in `status-check.sh` and the CSV report rather than in `sinfo`.
+
+Useful during early bringup when you want the full picture across a rack before nodes start dropping out, or while debugging a benchmark that is failing for reasons unrelated to the hardware.
+
+**This repo ships with `NODRAIN` present**, so drains are off out of the box. Delete it once you want failures to pull nodes from the pool. It does not clear drains that already exist — see below.
+
+### Marking a node back to idle
+
+Draining is one-way; the sequencer only clears its own drains, and only after the retry interval. To return a node yourself:
+
+```bash
+scontrol update nodename=node001 state=RESUME              # clears drain + reason
+scontrol update nodename="node[001-018]" state=RESUME      # a whole rack
+```
+
+`RESUME` is what you want in almost every case — it clears the drain reason and lets Slurm put the node back to `idle` or `alloc` on its own. Setting `state=IDLE` directly is rejected from some states and skips that bookkeeping.
+
+Check what a node is drained for before clearing it:
+
+```bash
+sinfo -n node001 -o '%T %E'          # state and reason
+scontrol show node node001           # full detail
+sinfo -R                             # every drained node with reasons
+```
+
+If the reason contains `auto-retry`, the sequencer put it there and will clear it itself on the next retry pass — resuming by hand just starts the next sweep sooner. Any other reason is an operator drain, and the sequencer will neither clear it nor queue work behind it.
+
+`sync-check.sh <node>` diffs a drained node's health output against the baseline for each check named in the drain reason, which is usually the fastest way to see why `node_health.sh` drained it.
+
+#### Slurm permissions
+
+`scontrol update nodename=...` requires privilege. It works as `root`, as the `SlurmUser` (typically `slurm`), or as an account with an admin level set in the accounting database. To grant a user that access:
+
+```bash
+sacctmgr modify user name=<user> set adminlevel=Operator        # drain/resume nodes, manage jobs
+sacctmgr modify user name=<user> set adminlevel=Administrator   # full control, incl. accounting
+sacctmgr show user <user> withassoc format=User,AdminLevel      # verify
+```
+
+`Operator` is enough for node state changes and is the right level for anyone doing bringup. `Administrator` additionally allows modifying accounts, associations, and QOS — grant it sparingly.
+
+The `sacctmgr modify` command itself must be run by `root`, the `SlurmUser`, or an existing `Administrator`, and requires `slurmdbd` with accounting storage configured. Without accounting enabled, admin levels do not apply and node state changes are limited to `root` and the `SlurmUser`.
 
 ## Operational scripts
 
