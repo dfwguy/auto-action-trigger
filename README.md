@@ -84,7 +84,7 @@ Both triggers fire continuously while the device is UP (`duringactions`), so the
 │   ├── dcgm.sbatch                # DCGM diagnostics (level 3, Hybrid gate)
 │   ├── dcgm-r4.sbatch             # DCGM diagnostics (level 4, Exhaustive gate)
 │   ├── nvbandwidth.sbatch         # HBM / PCIe / NVLink bandwidth
-│   ├── allreduce.sbatch           # NCCL all-reduce, NVLink scope (5 runs)
+│   ├── allreduce.sbatch           # NCCL all-reduce, NVLink scope
 │   ├── alltoall.sbatch            # NCCL all-to-all, NVLink scope
 │   ├── allreduce-nonvlink.sbatch  # NCCL all-reduce over HCAs (NVLink excluded)
 │   ├── alltoall-nonvlink.sbatch   # NCCL all-to-all over HCAs (NVLink excluded)
@@ -236,7 +236,7 @@ A `refresh` sentinel file in `logs/<node>/` must exist for the health script to 
 
 The active benchmark list is controlled by the `benchmarks=` variable at the top of `actions/launch_job.sh`. Jobs run in order; each must complete with `DONE` before the next starts.
 
-Benchmarks support multiple runs via `totalRuns=N` in the `.sbatch` file (see `allreduce.sbatch` for an example with 5 runs). Result files are named `<job>.txt` (single run) or `<job>-run<N>.txt` (multiple runs).
+Benchmarks support multiple runs via `totalRuns=N` in the `.sbatch` file (see `mnubergemm.sbatch` for an example with 12 runs). Result files are named `<job>.txt` (single run) or `<job>-run<N>.txt` (multiple runs).
 
 If a job has been running longer than `MAX_JOB_HOURS` (default: 6), the node is drained with a timeout reason.
 

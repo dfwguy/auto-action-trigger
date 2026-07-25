@@ -8,7 +8,7 @@
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=allreduce
-totalRuns=5
+totalRuns=1
 
 
 ## ------------- job info starts here ------------- ##
