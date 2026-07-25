@@ -80,11 +80,26 @@ Both triggers fire continuously while the device is UP (`duringactions`), so the
 │
 ├── jobs/
 │   ├── example.sbatch             # Annotated template for adding new benchmarks
-│   ├── dcgm.sbatch                # DCGM diagnostics (level 3)
-│   ├── allreduce.sbatch           # NCCL all-reduce performance (5 runs)
-│   ├── alltoall.sbatch            # NCCL all-to-all performance
-│   ├── hpl.sbatch                 # HPL (Linpack) benchmark
-│   ├── mnubergemm.sbatch          # Multi-node GEMM benchmark
+│   ├── dcgm-r2.sbatch             # DCGM diagnostics (level 2, TTM gate)
+│   ├── dcgm.sbatch                # DCGM diagnostics (level 3, Hybrid gate)
+│   ├── dcgm-r4.sbatch             # DCGM diagnostics (level 4, Exhaustive gate)
+│   ├── nvbandwidth.sbatch         # HBM / PCIe / NVLink bandwidth
+│   ├── allreduce.sbatch           # NCCL all-reduce, NVLink scope (5 runs)
+│   ├── alltoall.sbatch            # NCCL all-to-all, NVLink scope
+│   ├── allreduce-nonvlink.sbatch  # NCCL all-reduce over HCAs (NVLink excluded)
+│   ├── alltoall-nonvlink.sbatch   # NCCL all-to-all over HCAs (NVLink excluded)
+│   ├── nvsm.sbatch                # NVSM stress test
+│   ├── stream.sbatch              # STREAM CPU memory bandwidth
+│   ├── memtester.sbatch           # DRAM integrity
+│   ├── stress-ng.sbatch           # CPU / cache / mmap stress
+│   ├── stressapptest.sbatch       # Extended memory integrity
+│   ├── fio.sbatch                 # Local NVMe / shared storage I/O
+│   ├── ethr.sbatch                # North-south management + storage NIC
+│   ├── nvloom.sbatch              # MNNVL fabric health (optional/exploratory)
+│   ├── mnubergemm.sbatch          # GPU burn-in (single node per the plan)
+│   ├── llm-pretrain.sbatch        # Single-node LLM pre-training workload gate
+│   ├── hpl.sbatch                 # HPL (Linpack), GB200 remediation-only GEMM
+│   ├── cublasmatmul.sbatch        # GB300 remediation-only single-node GEMM
 │   └── hpl/
 │       ├── hpl1N.dat              # HPL config for 1-node runs
 │       └── hpl2N.dat              # HPL config for 2-node runs
@@ -97,6 +112,41 @@ Both triggers fire continuously while the device is UP (`duringactions`), so the
 ├── sync-check.sh                  # Diff a drained node's health output vs baseline
 └── watch-rack.sh                  # Watch a nodelist for DOWN/drained nodes
 ```
+
+### Single-node test coverage
+
+`jobs/` covers the single-node (SNT) rows of the [AI Factory Testing Plan](https://gitlab-master.nvidia.com/nvis-npi/validation-mops/-/blob/main/ai_factory_testing_plan.md).
+Which subset runs depends on the delivery methodology for the site — see the
+commented catalog above `benchmarks=` in `actions/launch_job.sh`.
+
+| Plan row | Job | Variants |
+|----------|-----|----------|
+| DCGM Diagnostics `-r 2` / `-r 3` / `-r 4` | `dcgm-r2`, `dcgm`, `dcgm-r4` | TTM / Hybrid / Exhaustive |
+| nvbandwidth | `nvbandwidth` | all |
+| NCCL Single Node, NVLink | `allreduce`, `alltoall` | all |
+| NCCL Single Node, No NVLink | `allreduce-nonvlink`, `alltoall-nonvlink` | all |
+| NVSM Stress Test | `nvsm` | Hybrid, Exhaustive |
+| STREAM + Memtester | `stream`, `memtester` | Exhaustive |
+| stress-ng | `stress-ng` | Exhaustive |
+| stressapptest | `stressapptest` | Exhaustive |
+| fio | `fio` | Exhaustive |
+| ethr | `ethr` | Exhaustive |
+| nvloom — Single-Node Health + Burn-In | `nvloom` | Exhaustive (optional) |
+| MNUberGEMM Burn-In | `mnubergemm` | Hybrid, Exhaustive |
+| Single-Node LLM Pre-Training | `llm-pretrain` | all |
+| HPL / cuBlasMatMul (single-node GEMM) | `hpl`, `cublasmatmul` | remediation-only |
+
+Three single-node plan rows have no `.sbatch` file because they are not Slurm
+jobs: **Inventory & BOM Verification (ClusterMinder)** and **Network Fabric
+Health Check (CVT)** are externally deployed collectors with their own MOPs, and
+**Pre-Flight Checks** run through `actions/node_health.sh` and the Slurm prolog
+rather than as a submitted job.
+
+Every new job ships with placeholder site values — container image paths,
+binary locations (`/home/cmods/bringup/bin/`), interface names, the `ethr`
+server host, the `fio` scratch directory, and the pass thresholds in
+`stream.sbatch` and `cublasmatmul.sbatch`. Set these per platform before adding
+a job to the `benchmarks=` list.
 
 ## First-time setup
 

@@ -22,9 +22,21 @@ extract_metric() {
             # WC summary line: T/V N NB P Q Time Gflops (per_GPU)
             grep -E '^WC' "$file" 2>/dev/null | awk '{print $7}' | head -1
             ;;
-        allreduce|alltoall)
+        allreduce|alltoall|allreduce-nonvlink|alltoall-nonvlink)
             # Find largest message size actually run, return out-of-place busbw
             awk '$1 ~ /^[0-9]+$/ {print}' "$file" 2>/dev/null | sort -k1,1n | tail -1 | awk '{print $8}'
+            ;;
+        nvbandwidth)
+            # Lowest SUM across the requested test cases -- the weakest path
+            grep -E '^SUM ' "$file" 2>/dev/null | awk '{print $NF}' | sort -n | head -1
+            ;;
+        stream)
+            # Triad best rate, MB/s
+            awk '/^Triad:/ {print $2}' "$file" 2>/dev/null | head -1
+            ;;
+        fio)
+            # Highest aggregate bandwidth reported across the four passes
+            grep -oE 'bw=[0-9.]+[KMG]?i?B/s' "$file" 2>/dev/null | sed 's/bw=//' | sort -h | tail -1
             ;;
     esac
 }
@@ -32,7 +44,11 @@ extract_metric() {
 metric_label() {
     case "$1" in
         hpl)                echo "gflops"      ;;
-        allreduce|alltoall) echo "busbw_GBs"   ;;
+        allreduce|alltoall|allreduce-nonvlink|alltoall-nonvlink)
+                            echo "busbw_GBs"   ;;
+        nvbandwidth)        echo "min_GBs"     ;;
+        stream)             echo "triad_MBs"   ;;
+        fio)                echo "bw"          ;;
     esac
 }
 

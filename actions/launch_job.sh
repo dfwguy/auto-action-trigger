@@ -4,6 +4,29 @@
 
 #[[ "$CMD_CATEGORY" == "spcx-hosts" ]] || exit 0
 
+## Active single-node benchmark sequence. Jobs run in order; each must finish
+## DONE before the next starts.
+##
+## Available single-node jobs in jobs/ (AI Factory Testing Plan, SNT tiers):
+##   dcgm-r2                TTM DCGM gate      (dcgmi diag -r 2)
+##   dcgm                   Hybrid DCGM gate   (dcgmi diag -r 3)
+##   dcgm-r4                Exhaustive gate    (dcgmi diag -r 4)
+##   nvbandwidth            HBM / PCIe / NVLink bandwidth
+##   allreduce alltoall     NCCL single node, NVLink scope
+##   allreduce-nonvlink     NCCL single node, no NVLink (HCA loopback)
+##   alltoall-nonvlink      NCCL single node, no NVLink (HCA loopback)
+##   nvsm                   NVSM stress (Hybrid / Exhaustive only)
+##   stream memtester       CPU memory bandwidth + DRAM integrity (Exhaustive)
+##   stress-ng              CPU stress (Exhaustive)
+##   stressapptest          extended memory integrity (Exhaustive)
+##   fio                    local NVMe / shared storage (Exhaustive)
+##   ethr                   north-south management + storage NIC (Exhaustive)
+##   nvloom                 MNNVL fabric (Exhaustive, optional/exploratory)
+##   mnubergemm             burn-in (Hybrid / Exhaustive)
+##   llm-pretrain           single-node LLM pre-training workload gate
+##   hpl cublasmatmul       remediation-only single-node GEMM -- run by hand
+##
+## Pick the set matching the delivery methodology for the site.
 benchmarks="dcgm allreduce alltoall"
 MAX_JOB_HOURS=6
 
