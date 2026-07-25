@@ -27,7 +27,7 @@
 ##   hpl cublasmatmul       remediation-only single-node GEMM -- run by hand
 ##
 ## Pick the set matching the delivery methodology for the site.
-benchmarks="dcgm allreduce alltoall"
+benchmarks="dcgm nvbandwidth allreduce alltoall allreduce-nonvlink alltoall-nonvlink nvsm nvloom"
 MAX_JOB_HOURS=6
 
 source /etc/profile.d/modules.sh
