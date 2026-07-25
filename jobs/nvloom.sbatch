@@ -31,6 +31,9 @@ job_name=nvloom
 
 ## ------------- job info starts here ------------- ##
 
+## NOT ENABLED BY DEFAULT -- nvloom publishes no prebuilt image, only a sample
+## Dockerfile at github.com/NVIDIA/nvloom. See MAKE_CONTAINERS.md for how to
+## build one and add this job to the benchmarks= list in actions/launch_job.sh.
 ## MOP reference image: /home/nvis/nvidian+nvis+nvloom+v2.0.0-arm.sqsh
 CONT=/home/cmods/bringup/containers/nvidian+nvis+nvloom+v2.0.0-arm.sqsh
 RACK_SAMPLES=5

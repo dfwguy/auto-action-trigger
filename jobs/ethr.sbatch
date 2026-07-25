@@ -17,7 +17,9 @@ job_name=ethr
 ## Host running `ethr -s` (headnode or a storage-network endpoint).
 ## Start the server side once, outside this job:  ethr -s
 ETHR_SERVER=headnode
-ETHR_BIN=/home/cmods/bringup/bin/ethr
+## ethr is a single static Go binary -- install it on the host from
+## github.com/microsoft/ethr rather than containerizing it.
+ETHR_BIN=ethr
 DURATION=30s
 
 ## Interfaces under test -- management and storage NICs, not the compute fabric

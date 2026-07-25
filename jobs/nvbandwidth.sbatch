@@ -20,17 +20,22 @@ job_name=nvbandwidth
 
 ## ------------- job info starts here ------------- ##
 
+## NOT ENABLED BY DEFAULT -- no public upstream image exists. See
+## MAKE_CONTAINERS.md for how to build or import one and add this job to the
+## benchmarks= list in actions/launch_job.sh.
+##
 ## Published as architecture-specific images -- select by CPU arch, not GPU
 ## generation. Grace/Vera are ARM; Intel/AMD hosts use the x86 image.
-##   ARM: nvcr.io/0948245400141054/nvbandwidth-single-node:v0.9-arm
-##   x86: nvcr.io/0948245400141054/nvbandwidth-single-node:v0.9-x86
-## Import once to the shared container dir (MOP section 4). Single-arch sites
-## may collapse both to a single nvbandwidth.sqsh.
 case "$(uname -m)" in
-    aarch64) CONT=/home/cmods/bringup/containers/nvbandwidth-arm.sqsh ;;
-    x86_64)  CONT=/home/cmods/bringup/containers/nvbandwidth-x86.sqsh ;;
+    aarch64) CONT=docker://nvcr.io#0948245400141054/nvbandwidth-single-node:v0.9-arm ;;
+    x86_64)  CONT=docker://nvcr.io#0948245400141054/nvbandwidth-single-node:v0.9-x86 ;;
     *)       echo "nvbandwidth: unsupported architecture $(uname -m)"; exit 1 ;;
 esac
+## Local import alternative (see MAKE_CONTAINERS.md):
+#case "$(uname -m)" in
+#    aarch64) CONT=/home/cmods/bringup/containers/nvbandwidth-arm.sqsh ;;
+#    x86_64)  CONT=/home/cmods/bringup/containers/nvbandwidth-x86.sqsh ;;
+#esac
 
 unset CUDA_VISIBLE_DEVICES
 

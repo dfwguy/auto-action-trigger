@@ -143,27 +143,23 @@ Health Check (CVT)** are externally deployed collectors with their own MOPs, and
 **Pre-Flight Checks** run through `actions/node_health.sh` and the Slurm prolog
 rather than as a submitted job.
 
-Most new jobs ship with placeholder site values — binary locations
-(`/home/cmods/bringup/bin/`), interface names, the `ethr` server host, the
-`fio` scratch directory, and the pass thresholds in `stream.sbatch` and
-`cublasmatmul.sbatch`. Set these per platform before adding a job to the
-`benchmarks=` list.
+Jobs outside the default list ship with placeholder site values — interface
+names, the `ethr` server host, the `fio` scratch directory, and the pass
+thresholds in `stream.sbatch` and `cublasmatmul.sbatch`. Set these per platform
+before adding a job to the `benchmarks=` list.
 
-### Container images
+### Containers
 
-| Job | Image | Source |
-|-----|-------|--------|
-| `allreduce`, `alltoall`, `*-nonvlink`, `hpl`, `cublasmatmul` | `nvidia+hpc-benchmarks+26.02.sqsh` | NGC |
-| `mnubergemm` | `mnubergemm-26.03-v1.17-arm.sqsh` | NVIDIA internal |
-| `nvbandwidth` | `nvbandwidth-arm.sqsh` / `nvbandwidth-x86.sqsh` | `nvcr.io/0948245400141054/nvbandwidth-single-node:v0.9-{arm,x86}` |
-| `nvloom` | `nvidian+nvis+nvloom+v2.0.0-arm.sqsh` | NVIDIA internal (nvloom MOP §2.2) |
+Everything in the default `benchmarks=` list runs with no image built on our
+side. `dcgm*` and `nvsm` use host-installed binaries; the NCCL jobs pull the
+public `docker://nvcr.io#nvidia/hpc-benchmarks:26.02` image, which enroot
+fetches and caches on first use. `hpl`, `cublasmatmul`, and `stream` use the
+same upstream image.
 
-Images live in `/home/cmods/bringup/containers/` and are rsync'd to nodes by
-`actions/file_copy.sh`. `nvbandwidth` is published per **CPU** architecture
-(Grace/Vera are ARM; Intel/AMD are x86) — the job selects by `uname -m`, so
-both `.sqsh` files must exist on mixed-arch clusters.
-
-`dcgm*` and `nvsm` run against host-installed binaries, not containers.
+`nvbandwidth`, `nvloom`, and `mnubergemm` have no public upstream image and are
+left out of the default list for that reason. See
+[MAKE_CONTAINERS.md](MAKE_CONTAINERS.md) for how to build or import each one
+and enable the job.
 
 ## First-time setup
 

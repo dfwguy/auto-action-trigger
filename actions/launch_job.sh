@@ -27,7 +27,12 @@
 ##   hpl cublasmatmul       remediation-only single-node GEMM -- run by hand
 ##
 ## Pick the set matching the delivery methodology for the site.
-benchmarks="dcgm nvbandwidth allreduce alltoall allreduce-nonvlink alltoall-nonvlink nvsm nvloom"
+## Default list holds only jobs that need nothing built or installed on our
+## side: dcgm and nvsm use host binaries, the NCCL jobs pull the public
+## nvcr.io#nvidia/hpc-benchmarks image. Jobs needing a container we have to
+## build or import (nvbandwidth, nvloom, mnubergemm) are covered in
+## MAKE_CONTAINERS.md and are added here once their image exists.
+benchmarks="dcgm allreduce alltoall allreduce-nonvlink alltoall-nonvlink nvsm"
 MAX_JOB_HOURS=6
 
 source /etc/profile.d/modules.sh

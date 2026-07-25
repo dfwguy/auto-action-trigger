@@ -15,7 +15,10 @@ job_name=stream
 
 ## ------------- job info starts here ------------- ##
 
-STREAM_BIN=/home/cmods/bringup/bin/stream
+## STREAM ships inside the public HPC-Benchmarks image -- nothing to build.
+## stream-cpu-test.sh is Arm SBSA only (Grace/Vera); on x86 hosts install
+## STREAM on the host or build it into a site image.
+CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
 
 ## One OpenMP thread per core, threads pinned across all NUMA nodes
 export OMP_NUM_THREADS=$(nproc)
@@ -25,7 +28,9 @@ export OMP_PLACES=cores
 ## Minimum acceptable Triad bandwidth in MB/s -- set per platform
 TRIAD_MIN=400000
 
-srun --ntasks-per-node=1 --cpu-bind=none "${STREAM_BIN}"
+srun --ntasks-per-node=1 --cpu-bind=none \
+                --container-image="${CONT}" \
+                ./stream-cpu-test.sh
 
 
 ## ------------- parse info starts here ----------- ##

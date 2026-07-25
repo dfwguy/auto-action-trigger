@@ -15,7 +15,11 @@ totalRuns=1
 
 
 
-CONT=/home/cmods/bringup/containers/nvidia+hpc-benchmarks+26.02.sqsh
+## Upstream image -- pulled by enroot/pyxis at job start, nothing to build.
+## Note the enroot `#` separator between registry host and image path.
+CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
+## Local import alternative (see MAKE_CONTAINERS.md):
+#CONT=/home/cmods/bringup/containers/nvidia+hpc-benchmarks+26.02.sqsh
 #HPLDATPATH=/home/cmods/bringup/jobs/hpl/
 
 export NCCL_SOCKET_IFNAME=enP22p3s0f0np0
