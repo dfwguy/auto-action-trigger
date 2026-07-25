@@ -247,11 +247,28 @@ A `refresh` sentinel file in `logs/<node>/` must exist for the health script to 
 
 ## Benchmark sequencer (`launch_job.sh`)
 
-The active benchmark list is controlled by the `benchmarks=` variable at the top of `actions/launch_job.sh`. Jobs run in order; each must complete with `DONE` before the next starts.
+The active benchmark list is controlled by the `benchmarks=` variable at the top of `actions/launch_job.sh`.
 
-Benchmarks support multiple runs via `totalRuns=N` in the `.sbatch` file (see `mnubergemm.sbatch` for an example with 12 runs). Result files are named `<job>.txt` (single run) or `<job>-run<N>.txt` (multiple runs).
+Once an hour, every benchmark in that list without a passing result is queued in listed order, and Slurm runs them back to back on the node. A job passes when every one of its runs ends in `DONE`; anything else — `FAIL`, truncated output from a crashed node, or no result at all — is queued again on the next sweep. There is no retry limit: a node keeps being re-tested until it passes or an operator intervenes.
 
-If a job has been running longer than `MAX_JOB_HOURS` (default: 6), the node is drained with a timeout reason.
+Benchmarks support multiple runs via `totalRuns=N` in the `.sbatch` file (see `mnubergemm.sbatch` for an example with 12 runs). Result files are named `<job>.txt` (single run) or `<job>-run<N>.txt` (multiple runs). Prior failures are archived as `<job>.fail<N>.txt` and left in place as the attempt history.
+
+### Retry and drain behaviour
+
+The script fires on every BCM monitoring cycle, so the hourly cadence needs no cron and no second trigger — just a time gate. Retry state is derived entirely from files already on disk: the newest result file's mtime is when the last sweep ran, and the archived `.fail<N>.txt` files are the attempt history. There is no state file to keep in sync.
+
+The node is drained **only after a full sweep** — every benchmark has run at least once and something is still not passing. A single failure mid-sweep does not drain, so the rest of the sweep still runs and one bad test does not hide the state of the others.
+
+The drain reason carries an `auto-retry` marker, and only drains carrying that marker are ever cleared. A node drained by an operator is never auto-resumed, and nothing is queued behind their drain — otherwise the whole batch would land the moment they resumed it.
+
+```
+sweep runs → all pass            → node left idle, quick-view all DONE
+sweep runs → some fail           → drain "<jobs> FAIL (auto-retry)"
+             +1 hour             → resume, archive failures, re-queue them
+             fails again         → drain again, repeat indefinitely
+```
+
+If a job has been running longer than `MAX_JOB_HOURS` (default: 6), the node is drained with a timeout reason. That reason carries no marker, so a stuck job stops the retry loop and waits for a human.
 
 ## Operational scripts
 
