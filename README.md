@@ -2,6 +2,52 @@
 
 Automated node bring-up and validation framework for HPC clusters managed by **Bright Cluster Manager (BCM)**. When a node boots and its device status becomes `UP`, BCM monitoring triggers fire two action scripts that run hardware health checks and sequence through Slurm benchmark jobs — draining the node in Slurm automatically on any failure.
 
+## Prerequisites
+
+Before deploying this framework, the following must be in place:
+
+### The `cmods` user
+
+A local user named `cmods` must exist on the **headnode and every compute node** in the cluster.
+
+- All scripts assume the repo is deployed at `/home/cmods/bringup/`. The `cmods` home directory is the deployment root.
+- `node_health.sh` runs as whatever user BCM invokes it as, but it `chown`s its log output to `cmods:cmods`. The `cmods` user must therefore be resolvable on the node at the time the script runs.
+- `launch_job.sh` submits Slurm jobs via `su - cmods`, so `cmods` must be a valid login user with access to the Slurm environment (`/etc/profile.d/modules.sh` and the `slurm` module).
+- The `cmods` user must have write access to `/home/cmods/bringup/logs/`, `/home/cmods/bringup/results/`, and `/home/cmods/bringup/reports/` on the headnode.
+- If the home directory is shared via NFS or another network filesystem, compute nodes will inherit it automatically. If not, `/home/cmods/bringup/` must be accessible on each compute node (e.g., via a shared filesystem mount).
+
+### Required software
+
+| Software | Used by |
+|----------|---------|
+| Bright Cluster Manager (`cmsh`) | `pre-post/create-action-trigger.sh`, `pre-post/delete-action-trigger.sh` |
+| Slurm (`sinfo`, `scontrol`, `sbatch`, `squeue`) | `node_health.sh`, `launch_job.sh`, all `.sbatch` jobs |
+| `nvidia-smi` | `node_health.sh` (GPU checks) |
+| `ibstatus`, `mlxlink`, `perfquery` | `node_health.sh` (InfiniBand checks) |
+| `lspci` | `node_health.sh` (PCIe checks) |
+| `numactl` | `node_health.sh` (NUMA checks) |
+| `dmidecode` | `node_health.sh` (BIOS/memory checks) |
+| `dcgmi` | `jobs/dcgm.sbatch` |
+| `nvidia-imex-ctl` | `node_health.sh` (IMEX checks, GB series only) |
+| `dshbak` | `status-check.sh` |
+| `rsync` | `actions/file_copy.sh` (optional) |
+
+### Operational scripts (headnode only)
+
+The following scripts are run manually by an operator from the headnode and do not require the `cmods` user — they only need standard Slurm CLI access and read/write access to the repo directory:
+
+| Script | Requires |
+|--------|---------|
+| `status-check.sh` | `sinfo`, `dshbak`, read access to `results/` |
+| `status-daily-report.sh` | read access to `results/`, write access to `reports/` |
+| `node-health-refresh.sh` | write access to `logs/<node>/` |
+| `sync-check.sh` | read access to `logs/` and `valid-config/` |
+| `watch-rack.sh` | `sinfo` |
+| `single-node-purge.sh` | write access to `results/` |
+| `set-valid-default.sh` | write access to `valid-config/` |
+| `pre-post/create-action-trigger.sh` | `cmsh` (BCM admin access) |
+| `pre-post/delete-action-trigger.sh` | `cmsh` (BCM admin access) |
+
 ## How it works
 
 ```
@@ -79,7 +125,7 @@ This copies `logs/<node_name>/` to `valid-config/<node_name>/` and symlinks it a
 
 ## Expected directory paths
 
-Scripts assume the repo is deployed at `/home/cmods/bringup/`. Adjust the paths at the top of each script if deploying elsewhere.
+Scripts assume the repo is deployed at `/home/cmods/bringup/` (the home directory of the `cmods` user — see [Prerequisites](#prerequisites)). Adjust the paths at the top of each script if deploying elsewhere.
 
 | Path | Purpose |
 |------|---------|
