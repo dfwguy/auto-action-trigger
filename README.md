@@ -260,6 +260,8 @@ The script fires on every BCM monitoring cycle, so the hourly cadence needs no c
 
 The node is drained **only after a full sweep** — every benchmark has run at least once and something is still not passing. A single failure mid-sweep does not drain, so the rest of the sweep still runs and one bad test does not hide the state of the others.
 
+Drains fire only on failures that **just happened** — results newer than `DRAIN_WINDOW_MINUTES` (default: 15). Stale result files never trigger a drain, so a node you resume by hand is not immediately pulled back out of service; it takes a fresh retry sweep failing again. Keep that window above the BCM monitoring interval, or the drain is missed, and well below `RETRY_INTERVAL_HOURS`.
+
 The drain reason carries an `auto-retry` marker, and only drains carrying that marker are ever cleared. A node drained by an operator is never auto-resumed, and nothing is queued behind their drain — otherwise the whole batch would land the moment they resumed it.
 
 ```

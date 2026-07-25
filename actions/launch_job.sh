@@ -60,7 +60,16 @@ MAX_JOB_HOURS=6
 ## The drain reason carries a marker, and only drains carrying that marker are
 ## ever cleared. An operator drain is never auto-resumed, and a node already
 ## drained for another reason is left alone.
+## A drain only fires on failures that just happened -- results newer than
+## DRAIN_WINDOW_MINUTES. Without that window the script would re-drain from
+## stale result files on every cycle, so a node an operator had resumed would
+## be pulled straight back out of service. Failures only take the node down
+## again once a fresh retry sweep has failed again.
+##
+## Keep this above the BCM monitoring interval, or the drain is missed
+## entirely, and well below RETRY_INTERVAL_HOURS.
 RETRY_INTERVAL_HOURS=1
+DRAIN_WINDOW_MINUTES=15
 DRAIN_MARKER="auto-retry"
 
 source /etc/profile.d/modules.sh
@@ -206,16 +215,21 @@ fi
 ## Not on the first failure — the rest of the sweep still needs to run, and one
 ## bad test should not hide the state of the others.
 
-if [[ "$swept" -eq 1 && "${#failed_jobs[@]}" -gt 0 ]]; then
+## Only failures that just landed count. Stale results are left alone, so a
+## node an operator resumed is not immediately pulled back out of service --
+## it takes a fresh retry sweep failing again.
+
+age=-1
+[[ "$newest_result" -gt 0 ]] && age=$(( $(date +%s) - newest_result ))
+
+if [[ "$swept" -eq 1 && "${#failed_jobs[@]}" -gt 0 && \
+      "$age" -ge 0 && "$age" -lt $(( DRAIN_WINDOW_MINUTES * 60 )) ]]; then
     drain_node "${failed_jobs[*]} FAIL ($DRAIN_MARKER)"
 fi
 
 ## ── Hourly gate ───────────────────────────────────────────────────────────
 
-if [[ "$newest_result" -gt 0 ]]; then
-    age=$(( $(date +%s) - newest_result ))
-    [[ "$age" -lt $(( RETRY_INTERVAL_HOURS * 3600 )) ]] && exit 0
-fi
+[[ "$age" -ge 0 && "$age" -lt $(( RETRY_INTERVAL_HOURS * 3600 )) ]] && exit 0
 
 ## ── Queue every non-passing job, in listed order ──────────────────────────
 
