@@ -96,6 +96,14 @@ file_status() {
     esac
 }
 
+# Failed attempts archived by launch_job.sh as <job>.fail<N>.txt, summed across
+# every run of the job. Reported in its own column so the result cells stay
+# numeric for spreadsheet use.
+fail_count() {
+    local node="$1" job="$2"
+    ls "$results_dir/$node" 2>/dev/null | grep -cE "^${job}(-run[0-9]+)?\.fail[0-9]+\.txt$"
+}
+
 # ── Build CSV header ──────────────────────────────────────────────────────────
 
 header="node"
@@ -108,6 +116,7 @@ for job in "${job_order[@]}"; do
             header+=",${job}_run${r}"
         done
     fi
+    header+=",${job}_fails"
 done
 
 echo "$header" > "$report_file"
@@ -140,6 +149,7 @@ for node in $nodes; do
                 fi
             done
         fi
+        row+=",$(fail_count "$node" "$job")"
     done
     echo "$row" >> "$report_file"
 done

@@ -44,12 +44,24 @@ file_status() {
     esac
 }
 
+# Prior failed attempts archived by launch_job.sh as <col>.fail<N>.txt.
+# A column with archives and no current file is queued for its next retry.
+fail_count() {
+    local node="$1" col="$2"
+    ls "$results_dir/$node" 2>/dev/null | grep -cE "^${col}\.fail[0-9]+\.txt$"
+}
+
 # Emit one line per node per column, then pipe to dshbak for grouping
 for node_dir in "$results_dir"/*/; do
     node=$(basename "$node_dir")
     for col in "${columns[@]}"; do
         file="$results_dir/$node/${col}.txt"
         status=$(file_status "$file")
-        echo "$node: $col: $status"
+        fails=$(fail_count "$node" "$col")
+        if [[ "$fails" -gt 0 ]]; then
+            echo "$node: $col: $status (fails: $fails)"
+        else
+            echo "$node: $col: $status"
+        fi
     done
 done | sort | dshbak -c
