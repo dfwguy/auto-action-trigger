@@ -1,10 +1,36 @@
-# nccl-tests version 2.17.8
+[ink50-dh01-h20-36:1256884] PMIX ERROR: ERROR in file gds_ds12_lock_pthread.c at line 168
+# nccl-tests version 2.17.8 nccl-headers=22902 nccl-library=22902
 # Collective test starting: all_reduce_perf_mpi
-node:100:100 [0] NCCL INFO NCCL_P2P_LEVEL set by environment to NVL
-node:100:100 [0] NCCL INFO Channel 00/0 : 0[0] -> 1[1] via P2P/CUMEM
-node:100:100 [0] NCCL INFO Connected NVLS tree
+#
+# Using devices
+#  Rank  0 Group  0 Pid 1256884 on ink50-dh01-h20-36 device  0 [0008:06:00] NVIDIA GB300
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO NCCL version 2.29.2+cuda13.1
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO P2P plugin v11 IBext_v11
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO NET/IB : No device found.
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO Failed to initialize NET plugin IBext_v11
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO NET/IB : No device found.
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO Failed to initialize NET plugin IB
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO NET/Socket : Using [0]bond0:10.40.19.36<0>
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO Initialized NET plugin Socket
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO Assigned NET plugin Socket to comm
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO Using network Socket
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO MNNVL busId 0x806000 fabric UUID 364d86a04bbac678.3aad97525f188a0 cliqueId 0x7ffe state 3 healthMask 0x1aa
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO NCCL_P2P_LEVEL set by environment to NVL
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO NCCL_MNNVL_ENABLE set by environment to 1.
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO MNNVL 1 cliqueId 7ffe cliqueSize 4 cliqueRank 0
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO NCCL_NVLS_ENABLE set by environment to 1.
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO NVLS multicast support is available on dev 0 (NVLS_NCHANNELS 24)
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO comm 0xaaaaac486710 rank 0 nRanks 4 nNodes 1 localRanks 4 localRank 0 MNNVL 1
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO 32 coll channels, 32 collnet channels, 24 nvls channels, 32 p2p channels, 32 p2p channels per peer
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO Channel 00/0 : 0[0] -> 1[1] via P2P/MNNVL
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO Channel 31/0 : 0[0] -> 1[1] via P2P/MNNVL
+ink50-dh01-h20-36:1256887:1256887 [3] NCCL INFO Channel 00/0 : 3[3] -> 0[0] via P2P/MNNVL
+ink50-dh01-h20-36:1256884:1256884 [0] NCCL INFO Connected all rings, use ring PXN 0 GDR 1
+#       size         count      type   redop    root     time   algbw   busbw  #wrong     time   algbw   busbw  #wrong
+   268435456      67108864     float     sum      -1   652.35  411.49  617.24       0   652.54  411.37  617.06       0
+ 17179869184    4294967296     float     sum      -1  37119.4  462.83  694.24       0  37075.4  463.38  695.07       0
 # Out of bounds values : 0 OK
-# Avg bus bandwidth    : 214.663
+# Avg bus bandwidth    : 220.837
 #
 # Collective test concluded: all_reduce_perf_mpi
-PENDING
+DONE

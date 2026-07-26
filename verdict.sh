@@ -28,11 +28,15 @@
 ##
 ## 10 matches the threshold already in use by purge-bad-results.sh. It is set
 ## to catch a transport that is obviously wrong -- a socket run averages ~1.2
-## and peaks ~2.3 -- not to assert the fabric is performing to spec. Raise both
-## once a known-good run on this platform establishes what "good" looks like;
-## the NVLink-scope figure in particular should be far above the HCA one, and
-## leaving them equal means the NVLink jobs are only being checked for gross
-## failure.
+## and peaks ~2.3 -- not to assert the fabric is performing to spec.
+##
+## A healthy NVLink-scope allreduce on GB300 measures 220.837 here, so that
+## floor has enormous headroom and is doing almost nothing for those two jobs.
+## Raising it wants a known-good alltoall first: alltoall bus bandwidth is not
+## comparable to allreduce, and setting the floor from the allreduce figure
+## would fail every healthy alltoall on the cluster at once. That is the same
+## shape of mistake as the transport rule below -- assuming one measurement
+## generalises to a neighbouring case. Capture both, then raise both.
 ##
 ## Read `# Avg bus bandwidth`, which is an average across every message size,
 ## not the largest-size row. The two differ by roughly 2x on the same run
@@ -120,13 +124,21 @@ _v_min_bw() {
 ## nccl-tests. $2 is the transport this job is scoped to: `ib` for the
 ## -nonvlink pair, which forces traffic out to the HCAs, or `nvlink`.
 ##
-## Both scopes forbid the collective being carried over TCP. `Using network
-## Socket` alone is not enough to catch that and neither is `Using network IB`
-## enough to clear it: the first names the plugin NCCL registered, not what the
-## data crossed. The per-channel `via NET/...` lines are the ones that say where
-## the bytes actually went, and they are what a socket run is caught by:
+## ONLY the per-channel `via ...` lines are evidence of where data went:
 ##
-##   Channel 01/1 : 2[2] -> 3[3] [receive] via NET/Socket/0/Shared
+##   Channel 01/1 : 2[2] -> 3[3] [receive] via NET/Socket/0/Shared   <- TCP
+##   Channel 00/0 : 0[0] -> 1[1] via P2P/MNNVL                       <- NVLink
+##
+## `Using network Socket`, `NET/Socket : Using` and `Using network IB` are NOT.
+## They name the net plugin NCCL registered, which it does whether or not the
+## net is ever used. A perfectly healthy single-node NVLink run initialises a
+## net plugin for potential inter-node use, finds no IB, falls back to Socket
+## for that role, logs all three of those lines, and then moves every byte over
+## NVLink at 220 GB/s.
+##
+## Forbidding those strings failed exactly such a run -- 32 channels of
+## via P2P/MNNVL, avg bus bandwidth 220.837 -- as "collective carried over TCP".
+## The rule is: judge the channels, never the plugin registration.
 _v_gate_nccl() {
     local file="$1" transport="$2" min="$3"
 
@@ -159,13 +171,21 @@ _v_gate_nccl() {
         _v_forbid  "$file" "no IB device visible to NCCL"  'NET/IB : No device found'   || return 1
         _v_forbid  "$file" "IB plugin failed to load"      'Failed to initialize NET plugin IB' || return 1
         _v_require "$file" "IB named as chosen network"    'Using network IB'           || return 1
-    fi
 
-    ## Last of the transport checks, not first: by this point everything that
-    ## explains WHY it fell back to TCP has already been ruled out, so a hit here
-    ## means the fallback happened for a reason not yet accounted for.
-    _v_forbid "$file" "collective carried over TCP" \
-        'via NET/Socket|Using network Socket|NET/Socket : Using' || return 1
+        ## Last of the transport checks, not first: by this point everything
+        ## that explains WHY it fell back has already been ruled out, so a hit
+        ## here means the fallback happened for a reason not yet accounted for.
+        _v_forbid "$file" "collective carried over TCP" 'via NET/Socket' || return 1
+    else
+        ## NVLink scope. The collective is meant to stay on NVLink and never
+        ## reach the network at all, so ANY channel on the net is a failure --
+        ## whether it landed on Socket or on IB. Stated as a forbid rather than
+        ## as "require via P2P" on purpose: this was checked against a healthy
+        ## run, which has no `via NET/` line anywhere, and a forbid cannot
+        ## false-fail a legitimate path that happens to be named something the
+        ## one log inspected did not contain.
+        _v_forbid "$file" "collective left NVLink for the network" 'via NET/' || return 1
+    fi
 
     ## Deliberately not forbidding `via SHM` yet. On the NVLink scope it is a
     ## real degradation and should fail, but no known-good log from this

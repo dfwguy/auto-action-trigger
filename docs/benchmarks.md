@@ -98,9 +98,42 @@ that too. `allreduce-nonvlink` and `alltoall-nonvlink` exist to exercise the
 HCAs, and NCCL will silently fall back to TCP over `bond0` when it finds no
 device — producing a correct, complete, entirely worthless result. Both jobs
 force the transport (`NCCL_NET=IB`), and the gate rejects any run whose
-per-channel `via NET/...` lines name Socket. Note that `Using network IB` alone
-does not clear a run: it names the plugin NCCL registered, not what the bytes
-crossed.
+per-channel `via NET/...` lines name Socket.
+
+### Judge the channels, never the plugin registration
+
+Only the per-channel lines are evidence of where data went:
+
+```
+Channel 01/1 : 2[2] -> 3[3] [receive] via NET/Socket/0/Shared    <- TCP
+Channel 00/0 : 0[0] -> 1[1] via P2P/MNNVL                        <- NVLink
+```
+
+These are **not**, in either direction:
+
+```
+NET/IB : No device found.
+NET/Socket : Using [0]bond0:10.40.19.36<0>
+Using network Socket
+Using network IB
+```
+
+They name the net plugin NCCL registered, which it does whether or not the net
+is ever used. A perfectly healthy single-node NVLink run initialises a net
+plugin for potential inter-node use, finds no IB, falls back to Socket for that
+role, logs all of the above, and then moves every byte over NVLink at 220 GB/s.
+
+Both halves of this have now been got wrong once. `Using network IB` was
+accepted as proof a run reached the HCAs when it proves nothing of the sort, and
+then `Using network Socket` was rejected as proof a run had fallen to TCP —
+failing a healthy 220.837 GB/s allreduce with 32 channels of `via P2P/MNNVL` as
+`collective carried over TCP`. Both fixtures are in `tests/fixtures/`.
+
+The NVLink-scope jobs forbid `via NET/` outright — any channel on the network,
+Socket or IB, means the collective left NVLink. That is stated as a forbid
+rather than as "require `via P2P`" deliberately: a forbid cannot false-fail a
+legitimate path that happens to be named something the one healthy log inspected
+did not contain.
 
 ### Host HCAs are not container HCAs
 

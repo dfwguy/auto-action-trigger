@@ -41,7 +41,13 @@ cases=(
   "alltoall-nonvlink__container-blind|FAIL|no HCA visible inside the container"
   "allreduce-nonvlink__ib-below-floor|FAIL|avg bus bandwidth below floor 10 GB/s"
   "alltoall__truncated|INCOMPLETE|no end marker -- job died before finishing"
-  "allreduce__fell-to-socket|FAIL|collective carried over TCP"
+  "allreduce__fell-to-socket|FAIL|collective left NVLink for the network"
+  ## The real h20-36 run: 32 channels of via P2P/MNNVL at 220.837 GB/s, and it
+  ## still logs `NET/IB : No device found.`, `NET/Socket : Using` and `Using
+  ## network Socket` while doing it -- NCCL registers a net plugin whether or
+  ## not it uses one. Forbidding those strings failed this run as "collective
+  ## carried over TCP". Keep this fixture; it is the whole argument for judging
+  ## the per-channel `via ...` lines and nothing else.
   "allreduce__good-nvlink|DONE|"
   "dcgm__pass|DONE|"
   "dcgm__gpu-failure|FAIL|dcgmi fail/warn/error"
