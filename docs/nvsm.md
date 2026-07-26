@@ -1,9 +1,17 @@
 # NVSM (`jobs/nvsm.sbatch`)
 
+> **DGX only, and not in the default benchmark list.**
+> `nvsm` ships as part of DGX OS and only carries platform definition files for
+> DGX platforms. On anything else it exits before doing any work, identically on
+> every node, so leaving it in `benchmarks=` drains the whole cluster for a tool
+> that was never going to run. It is omitted from the default `benchmarks=` list
+> in `actions/launch_job.sh` for that reason — add it back only on a DGX site.
+> GPU stress is covered by `dcgm` and `mnubergemm` everywhere else.
+
 `nvsm` is the one job that runs a host binary as **root**, and the one job whose
 failures are as likely to be cluster configuration as hardware. Both setup
 requirements below have to be met on **every compute node**, not just the
-headnode.
+headnode — and both only matter once you are on a DGX platform to begin with.
 
 ## Running nvsm as root
 
@@ -49,15 +57,15 @@ If the node sets `Defaults requiretty`, add an exemption alongside the grant:
 Defaults:cmods !requiretty
 ```
 
-If site policy forbids the grant entirely, drop `nvsm` from the `benchmarks=`
-list in `actions/launch_job.sh` and run the stress test by hand from the
-headnode as root (`pdsh -w <nodes> nvsm stress-test --force`), outside the
-automated sequence.
+If site policy forbids the grant entirely, leave `nvsm` out of `benchmarks=` and
+run the stress test by hand from the headnode as root
+(`pdsh -w <nodes> nvsm stress-test --force`), outside the automated sequence.
 
-## Platform definition files
+## Platform definition files — why this is DGX only
 
-NVSM only runs on a platform it has a definition file (PDF) for. On a node it
-does not recognise it exits before doing any work:
+NVSM only runs on a platform it has a definition file (PDF) for, and the
+packaged PDFs cover DGX platforms. On a node it does not recognise it exits
+before doing any work:
 
 ```
 ERROR:nvsm:Failed to initialize NVSM: Failed to find a matching definition file for this platform.
@@ -67,8 +75,16 @@ Please toggle autogenerate_pdf flag from nvsm.config for auto generating pdf.
 This is neither a sudo problem nor a hardware problem, and it is not
 node-specific — every node of the same platform running the same NVSM package
 fails identically, so `nvsm` fails its sweep and drains the whole rack for a
-software gap. Either set the flag in the software image so it survives a
-reprovision:
+software gap. That is why it is not in the default `benchmarks=` list: on a
+non-DGX platform it cannot pass, and a check that cannot pass is a check that
+drains every node it runs on.
+
+On a **non-DGX** platform, leave it out and cover GPU stress with `dcgm` and
+`mnubergemm`. That is the default and needs no action.
+
+On a **DGX** platform seeing this error, the PDF for that specific model is
+missing from the installed NVSM package. Set the flag in the software image so
+it survives a reprovision:
 
 ```bash
 # /etc/nvsm/nvsm.config  -- on the compute node image
@@ -76,9 +92,9 @@ autogenerate_pdf = true
 ```
 
 then restart the NVSM services (`systemctl restart nvsm nvsm-core nvsm-api-gateway`)
-and re-check with `sudo -n nvsm show version`; or, if the platform is simply not
-supported by the installed NVSM version, drop `nvsm` from the `benchmarks=` list
-in `actions/launch_job.sh` and cover GPU stress with `dcgm` and `mnubergemm`.
+and re-check with `sudo -n nvsm show version` before adding `nvsm` back to
+`benchmarks=`. Confirm on one node first — the failure is platform-wide, so a
+single node tells you what the whole fleet will do.
 
 ## Reading a failed result
 

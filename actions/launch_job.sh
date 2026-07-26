@@ -15,7 +15,7 @@
 ##   allreduce alltoall     NCCL single node, NVLink scope
 ##   allreduce-nonvlink     NCCL single node, no NVLink (HCA loopback)
 ##   alltoall-nonvlink      NCCL single node, no NVLink (HCA loopback)
-##   nvsm                   NVSM stress (Hybrid / Exhaustive only)
+##   nvsm                   NVSM stress (Hybrid / Exhaustive, DGX only)
 ##   stream memtester       CPU memory bandwidth + DRAM integrity (Exhaustive)
 ##   stress-ng              CPU stress (Exhaustive)
 ##   stressapptest          extended memory integrity (Exhaustive)
@@ -28,15 +28,27 @@
 ##
 ## Pick the set matching the delivery methodology for the site.
 ## Default list holds only jobs whose dependencies are always available: dcgm
-## and nvsm use host binaries, and the NCCL jobs use the hpc-benchmarks image,
-## which build_containers.sh pulls from the public catalog. Jobs whose image
-## has to be built or obtained (nvbandwidth, nvloom, mnubergemm) are covered in
+## uses a host binary, and the NCCL jobs use the hpc-benchmarks image, which
+## build_containers.sh pulls from the public catalog. Jobs whose image has to be
+## built or obtained (nvbandwidth, nvloom, mnubergemm) are covered in
 ## docs/containers.md and are added here once their image exists.
 ##
-## nvsm sits between the NVLink NCCL jobs and the no-NVLink ones so that a
-## fabric problem does not push a GPU stress test to the back of the queue --
-## nvsm has no fabric dependency and should report early.
-benchmarks="dcgm allreduce alltoall nvsm allreduce-nonvlink alltoall-nonvlink"
+## nvsm is deliberately NOT in the default list: it is a DGX-only tool. It ships
+## with DGX OS and only carries platform definition files for DGX platforms, so
+## on anything else it exits before doing any work ("Failed to find a matching
+## definition file for this platform") and fails identically on every node of
+## that platform. In the list, that is a whole-cluster drain for a tool that was
+## never going to run -- GPU stress is already covered by dcgm and mnubergemm.
+##
+## Add it back on a DGX site, where it also needs a passwordless sudoers grant
+## on every compute node. Put it between the NVLink NCCL jobs and the no-NVLink
+## ones so a fabric problem does not push a GPU stress test to the back of the
+## queue -- nvsm has no fabric dependency and should report early:
+##
+##   benchmarks="dcgm allreduce alltoall nvsm allreduce-nonvlink alltoall-nonvlink"
+##
+## See docs/nvsm.md for both requirements.
+benchmarks="dcgm allreduce alltoall allreduce-nonvlink alltoall-nonvlink"
 MAX_JOB_HOURS=6
 
 ## Retry policy.

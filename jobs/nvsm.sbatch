@@ -9,6 +9,12 @@
 ## System-level compute, memory, and thermal stress across all node GPUs.
 ## Pre-burn-in health gate -- quarantine failing nodes before MNUberGEMM.
 ## Not run in the TTM variants.
+##
+## DGX ONLY. nvsm ships with DGX OS and only carries platform definition files
+## for DGX platforms; on anything else it exits before doing any work and every
+## node of that platform fails identically. It is therefore not in the default
+## benchmarks= list in actions/launch_job.sh -- add it only on a DGX site, where
+## it also needs a passwordless sudoers grant. See docs/nvsm.md.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=nvsm
@@ -50,7 +56,7 @@ if [[ $rc -ne 0 ]]; then
 		*"command not found"*)
 			echo "ERROR: nvsm is not on sudo's secure_path -- grant the absolute path 'command -v nvsm' reports on this node." ;;
 		*"matching definition file"*|*"Failed to initialize NVSM"*)
-			echo "ERROR: nvsm has no platform definition file for this node and never initialized. Sudo and the hardware are both fine -- this is NVSM platform support. Set autogenerate_pdf in /etc/nvsm/nvsm.config in the software image, or drop nvsm from benchmarks= for this platform. See docs/nvsm.md." ;;
+			echo "ERROR: nvsm has no platform definition file for this node and never initialized. Sudo and the hardware are both fine -- this is NVSM platform support, and nvsm is DGX only. If this is not a DGX system, drop nvsm from benchmarks= in actions/launch_job.sh; it is not in the default list. If it is, set autogenerate_pdf in /etc/nvsm/nvsm.config in the software image. See docs/nvsm.md." ;;
 		*)
 			echo "ERROR: '${NVSM[*]} show version' failed (exit $rc). This is not a sudoers failure -- read the output below." ;;
 	esac

@@ -11,7 +11,7 @@ commented catalog above `benchmarks=` in `actions/launch_job.sh`.
 | nvbandwidth | `nvbandwidth` | all |
 | NCCL Single Node, NVLink | `allreduce`, `alltoall` | all |
 | NCCL Single Node, No NVLink | `allreduce-nonvlink`, `alltoall-nonvlink` | all |
-| NVSM Stress Test | `nvsm` | Hybrid, Exhaustive |
+| NVSM Stress Test | `nvsm` | Hybrid, Exhaustive — **DGX only** |
 | STREAM + Memtester | `stream`, `memtester` | Exhaustive |
 | stress-ng | `stress-ng` | Exhaustive |
 | stressapptest | `stressapptest` | Exhaustive |
@@ -31,10 +31,10 @@ rather than as a submitted job.
 ## Before enabling a job
 
 The default `benchmarks=` list holds only jobs whose dependencies are always
-available: `dcgm` and `nvsm` use host binaries, and the NCCL jobs use the
+available: `dcgm` uses a host binary, and the NCCL jobs use the
 `hpc-benchmarks` image that `build_containers.sh` pulls from the public catalog.
 
-Everything else needs one of two things first:
+Everything else needs one of three things first:
 
 - **An image.** `nvbandwidth`, `nvloom`, and `mnubergemm` have no public
   upstream image — see [containers.md](containers.md) for how to build or
@@ -43,9 +43,11 @@ Everything else needs one of two things first:
   interface names, the `ethr` server host, the `fio` scratch directory, and the
   pass thresholds in `stream.sbatch` and `cublasmatmul.sbatch`. Set these per
   platform before adding the job to the list.
-
-`nvsm` needs neither, but it does need a sudoers grant on every compute node —
-see [nvsm.md](nvsm.md).
+- **A supported platform.** `nvsm` is **DGX only** — it ships with DGX OS and
+  only carries platform definition files for DGX platforms, so on anything else
+  it fails on every node and drains the cluster for a tool that was never going
+  to run. It is out of the default list for that reason. On a DGX site it also
+  needs a sudoers grant on every compute node — see [nvsm.md](nvsm.md).
 
 ## Adding a new benchmark
 

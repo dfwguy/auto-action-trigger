@@ -44,7 +44,7 @@ A local user named `cmods` must exist on the **headnode and every compute node**
 - The `cmods` user must have write access to `/home/cmods/bringup/logs/`, `/home/cmods/bringup/results/`, and `/home/cmods/bringup/reports/` on the headnode.
 - If the home directory is shared via NFS or another network filesystem, compute nodes will inherit it automatically. If not, `/home/cmods/bringup/` must be accessible on each compute node (e.g., via a shared filesystem mount).
 
-`jobs/nvsm.sbatch` additionally needs a passwordless sudoers grant for `cmods` on every compute node — see [docs/nvsm.md](docs/nvsm.md). It is the only job with that requirement.
+`jobs/nvsm.sbatch` runs only on **DGX** systems and additionally needs a passwordless sudoers grant for `cmods` on every compute node — see [docs/nvsm.md](docs/nvsm.md). It is the only job with either requirement, and for both reasons it is not in the default `benchmarks=` list.
 
 ### Required software
 
@@ -58,7 +58,7 @@ A local user named `cmods` must exist on the **headnode and every compute node**
 | `numactl` | `node_health.sh` (NUMA checks) |
 | `dmidecode` | `node_health.sh` (BIOS/memory checks) |
 | `dcgmi` | `jobs/dcgm.sbatch`, `jobs/dcgm-r2.sbatch`, `jobs/dcgm-r4.sbatch` |
-| `nvsm` | `jobs/nvsm.sbatch` (runs on the host, no container, needs root — see [docs/nvsm.md](docs/nvsm.md)) |
+| `nvsm` | `jobs/nvsm.sbatch` (DGX only; runs on the host, no container, needs root — see [docs/nvsm.md](docs/nvsm.md)) |
 | `nvidia-imex-ctl` | `node_health.sh` (IMEX checks, GB series only) |
 | `enroot` | `build_containers.sh` (headnode for the fetch pass, compute nodes for the source-build pass; pyxis already needs it there) |
 | `squashfs-tools` | `build_containers.sh` (optional — shrinks the staged package set) |
