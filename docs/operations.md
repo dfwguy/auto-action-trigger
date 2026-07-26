@@ -12,8 +12,22 @@ bash status-check.sh                      # every node
 bash status-check.sh ink50-dh01-h20        # one rack (bare prefix)
 ```
 
-Reads `results/` and prints per-node status (`NOT_RUN`, `IN_PROGRESS`, `DONE`,
-`FAIL`) for each benchmark column, grouped by identical status via `dshbak`.
+Reads `results/` and prints per-node status for each benchmark column, grouped
+by identical status via `dshbak`. Verdicts are derived from the log by
+`verdict.sh` on every read, so tightening a gate re-judges results already on
+disk:
+
+| Status | Meaning |
+| --- | --- |
+| `DONE` | the gate accepted the result |
+| `FAIL` | the job reported it could not run, or the gate rejected it |
+| `INCOMPLETE` | no end marker -- the job died before finishing (crash, walltime, OOM) |
+| `RETRY` | the last attempt was archived as `.fail<N>.txt` and a retry is queued; the reason shown is why that attempt was rejected |
+| `NOT_RUN` | no attempt has ever been made |
+
+`RETRY` and `NOT_RUN` used to be one status, which produced the contradictory
+line `NOT_RUN (fails: 1)` -- never ran, failed once. They are split because a
+column with archives is a different thing from one with no history at all.
 
 ```bash
 bash status-daily-report.sh
@@ -182,6 +196,34 @@ is safe while the trigger is live.
 
 Each node also keeps a running trace at `results/<node>/trigger.log`, one line
 per monitoring cycle recording what it did or why it stopped.
+
+## Debugging IB visibility
+
+```bash
+bash ib-visibility.sh ink50-dh01-h20-36
+```
+
+For the two NCCL `-nonvlink` jobs, which need the HCAs and fail four different
+ways that all look the same from a bandwidth number. Takes under a minute
+instead of an hour of walltime, and prints three sections in causal order:
+
+1. **Host** — PCI devices, `/sys` and `/dev/infiniband`, what
+   `nccl_hca_detect` picks after the bond/NVSwitch filter, and per-port state.
+2. **Container** — the same image and mounts the job uses, `ibv_devinfo` (the
+   call NCCL itself makes), ACTIVE-port count, and whether every device pinned
+   in `NCCL_IB_HCA` on the host actually exists inside the container.
+3. **NCCL init** — an 8-byte `allreduce_perf_mpi` with the job's environment
+   and `NCCL_NET=IB`, filtered to the transport lines.
+
+The first section that is wrong is the cause; the rest are consequences. The
+case numbers it prints map to the reasons `status-check.sh` reports:
+
+| Reported reason | Section that explains it |
+| --- | --- |
+| `no compute-plane HCA` (job self-reports `FAIL`) | host, case 1 |
+| `no HCA visible inside the container` | container, case 2 |
+| `no IB device visible to NCCL` | container, case 3 — ports not ACTIVE, or names pinned that the container cannot see |
+| `collective carried over TCP` | NCCL init, case 4 |
 
 ## Resetting results
 
