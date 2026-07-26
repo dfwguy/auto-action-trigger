@@ -1,0 +1,15 @@
+# The active baseline is cluster-local and must never be committed.
+#
+# `default` is a symlink to a copy of logs/<node> taken from a node validated on
+# THIS cluster. Commit it and every tarball drop overwrites the headnode's real
+# baseline with a pointer to a node that does not exist here -- node_health.sh
+# then diffs every check against a missing file, every node fails every check,
+# and health-check.sh reports a cluster-wide hardware fault that is really one
+# bad symlink. That is exactly what a committed
+# `default -> /home/cmods/bringup/valid-config/a01-11-s1-dgx-01-c01` did.
+#
+# Create the baseline on the cluster with set-valid-default.sh, never in git.
+# This directory is tracked (via this file) only so the tarball still unpacks a
+# valid-config/ for set-valid-default.sh to write into.
+*
+!.gitignore

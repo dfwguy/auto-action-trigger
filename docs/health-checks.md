@@ -23,6 +23,24 @@ each check named in its drain reason, which is usually the fastest way to see
 why that node was taken down. One node per group is enough — the rest of the
 group failed the same checks.
 
+## The baseline is cluster-local
+
+`valid-config/default` is a symlink to a copy of `logs/<node>` from a node
+validated on **this** cluster. It is deliberately not in git
+(`valid-config/.gitignore`), and it must not be: a committed `default` pointing
+at a node name from another cluster gets copied over the live one on the next
+tarball drop, and then every check on every node diffs against a file that isn't
+there. The symptom is the whole cluster failing every check at once —
+`health-check.sh` leads with a `WARNING: no baseline` banner when the link does
+not resolve, because nothing below it is real. Set it with:
+
+```bash
+bash set-valid-default.sh <validated-node>
+```
+
+Whatever node you name becomes the definition of correct BIOS, OS, kernel
+params, IMEX and NVLink for every other node, so validate it by hand first.
+
 The reason string is not simply a list of check names — `append_reason` writes
 `Check BIOS` for the `bios` check, `cuuid` for `nvidia-smi-cuuid`, and
 `dmesg-xid` carries its own output into the reason. `health-check.sh` matches
