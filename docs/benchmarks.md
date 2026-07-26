@@ -102,6 +102,38 @@ per-channel `via NET/...` lines name Socket. Note that `Using network IB` alone
 does not clear a run: it names the plugin NCCL registered, not what the bytes
 crossed.
 
+### Host HCAs are not container HCAs
+
+`jobs/nccl-hca.sh` does two separate things, and conflating them is what cost
+weeks. `nccl_hca_detect` runs on the **host** and chooses what to pin
+`NCCL_IB_HCA` to. `NCCL_HCA_PROBE` runs **inside the container** and reports
+what is visible there, via `ibv_devinfo` — the same libibverbs call NCCL makes.
+
+Those answer different questions. enroot gives the container a fresh `/dev`, so
+the host list can be complete and correct while the container sees nothing at
+all. Checking by hand over ssh puts you on the host and will show a healthy HCA
+list no matter how broken the container's view is. Both lists are now printed
+into every result file:
+
+```
+INFO: host /sys/class/infiniband: mlx5_0 mlx5_1 mlx5_2 mlx5_3 mlx5_bond_0
+INFO: forcing collectives over HCAs: mlx5_0,mlx5_1,mlx5_2,mlx5_3
+INFO: container NCCL_IB_HCA: mlx5_0,mlx5_1,mlx5_2,mlx5_3
+INFO: container /dev/infiniband: rdma_cm uverbs0 uverbs1 uverbs2 uverbs3
+INFO: container sees HCAs (via ibv_devinfo): mlx5_0 mlx5_1 mlx5_2 mlx5_3
+```
+
+The last line is a fixed format because `verdict.sh` gates on it: `(none)`
+fails as `no HCA visible inside the container`.
+
+The `ib` checks are ordered by causation, not severity — the first to fire is
+the one whose reason gets reported. The chain runs: fresh `/dev` → container
+cannot see the HCAs → `NET/IB : No device found.` → IB plugin fails to load →
+fallback to Socket → every channel over `bond0`. Checking the last of those
+first would report the whole cluster as `collective carried over TCP`, which is
+true, and would send someone to look at the fabric instead of at a missing bind
+mount. Keep new checks in causal order.
+
 Bandwidth floors live in `VERDICT_MIN_BW_NVLINK` and `VERDICT_MIN_BW_NONVLINK`
 at the top of `verdict.sh`. They are set low deliberately — enough to catch a
 transport that is obviously wrong, not to assert the fabric performs to spec.

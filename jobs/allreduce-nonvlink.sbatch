@@ -52,31 +52,42 @@ export NCCL_IB_DISABLE=0
 ## rather than a quietly meaningless result.
 export NCCL_NET=IB
 
-## Pin the data path to the compute-plane HCAs. Two device classes get dropped:
-## the NVSwitch-attached HCA, which presents as 4 functions on one PCIe device
-## (node_health.sh bypasses it the same way), and mlx5_bond_*, which backs
-## bond0 -- that is the OOB path we just said is not the fabric under test.
-NCCL_IB_HCA=$(
-  nvswitch_bdf=$(lspci -D | grep -i Infiniband | awk '{print $1}' | cut -d. -f1 \
-    | sort | uniq -c | awk '$1 == 4 {print $2}')
-  for path in /sys/class/infiniband/*; do
-    dev=${path##*/}
-    [[ $dev == *bond* ]] && continue
-    bdf=$(basename "$(dirname "$(dirname "$(readlink -f "$path")")")")
-    grep -qxF "${bdf%.*}" <<<"$nvswitch_bdf" && continue
-    echo "$dev"
-  done | sort -t'_' -k2n | paste -s -d','
-)
-export NCCL_IB_HCA
+## Compute-plane HCA discovery lives in jobs/nccl-hca.sh. This file and
+## alltoall-nonvlink.sbatch carried byte-identical copies of it, so ab9121d had
+## to make the same edit twice. See that file for what is filtered out and why.
+HCA_LIB=/home/cmods/bringup/jobs/nccl-hca.sh
+if [[ ! -f "$HCA_LIB" ]]; then
+	echo "Missing $HCA_LIB -- cannot work out which HCAs to run over."
+	echo FAIL
+	exit 1
+fi
+source "$HCA_LIB"
 
 ## Better to say so here than to let NCCL_IB_HCA="" mean "any HCA, including
 ## the ones we just excluded" -- or to spend an hour of walltime discovering it.
-if [[ -z "$NCCL_IB_HCA" ]]; then
+if ! nccl_hca_detect; then
 	echo "No compute-plane HCA found on $(hostname). Nothing to run this test over."
 	echo FAIL
 	exit 1
 fi
-echo "INFO: forcing collectives over HCAs: $NCCL_IB_HCA"
+nccl_hca_report_host
+
+## What the host sees is not the question being asked. NCCL calls
+## ibv_get_device_list from inside the container, and enroot gives the container
+## a fresh /dev -- so the host list can be complete and correct while the
+## container sees nothing at all. That is exactly what happened here, and it is
+## precisely what checking by hand over ssh cannot show, because ssh puts you on
+## the host. Ask the container directly, before spending an hour of walltime
+## finding out from the bandwidth.
+##
+## --ntasks=1 rather than --ntasks-per-node=1: the header already asked for 4,
+## and Slurm resolves the per-node form by warning `can't honor
+## --ntasks-per-node set to 1` and running 4 anyway, which would print all of
+## this four times.
+srun --ntasks=1 --export=ALL \
+                --container-image="${CONT}" \
+                --container-mounts=/dev/infiniband:/dev/infiniband \
+                bash -c "$NCCL_HCA_PROBE"
 
 
 ## No --ntasks-per-node here on purpose: srun inherits the 4 from the #SBATCH

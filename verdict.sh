@@ -137,16 +137,35 @@ _v_gate_nccl() {
     _v_require "$file" "bus-bandwidth summary"     '^# Avg bus bandwidth *:'          || return 1
     _v_forbid  "$file" "run error"                 "$VERDICT_RUN_ERRORS"              || return 1
 
+    ## Order matters from here down, and it is ordered by causation rather than
+    ## by severity: the first check to fire is the one whose reason gets
+    ## reported, so the earliest link in the chain has to be checked first.
+    ##
+    ## The chain runs: enroot builds a fresh /dev -> the container cannot see the
+    ## HCAs -> ibv_get_device_list returns nothing -> `NET/IB : No device found.`
+    ## -> the IB plugin fails to load -> NCCL falls back to Socket -> every
+    ## channel goes over bond0. Checking the last of those first would report 40
+    ## nodes as "collective carried over TCP", which is true, and would send
+    ## someone to look at the fabric instead of at a missing bind mount.
+    if [[ "$transport" == "ib" ]]; then
+        ## jobs/nccl-hca.sh probes libibverbs from inside the container -- the
+        ## same call NCCL makes -- and prints a fixed last line. `(none)` there
+        ## is the root cause, stated plainly and without anyone needing to know
+        ## what `NET/IB : No device found.` implies about enroot. A result from
+        ## before that probe existed has no such line and falls through.
+        _v_forbid  "$file" "no HCA visible inside the container" \
+            'container sees HCAs [^:]*: \(none\)' || return 1
+
+        _v_forbid  "$file" "no IB device visible to NCCL"  'NET/IB : No device found'   || return 1
+        _v_forbid  "$file" "IB plugin failed to load"      'Failed to initialize NET plugin IB' || return 1
+        _v_require "$file" "IB named as chosen network"    'Using network IB'           || return 1
+    fi
+
+    ## Last of the transport checks, not first: by this point everything that
+    ## explains WHY it fell back to TCP has already been ruled out, so a hit here
+    ## means the fallback happened for a reason not yet accounted for.
     _v_forbid "$file" "collective carried over TCP" \
         'via NET/Socket|Using network Socket|NET/Socket : Using' || return 1
-
-    if [[ "$transport" == "ib" ]]; then
-        ## No HCA visible to the container. This is logged at INFO and was
-        ## ignored for weeks; it is the head of the chain that ends in bond0.
-        _v_forbid  "$file" "no IB device visible"        'NET/IB : No device found'   || return 1
-        _v_forbid  "$file" "IB plugin failed to load"    'Failed to initialize NET plugin IB' || return 1
-        _v_require "$file" "IB named as chosen network"  'Using network IB'           || return 1
-    fi
 
     ## Deliberately not forbidding `via SHM` yet. On the NVLink scope it is a
     ## real degradation and should fail, but no known-good log from this

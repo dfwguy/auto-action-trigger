@@ -1,6 +1,12 @@
 # nccl-tests version 2.17.8 nccl-headers=22902 nccl-library=22902
 # Collective test starting: alltoall_perf_mpi
+INFO: host /sys/class/infiniband: mlx5_0 mlx5_1 mlx5_2 mlx5_3 mlx5_bond_0
+INFO: host /dev/infiniband: issm0 rdma_cm umad0 uverbs0 uverbs1 uverbs2 uverbs3
 INFO: forcing collectives over HCAs: mlx5_0,mlx5_1,mlx5_2,mlx5_3
+INFO: container NCCL_IB_HCA: mlx5_0,mlx5_1,mlx5_2,mlx5_3
+INFO: container /dev/infiniband: rdma_cm uverbs0 uverbs1 uverbs2 uverbs3
+INFO: container /sys/class/infiniband: mlx5_0 mlx5_1 mlx5_2 mlx5_3 mlx5_bond_0
+INFO: container sees HCAs (via ibv_devinfo): mlx5_0 mlx5_1 mlx5_2 mlx5_3
 node:100:100 [0] NCCL INFO NCCL version 2.29.2+cuda13.1
 node:100:100 [0] NCCL INFO P2P plugin v11 IBext_v11
 node:100:100 [0] NCCL INFO NET/IB : Using [0]mlx5_0:1/IB [1]mlx5_1:1/IB [RO]; OOB bond0:10.40.16.5<0>

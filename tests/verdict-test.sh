@@ -29,8 +29,16 @@ source "$home/verdict.sh"
 ## because the transport was wrong -- would still fail it today and still pass
 ## it the moment someone raises the floor.
 cases=(
-  "alltoall-nonvlink__socket-legacy-done|FAIL|collective carried over TCP"
+  ## The real h01-14 run, from before the container probe existed. It has no
+  ## `container sees HCAs` line, so the earliest cause the log does carry is
+  ## reported instead -- not the TCP fallback further down, which is the
+  ## consequence rather than the reason.
+  "alltoall-nonvlink__socket-legacy-done|FAIL|no IB device visible to NCCL"
   "alltoall-nonvlink__good-ib|DONE|"
+  ## Host list complete and correct, container sees nothing. Reported against
+  ## the probe rather than the socket fallback further down the log, because
+  ## that is the cause and the rest is consequence.
+  "alltoall-nonvlink__container-blind|FAIL|no HCA visible inside the container"
   "allreduce-nonvlink__ib-below-floor|FAIL|avg bus bandwidth below floor 10 GB/s"
   "alltoall__truncated|INCOMPLETE|no end marker -- job died before finishing"
   "allreduce__fell-to-socket|FAIL|collective carried over TCP"
