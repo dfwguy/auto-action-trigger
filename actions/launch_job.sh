@@ -185,9 +185,19 @@ for job in $benchmarks; do
         mtime=$(stat -c %Y "$file" 2>/dev/null || echo 0)
         [[ "$mtime" -gt "$newest_result" ]] && newest_result=$mtime
 
+        ## Only DONE is a pass. Everything else counts as a failure, including
+        ## a file that ends in neither verdict because the job never reached
+        ## its parse block -- node crash, walltime kill, OOM. Treating that as
+        ## "no verdict yet" left the job pending forever without ever entering
+        ## failed_jobs, so a node that reliably kills its jobs retried hourly
+        ## and never drained.
+        ##
+        ## No job is running on this node by the time we get here -- the squeue
+        ## check above exits early if one is -- so an unterminated file is a
+        ## dead job, not one still being written.
         case "$(tail -1 "$file" 2>/dev/null)" in
             DONE) passed=$((passed + 1)) ;;
-            FAIL) failed=1 ;;
+            *) failed=1 ;;
         esac
     done
 

@@ -23,11 +23,17 @@ srun --ntasks-per-node=1 memtester "${TEST_MB}M" "${LOOPS}"
 
 
 ## ------------- parse info starts here ----------- ##
-## memtester prints "ok" per subtest and "FAILURE" on any bad address.
+## memtester prints "<subtest> : ok" per subtest and "FAILURE" on any bad
+## address, then "Done." when every loop has finished. Requiring both the
+## subtest lines and the terminator means a run killed by the OOM killer or
+## the walltime reports FAIL -- with only the error grep, output that stops
+## partway through reads as a pass, as does a memtester that is not installed.
 
-status=$(grep -iE "failure|error" "$RESULT_FILE")
+subtests=$(grep -cE ":[[:space:]]*ok[[:space:]]*$" "$RESULT_FILE")
+done_marker=$(grep -cE "^Done\.?$" "$RESULT_FILE")
+status=$(grep -iE "failure|error|srun: error" "$RESULT_FILE")
 
-if [[ -z "$status" ]];
+if [[ -n "$RESULT_FILE" && -z "$status" && "$subtests" -gt 0 && "$done_marker" -gt 0 ]];
 then
 	echo DONE
 else

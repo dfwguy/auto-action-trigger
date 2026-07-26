@@ -15,10 +15,15 @@ dcgmi diag -r 3
 
 
 ## ------------- parse info starts here ----------- ##
+## `dcgmi diag` prints a results table of `| <test> | Pass |` rows on a clean
+## run. Requiring at least one is what distinguishes a passing diagnostic from
+## one that never ran -- no dcgmi binary, nv-hostengine down, no GPUs visible.
+## Without it the error grep alone reports DONE for empty output.
 
+passes=$(grep -cE "\|[[:space:]]*Pass[[:space:]]*\|" "$RESULT_FILE")
 status=$(grep -iE "fail|warn|error" "$RESULT_FILE")
 
-if [[ -z "$status" ]];
+if [[ -n "$RESULT_FILE" && -z "$status" && "$passes" -gt 0 ]];
 then
 	echo DONE
 else

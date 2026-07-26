@@ -16,10 +16,16 @@ echo "Test job!"
 
 
 ## ------------- parse info starts here ----------- ##
+## This is the template every other job is copied from, so the shape matters:
+## check for evidence the work actually happened, THEN for errors. A parse
+## block that only greps for a failure string reports DONE for a job that
+## produced no output at all -- a missing binary, a container that never
+## started, a rank that died during init.
 
-status=$(grep -iE "code 1" "$RESULT_FILE")
+ran=$(grep -cE "^Test job!$" "$RESULT_FILE")
+errors=$(grep -iE "srun: error|Segmentation fault|CANCELLED AT" "$RESULT_FILE")
 
-if [[ -z "$status" ]];
+if [[ -n "$RESULT_FILE" && -z "$errors" && "$ran" -gt 0 ]];
 then
 	echo DONE
 else

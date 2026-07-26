@@ -44,15 +44,23 @@ srun --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none --ntasks-per-node=1
 ## ------------- parse info starts here ----------- ##
 ## Compare per-GPU TFLOPS against the platform floor and flag any GPU that
 ## reports an error. Set GEMM_MIN_TFLOPS per platform before use.
+##
+## GEMM_MIN_TFLOPS is 0 until the floor for this platform is established, which
+## makes the `low` check a no-op -- so the run has to be gated on there being
+## TFLOPS readings at all. One per GPU is expected; requiring at least one
+## keeps a job that never produced a number from reporting DONE.
 
 GEMM_MIN_TFLOPS=0
+GEMM_MIN_READINGS=1
 
-errors=$(grep -iE "error|fail|mismatch" "$RESULT_FILE")
-low=$(grep -oiE "[0-9]+(\.[0-9]+)?[[:space:]]*TFLOPS" "$RESULT_FILE" \
-        | grep -oE "^[0-9]+(\.[0-9]+)?" \
-        | awk -v min="$GEMM_MIN_TFLOPS" '$1 < min')
+readings=$(grep -oiE "[0-9]+(\.[0-9]+)?[[:space:]]*TFLOPS" "$RESULT_FILE" \
+        | grep -oE "^[0-9]+(\.[0-9]+)?")
+count=$(printf '%s\n' "$readings" | grep -c .)
 
-if [[ -z "$errors" && -z "$low" ]];
+errors=$(grep -iE "error|fail|mismatch|srun: error" "$RESULT_FILE")
+low=$(printf '%s\n' "$readings" | awk -v min="$GEMM_MIN_TFLOPS" 'NF && $1 < min')
+
+if [[ -n "$RESULT_FILE" && -z "$errors" && -z "$low" && "$count" -ge "$GEMM_MIN_READINGS" ]];
 then
 	echo DONE
 else

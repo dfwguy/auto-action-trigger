@@ -47,10 +47,15 @@ srun --ntasks-per-node=1 "${NVSM[@]}" show health
 
 
 ## ------------- parse info starts here ----------- ##
+## `nvsm show health` ends in a health summary. Requiring it is what proves
+## both srun steps got far enough to report -- the sudo pre-check above only
+## covers a missing grant, not an nvsm that starts and then dies mid-stress.
+## The error grep alone would call that empty output a pass.
 
-status=$(grep -iE "fail|unhealthy|error" "$RESULT_FILE")
+summary=$(grep -icE "Health Summary|System Status" "$RESULT_FILE")
+status=$(grep -iE "fail|unhealthy|error|srun: error" "$RESULT_FILE")
 
-if [[ -z "$status" ]];
+if [[ -n "$RESULT_FILE" && -z "$status" && "$summary" -gt 0 ]];
 then
 	echo DONE
 else

@@ -49,9 +49,20 @@ srun --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none --ntasks-per-node=1
 
 ## ------------- parse info starts here ----------- ##
 
-status=$(grep -iE "code 1" "$RESULT_FILE")
+## nccl-tests only prints the out-of-bounds line and the bus-bandwidth summary
+## once every message size has run and validated, so requiring both makes this
+## a positive check. A run that dies in ncclCommInitRank prints neither and now
+## reads as a failure -- the old negative-only `grep "code 1"` passed it, and
+## also missed `exit code 3` and every NCCL WARN.
+##
+## The error grep is a second gate for the case where the summary is printed
+## but a rank still died on the way out.
 
-if [[ -z "$status" ]];
+ok=$(grep -cE "^# Out of bounds values *: *0 OK" "$RESULT_FILE")
+bw=$(grep -cE "^# Avg bus bandwidth *:" "$RESULT_FILE")
+errors=$(grep -iE "NCCL WARN|Test NCCL failure|Test failure|srun: error|Segmentation fault|CANCELLED AT" "$RESULT_FILE")
+
+if [[ -n "$RESULT_FILE" && -z "$errors" && "$ok" -gt 0 && "$bw" -gt 0 ]];
 then
 	echo DONE
 else

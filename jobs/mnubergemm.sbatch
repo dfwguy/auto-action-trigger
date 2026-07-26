@@ -59,13 +59,23 @@ srun \
     --NET_link_order scatter_sum \
     --NET_size 20480000 \
     --CE_type H \
-    --CE_size 20480000 
+    --CE_size 20480000
+rc=$?
 
 ## ------------- parse info starts here ----------- ##
+## mnubergemm is an internal tool with no documented success banner to grep
+## for, so the gate is srun's own exit status plus the failure modes a burn-in
+## actually dies from. That is strictly stronger than the old `grep "code 1"`,
+## which was negative-only and matched neither `exit code 3` nor a rank abort.
+## Add a positive output marker here once the tool's clean-run format is known.
 
-status=$(grep -iE "code 1" "$RESULT_FILE")
+## Without a success banner to match, `-s` is the only thing standing between
+## a silent no-op and a DONE: a container that starts and exits 0 having run
+## nothing produces an empty file and a zero status.
 
-if [[ -z "$status" ]];
+errors=$(grep -iE "srun: error|cuda error|CUDA_ERROR|assertion|assert failed|MPI_Abort|Segmentation fault|CANCELLED AT" "$RESULT_FILE")
+
+if [[ -s "$RESULT_FILE" && "$rc" -eq 0 && -z "$errors" ]];
 then
         echo DONE
 else
