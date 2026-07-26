@@ -58,7 +58,19 @@ sweep runs → some fail           → drain "<jobs> FAIL (auto-retry)"
 
 If a job has been running longer than `MAX_JOB_HOURS` (default: 6), the node is
 drained with a timeout reason. That reason carries no marker, so a stuck job
-stops the retry loop and waits for a human.
+stops the retry loop and waits for a human. Only a `RUNNING` job is measured
+against that limit — a batch queued behind a dead node reads `0:00` for as long
+as it waits, and draining the node for "timeout" would only bury the real
+reason it is unusable.
+
+A sweep queues nothing while anything of ours is already in the queue for the
+node, pending included. The check asks `squeue` twice: once by node
+(`-w`, which catches another user's job occupying it) and once by the shared
+job name (`-n bringup-<node>`, which catches our own batch). The name query is
+the one that matters when a node is down — Slurm does not assign a node to a
+pending job, so a batch submitted with `-w` against an unavailable node is
+invisible to the node query, and the sweep used to read that as an idle node
+and submit the whole list again every hour.
 
 ## Result-path ownership
 

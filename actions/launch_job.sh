@@ -230,25 +230,55 @@ if [[ -z "$state" ]]; then
 fi
 trace "state=$(printf '%s' "$state" | tr '\n' ',') explain=$EXPLAIN"
 
-## If a job is actively running or pending on this node, wait.
-## Check elapsed time against MAX_JOB_HOURS and drain if stuck.
-job_info=$(squeue -h -w "$HOSTNAME" -o '%M %T' 2>/dev/null | head -1)
-if [[ -n "$job_info" ]]; then
-    elapsed="${job_info%% *}"
-    job_state="${job_info##* }"
+## If a job of ours is anywhere in the queue for this node -- running or still
+## pending -- wait. The queue is asked two ways, and both are load-bearing.
+##
+## `-w $HOSTNAME` matches on the node a job is *assigned* to, and the scheduler
+## only assigns one once the job is about to run. Our batch is submitted with
+## `-w` as a constraint, not an assignment, so while the node is down or
+## drained the entire queued batch is invisible to that query. The sweep then
+## saw an idle node with no passing results and submitted the whole list again,
+## every hour, with nothing ever draining the pile: nine nodes reached ~35
+## queued jobs each before anyone noticed.
+##
+## `-n bringup-$HOSTNAME` matches on the shared job name every submission below
+## carries, so our batch is visible from the moment sbatch returns, wherever
+## the scheduler has or has not placed it. That is the query that closes the
+## requeue loop. The node query stays, because it catches the one thing the
+## name query cannot: somebody else's job occupying the node, which is still a
+## reason not to pile benchmarks on top of it.
+queued=$( { squeue -h -w "$HOSTNAME" -o '%i %T %M' 2>/dev/null
+            squeue -h -n "bringup-$HOSTNAME" -o '%i %T %M' 2>/dev/null
+          } | sort -k1,1 -u )
 
-    # Parse elapsed time — squeue formats: MM:SS, HH:MM:SS, D-HH:MM:SS
-    elapsed_hours=0
-    if [[ "$elapsed" =~ ^([0-9]+)-([0-9]+):([0-9]+):([0-9]+)$ ]]; then
-        elapsed_hours=$(( ${BASH_REMATCH[1]} * 24 + ${BASH_REMATCH[2]} ))
-    elif [[ "$elapsed" =~ ^([0-9]+):([0-9]+):([0-9]+)$ ]]; then
-        elapsed_hours=${BASH_REMATCH[1]}
-    fi
+if [[ -n "$queued" ]]; then
+    ## Only a RUNNING job has an elapsed time worth measuring. A PENDING one
+    ## reads 0:00 for as long as it waits, so feeding it to the MAX_JOB_HOURS
+    ## check would compare 0 against the limit forever -- harmless, but it also
+    ## means a backlog behind a dead node must never be mistaken for a stuck
+    ## job and drained on that basis. The node is already unusable; draining it
+    ## for "timeout" would just bury the real reason.
+    running=$(awk '$2 == "RUNNING" { print; exit }' <<<"$queued")
+    depth=$(wc -l <<<"$queued")
 
-    if [[ "$elapsed_hours" -ge "$MAX_JOB_HOURS" ]]; then
-        drain_node "benchmark timeout after ${elapsed_hours}h (${job_state})"
+    if [[ -n "$running" ]]; then
+        elapsed=$(awk '{print $3}' <<<"$running")
+
+        # Parse elapsed time — squeue formats: MM:SS, HH:MM:SS, D-HH:MM:SS
+        elapsed_hours=0
+        if [[ "$elapsed" =~ ^([0-9]+)-([0-9]+):([0-9]+):([0-9]+)$ ]]; then
+            elapsed_hours=$(( ${BASH_REMATCH[1]} * 24 + ${BASH_REMATCH[2]} ))
+        elif [[ "$elapsed" =~ ^([0-9]+):([0-9]+):([0-9]+)$ ]]; then
+            elapsed_hours=${BASH_REMATCH[1]}
+        fi
+
+        if [[ "$elapsed_hours" -ge "$MAX_JOB_HOURS" ]]; then
+            drain_node "benchmark timeout after ${elapsed_hours}h (RUNNING)"
+        fi
+        trace "EXIT: job already on node, RUNNING for ${elapsed} (limit ${MAX_JOB_HOURS}h), $depth queued for $HOSTNAME"
+    else
+        trace "EXIT: $depth job(s) queued for $HOSTNAME, none running yet"
     fi
-    trace "EXIT: job already on node, ${job_state} for ${elapsed} (limit ${MAX_JOB_HOURS}h)"
     exit 0
 fi
 
