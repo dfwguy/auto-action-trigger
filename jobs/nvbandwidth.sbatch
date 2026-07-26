@@ -23,7 +23,7 @@ job_name=nvbandwidth
 ## NOT ENABLED BY DEFAULT -- no public upstream image exists. Run
 ## `./build_containers.sh nvbandwidth` on the headnode to produce the image
 ## below, then add this job to the benchmarks= list in actions/launch_job.sh.
-## See BUILD_CONTAINERS.md.
+## See docs/containers.md.
 ##
 ## The image is architecture-specific -- that is a CPU split, not a GPU
 ## generation one. Grace/Vera are ARM; Intel/AMD hosts use the x86 build.

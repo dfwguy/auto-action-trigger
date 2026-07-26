@@ -31,7 +31,7 @@
 ## and nvsm use host binaries, and the NCCL jobs use the hpc-benchmarks image,
 ## which build_containers.sh pulls from the public catalog. Jobs whose image
 ## has to be built or obtained (nvbandwidth, nvloom, mnubergemm) are covered in
-## BUILD_CONTAINERS.md and are added here once their image exists.
+## docs/containers.md and are added here once their image exists.
 ##
 ## nvsm sits between the NVLink NCCL jobs and the no-NVLink ones so that a
 ## fabric problem does not push a GPU stress test to the back of the queue --

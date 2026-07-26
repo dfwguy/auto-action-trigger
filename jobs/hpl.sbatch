@@ -8,7 +8,7 @@
 ## Locally built image (build_containers.sh). The node-local copy that
 ## actions/file_copy.sh rsyncs to /tmp is preferred so job start does not read
 ## a multi-gigabyte image over NFS; the shared directory is the fallback for a
-## node the rsync has not reached yet. See BUILD_CONTAINERS.md.
+## node the rsync has not reached yet. See docs/containers.md.
 IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
 [[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG

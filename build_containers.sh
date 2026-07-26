@@ -10,7 +10,7 @@
 #
 # actions/file_copy.sh rsyncs the output directory to /tmp/containers/ on each
 # node, and every job prefers that node-local copy over the NFS one. See
-# BUILD_CONTAINERS.md.
+# docs/containers.md.
 #
 # Two of the images have no published build and are compiled from source. Only
 # the headnode has internet and only the compute nodes are ARM, so those two
@@ -161,7 +161,7 @@ spec() {
         ## Packages and build steps both come from the sample Dockerfile in the
         ## upstream repo. We keep everything in the devel image rather than
         ## copying the binary into a slim runtime stage the way upstream does;
-        ## see BUILD_CONTAINERS.md on the size trade.
+        ## see docs/containers.md on the size trade.
         BASE_URI="docker://nvcr.io#nvidia/cuda:13.1.0-devel-ubuntu24.04"
         REPO=https://github.com/NVIDIA/nvloom.git
         REF=$NVLOOM_VERSION

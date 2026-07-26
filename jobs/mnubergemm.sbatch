@@ -18,7 +18,7 @@ totalRuns=12
 ## NVIDIA-internal image -- nothing to build from, it has to be obtained
 ## through the internal channel and imported into the containers directory.
 ## `./build_containers.sh -l mnubergemm` says whether it is there. The version
-## and -arch suffix must match the nodes under test. See BUILD_CONTAINERS.md.
+## and -arch suffix must match the nodes under test. See docs/containers.md.
 ## /tmp/containers is the node-local copy rsync'd by actions/file_copy.sh.
 IMG=mnubergemm-26.03-v1.17-arm.sqsh
 CONT=/tmp/containers/$IMG
