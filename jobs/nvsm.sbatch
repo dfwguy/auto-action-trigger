@@ -32,10 +32,29 @@ else
 	NVSM=(sudo -n nvsm)
 fi
 
-## Fail fast and loudly if the grant is missing, so the parse below reports a
-## setup problem instead of a bogus hardware failure.
-if ! srun --ntasks-per-node=1 "${NVSM[@]}" show version > /dev/null 2>&1; then
-	echo "ERROR: cannot run nvsm as root -- no passwordless sudo grant for $(id -un)"
+## Fail fast and loudly if we cannot get to nvsm as root, so the parse below
+## reports a setup problem instead of a bogus hardware failure.
+##
+## Keep the output. Not every failure here is a missing sudoers grant, and
+## naming one cause for all of them sends the operator to fix a file that is
+## already correct -- `sudo -s` working over ssh and this step failing is the
+## normal shape of the requiretty and command-list cases below.
+preflight=$(srun --ntasks-per-node=1 "${NVSM[@]}" show version 2>&1)
+rc=$?
+if [[ $rc -ne 0 ]]; then
+	case "$preflight" in
+		*"password is required"*|*"not allowed to execute"*|*"may not run"*)
+			echo "ERROR: no passwordless sudo grant for $(id -un) to run nvsm -- see docs/nvsm.md. A root shell via 'sudo -s' does not imply this: the grant is per-command." ;;
+		*"must have a tty"*|*"no tty present"*)
+			echo "ERROR: sudo requires a tty on this node and a batch task has none. The grant is fine; add 'Defaults:$(id -un) !requiretty' next to it." ;;
+		*"command not found"*)
+			echo "ERROR: nvsm is not on sudo's secure_path -- grant the absolute path 'command -v nvsm' reports on this node." ;;
+		*"matching definition file"*|*"Failed to initialize NVSM"*)
+			echo "ERROR: nvsm has no platform definition file for this node and never initialized. Sudo and the hardware are both fine -- this is NVSM platform support. Set autogenerate_pdf in /etc/nvsm/nvsm.config in the software image, or drop nvsm from benchmarks= for this platform. See docs/nvsm.md." ;;
+		*)
+			echo "ERROR: '${NVSM[*]} show version' failed (exit $rc). This is not a sudoers failure -- read the output below." ;;
+	esac
+	printf '%s\n' "$preflight"
 	echo FAIL
 	exit 0
 fi
