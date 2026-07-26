@@ -1,9 +1,23 @@
 #!/bin/bash
 #
+# Usage: status-check.sh [pattern]
+#
+#   pattern  optional node-name filter. A bare string matches every node whose
+#            name starts with it, so a rack prefix (dh01-rack01) covers the
+#            whole rack. Shell globs (dh01-rack0[12]*, *node05) are honored as
+#            written, so an explicit pattern can match anywhere in the name.
+#            With no pattern, every node under results/ is reported.
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 results_dir="$home/results"
 jobs_dir="$home/jobs"
+
+pattern="$1"
+if [[ -z "$pattern" ]]; then
+    pattern='*'
+elif [[ "$pattern" != *[\*\?\[]* ]]; then
+    pattern="${pattern}*"
+fi
 
 # Read active benchmark list from launch_job.sh
 active_benchmarks=$(grep -E '^benchmarks=' "$home/actions/launch_job.sh" | head -1 | tr -d '"' | cut -d= -f2-)
@@ -51,8 +65,18 @@ fail_count() {
     ls "$results_dir/$node" 2>/dev/null | grep -cE "^${col}\.fail[0-9]+\.txt$"
 }
 
+matched=0
+for node_dir in "$results_dir"/$pattern/; do
+    [[ -d "$node_dir" ]] && matched=1 && break
+done
+if [[ "$matched" -eq 0 ]]; then
+    echo "No nodes under $results_dir match '${1:-*}'" >&2
+    exit 1
+fi
+
 # Emit one line per node per column, then pipe to dshbak for grouping
-for node_dir in "$results_dir"/*/; do
+for node_dir in "$results_dir"/$pattern/; do
+    [[ -d "$node_dir" ]] || continue
     node=$(basename "$node_dir")
     for col in "${columns[@]}"; do
         file="$results_dir/$node/${col}.txt"
