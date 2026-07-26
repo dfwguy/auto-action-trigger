@@ -1,8 +1,9 @@
 #!/bin/bash
 #
-# Generates a dated CSV report of per-node benchmark status and performance metrics.
+# Reports per-node benchmark status and performance metrics.
 # Rows: nodes  |  Columns: per-job status + extracted metric (per run)
-# Output: $home/reports/report-YYYY-MM-DD.csv
+# Prints an aligned table to the screen and saves the same rows as
+# $home/reports/report-YYYY-MM-DD_HH-MM-SS.csv
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 results_dir="$home/results"
@@ -92,32 +93,24 @@ if [[ ! -f "$home/verdict.sh" ]]; then
 fi
 source "$home/verdict.sh"
 
-# Failed attempts archived by launch_job.sh as <job>.fail<N>.txt, summed across
-# every run of the job. Reported in its own column so the result cells stay
-# numeric for spreadsheet use.
-fail_count() {
-    local node="$1" job="$2"
-    ls "$results_dir/$node" 2>/dev/null | grep -cE "^${job}(-run[0-9]+)?\.fail[0-9]+\.txt$"
-}
+# ── Build the table ───────────────────────────────────────────────────────────
+# Rows are assembled once, tab separated. The CSV on disk is the same rows with
+# tabs swapped for commas, so the screen and the file can never disagree.
 
-# ── Build CSV header ──────────────────────────────────────────────────────────
+declare -a rows
 
 header="node"
 for job in "${job_order[@]}"; do
     runs=${job_total_runs[$job]}
     if [[ "$runs" -eq 1 ]]; then
-        header+=",${job}"
+        header+=$'\t'"${job}"
     else
         for ((r=1; r<=runs; r++)); do
-            header+=",${job}_run${r}"
+            header+=$'\t'"${job}_run${r}"
         done
     fi
-    header+=",${job}_fails"
 done
-
-echo "$header" > "$report_file"
-
-# ── Build CSV rows ────────────────────────────────────────────────────────────
+rows+=("$header")
 
 for node in $nodes; do
     row="$node"
@@ -125,32 +118,37 @@ for node in $nodes; do
         runs=${job_total_runs[$job]}
         mlabel=$(metric_label "$job")
         if [[ "$runs" -eq 1 ]]; then
-            file="$results_dir/$node/$job.txt"
+            files=("$results_dir/$node/$job.txt")
+        else
+            files=()
+            for ((r=1; r<=runs; r++)); do
+                files+=("$results_dir/$node/$job-run${r}.txt")
+            done
+        fi
+        for file in "${files[@]}"; do
             # Not $(...) -- a subshell would lose the reason. See verdict().
             verdict "$job" "$file"
             status="$VERDICT_STATUS"
             if [[ "$status" == "DONE" && -n "$mlabel" ]]; then
                 metric=$(extract_metric "$job" "$file")
-                row+=",${metric:-$status}"
+                row+=$'\t'"${metric:-$status}"
             else
-                row+=",${status}"
+                row+=$'\t'"${status}"
             fi
-        else
-            for ((r=1; r<=runs; r++)); do
-                file="$results_dir/$node/$job-run${r}.txt"
-                verdict "$job" "$file"
-                status="$VERDICT_STATUS"
-                if [[ "$status" == "DONE" && -n "$mlabel" ]]; then
-                    metric=$(extract_metric "$job" "$file")
-                    row+=",${metric:-$status}"
-                else
-                    row+=",${status}"
-                fi
-            done
-        fi
-        row+=",$(fail_count "$node" "$job")"
+        done
     done
-    echo "$row" >> "$report_file"
+    rows+=("$row")
 done
 
-echo "Report written to: $report_file"
+# ── Emit ──────────────────────────────────────────────────────────────────────
+
+printf '%s\n' "${rows[@]}" | tr '\t' ',' > "$report_file"
+
+if command -v column >/dev/null 2>&1; then
+    printf '%s\n' "${rows[@]}" | column -t -s $'\t'
+else
+    printf '%s\n' "${rows[@]}"
+fi
+
+echo
+echo "CSV written to: $report_file"
