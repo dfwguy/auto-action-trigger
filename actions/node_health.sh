@@ -243,15 +243,15 @@ then
 	append_reason "nvidia-smi-p2p-pcie" " "
 fi
 
-echo -e "########INFO: Check CUUID (Expected: For GBXX, all nodes in the same rack have the same CUUID)" > $node_health/nvidia-smi-cuuid
+## INFORMATIONAL -- recorded, never drains. The ClusterUUID is per-rack, as the
+## header below has always said, so it cannot match a single cluster-wide
+## baseline: every node outside the baseline node's rack differs by design. A
+## genuinely miscabled node is caught by the benchmarks failing instead.
+echo -e "########INFO: Check CUUID (informational, does not drain -- per-rack. Expected: For GBXX, all nodes in the same rack have the same CUUID)" > $node_health/nvidia-smi-cuuid
 cuuid_out=$(
   nvidia-smi -q | grep -E 'Bus Id|CliqueId|ClusterUUID'
 )
 echo "${cuuid_out}" >> $node_health/nvidia-smi-cuuid
-if ! diff "$node_health/nvidia-smi-cuuid" "$valid_health/nvidia-smi-cuuid" > /dev/null
-then
-	append_reason "cuuid" " "
-fi
 
 echo -e "########INFO: Check IB devices status (Expected: All up and active)" > $node_health/ib-status
 ib_status_out=$(
@@ -458,17 +458,16 @@ then
 	append_reason "imex-profile" " "
 fi
 
-echo -e "########INFO: Check IMEX nodes_config (Expected: file exist on GBXX)" > $node_health/imex-node-config
+## INFORMATIONAL -- recorded, never drains. nodes_config.cfg lists the rack's
+## own IMEX domain members, so its checksum is per-rack: every rack but the
+## baseline node's differs by design.
+echo -e "########INFO: Check IMEX nodes_config (informational, does not drain -- per-rack. Expected: file exist on GBXX)" > $node_health/imex-node-config
 imex_nodes_cfg_out=$(
   if [ "$(uname -m)" == aarch64 ]; then
     md5sum /etc/nvidia-imex/nodes_config.cfg 2>/dev/null || true
   fi
 )
 echo "${imex_nodes_cfg_out}" >> $node_health/imex-node-config
-if ! diff "$node_health/imex-node-config" "$valid_health/imex-node-config" > /dev/null
-then
-	append_reason "imex-node-config" " "
-fi
 
 echo -e "########INFO: Check IMEX service status (Expected: 2 ports up and service is active on GBXX)" > $node_health/imex-service
 imex_service_out=$(
@@ -496,7 +495,11 @@ then
 	append_reason "imex-readiness" " "
 fi
 
-echo -e "########INFO: Check IMEX connection status (Expected: Node be in READY, all nodes connected and Domain UP on GBXX)" > $node_health/imex-status
+## INFORMATIONAL -- recorded, never drains. This is the live domain membership
+## matrix, which is per-rack and also changes every time a node in the rack goes
+## down: a baseline taken today is stale the next time one powers off. Node-local
+## IMEX health is still enforced by imex-service and imex-readiness above.
+echo -e "########INFO: Check IMEX connection status (informational, does not drain -- per-rack and time-varying. Expected: Node be in READY, all nodes connected and Domain UP on GBXX)" > $node_health/imex-status
 imex_conn_out=$(
   if [ "$(uname -m)" == aarch64 ]; then
     nvidia-imex-ctl -N 2>&1 \
@@ -505,10 +508,6 @@ imex_conn_out=$(
   fi
 )
 echo "${imex_conn_out}" >> $node_health/imex-status
-if ! diff "$node_health/imex-status" "$valid_health/imex-status" > /dev/null
-then
-	append_reason "imex-status" " "
-fi
 
 echo -e "########INFO: Check Enroot runtime directory (Expected: ENROOT_RUNTIME_PATH Writable)" > $node_health/enroot
 enroot_runtime_out=$(

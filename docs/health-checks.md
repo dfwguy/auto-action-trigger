@@ -41,6 +41,34 @@ bash set-valid-default.sh <validated-node>
 Whatever node you name becomes the definition of correct BIOS, OS, kernel
 params, IMEX and NVLink for every other node, so validate it by hand first.
 
+## Informational checks
+
+Three checks are **informational**: `node_health.sh` still runs them and still
+writes `logs/<node>/<check>`, but they never call `append_reason`, so they
+cannot appear in a drain reason and cannot take a node down. They are marked in
+the table below.
+
+All three compare something that is per-rack, so they can never match a single
+cluster-wide baseline — every node outside the baseline node's rack differs by
+design, and enforcing them drains the fleet for its own topology:
+
+| Check | Why it is per-rack |
+|-------|--------------------|
+| `nvidia-smi-cuuid` | ClusterUUID is shared within a rack, not across the cluster |
+| `imex-node-config` | `nodes_config.cfg` lists that rack's IMEX domain members |
+| `imex-status` | live domain membership matrix — per-rack, and it changes every time a node in the rack goes down, so any baseline for it goes stale |
+
+Read them with `less logs/<node>/<check>` or `sync-check.sh --all <node>`.
+
+This trades away automatic detection of a genuinely wrong ClusterUUID — a node
+cabled into the wrong rack no longer drains for it. That is caught by the
+benchmarks failing instead, which is the right place for it: as an enforced
+check it fired on nearly every node in the cluster and told you nothing.
+
+Node-local IMEX health is unaffected and still drains: `imex-channels`,
+`imex-profile`, `imex-service` and `imex-readiness` all compare values that are
+the same on every node in the cluster.
+
 The reason string is not simply a list of check names — `append_reason` writes
 `Check BIOS` for the `bios` check, `cuuid` for `nvidia-smi-cuuid`, and
 `dmesg-xid` carries its own output into the reason. `health-check.sh` matches
@@ -62,7 +90,7 @@ reason field needs to do the same.
 | `nvlink-ber` | NVLink Bit Error Rate |
 | `nvidia-smi-p2p-nvlink` | GPU P2P NVLink capability |
 | `nvidia-smi-p2p-pcie` | GPU P2P PCIe capability |
-| `nvidia-smi-cuuid` | GPU ClusterUUID (rack consistency check) |
+| `nvidia-smi-cuuid` | GPU ClusterUUID (rack consistency check) — **informational** |
 | `ib-status` | InfiniBand port state (all up and active) |
 | `ib-down` | IB link recommendation flags via mlxlink |
 | `ib-link` | IB link_downed and symbol_error counters |
@@ -75,10 +103,10 @@ reason field needs to do the same.
 | `bond` | Bond interface mode, speed, and member status |
 | `imex-channels` | NVIDIA IMEX channel devices (GB series) |
 | `imex-profile` | IMEX configuration |
-| `imex-node-config` | IMEX nodes_config.cfg checksum |
+| `imex-node-config` | IMEX nodes_config.cfg checksum — **informational** |
 | `imex-service` | IMEX service status and ports |
 | `imex-readiness` | IMEX ready state via nvidia-imex-ctl |
-| `imex-status` | IMEX domain and node connection status |
+| `imex-status` | IMEX domain and node connection status — **informational** |
 | `enroot` | Enroot runtime directory writability |
 | `dmesg-nv_err` | NVIDIA driver NV_ERR_* errors |
 | `dmesg-trace` | Kernel call traces |
