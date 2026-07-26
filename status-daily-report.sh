@@ -24,7 +24,11 @@ extract_metric() {
             grep -E '^WC' "$file" 2>/dev/null | awk '{print $7}' | head -1
             ;;
         allreduce|alltoall|allreduce-nonvlink|alltoall-nonvlink)
-            # Find largest message size actually run, return out-of-place busbw
+            # Find largest message size actually run, return out-of-place busbw.
+            # verdict.sh's _v_min_peak_bw extracts this same number and holds the
+            # floor it is judged against (VERDICT_MIN_PEAK_BW_*). Change one and
+            # change the other, or this column prints a figure the gate did not
+            # look at.
             awk '$1 ~ /^[0-9]+$/ {print}' "$file" 2>/dev/null | sort -k1,1n | tail -1 | awk '{print $8}'
             ;;
         nvbandwidth)

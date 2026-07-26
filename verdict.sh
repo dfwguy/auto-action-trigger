@@ -32,11 +32,9 @@
 ##
 ## A healthy NVLink-scope allreduce on GB300 measures 220.837 here, so that
 ## floor has enormous headroom and is doing almost nothing for those two jobs.
-## Raising it wants a known-good alltoall first: alltoall bus bandwidth is not
-## comparable to allreduce, and setting the floor from the allreduce figure
-## would fail every healthy alltoall on the cluster at once. That is the same
-## shape of mistake as the transport rule below -- assuming one measurement
-## generalises to a neighbouring case. Capture both, then raise both.
+## The tighter NVLink gate is the peak floor below rather than a raise here --
+## it is stated against the figure the daily report already shows, which is what
+## anyone reading a slow node compares against.
 ##
 ## Read `# Avg bus bandwidth`, which is an average across every message size,
 ## not the largest-size row. The two differ by roughly 2x on the same run
@@ -45,6 +43,22 @@
 ## not compare a floor set here against a figure from that report.
 VERDICT_MIN_BW_NVLINK=10
 VERDICT_MIN_BW_NONVLINK=10
+
+## Floors on the LARGEST-MESSAGE-SIZE out-of-place busbw, GB/s -- a different
+## number from the ones above, read from a different place in the same file.
+## These are the figures status-daily-report.sh prints in its allreduce and
+## alltoall columns (see extract_metric there), so a value in the report can be
+## compared against the floor here directly. The `# Avg bus bandwidth` floors
+## above cannot be compared that way: they average every message size and come
+## out roughly 2x lower on the same run.
+##
+## Set per job because alltoall and allreduce bus bandwidth are not comparable
+## -- that is the trap the note above warns about, and it is why there are two
+## constants here rather than one. Both are NVLink-scope figures; the -nonvlink
+## pair has no peak floor yet and is left on the avg-bandwidth floor alone,
+## since no known-good IB-scope run has been read to set one from.
+VERDICT_MIN_PEAK_BW_ALLREDUCE=683
+VERDICT_MIN_PEAK_BW_ALLTOALL=623
 
 ## Failure signatures common to every job. A summary line can print in full and
 ## a rank still die on the way out, so this is checked independently of whether
@@ -119,6 +133,30 @@ _v_min_bw() {
     return 1
 }
 
+## Floor on the largest message size actually run, out-of-place busbw (column 8
+## of the data rows). The extraction here is deliberately the same as
+## status-daily-report.sh's extract_metric: pick the numeric-first-field rows,
+## sort by size, take the last. If one of the two is ever changed the other must
+## change with it, or the report will print a number that the gate did not judge.
+##
+## `sort -k1,1n` rather than "last row in the file" because nccl-tests does not
+## guarantee the largest size is printed last -- and taking the tail of the file
+## blind would read whatever the final row happens to be.
+_v_min_peak_bw() {
+    local file="$1" min="$2" val
+    val=$(awk '$1 ~ /^[0-9]+$/ {print}' "$file" 2>/dev/null \
+          | sort -k1,1n | tail -1 | awk '{print $8}')
+    if [[ -z "$val" ]]; then
+        VERDICT_REASON="no per-size bandwidth rows"
+        VERDICT_DETAIL=""
+        return 1
+    fi
+    awk -v v="$val" -v m="$min" 'BEGIN { exit !(v + 0 >= m + 0) }' && return 0
+    VERDICT_REASON="peak busbw below floor ${min} GB/s"
+    VERDICT_DETAIL="measured ${val} GB/s at the largest message size"
+    return 1
+}
+
 ## ── Per-job gates ─────────────────────────────────────────────────────────
 
 ## nccl-tests. $2 is the transport this job is scoped to: `ib` for the
@@ -139,8 +177,10 @@ _v_min_bw() {
 ## Forbidding those strings failed exactly such a run -- 32 channels of
 ## via P2P/MNNVL, avg bus bandwidth 220.837 -- as "collective carried over TCP".
 ## The rule is: judge the channels, never the plugin registration.
+## $4 is the largest-size busbw floor, and is optional -- empty means this job
+## has no such floor and is judged on the average alone.
 _v_gate_nccl() {
-    local file="$1" transport="$2" min="$3"
+    local file="$1" transport="$2" min="$3" peak_min="$4"
 
     ## nccl-tests prints both of these only after every message size has run and
     ## validated, so requiring them is a positive check. A run that dies in
@@ -194,7 +234,11 @@ _v_gate_nccl() {
     ## bandwidth floor below catches the gross case meanwhile. Add it here once
     ## a passing run has been looked at.
 
+    ## Average first, peak second: a run that is slow everywhere should be
+    ## reported as such rather than as a peak problem, and the average floor is
+    ## the coarser of the two.
     _v_min_bw "$file" "$min" || return 1
+    [[ -n "$peak_min" ]] && { _v_min_peak_bw "$file" "$peak_min" || return 1; }
     return 0
 }
 
@@ -275,10 +319,12 @@ verdict() {
     esac
 
     case "$job" in
-        allreduce|alltoall)
-            _v_gate_nccl "$file" nvlink "$VERDICT_MIN_BW_NVLINK" ;;
+        allreduce)
+            _v_gate_nccl "$file" nvlink "$VERDICT_MIN_BW_NVLINK" "$VERDICT_MIN_PEAK_BW_ALLREDUCE" ;;
+        alltoall)
+            _v_gate_nccl "$file" nvlink "$VERDICT_MIN_BW_NVLINK" "$VERDICT_MIN_PEAK_BW_ALLTOALL" ;;
         allreduce-nonvlink|alltoall-nonvlink)
-            _v_gate_nccl "$file" ib "$VERDICT_MIN_BW_NONVLINK" ;;
+            _v_gate_nccl "$file" ib "$VERDICT_MIN_BW_NONVLINK" "" ;;
         dcgm|dcgm-r2|dcgm-r4)
             _v_gate_dcgm "$file" ;;
         *)
