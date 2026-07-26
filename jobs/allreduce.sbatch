@@ -26,7 +26,7 @@ CONT=/tmp/containers/$IMG
 #CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
 #HPLDATPATH=/home/cmods/bringup/jobs/hpl/
 
-export NCCL_SOCKET_IFNAME=enP22p3s0f0np0
+export NCCL_SOCKET_IFNAME=bond0
 export NCCL_DEBUG=INFO
 export NCCL_P2P_LEVEL=NVL
 #export NCCL_P2P_LEVEL=NVL

@@ -31,7 +31,7 @@ CONT=/tmp/containers/$IMG
 ## Note the enroot `#` separator between registry host and image path.
 #CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
 
-export NCCL_SOCKET_IFNAME=enP22p3s0f0np0
+export NCCL_SOCKET_IFNAME=bond0
 export NCCL_DEBUG=INFO
 
 ## Exclude every on-node shortcut so traffic is pushed out to the HCAs
