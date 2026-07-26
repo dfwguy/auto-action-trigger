@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: health-check.sh [pattern]
+# Usage: health-check.sh [--full] [pattern]
 #
 #   pattern  optional node-name filter. A bare string matches every node whose
 #            name starts with it, so a rack prefix (dh01-rack01) covers the
@@ -8,9 +8,15 @@
 #            written, so an explicit pattern can match anywhere in the name.
 #            With no pattern, every node Slurm knows about is reported.
 #
-# Cluster-wide summary of health-check failures, pivoted on the check rather
-# than the node: nine nodes failing "bios" is one BIOS problem with one fix, and
-# listing it per-node reads as nine separate incidents.
+#   --full   print every failure pattern, check name and drain reason. The
+#            default output elides the tail of each so the report stays a fixed
+#            size as the cluster grows.
+#
+# Cluster-wide summary of health-check failures, grouped by what has to be
+# fixed rather than by what has to be fixed on: 60 nodes that all fail the same
+# 38 checks are one out-of-spec image, and printing them as 38 check lines over
+# 60 node lines reads as 2280 incidents. Nodes are grouped by their exact set of
+# failing checks, so one group is one fix.
 #
 # node_health.sh drains a node with the names of the checks that mismatched the
 # baseline, so the Slurm reason field is the source of truth here -- no node is
@@ -26,12 +32,36 @@ if ! command -v sinfo &>/dev/null; then
     module load slurm
 fi
 
-pattern="$1"
+full=0
+args=()
+for arg in "$@"; do
+    case "$arg" in
+        --full|-f) full=1 ;;
+        -h|--help) sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        *)         args+=("$arg") ;;
+    esac
+done
+
+pattern="${args[0]}"
 if [[ -z "$pattern" ]]; then
     pattern='*'
 elif [[ "$pattern" != *[\*\?\[]* ]]; then
     pattern="${pattern}*"
 fi
+
+# How many entries each elided list shows before it collapses to a count.
+max_groups=6
+max_checks=8
+max_reasons=8
+if [[ "$full" -eq 1 ]]; then
+    max_groups=100000; max_checks=100000; max_reasons=100000
+fi
+
+# Width to wrap node lists at. tput falls back to the terminfo default when
+# stdout is not a tty, which is what we want for a redirect into a file.
+width="${COLUMNS:-}"
+[[ -z "$width" ]] && width=$(tput cols 2>/dev/null)
+[[ -z "$width" || "$width" -lt 60 ]] && width=100
 
 # Files node_health.sh writes into logs/<node>/ that are not checks.
 is_not_a_check() {
@@ -100,7 +130,79 @@ plural() {
     [[ "$1" -eq 1 ]] && printf 'node' || printf 'nodes'
 }
 
-declare -A seen_node check_nodes node_checks other_state other_reason
+count_list() {
+    [[ -z "$1" ]] && { printf 0; return; }
+    printf '%s' "$(( $(tr -cd ',' <<< "$1" | wc -c) + 1 ))"
+}
+
+# Break a comma-separated list into chunks no wider than $2, splitting only at
+# top-level commas -- a break inside a [14,29,34] range yields two lists that
+# neither scontrol nor a copy-paste will take. Emits bare chunks; the caller
+# supplies the label and continuation indent.
+wrap_list() {
+    awk -v text="$1" -v avail="$2" '
+    BEGIN {
+        if (avail < 20) avail = 20
+        n = length(text); depth = 0; start = 1; line = ""
+        for (i = 1; i <= n; i++) {
+            c = substr(text, i, 1)
+            if (c == "[") depth++
+            else if (c == "]") depth--
+            else if (c == "," && depth == 0) {
+                emit(substr(text, start, i - start + 1))
+                start = i + 1
+            }
+        }
+        emit(substr(text, start, n - start + 1))
+        if (line != "") print line
+    }
+    function emit(piece) {
+        if (line != "" && length(line) + length(piece) > avail) {
+            print line; line = ""
+        }
+        if (line == "") sub(/^ +/, "", piece)
+        line = line piece
+    }'
+}
+
+# Print "<label><list>" wrapped, with continuation lines indented to match. A
+# third argument caps the number of lines -- for the informational sections a
+# full hostlist is pages of output nobody reads, and --full still has it.
+print_wrapped() {
+    local label="$1" text="$2" max_lines="${3:-0}" cont first=1 chunk n=0
+    [[ "$full" -eq 1 ]] && max_lines=0
+    printf -v cont '%*s' "${#label}" ''
+    while IFS= read -r chunk; do
+        ((n++))
+        if [[ "$max_lines" -gt 0 && "$n" -gt "$max_lines" ]]; then
+            printf '%s...\n' "$cont"
+            break
+        fi
+        if [[ "$first" -eq 1 ]]; then
+            printf '%s%s\n' "$label" "$chunk"; first=0
+        else
+            printf '%s%s\n' "$cont" "$chunk"
+        fi
+    done < <(wrap_list "$text" $(( width - ${#label} )))
+}
+
+# Elide a ", "-separated list down to $2 entries plus a count.
+elide() {
+    local list="$1" limit="$2"
+    local -a items
+    IFS=',' read -r -a items <<< "$list"
+    if [[ "${#items[@]}" -le "$limit" ]]; then
+        printf '%s' "$list"
+        return
+    fi
+    local shown="" i
+    for ((i = 0; i < limit; i++)); do
+        shown+="${items[i]#"${items[i]%%[![:space:]]*}"}, "
+    done
+    printf '%s+%d more' "$shown" "$(( ${#items[@]} - limit ))"
+}
+
+declare -A seen_node reason_nodes sig_nodes check_count
 total=0 failing=0 other=0
 
 while IFS='|' read -r node state reason; do
@@ -128,83 +230,154 @@ while IFS='|' read -r node state reason; do
         # Nothing in the reason is a check name, so node_health.sh did not write
         # it -- an operator drain, or a drain from launch_job.sh.
         ((other++))
-        other_state["$node"]="$state"
-        other_reason["$node"]="$reason"
+        reason_nodes["$state|$reason"]+="$node,"
         continue
     fi
 
     ((failing++))
-    node_checks["$node"]="${matched% }"
-    for name in $matched; do
-        check_nodes["$name"]+="$node,"
+    # Sort the names so two nodes failing the same checks in a different order
+    # land in the same group.
+    sig=$(tr ' ' '\n' <<< "${matched% }" | sort | tr '\n' ' ')
+    sig="${sig% }"
+    sig_nodes["$sig"]+="$node,"
+    for name in $sig; do
+        (( check_count["$name"]++ ))
     done
 done < <(sinfo -N -h -o '%N|%T|%E' 2>/dev/null)
 
 if [[ "$total" -eq 0 ]]; then
-    echo "No nodes match '${1:-*}'" >&2
+    echo "No nodes match '${args[0]:-*}'" >&2
     exit 1
+fi
+
+# A dangling or missing baseline makes every check fail on every node that ran,
+# and none of those failures are real. That has to lead, not trail: the whole
+# report below it is an artifact.
+if [[ ! -d "$valid_dir" ]]; then
+    echo "WARNING: no baseline — $valid_dir does not resolve"
+    if [[ -L "$valid_dir" ]]; then
+        echo "         the symlink points at $(readlink "$valid_dir"), which does not exist"
+    fi
+    echo "         Every check diffs against a missing file, so the failures below are"
+    echo "         artifacts of the missing baseline, not node faults. Fix it first:"
+    echo "             rm -f $valid_dir"
+    echo "             bash set-valid-default.sh <validated-node>"
+    echo
 fi
 
 if [[ "$failing" -eq 0 ]]; then
     echo "No failed health checks — $total $(plural "$total") checked"
 else
-    echo "FAILED HEALTH CHECKS — $failing of $total $(plural "$total")"
-    echo
-    # Most-common check first: that ordering puts the one fix that clears the
-    # most nodes at the top.
-    while IFS='|' read -r count name; do
-        printf '%-24s %4d %-6s %s\n' \
-            "$name" "$count" "$(plural "$count")" \
-            "$(compress "${check_nodes[$name]%,}")"
-    done < <(
-        for name in "${!check_nodes[@]}"; do
-            list="${check_nodes[$name]%,}"
-            echo "$(tr -cd ',' <<< "$list" | wc -c | awk '{print $1+1}')|$name"
+    # One group per distinct set of failing checks, largest first. Sorting on the
+    # node count puts the fix that clears the most nodes at the top.
+    mapfile -t groups < <(
+        for sig in "${!sig_nodes[@]}"; do
+            printf '%s|%s\n' "$(count_list "${sig_nodes[$sig]%,}")" "$sig"
         done | sort -t'|' -k1,1nr -k2,2
     )
-fi
 
-multi=""
-for node in "${!node_checks[@]}"; do
-    [[ "${node_checks[$node]}" == *" "* ]] && multi+="$node"$'\n'
-done
-if [[ -n "$multi" ]]; then
+    if [[ "${#groups[@]}" -eq 1 ]]; then
+        echo "FAILED HEALTH CHECKS — $failing of $total $(plural "$total"), all failing the same checks"
+    else
+        echo "FAILED HEALTH CHECKS — $failing of $total $(plural "$total") in ${#groups[@]} patterns"
+    fi
     echo
-    echo "Nodes failing more than one check:"
-    while IFS= read -r node; do
-        [[ -z "$node" ]] && continue
-        printf '  %-28s %s\n' "$node" "${node_checks[$node]// /, }"
-    done < <(sort <<< "$multi")
+
+    shown=0
+    hidden_nodes=0
+    for entry in "${groups[@]}"; do
+        count="${entry%%|*}"
+        sig="${entry#*|}"
+        if [[ "$shown" -ge "$max_groups" ]]; then
+            (( hidden_nodes += count ))
+            continue
+        fi
+        ((shown++))
+        n_checks=$(wc -w <<< "$sig")
+        [[ "${#groups[@]}" -gt 1 ]] && printf '[%d] ' "$shown"
+        printf '%d %s × %d %s\n' \
+            "$n_checks" "$([[ "$n_checks" -eq 1 ]] && echo check || echo checks)" \
+            "$count" "$(plural "$count")"
+        print_wrapped "    checks  " "$(elide "${sig// /, }" "$max_checks")"
+        print_wrapped "    nodes   " "$(compress "${sig_nodes[$sig]%,}")"
+        echo
+    done
+
+    if [[ "$hidden_nodes" -gt 0 ]]; then
+        printf '... %d more %s covering %d %s — rerun with --full\n\n' \
+            "$(( ${#groups[@]} - shown ))" \
+            "$([[ $(( ${#groups[@]} - shown )) -eq 1 ]] && echo pattern || echo patterns)" \
+            "$hidden_nodes" "$(plural "$hidden_nodes")"
+    fi
+
+    # With one group the per-check tally just restates it. With several it is the
+    # only place you can see that one check spans more than one pattern.
+    if [[ "${#groups[@]}" -gt 1 ]]; then
+        tally=$(
+            for name in "${!check_count[@]}"; do
+                printf '%s|%s %s\n' "${check_count[$name]}" "$name" "${check_count[$name]}"
+            done | sort -t'|' -k1,1nr -k2,2 | cut -d'|' -f2 | paste -sd',' -
+        )
+        print_wrapped "By check:  " "$(elide "${tally//,/, }" $(( max_checks * 2 )))"
+        echo
+    fi
 fi
 
 # A check with log output but no baseline entry can never pass: node_health.sh
 # diffs against a file that is not there. Worth calling out separately -- the fix
-# is a new baseline, not anything on the node.
-missing=""
-for name in "${!check_nodes[@]}"; do
-    [[ -n "${baseline_has[$name]}" ]] || missing+="$name"$'\n'
-done
-if [[ -n "$missing" ]]; then
-    echo
-    echo "No baseline in $valid_dir (these can never pass):"
-    while IFS= read -r name; do
-        [[ -z "$name" ]] && continue
-        printf '  %s\n' "$name"
-    done < <(sort <<< "$missing")
+# is a new baseline, not anything on the node. Suppressed when the baseline is
+# missing outright, since the banner above already said so.
+if [[ -d "$valid_dir" ]]; then
+    missing=""
+    for name in "${!check_count[@]}"; do
+        [[ -n "${baseline_has[$name]}" ]] || missing+="$name,"
+    done
+    if [[ -n "$missing" ]]; then
+        n_missing=$(count_list "${missing%,}")
+        echo "No baseline in $valid_dir — $n_missing $([[ "$n_missing" -eq 1 ]] && echo check || echo checks) can never pass:"
+        print_wrapped "  " "$(elide "$(tr ',' '\n' <<< "${missing%,}" | sort | paste -sd',' - | sed 's/,/, /g')" "$max_checks")"
+        echo
+    fi
 fi
 
+# Grouped by reason, not by node: eighteen racks powered off by CMDaemon is one
+# line, and it stays one line however many racks get added.
 if [[ "$other" -gt 0 ]]; then
-    echo
     echo "Not health drains — $other $(plural "$other") (operator, or the job sequencer):"
-    for node in $(printf '%s\n' "${!other_reason[@]}" | sort); do
-        reason="${other_reason[$node]}"
-        [[ "${#reason}" -gt 58 ]] && reason="${reason:0:55}..."
-        printf '  %-28s %-14s %s\n' "$node" "${other_state[$node]}" "$reason"
+    mapfile -t reasons < <(
+        for key in "${!reason_nodes[@]}"; do
+            printf '%s|%s\n' "$(count_list "${reason_nodes[$key]%,}")" "$key"
+        done | sort -t'|' -k1,1nr -k2,2
+    )
+    shown=0
+    hidden=0
+    for entry in "${reasons[@]}"; do
+        count="${entry%%|*}"
+        key="${entry#*|}"
+        state="${key%%|*}"
+        reason="${key#*|}"
+        if [[ "$shown" -ge "$max_reasons" ]]; then
+            (( hidden += count )); continue
+        fi
+        ((shown++))
+        printf '  %-14s %-40s %4d %s\n' "$state" "$reason" "$count" "$(plural "$count")"
+        print_wrapped "      " "$(compress "${reason_nodes[$key]%,}")" 3
     done
+    if [[ "$hidden" -gt 0 ]]; then
+        printf '  ... %d more %s covering %d %s — rerun with --full\n' \
+            "$(( ${#reasons[@]} - shown ))" \
+            "$([[ $(( ${#reasons[@]} - shown )) -eq 1 ]] && echo reason || echo reasons)" \
+            "$hidden" "$(plural "$hidden")"
+    fi
+    echo
 fi
 
 if [[ "$failing" -gt 0 ]]; then
-    echo
-    echo "Why a node failed:  bash sync-check.sh \"$(compress "$(printf '%s,' "${!node_checks[@]}" | sed 's/,$//')")\""
+    # One node per pattern is enough to diff: every node in a pattern failed the
+    # same checks. Handing sync-check.sh all 60 buries the answer in 60 copies.
+    first_sig="${groups[0]#*|}"
+    first_node="${sig_nodes[$first_sig]%%,*}"
+    echo "Why a node failed:  bash sync-check.sh $first_node"
+    [[ "${#groups[@]}" -gt 1 ]] && echo "                    (one node from pattern 1; each pattern needs its own diff)"
     echo "Re-run the checks:  bash node-health-refresh.sh <node|nodelist>"
 fi

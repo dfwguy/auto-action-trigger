@@ -9,10 +9,19 @@ A `refresh` sentinel file in `logs/<node>/` must exist for the health script to
 run — this is what prevents redundant re-checks on every monitoring cycle. Use
 `node-health-refresh.sh` to set it.
 
-`health-check.sh` summarizes which checks are failing across the whole cluster,
-grouped by check. `sync-check.sh <node>` then diffs one node's output against the
-baseline for each check named in its drain reason, which is usually the fastest
-way to see why that node was taken down.
+`health-check.sh` summarizes what is failing across the whole cluster, grouped
+by the *set* of checks a node failed rather than one section per check: nodes
+that fail the same checks share one cause and one fix, so each group is one
+incident however many nodes are in it. Drains that did not come from
+`node_health.sh` are grouped by reason the same way, which keeps a powered-off
+rack to one line. Node lists are compressed and wrapped, never truncated
+mid-range, so they can be pasted straight into `node-health-refresh.sh`. Long
+lists are elided by default; `--full` prints everything.
+
+`sync-check.sh <node>` then diffs one node's output against the baseline for
+each check named in its drain reason, which is usually the fastest way to see
+why that node was taken down. One node per group is enough — the rest of the
+group failed the same checks.
 
 The reason string is not simply a list of check names — `append_reason` writes
 `Check BIOS` for the `bios` check, `cuuid` for `nvidia-smi-cuuid`, and
