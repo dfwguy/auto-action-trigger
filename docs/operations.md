@@ -50,9 +50,20 @@ disk:
 | --- | --- |
 | `DONE` | the gate accepted the result |
 | `FAIL` | the job reported it could not run, or the gate rejected it |
-| `INCOMPLETE` | no end marker -- the job died before finishing (crash, walltime, OOM) |
+| `INCOMPLETE` | no end marker and no job on the node -- it died before finishing (crash, walltime, OOM) |
 | `RETRY` | the last attempt was archived as `.fail<N>.txt` and a retry is queued; the reason shown is why that attempt was rejected |
 | `NOT_RUN` | no attempt has ever been made |
+| `RUNNING` | a benchmark is executing on the node right now; nothing to judge until it writes its end marker |
+
+`RUNNING` is not written by `verdict.sh`, which sees only the result file and
+reports a marker-less one as `INCOMPLETE`. That is right for `launch_job.sh`,
+which judges a node only after `squeue` says nothing is queued or running on
+it. This script has no such guard -- `sbatch --output` points at the result
+file, so a benchmark that is mid-run is a partial file with no marker. It
+resolves the ambiguity with one cluster-wide `squeue`, matching the
+`bringup-<node>` job name, and reclassifies the column that live job is
+writing. Without `squeue` on `PATH` it says so on stderr and both states report
+as `INCOMPLETE`.
 
 `RETRY` and `NOT_RUN` used to be one status, which produced the contradictory
 line `NOT_RUN (fails: 1)` -- never ran, failed once. They are split because a

@@ -275,6 +275,13 @@ _v_gate_generic() {
 ##                line: node crash, walltime kill, OOM. Callers must treat this
 ##                as a failure, not as "no verdict yet", or a node that
 ##                reliably kills its jobs retries forever and never drains.
+##                Note that "died" is the caller's conclusion, not this
+##                function's evidence: sbatch writes --output as the job runs,
+##                so a RUNNING job also has no marker yet. launch_job.sh earns
+##                the conclusion by checking squeue before it judges anything;
+##                status-check.sh, which reads results at arbitrary times,
+##                re-labels the live column RUNNING. A caller doing neither
+##                will call every in-flight job dead.
 ##   FAIL         the job reported it could not run, or the gate rejected it
 ##   DONE         the gate accepted it
 ##
