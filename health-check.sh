@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: health-check.sh [--full] [pattern]
+# Usage: health-check.sh [--full] [--summary] [pattern]
 #
 #   pattern  optional node-name filter. A bare string matches every node whose
 #            name starts with it, so a rack prefix (dh01-rack01) covers the
@@ -11,6 +11,12 @@
 #   --full   print every failure pattern, check name and drain reason. The
 #            default output elides the tail of each so the report stays a fixed
 #            size as the cluster grows.
+#
+#   --summary
+#            roll-up instead of the grouped report: every node placed in exactly
+#            one of PASSING / FAILING HEALTH CHECKS / NOT CHECKED / OTHER
+#            DRAINS, with the full node list for each. Answers "where does each
+#            node stand" rather than "what do I fix".
 #
 # Cluster-wide summary of health-check failures, grouped by what has to be
 # fixed rather than by what has to be fixed on: 60 nodes that all fail the same
@@ -27,20 +33,23 @@ home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 logs_dir="$home/logs"
 valid_dir="$home/valid-config/default"
 
+# Parse before loading Slurm, so --help works on a host that has neither.
+full=0
+summary=0
+args=()
+for arg in "$@"; do
+    case "$arg" in
+        --full|-f)    full=1 ;;
+        --summary|-s) summary=1 ;;
+        -h|--help)    sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        *)            args+=("$arg") ;;
+    esac
+done
+
 if ! command -v sinfo &>/dev/null; then
     source /etc/profile.d/modules.sh
     module load slurm
 fi
-
-full=0
-args=()
-for arg in "$@"; do
-    case "$arg" in
-        --full|-f) full=1 ;;
-        -h|--help) sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
-        *)         args+=("$arg") ;;
-    esac
-done
 
 pattern="${args[0]}"
 if [[ -z "$pattern" ]]; then
@@ -203,7 +212,8 @@ elide() {
 }
 
 declare -A seen_node reason_nodes sig_nodes check_count
-total=0 failing=0 other=0
+total=0 failing=0 other=0 passing=0 unchecked=0
+passing_nodes="" unchecked_nodes="" failing_nodes="" other_nodes=""
 
 while IFS='|' read -r node state reason; do
     [[ -z "$node" ]] && continue
@@ -214,7 +224,29 @@ while IFS='|' read -r node state reason; do
     [[ "$node" == $pattern ]] || continue
     ((total++))
 
-    [[ -z "$reason" || "$reason" == "none" ]] && continue
+    if [[ -z "$reason" || "$reason" == "none" ]]; then
+        # No reason at all. node_health.sh sets IDLE with no reason on a clean
+        # pass, so an available node here is a node whose checks all passed --
+        # but only if they ran. A node with no logs/<node> has never been
+        # checked, which is not the same thing and must not be counted as a
+        # pass. A node down with no reason is neither; leave it with the other
+        # drains rather than claim it is healthy.
+        case "$state" in
+            *down*|*drain*|*fail*|*unk*|*error*)
+                ((other++))
+                other_nodes+="$node,"
+                reason_nodes["$state|(no reason recorded)"]+="$node,"
+                ;;
+            *)
+                if [[ -d "$logs_dir/$node" ]]; then
+                    ((passing++)); passing_nodes+="$node,"
+                else
+                    ((unchecked++)); unchecked_nodes+="$node,"
+                fi
+                ;;
+        esac
+        continue
+    fi
 
     matched=""
     for raw in $(canonicalize_reason "$reason"); do
@@ -230,11 +262,13 @@ while IFS='|' read -r node state reason; do
         # Nothing in the reason is a check name, so node_health.sh did not write
         # it -- an operator drain, or a drain from launch_job.sh.
         ((other++))
+        other_nodes+="$node,"
         reason_nodes["$state|$reason"]+="$node,"
         continue
     fi
 
     ((failing++))
+    failing_nodes+="$node,"
     # Sort the names so two nodes failing the same checks in a different order
     # land in the same group.
     sig=$(tr ' ' '\n' <<< "${matched% }" | sort | tr '\n' ' ')
@@ -263,6 +297,36 @@ if [[ ! -d "$valid_dir" ]]; then
     echo "             rm -f $valid_dir"
     echo "             bash set-valid-default.sh <validated-node>"
     echo
+fi
+
+# --summary: every node placed in exactly one bucket, with the full list for
+# each. The grouped report answers "what do I fix"; this answers "where does
+# each node stand", which is the roll-up question and a different one.
+if [[ "$summary" -eq 1 ]]; then
+    echo "SUMMARY — $total $(plural "$total")"
+    echo
+    bucket() {
+        local title="$1" count="$2" list="$3" note="$4"
+        [[ "$count" -eq 0 ]] && return
+        printf '%s — %d %s' "$title" "$count" "$(plural "$count")"
+        [[ -n "$note" ]] && printf ' (%s)' "$note"
+        printf '\n'
+        print_wrapped "  " "$(compress "${list%,}")"
+        echo
+    }
+    bucket "PASSING" "$passing" "$passing_nodes" \
+        "checks ran, nothing mismatched the baseline"
+    bucket "FAILING HEALTH CHECKS" "$failing" "$failing_nodes" \
+        "drained by node_health.sh"
+    bucket "NOT CHECKED" "$unchecked" "$unchecked_nodes" \
+        "available, but no logs/<node> — checks have never run"
+    bucket "OTHER DRAINS" "$other" "$other_nodes" \
+        "operator or sequencer; health state not visible in Slurm"
+    if [[ ! -d "$valid_dir" ]]; then
+        echo "PASSING is not meaningful while the baseline is missing: a node can only"
+        echo "reach it by having no reason recorded, not by matching anything."
+    fi
+    exit 0
 fi
 
 if [[ "$failing" -eq 0 ]]; then

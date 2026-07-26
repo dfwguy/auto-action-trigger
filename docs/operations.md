@@ -34,15 +34,59 @@ Refreshes every 20 seconds, showing only nodes that are DOWN or drained.
 ```bash
 bash health-check.sh                      # every node
 bash health-check.sh ink50-dh01-h20       # one rack (bare prefix)
+bash health-check.sh --full               # nothing elided
+bash health-check.sh --summary            # roll-up: where every node stands
 ```
 
-Reads the Slurm drain reasons and groups every failed check across the cluster,
-most-common check first, so one BIOS rollout reads as one line rather than as
-nine separate node failures. Also separates operator drains from health drains,
-and flags any check with no entry in `valid-config/default/` — those can never
-pass, because `node_health.sh` is diffing against a file that is not there.
+Reads the Slurm drain reasons and groups nodes by the *set* of checks they
+failed, largest group first, so 60 nodes failing the same 38 checks read as one
+incident with one fix rather than 38 check lists over 60 node lists. Also
+separates operator drains from health drains — grouped by reason, so a
+powered-off rack is one line — and flags any check with no entry in
+`valid-config/default/`, because those can never pass: `node_health.sh` is
+diffing against a file that is not there.
+
+Long lists are elided with a count; `--full` prints everything. Node lists are
+compressed and wrapped at range boundaries, so they paste straight into
+`node-health-refresh.sh`.
 
 Nothing is contacted or re-run: it reports what the last health run concluded.
+
+### `--summary`
+
+The default report answers "what do I fix". `--summary` answers "where does
+every node stand" — each node lands in exactly one bucket, and the buckets add
+up to the node count:
+
+```
+SUMMARY — 576 nodes
+
+PASSING — 76 nodes (checks ran, nothing mismatched the baseline)
+  ink50-dh01-h01-[11,14,17,29,32,35],ink50-dh01-h02-[11,14,17,29,32,35],...
+
+FAILING HEALTH CHECKS — 60 nodes (drained by node_health.sh)
+  ink50-dh01-h01-36,ink50-dh01-h02-[16,18,31],...
+
+NOT CHECKED — 3 nodes (available, but no logs/<node> — checks have never run)
+  ink50-dh01-h15-14,ink50-dh01-h19-11,ink50-dh01-h22-11
+
+OTHER DRAINS — 437 nodes (operator or sequencer; health state not visible in Slurm)
+  ink50-dh01-h01-[12-13,15-16,18,28,30-31,33-34,37],...
+```
+
+Two distinctions worth knowing:
+
+- **PASSING vs NOT CHECKED.** Both are available with no drain reason. Only the
+  first has a `logs/<node>` to show for it. A node that has never run
+  `node_health.sh` is not a node that passed, and is not counted as one.
+- **OTHER DRAINS is not a health verdict.** Those nodes are down or drained for
+  a reason `node_health.sh` did not write, so it overwrote nothing and Slurm
+  carries no health result for them either way. They may be perfectly healthy;
+  Slurm cannot say.
+
+`PASSING` also depends on the baseline being present — with a missing or
+dangling `valid-config/default`, nodes reach it by having no reason recorded
+rather than by matching anything, and the summary says so.
 
 ```bash
 bash node-health-refresh.sh node001
