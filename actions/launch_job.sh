@@ -27,11 +27,11 @@
 ##   hpl cublasmatmul       remediation-only single-node GEMM -- run by hand
 ##
 ## Pick the set matching the delivery methodology for the site.
-## Default list holds only jobs that need nothing built or installed on our
-## side: dcgm and nvsm use host binaries, the NCCL jobs pull the public
-## nvcr.io#nvidia/hpc-benchmarks image. Jobs needing a container we have to
-## build or import (nvbandwidth, nvloom, mnubergemm) are covered in
-## MAKE_CONTAINERS.md and are added here once their image exists.
+## Default list holds only jobs whose dependencies are always available: dcgm
+## and nvsm use host binaries, and the NCCL jobs use the hpc-benchmarks image,
+## which build_containers.sh pulls from the public catalog. Jobs whose image
+## has to be built or obtained (nvbandwidth, nvloom, mnubergemm) are covered in
+## BUILD_CONTAINERS.md and are added here once their image exists.
 ##
 ## nvsm sits between the NVLink NCCL jobs and the no-NVLink ones so that a
 ## fabric problem does not push a GPU stress test to the back of the queue --

@@ -30,6 +30,7 @@ A local user named `cmods` must exist on the **headnode and every compute node**
 | `dcgmi` | `jobs/dcgm.sbatch`, `jobs/dcgm-r2.sbatch`, `jobs/dcgm-r4.sbatch` |
 | `nvsm` | `jobs/nvsm.sbatch` (runs on the host, no container, needs root — see [below](#running-nvsm-as-root)) |
 | `nvidia-imex-ctl` | `node_health.sh` (IMEX checks, GB series only) |
+| `enroot`, `docker` (with `buildx`) | `build_containers.sh` (headnode only; compute nodes need enroot/pyxis to run the images) |
 | `dshbak` | `status-check.sh` |
 | `rsync` | `actions/file_copy.sh` (optional) |
 
@@ -76,7 +77,7 @@ Both triggers fire continuously while the device is UP (`duringactions`), so the
 ├── actions/
 │   ├── node_health.sh             # Hardware/software health checks → Slurm node state
 │   ├── launch_job.sh              # Benchmark sequencer → Slurm job submissions
-│   ├── file_copy.sh               # Rsync containers to node (category-gated)
+│   ├── file_copy.sh               # Rsync containers to /tmp on each node (category-gated)
 │   └── valid-node-check.sh        # BCM health-check script (category-based PASS/FAIL)
 │
 ├── jobs/
@@ -106,6 +107,7 @@ Both triggers fire continuously while the device is UP (`duringactions`), so the
 │       └── hpl2N.dat              # HPL config for 2-node runs
 │
 ├── NODRAIN                        # Present = never drain on failure (delete to enable)
+├── build_containers.sh            # Build job container images into containers/
 ├── set-valid-default.sh           # Capture a validated node as the health baseline
 ├── node-health-refresh.sh         # Trigger a re-health-check on one or more nodes
 ├── single-node-purge.sh           # Clear benchmark results for a node
@@ -151,11 +153,26 @@ before adding a job to the `benchmarks=` list.
 
 ### Containers
 
-Everything in the default `benchmarks=` list runs with no image built on our
-side. `dcgm*` and `nvsm` use host-installed binaries; the NCCL jobs pull the
-public `docker://nvcr.io#nvidia/hpc-benchmarks:26.02` image, which enroot
-fetches and caches on first use. `hpl`, `cublasmatmul`, and `stream` use the
-same upstream image.
+Container images are built once on the headnode into
+`/home/cmods/bringup/containers/` and used from there — no job pulls from a
+registry at run time:
+
+```bash
+./build_containers.sh          # build everything missing
+./build_containers.sh -l       # what is present, what is not
+```
+
+`actions/file_copy.sh` rsyncs that directory to `/tmp/containers/` on each node
+and every job prefers the node-local copy, so a benchmark start reads its image
+off local disk rather than streaming a multi-gigabyte squashfs over NFS. A node
+the rsync has not reached yet falls back to the shared path and still runs.
+
+`dcgm*`, `nvsm`, `stress-ng`, `memtester`, `stressapptest`, `fio`, and `ethr`
+need no container at all — they run host-installed binaries. The NCCL jobs,
+`hpl`, `cublasmatmul`, and `stream` share the `hpc-benchmarks` image.
+`nvbandwidth` and `nvloom` are built from source; `mnubergemm` has to come
+through an internal channel. See
+[BUILD_CONTAINERS.md](BUILD_CONTAINERS.md).
 
 #### Running nvsm as root
 
@@ -199,7 +216,7 @@ the automated sequence.
 
 `nvbandwidth`, `nvloom`, and `mnubergemm` have no public upstream image and are
 left out of the default list for that reason. See
-[MAKE_CONTAINERS.md](MAKE_CONTAINERS.md) for how to build or import each one
+[BUILD_CONTAINERS.md](BUILD_CONTAINERS.md) for how to build or obtain each one
 and enable the job.
 
 ## First-time setup
@@ -216,7 +233,17 @@ This registers two actions (`node_health_action`, `launch_job_action`) and two t
 bash pre-post/delete-action-trigger.sh
 ```
 
-### 2. Establish a valid-config baseline
+### 2. Build the container images
+
+```bash
+./build_containers.sh
+```
+
+Run on the headnode, once per CPU architecture in the cluster. Only
+`hpc-benchmarks` is needed for the default `benchmarks=` list; the rest go with
+the jobs they enable. See [BUILD_CONTAINERS.md](BUILD_CONTAINERS.md).
+
+### 3. Establish a valid-config baseline
 
 Run the health script manually on a node that has been fully validated, then capture its output as the reference:
 
@@ -237,7 +264,8 @@ Scripts assume the repo is deployed at `/home/cmods/bringup/` (the home director
 | `/home/cmods/bringup/valid-config/default/` | Symlink to the reference baseline node |
 | `/home/cmods/bringup/results/<node>/` | Per-node benchmark result files |
 | `/home/cmods/bringup/reports/` | CSV reports from `status-daily-report.sh` |
-| `/home/cmods/bringup/containers/` | Container images rsync'd to nodes |
+| `/home/cmods/bringup/containers/` | Container images built by `build_containers.sh` |
+| `/tmp/containers/` (on each node) | Node-local cache of the above, rsync'd by `file_copy.sh` |
 
 ## Health checks (`node_health.sh`)
 

@@ -32,10 +32,13 @@ job_name=nvloom
 ## ------------- job info starts here ------------- ##
 
 ## NOT ENABLED BY DEFAULT -- nvloom publishes no prebuilt image, only a sample
-## Dockerfile at github.com/NVIDIA/nvloom. See MAKE_CONTAINERS.md for how to
-## build one and add this job to the benchmarks= list in actions/launch_job.sh.
+## Dockerfile at github.com/NVIDIA/nvloom. Run `./build_containers.sh nvloom`
+## on the headnode to build the image below, then add this job to the
+## benchmarks= list in actions/launch_job.sh. See BUILD_CONTAINERS.md.
 ## MOP reference image: /home/nvis/nvidian+nvis+nvloom+v2.0.0-arm.sqsh
-CONT=/home/cmods/bringup/containers/nvidian+nvis+nvloom+v2.0.0-arm.sqsh
+IMG=nvloom-v2.0.0-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
+CONT=/tmp/containers/$IMG
+[[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
 RACK_SAMPLES=5
 BURN_IN_DURATION=3600      # seconds per testcase, burn-in variant only
 

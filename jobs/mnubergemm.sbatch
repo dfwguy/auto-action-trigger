@@ -16,7 +16,14 @@ totalRuns=12
 ## ------------- job info starts here ------------- ##
 
 
-CONT=/home/cmods/bringup/containers/mnubergemm-26.03-v1.17-arm.sqsh
+## NVIDIA-internal image -- nothing to build from, it has to be obtained
+## through the internal channel and imported into the containers directory.
+## `./build_containers.sh -l mnubergemm` says whether it is there. The version
+## and -arch suffix must match the nodes under test. See BUILD_CONTAINERS.md.
+## /tmp/containers is the node-local copy rsync'd by actions/file_copy.sh.
+IMG=mnubergemm-26.03-v1.17-arm.sqsh
+CONT=/tmp/containers/$IMG
+[[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
 
 # Important for manual/hand-rolled container launches
 #unset XDG_CACHE_HOME

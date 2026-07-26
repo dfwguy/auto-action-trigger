@@ -20,21 +20,23 @@ job_name=nvbandwidth
 
 ## ------------- job info starts here ------------- ##
 
-## NOT ENABLED BY DEFAULT -- no public upstream image exists. See
-## MAKE_CONTAINERS.md for how to build or import one and add this job to the
-## benchmarks= list in actions/launch_job.sh.
+## NOT ENABLED BY DEFAULT -- no public upstream image exists. Run
+## `./build_containers.sh nvbandwidth` on the headnode to produce the image
+## below, then add this job to the benchmarks= list in actions/launch_job.sh.
+## See BUILD_CONTAINERS.md.
 ##
-## Published as architecture-specific images -- select by CPU arch, not GPU
-## generation. Grace/Vera are ARM; Intel/AMD hosts use the x86 image.
-case "$(uname -m)" in
-    aarch64) CONT=docker://nvcr.io#0948245400141054/nvbandwidth-single-node:v0.9-arm ;;
-    x86_64)  CONT=docker://nvcr.io#0948245400141054/nvbandwidth-single-node:v0.9-x86 ;;
-    *)       echo "nvbandwidth: unsupported architecture $(uname -m)"; exit 1 ;;
-esac
-## Local import alternative (see MAKE_CONTAINERS.md):
+## The image is architecture-specific -- that is a CPU split, not a GPU
+## generation one. Grace/Vera are ARM; Intel/AMD hosts use the x86 build.
+## /tmp/containers is the node-local copy rsync'd by actions/file_copy.sh;
+## the shared directory is the fallback until that rsync lands.
+IMG=nvbandwidth-v0.9-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
+CONT=/tmp/containers/$IMG
+[[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
+## Registry alternative -- needs enroot credentials for the private NGC org on
+## every compute node:
 #case "$(uname -m)" in
-#    aarch64) CONT=/home/cmods/bringup/containers/nvbandwidth-arm.sqsh ;;
-#    x86_64)  CONT=/home/cmods/bringup/containers/nvbandwidth-x86.sqsh ;;
+#    aarch64) CONT=docker://nvcr.io#0948245400141054/nvbandwidth-single-node:v0.9-arm ;;
+#    x86_64)  CONT=docker://nvcr.io#0948245400141054/nvbandwidth-single-node:v0.9-x86 ;;
 #esac
 
 unset CUDA_VISIBLE_DEVICES

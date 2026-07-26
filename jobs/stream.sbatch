@@ -15,10 +15,19 @@ job_name=stream
 
 ## ------------- job info starts here ------------- ##
 
-## STREAM ships inside the public HPC-Benchmarks image -- nothing to build.
+## STREAM ships inside the HPC-Benchmarks image, the same one the NCCL jobs use.
 ## stream-cpu-test.sh is Arm SBSA only (Grace/Vera); on x86 hosts install
 ## STREAM on the host or build it into a site image.
-CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
+## Locally built image (build_containers.sh). The node-local copy that
+## actions/file_copy.sh rsyncs to /tmp is preferred so job start does not read
+## a multi-gigabyte image over NFS; the shared directory is the fallback for a
+## node the rsync has not reached yet. See BUILD_CONTAINERS.md.
+IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
+CONT=/tmp/containers/$IMG
+[[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
+## Registry alternative -- every node pulls it over the network on first use.
+## Note the enroot `#` separator between registry host and image path.
+#CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
 
 ## One OpenMP thread per core, threads pinned across all NUMA nodes
 export OMP_NUM_THREADS=$(nproc)
