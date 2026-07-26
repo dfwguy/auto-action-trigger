@@ -7,7 +7,7 @@
 ##SBATCH -o /home/cmods/bringup/results/%N/allreduce.txt
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
-job_name=allreduce
+job_name=alltoall
 totalRuns=1
 
 

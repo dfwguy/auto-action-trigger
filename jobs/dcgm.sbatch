@@ -1,6 +1,11 @@
 #!/bin/bash
 #SBATCH -N 1
-##SBATCH --gpus-per-node=4
+## `unset CUDA_VISIBLE_DEVICES` below hands dcgmi every GPU on the node, so the
+## allocation has to claim them. Left commented out this reads to Slurm as a
+## GPU-free job and a 4-GPU NCCL job is placed alongside it -- dcgmi's memory
+## and stress plugins take most of the framebuffer, and the collective dies
+## allocating its test buffers.
+#SBATCH --gpus-per-node=4
 ##SBATCH -o /home/cmods/bringup/results/%N/dcgm.txt
 
 ## Job name is used in the status line. Edit grep for failures you're looking for

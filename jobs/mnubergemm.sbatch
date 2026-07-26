@@ -1,5 +1,4 @@
 #!/bin/bash
-#SBATCH -J mnubergemm
 ##SBATCH -p defq
 ##SBATCH -N 1
 #SBATCH --exclusive

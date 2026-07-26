@@ -1,7 +1,9 @@
 #!/bin/bash
 #SBATCH -N 1
 #SBATCH -t 0:30:00
-##SBATCH --gpus-per-node=4
+## See dcgm.sbatch: dcgmi takes every GPU, so the allocation must claim them or
+## Slurm will co-schedule a GPU job on top of it.
+#SBATCH --gpus-per-node=4
 ##SBATCH -o /home/cmods/bringup/results/%N/dcgm-r2.txt
 
 ## AI Factory Testing Plan: DCGM Diagnostics (`dcgmi -r 2`) -- SNT2

@@ -364,8 +364,23 @@ for job in "${pending_jobs[@]}"; do
         file=$(result_file "$job" "$r" "$totalRuns")
         [[ -f "$file" && "$(tail -1 "$file" 2>/dev/null)" == "DONE" ]] && continue
 
+        ## Every benchmark for a node is submitted under one shared Slurm job
+        ## name so --dependency=singleton serializes them: a job waits until
+        ## every earlier job of the same name and user has terminated. Without
+        ## it the whole batch is eligible at once, and a GPU job landing on top
+        ## of dcgm's stress plugins fails on buffer allocation -- nccl-tests
+        ## reports that as `Cuda failure 2 'out of memory'` after NCCL init has
+        ## already succeeded. The CPU-only jobs (stream, stressapptest) skew
+        ## collective timings the same way without ever touching a GPU.
+        ##
+        ## The hostname belongs in the name. Singleton matches on name alone,
+        ## cluster-wide, so a bare `bringup` would serialize every node in the
+        ## rack against every other and turn a parallel bringup into a queue of
+        ## one. This also has to be passed here rather than as an #SBATCH line:
+        ## those are comments, not shell, and would not expand $HOSTNAME.
         submit="source /etc/profile.d/modules.sh; module load slurm; \
-mkdir -p $logs && sbatch -w $HOSTNAME --export=ALL,RESULT_FILE=$file --output=$file $launch"
+mkdir -p $logs && sbatch -w $HOSTNAME -J bringup-$HOSTNAME --dependency=singleton \
+--export=ALL,RESULT_FILE=$file --output=$file $launch"
 
         if [[ "$EXPLAIN" -eq 1 ]]; then
             trace "WOULD SUBMIT $job run $r: su - $JOB_USER -c \"$submit\""
