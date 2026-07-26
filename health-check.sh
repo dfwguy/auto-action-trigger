@@ -108,22 +108,13 @@ if [[ "${#known_check[@]}" -eq 0 ]]; then
 fi
 
 # node_health.sh's reason headers do not all match the log file they came from.
-# Rewrite the multi-word ones before tokenizing; single-token renames are handled
-# per token below.
-canonicalize_reason() {
-    local r="$1"
-    r="${r//Check BIOS/bios}"
-    r="${r//Check OS/os}"
-    r="${r//enroot missing/enroot}"
-    printf '%s' "$r"
-}
-
-resolve_token() {
-    case "$1" in
-        cuuid) printf 'nvidia-smi-cuuid' ;;
-        *)     printf '%s' "$1"          ;;
-    esac
-}
+# Shared with sync-check.sh so the two cannot drift.
+if [[ ! -f "$home/reason-map.sh" ]]; then
+    echo "ERROR: $home/reason-map.sh is missing -- it carries the reason-to-check" >&2
+    echo "       name mapping and without it every drain reason parses as text." >&2
+    exit 1
+fi
+source "$home/reason-map.sh"
 
 compress() {
     local list="$1" out
