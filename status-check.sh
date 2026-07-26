@@ -61,6 +61,16 @@ fail_count() {
     ls "$results_dir/$node" 2>/dev/null | grep -cE "^${col}\.fail[0-9]+\.txt$"
 }
 
+# Newest archive for a column, by the numeric suffix rather than by mtime --
+# the suffix is what launch_job.sh increments, and an rsync or a restore can
+# reorder mtimes without changing which attempt was last.
+last_fail_file() {
+    local node="$1" col="$2" n
+    n=$(ls "$results_dir/$node" 2>/dev/null \
+        | sed -n "s/^${col}\.fail\([0-9]\+\)\.txt$/\1/p" | sort -n | tail -1)
+    [[ -n "$n" ]] && printf '%s' "$results_dir/$node/${col}.fail${n}.txt"
+}
+
 matched=0
 for node_dir in "$results_dir"/$pattern/; do
     [[ -d "$node_dir" ]] && matched=1 && break
@@ -81,6 +91,32 @@ for node_dir in "$results_dir"/$pattern/; do
         status="$VERDICT_STATUS"
         reason="$VERDICT_REASON"
         fails=$(fail_count "$node" "$col")
+
+        ## NOT_RUN means "no result file", which covers two states that are
+        ## nothing alike: never attempted, and attempted-failed-archived-and
+        ## resubmitted. launch_job.sh moves a rejected result to <col>.failN.txt
+        ## BEFORE submitting the retry, so between the archive and the new job
+        ## writing its first byte the column has no file at all -- and the node
+        ## reported `NOT_RUN (fails: 1)`, which reads as a contradiction: it
+        ## says the job never ran and that it failed once.
+        ##
+        ## Judge the newest archive instead. That turns the line into RETRY plus
+        ## the reason the last attempt was rejected, which is the question
+        ## anyone reading this actually has. NOT_RUN then keeps a single
+        ## meaning: no attempt has ever been made.
+        if [[ "$status" == "NOT_RUN" && "$fails" -gt 0 ]]; then
+            prev=$(last_fail_file "$node" "$col")
+            verdict "$(verdict_job_name "$col")" "$prev"
+            status=RETRY
+            ## DONE here is not a contradiction either: the archive was rejected
+            ## by the gate in force when it ran, and a since-loosened gate now
+            ## accepts it. Say so rather than printing RETRY with no reason.
+            if [[ "$VERDICT_STATUS" == "DONE" ]]; then
+                reason="prior attempt passes the current gate"
+            else
+                reason="$VERDICT_REASON"
+            fi
+        fi
         # A passing column is done -- how many tries it took is history, not
         # status, and annotating it splits DONE nodes into dshbak groups that
         # all mean the same thing. The archives stay on disk either way, and
