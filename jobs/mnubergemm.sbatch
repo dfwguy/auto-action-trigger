@@ -1,11 +1,24 @@
 #!/bin/bash
 ##SBATCH -p defq
-##SBATCH -N 1
+#SBATCH -N 1
 #SBATCH --exclusive
+#SBATCH --mem=0
+#SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
-#SBATCH --gpus-per-node=4
-##SBATCH --cpus-per-task=32
 #SBATCH -t 6:00:00
+
+## Allocation. --exclusive is a JOB-level guarantee and a step inherits only
+## what was explicitly requested, so --gres and --mem=0 are stated even though
+## --exclusive is supposed to cover them.
+##
+## --cpus-per-task stays out. It is the one option here that is both
+## load-bearing and dangerous: setting it implies --exact, so the srun below
+## silently drops to that core count instead of the whole node -- a burn-in
+## running on a quarter of the cores that still reports a clean pass. If it is
+## ever needed (ntasks-per-node x cpus-per-task should equal the node's core
+## count, or cores are stranded inside an exclusive allocation), re-state it on
+## the srun or export SRUN_CPUS_PER_TASK="${SLURM_CPUS_PER_TASK}" alongside it.
+## See docs/benchmarks.md.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=mnubergemm
@@ -13,6 +26,20 @@ totalRuns=12
 
 
 ## ------------- job info starts here ------------- ##
+
+## Preflight -- what the STEP actually holds, asked from inside a step. The
+## job's AllocTRES cannot answer that: a step is a different cgroup, and
+## --exclusive grants the job resources a step does not inherit unless they
+## were named. The passing line's wording is fixed -- the parse block below and
+## verdict.sh grep this same file. See example.sbatch for the full reasoning.
+srun --ntasks=1 bash -c '
+    gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
+    echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
+    [[ "$gpus" -eq 4 && "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
+    echo "preflight: the step did not receive the whole node -- see above"
+    echo FAIL
+    exit 0
+}
 
 
 ## NVIDIA-internal image -- nothing to build from, it has to be obtained

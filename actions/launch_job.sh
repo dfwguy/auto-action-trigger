@@ -439,22 +439,38 @@ for job in "${pending_jobs[@]}"; do
         verdict "$job" "$file"
         [[ "$VERDICT_STATUS" == "DONE" ]] && continue
 
-        ## Every benchmark for a node is submitted under one shared Slurm job
-        ## name so --dependency=singleton serializes them: a job waits until
-        ## every earlier job of the same name and user has terminated. Without
-        ## it the whole batch is eligible at once, and a GPU job landing on top
-        ## of dcgm's stress plugins fails on buffer allocation -- nccl-tests
+        ## What serializes the batch is `#SBATCH --exclusive` in every
+        ## jobs/*.sbatch, not anything passed here. Without serialization the
+        ## whole batch is eligible at once, and a GPU job landing on top of
+        ## dcgm's stress plugins fails on buffer allocation -- nccl-tests
         ## reports that as `Cuda failure 2 'out of memory'` after NCCL init has
         ## already succeeded. The CPU-only jobs (stream, stressapptest) skew
         ## collective timings the same way without ever touching a GPU.
         ##
-        ## The hostname belongs in the name. Singleton matches on name alone,
-        ## cluster-wide, so a bare `bringup` would serialize every node in the
-        ## rack against every other and turn a parallel bringup into a queue of
-        ## one. This also has to be passed here rather than as an #SBATCH line:
-        ## those are comments, not shell, and would not expand $HOSTNAME.
+        ## This used to be `--dependency=singleton` over a shared job name.
+        ## Singleton matches on name alone, cluster-wide, so the name had to
+        ## carry the hostname or a bare `bringup` would have serialized every
+        ## node in the rack against every other -- serialization by string
+        ## equality, one typo away from a rack-wide queue of one, and it said
+        ## nothing about what the job would actually be given when it ran.
+        ## --exclusive states the real requirement -- this job wants the whole
+        ## node -- and the scheduler enforces one-at-a-time from that. It also
+        ## keeps somebody else's job off the node mid-benchmark, which singleton
+        ## never did: it only ever held back OUR jobs of the same name.
+        ##
+        ## Ordering still follows the listed order of benchmarks= in practice:
+        ## these are submitted in that order, carry equal priority, and a
+        ## whole-node job leaves no backfill window for a later one to slip
+        ## into. It is a scheduling consequence rather than a guarantee, so do
+        ## not add a job here that depends on an earlier one having finished.
+        ##
+        ## -J is still per-node and still load-bearing: it is what the
+        ## `squeue -n bringup-$HOSTNAME` query above matches on to see our own
+        ## queued-but-unplaced jobs. It has to be passed here rather than as an
+        ## #SBATCH line -- those are comments, not shell, and would not expand
+        ## $HOSTNAME.
         submit="source /etc/profile.d/modules.sh; module load slurm; \
-mkdir -p $logs && sbatch -w $HOSTNAME -J bringup-$HOSTNAME --dependency=singleton \
+mkdir -p $logs && sbatch -w $HOSTNAME -J bringup-$HOSTNAME \
 --export=ALL,RESULT_FILE=$file --output=$file $launch"
 
         if [[ "$EXPLAIN" -eq 1 ]]; then

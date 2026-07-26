@@ -2,8 +2,22 @@
 #SBATCH -p defq
 #SBATCH -N 1
 #SBATCH --exclusive
+#SBATCH --mem=0
+#SBATCH --gres=gpu:4
+#SBATCH --ntasks-per-node=1
 #SBATCH -t 2:00:00
 ##SBATCH -o /home/cmods/bringup/results/%N/llm-pretrain.txt
+
+## Allocation. --exclusive is a JOB-level guarantee and a step inherits only
+## what was explicitly requested, so --gres and --mem=0 are stated even though
+## --exclusive is supposed to cover them. Without the --gres line this job held
+## an exclusive node and handed its srun zero GPUs. --cpus-per-task is
+## deliberately absent: it implies --exact and would shrink the step.
+## See docs/benchmarks.md.
+##
+## LLMB_SCALE below is 8 while this asks for 4 GPUs -- the recipe is still TBD
+## and the two have to agree before this job is enabled. Set both from the GPU
+## count of the platform under test.
 
 ## AI Factory Testing Plan: Single-Node LLM Pre-Training -- SNT3
 ## End-to-end pre-training scoped to one node. Validates the full workload
@@ -20,6 +34,20 @@
 job_name=llm-pretrain
 
 ## ------------- job info starts here ------------- ##
+
+## Preflight -- what the STEP actually holds, asked from inside a step. The
+## job's AllocTRES cannot answer that: a step is a different cgroup, and
+## --exclusive grants the job resources a step does not inherit unless they
+## were named. The passing line's wording is fixed -- the parse block below and
+## verdict.sh grep this same file. See example.sbatch for the full reasoning.
+srun --ntasks=1 bash -c '
+    gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
+    echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
+    [[ "$gpus" -eq 4 && "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
+    echo "preflight: the step did not receive the whole node -- see above"
+    echo FAIL
+    exit 0
+}
 
 ## llmb-run installation root (llmb_install from the LLMB installer)
 export LLMB_INSTALL=/home/cmods/bringup/llmb

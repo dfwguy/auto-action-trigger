@@ -2,8 +2,17 @@
 #SBATCH -p defq
 #SBATCH -N 1
 #SBATCH --exclusive
+#SBATCH --mem=0
+#SBATCH --ntasks-per-node=1
 #SBATCH -t 1:00:00
 ##SBATCH -o /home/cmods/bringup/results/%N/stream.txt
+
+## Allocation. No --gres: this job never touches a GPU. --mem=0 is stated
+## because --exclusive does not imply it and STREAM sizes its arrays against
+## the memory it can actually get. --cpus-per-task is deliberately absent: it
+## implies --exact, and the step would then see that many cores rather than the
+## whole node -- which is exactly what OMP_NUM_THREADS below reads.
+## See docs/benchmarks.md.
 
 ## AI Factory Testing Plan: STREAM -- SNT2 (Exhaustive)
 ## Sustained CPU memory bandwidth (Copy/Scale/Add/Triad) against arrays too
@@ -14,6 +23,19 @@
 job_name=stream
 
 ## ------------- job info starts here ------------- ##
+
+## Preflight -- what the STEP actually holds, asked from inside a step. The
+## job's AllocTRES cannot answer that: a step is a different cgroup, and
+## --exclusive grants the job resources a step does not inherit unless they
+## were named. The passing line's wording is fixed -- the parse block below and
+## verdict.sh grep this same file. See example.sbatch for the full reasoning.
+srun --ntasks=1 bash -c '
+    echo "preflight: $(hostname) cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
+    [[ "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
+    echo "preflight: the step did not receive the whole node -- see above"
+    echo FAIL
+    exit 0
+}
 
 ## STREAM ships inside the HPC-Benchmarks image, the same one the NCCL jobs use.
 ## stream-cpu-test.sh is Arm SBSA only (Grace/Vera); on x86 hosts install

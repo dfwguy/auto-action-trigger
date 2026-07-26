@@ -17,12 +17,25 @@ Benchmarks support multiple runs via `totalRuns=N` in the `.sbatch` file (see
 run) or `<job>-run<N>.txt` (multiple runs). Prior failures are archived as
 `<job>.fail<N>.txt` and left in place as the attempt history.
 
-Every benchmark for a node is submitted under one shared Slurm job name
-(`bringup-<node>`) with `--dependency=singleton`, which is what serializes them.
-Without it the whole batch is eligible at once and a GPU job landing on top of
-dcgm's stress plugins fails on buffer allocation. The hostname is part of the
-name because singleton matches on name alone, cluster-wide — a bare `bringup`
-would serialize every node in the rack against every other.
+What serializes the batch is `#SBATCH --exclusive` in every `jobs/*.sbatch`.
+Without serialization the whole batch is eligible at once and a GPU job landing
+on top of dcgm's stress plugins fails on buffer allocation. Ordering follows the
+`benchmarks=` list in practice — the jobs are submitted in that order, carry
+equal priority, and a whole-node job leaves no backfill window for a later one
+to slip into — but that is a scheduling consequence, not a guarantee. No job
+should depend on an earlier one having finished.
+
+This used to be `--dependency=singleton` over a shared job name. Singleton
+matches on name alone, cluster-wide, so the name had to carry the hostname or a
+bare `bringup` would have serialized every node in the rack against every other:
+serialization by string equality, and silent about what a job would actually be
+given once it ran. `--exclusive` states the real requirement — this job wants
+the whole node — and additionally keeps *other people's* jobs off the node
+mid-benchmark, which singleton never did.
+
+The shared job name `bringup-<node>` stays, for a different reason: `squeue -n
+bringup-<node>` is how the sequencer sees its own jobs while they are still
+queued and unplaced, which `squeue -w <node>` cannot show.
 
 ## Retry and drain behaviour
 

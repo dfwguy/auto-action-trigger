@@ -49,9 +49,82 @@ Everything else needs one of three things first:
   to run. It is out of the default list for that reason. On a DGX site it also
   needs a sudoers grant on every compute node — see [nvsm.md](nvsm.md).
 
+## The allocation header
+
+Every job in `jobs/` asks for the whole node. That is what serializes the sweep
+(see [sequencer.md](sequencer.md)) and what makes a bandwidth or latency number
+mean anything: a benchmark sharing a node with another job is measuring the
+other job.
+
+The one principle behind the header shape:
+
+> **`--exclusive` is a job-level guarantee. Steps inherit only what you
+> *explicitly requested*, never what you were implicitly granted.**
+
+| Asked for | Job gets | Step (`srun`) gets |
+|---|---|---|
+| `--exclusive` alone | all CPUs, all GPUs, default memory | all CPUs, **no GPUs** |
+| `--exclusive --gres=gpu:4` | all CPUs, 4 GPUs, default memory | all CPUs, 4 GPUs |
+| `--exclusive --mem=0` | all CPUs, all GPUs, all memory | — |
+| `--exclusive -c 32` | all CPUs | `--exact` implied → **32 cores** |
+
+So every job states:
+
+```bash
+#SBATCH -N 1
+#SBATCH --exclusive
+#SBATCH --mem=0                 # never implied — say it
+#SBATCH --gres=gpu:4            # GPU jobs only — do not rely on --exclusive
+#SBATCH --ntasks-per-node=4     # one task per GPU, or 1 for single-task jobs
+#SBATCH -t <walltime>
+```
+
+and no job sets `--cpus-per-task`. It is load-bearing and dangerous: setting it
+implies `--exact`, and the step silently drops to that core count inside an
+allocation holding every core. A job that needs it must re-state it on the
+`srun` or export `SRUN_CPUS_PER_TASK="${SLURM_CPUS_PER_TASK}"`, and keep
+`ntasks-per-node × cpus-per-task` equal to the node's core count or cores sit
+stranded.
+
+The GPU count is a literal `4` in both the `--gres` line and the preflight
+below. On a platform with a different count, change both together.
+
+### Preflight
+
+Every job opens with a one-line `srun` that reports what the *step* holds:
+
+```
+preflight: <node> gpus=4 cores=144/144
+```
+
+and fails the job if it is not what was asked for. This is checked from inside a
+step because that is the only place that can see it — a step is a different
+cgroup from the batch script body, so a correct `AllocTRES` on the job tells you
+nothing about what the workload will get. `jobs/example.sbatch` carries the full
+reasoning, including why the passing line is worded the way it is: several parse
+blocks and `verdict.sh` grep the same file case-insensitively for
+`fail`/`warn`/`error`, and the nccl-tests parser reads any line starting with a
+digit as a data row.
+
+Two things to check by hand when a job looks wrong:
+
+| Check | Command | Expect |
+|---|---|---|
+| Job holds everything | `scontrol show job $ID \| grep -i alloctres` | `cpu=<all>,gres/gpu=4,mem=<all>` |
+| Step holds it too | `sacct -j $ID -o JobID,AllocTRES%60` | the `.0` row matches its parent |
+| Only one job on the node | `squeue -w <node> -t R` | one row |
+
+Three partition-level settings make the header redundant, and are worth asking a
+Slurm admin for: `LaunchParameters=srun_exclusive_allocation` (steps inherit the
+whole allocation), `DefMemPerNode=0` (removes the `--mem=0` requirement), and
+`OverSubscribe=EXCLUSIVE` (jobs get whole nodes without asking). The header is
+written not to depend on any of them.
+
 ## Adding a new benchmark
 
-1. Copy `jobs/example.sbatch` to `jobs/<name>.sbatch`.
+1. Copy `jobs/example.sbatch` to `jobs/<name>.sbatch`. Its `#SBATCH` header and
+   preflight block are part of what you are copying — see
+   [the allocation header](#the-allocation-header).
 2. Set `job_name=<name>` and optionally `totalRuns=N`.
 3. Add your workload between the job and parse sections.
 4. The parse section must `echo PENDING` if the workload ran and `echo FAIL` if

@@ -190,12 +190,13 @@ fi
 # The column a running batch is currently writing, or empty.
 #
 # squeue knows a job is running on the node but not which benchmark it is: all
-# of them share the one `bringup-<node>` name so --dependency=singleton can
-# serialize them. The file system knows. sbatch truncates its --output at job
-# start, and singleton means no earlier benchmark for this node is still
-# running, so the live job's file is the most recently touched result file on
-# the node -- newest even when it has not yet written its first byte, because
-# every other file was last written by a job that had already exited.
+# of them share the one `bringup-<node>` name, which is how launch_job.sh finds
+# its own queued jobs. The file system knows. sbatch truncates its --output at
+# job start, and every benchmark is `#SBATCH --exclusive`, so no earlier one for
+# this node is still running -- the live job's file is therefore the most
+# recently touched result file on the node, newest even when it has not yet
+# written its first byte, because every other file was last written by a job
+# that had already exited.
 #
 # Archives are excluded: a .fail<N>.txt is created by launch_job.sh's `mv` at
 # submit time, which can leave it newer than the file the new job is writing.
@@ -278,7 +279,7 @@ for node_dir in "$results_dir"/$pattern/; do
         ## The one column on this node that a live batch is writing is not a
         ## job that died before its last line -- it has not reached its last
         ## line yet. Every OTHER incomplete column on the same node keeps its
-        ## INCOMPLETE: singleton runs these one at a time, so a marker-less
+        ## INCOMPLETE: --exclusive runs these one at a time, so a marker-less
         ## file that is not the one being written was left by a job that has
         ## already exited.
         if [[ "$status" == "INCOMPLETE" && -n "$live" && "$col" == "$live" ]]; then

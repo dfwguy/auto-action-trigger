@@ -1,9 +1,21 @@
 #!/bin/bash
-##SBATCH -p defq
-##SBATCH --exclusive
-##SBATCH -N1
-#SBATCH --gpus-per-node=1
+#SBATCH -p defq
+#SBATCH -N 1
+#SBATCH --exclusive
+#SBATCH --mem=0
+#SBATCH --gres=gpu:4
+#SBATCH --ntasks-per-node=1
+#SBATCH -t 2:00:00
 ##SBATCH -o /home/cmods/bringup/results/%N/hpl.txt
+
+## Allocation. --exclusive is a JOB-level guarantee and a step inherits only
+## what was explicitly requested, so --gres and --mem=0 are stated even though
+## --exclusive is supposed to cover them. --cpus-per-task is deliberately
+## absent: it implies --exact and would shrink the step. See docs/benchmarks.md.
+##
+## This asked for one GPU before, which is not what the job runs -- the
+## commented --gpu-affinity line below maps four. Remediation-only either way:
+## it is not in the benchmarks= list and is submitted by hand.
 #
 ## Locally built image (build_containers.sh). The node-local copy that
 ## actions/file_copy.sh rsyncs to /tmp is preferred so job start does not read
@@ -21,6 +33,20 @@ HPLDATPATH=/home/cmods/bringup/jobs/hpl/
 job_name=hpl
 
 ## ------------- job info starts here ------------- ##
+
+## Preflight -- what the STEP actually holds, asked from inside a step. The
+## job's AllocTRES cannot answer that: a step is a different cgroup, and
+## --exclusive grants the job resources a step does not inherit unless they
+## were named. The passing line's wording is fixed -- the parse block below and
+## verdict.sh grep this same file. See example.sbatch for the full reasoning.
+srun --ntasks=1 bash -c '
+    gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
+    echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
+    [[ "$gpus" -eq 4 && "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
+    echo "preflight: the step did not receive the whole node -- see above"
+    echo FAIL
+    exit 0
+}
 
 #hosts=($(scontrol show hostnames $SLURM_JOB_NODELIST))
 

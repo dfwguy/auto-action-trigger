@@ -1,16 +1,39 @@
 #!/bin/bash
 #SBATCH -p defq
-##SBATCH --exclusive
-##SBATCH -N1
+#SBATCH -N 1
+#SBATCH --exclusive
+#SBATCH --mem=0
+#SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
-#SBATCH --gpus-per-node=4
+#SBATCH -t 1:00:00
 ##SBATCH -o /home/cmods/bringup/results/%N/allreduce.txt
+
+## Allocation. --exclusive is a JOB-level guarantee, and a step inherits only
+## what was explicitly requested -- never what the job was implicitly granted.
+## So --gres and --mem=0 are stated even though --exclusive is supposed to
+## cover them, and --cpus-per-task is deliberately absent: it implies --exact
+## and would shrink every srun below to that core count. See the allocation
+## header section of docs/benchmarks.md.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=allreduce
 totalRuns=1
 
 ## ------------- job info starts here ------------- ##
+
+## Preflight -- what the STEP actually holds, asked from inside a step. The
+## job's AllocTRES cannot answer that: a step is a different cgroup, and
+## --exclusive grants the job resources a step does not inherit unless they
+## were named. The passing line's wording is fixed -- the parse block below and
+## verdict.sh grep this same file. See example.sbatch for the full reasoning.
+srun --ntasks=1 bash -c '
+    gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
+    echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
+    [[ "$gpus" -eq 4 && "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
+    echo "preflight: the step did not receive the whole node -- see above"
+    echo FAIL
+    exit 0
+}
 
 
 
