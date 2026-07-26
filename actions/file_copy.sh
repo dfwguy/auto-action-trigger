@@ -45,8 +45,36 @@ command -v rsync >/dev/null 2>&1 || exit 0
 
 mkdir -p "$dst" 2>/dev/null || exit 0
 
-## --partial so a run cut short by the action timeout resumes next cycle
-## instead of starting the multi-gigabyte transfer again.
+## BCM caps an action timeout at 2m and kills whatever is still running. The
+## first sync of an image is multi-gigabyte over NFS and does not fit in that,
+## so the copy is detached with setsid and this script returns immediately.
+## The action always completes well inside its timeout; the transfer outlives
+## it. --partial means even a copy killed for some other reason resumes rather
+## than restarting.
+##
+## flock keeps the monitoring cycles from stacking: the trigger is
+## duringactions, so it fires again every cycle while the first copy is still
+## running, and without the lock each one would spawn another rsync against
+## the same destination.
+lock=/tmp/.file_copy.lock
+
+if [[ -z "${FILE_COPY_DETACHED:-}" ]]; then
+    ## Re-exec through bash rather than running "$0" directly: the latter needs
+    ## the exec bit, and a checkout that lost it would fail here silently and
+    ## never copy anything.
+    if command -v setsid >/dev/null 2>&1; then
+        FILE_COPY_DETACHED=1 setsid nohup bash "$0" </dev/null >/dev/null 2>&1 &
+        exit 0
+    fi
+    ## No setsid: fall through and copy inline. Large images will be cut off
+    ## at the action timeout and resume on later cycles instead.
+fi
+
+if command -v flock >/dev/null 2>&1; then
+    exec 9>"$lock" 2>/dev/null || exit 0
+    flock -n 9 || exit 0          # a copy from an earlier cycle is still running
+fi
+
 rsync -a --partial "$src/" "$dst/" >/dev/null 2>&1
 
 exit 0

@@ -12,16 +12,28 @@
 ### ACTIONS  ###
 ################
 
+## cmsh exits 0 even when an individual `set` inside the -c string was
+## rejected -- it reports the problem on stdout and carries on to the commit.
+## So exit status is useless here and the output has to be inspected. Getting
+## this wrong once already produced a trigger with no actions attached that
+## still reported success, which is the failure mode most worth catching: the
+## object exists, so nothing looks broken until you notice nothing runs.
+cm_run() {
+    local label="$1" cmd="$2" out
+    out=$(cmsh -c "$cmd" 2>&1)
+    if grep -qiE 'error:|Unable to find|Some elements were not found|No actions were set|uncommitted changes' <<<"$out"; then
+        [[ -n "$out" ]] && printf '%s\n' "$out" >&2
+        echo "FAILED: ${label}" >&2
+        return 1
+    fi
+    echo "ok: ${label}"
+}
+
 ## Remove first, ignoring "does not exist", then add. cmsh has no upsert.
 cm_replace() {
     local kind="$1" name="$2" spec="$3"
     cmsh -c "monitoring ${kind}; remove ${name}; commit" >/dev/null 2>&1
-    if cmsh -c "monitoring ${kind}; add ${spec}; commit"; then
-        echo "ok: ${name}"
-    else
-        echo "FAILED: ${name}" >&2
-        return 1
-    fi
+    cm_run "${name}" "monitoring ${kind}; add ${spec}; commit"
 }
 
 rc=0
@@ -31,14 +43,13 @@ cm_replace action node_health_action \
     'script node_health_action; set runon node; set script /home/cmods/bringup/actions/node_health.sh; set timeout 2m; set nodeenvironment yes; set runinshell yes; set mergedelay 0s; set mergetriggers yes; set mergemeasurables no' || rc=1
 
 # Action for Container Copy
-## timeout 10m, not the 2m the others use: the first sync of an image is
-## multi-gigabyte over NFS and will not finish in two minutes. A timed-out
-## action leaves a partial /tmp/containers, which rsync --partial resumes on
-## the next cycle, so an undersized timeout degrades to "converges slowly"
-## rather than "never works" -- but it also logs an action failure every cycle
-## while it does.
+## 2m is BCM's hard maximum for an action timeout -- anything larger is
+## rejected outright ("above the maximum value of 2m"). The first sync of an
+## image is multi-gigabyte over NFS and will not finish inside that, so
+## file_copy.sh detaches the rsync and returns immediately rather than being
+## killed mid-transfer on every monitoring cycle. See the header there.
 cm_replace action file_copy_action \
-    'script file_copy_action; set runon node; set script /home/cmods/bringup/actions/file_copy.sh; set timeout 10m; set nodeenvironment yes; set runinshell no; set mergedelay 0s; set mergetriggers no; set mergemeasurables no' || rc=1
+    'script file_copy_action; set runon node; set script /home/cmods/bringup/actions/file_copy.sh; set timeout 2m; set nodeenvironment yes; set runinshell no; set mergedelay 0s; set mergetriggers no; set mergemeasurables no' || rc=1
 
 # Action for Launch Job (slurm)
 cm_replace action launch_job_action \
@@ -55,12 +66,7 @@ cm_replace action launch_job_action \
 cm_trigger() {
     local name="$1" action="$2"
     cmsh -c "monitoring trigger; remove ${name}; commit" >/dev/null 2>&1
-    if cmsh -c "monitoring trigger; add ${name}; use ${name}; set disabled no; set severity 10; set duringactions ${action}; expression; use compare; set measurables devicestatus; set operator ==; set value UP; ..;..; set markentityasfailed no; set markentityasunknown no; commit"; then
-        echo "ok: ${name}"
-    else
-        echo "FAILED: ${name}" >&2
-        return 1
-    fi
+    cm_run "${name}" "monitoring trigger; add ${name}; use ${name}; set disabled no; set severity 10; set duringactions ${action}; expression; use compare; set measurables devicestatus; set operator ==; set value UP; ..;..; set markentityasfailed no; set markentityasunknown no; commit"
 }
 
 # Trigger for Node Health
