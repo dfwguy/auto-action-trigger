@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: status-check.sh [-t test] [pattern]
+# Usage: status-check.sh [-t test] [-s] [pattern]
 #
 #   pattern  optional node-name filter. A bare string matches every node whose
 #            name starts with it, so a rack prefix (dh01-rack01) covers the
@@ -23,19 +23,38 @@
 #            run. A pattern matching no active benchmark is an error rather
 #            than an empty report -- with no output, a typo'd test name reads
 #            exactly like a clean cluster.
+#
+#   -s, --summary
+#            roll-up instead of the per-column report: one compressed node list
+#            per status, for feeding to scancel/pdsh/scontrol. Reasons are
+#            dropped -- this answers "which nodes" and the default report
+#            answers "why".
+#
+#            Every node lands in exactly ONE list, under the worst status it
+#            holds across the selected tests (FAIL > INCOMPLETE > RETRY >
+#            NOT_RUN > DONE), so the lists are disjoint and a node cannot be
+#            acted on twice. DONE therefore means every selected test passes,
+#            not that some did.
+#
+#            Combines with -t, and the header names the tests the roll-up
+#            covers: `-s -t allreduce` is a list of nodes judged on allreduce
+#            alone, and an exported list that does not say so is one paste away
+#            from draining nodes for a test they were never judged on.
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 results_dir="$home/results"
 jobs_dir="$home/jobs"
 
 tests=()
+summary=0
 args=()
 while (($#)); do
     case "$1" in
         -t|--test)
             [[ -n "$2" ]] || { echo "ERROR: $1 needs a test pattern" >&2; exit 1; }
             tests+=("$2"); shift 2 ;;
-        -h|--help) sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        -s|--summary) summary=1; shift ;;
+        -h|--help) sed -n '2,42p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         *)         args+=("$1"); shift ;;
     esac
 done
@@ -125,11 +144,22 @@ for node_dir in "$results_dir"/$pattern/; do
     [[ -d "$node_dir" ]] && matched=1 && break
 done
 if [[ "$matched" -eq 0 ]]; then
-    echo "No nodes under $results_dir match '${1:-*}'" >&2
+    # args[0], not $1 -- $1 is whichever flag came first once -t/-s are in play.
+    echo "No nodes under $results_dir match '${args[0]:-*}'" >&2
     exit 1
 fi
 
-# Emit one line per node per column, then pipe to dshbak for grouping
+# Worst status a node holds decides its summary bucket. Ranked so the roll-up
+# lists stay disjoint: a node failing one test and missing another is a FAIL,
+# because that is the state that has to be acted on first.
+declare -A rank=([FAIL]=5 [INCOMPLETE]=4 [RETRY]=3 [NOT_RUN]=2 [DONE]=1)
+declare -A worst  # node -> worst status seen across the selected columns
+
+# One line per node per column on stdout, and the per-node roll-up in `worst`.
+# Only the default path pipes this into dshbak: a pipeline runs the loop in a
+# subshell, so piping in summary mode would build `worst` in a child and leave
+# the parent printing empty lists.
+scan() {
 for node_dir in "$results_dir"/$pattern/; do
     [[ -d "$node_dir" ]] || continue
     node=$(basename "$node_dir")
@@ -171,6 +201,15 @@ for node_dir in "$results_dir"/$pattern/; do
         # all mean the same thing. The archives stay on disk either way, and
         # the daily CSV still carries the per-job counts.
         [[ "$status" == "DONE" ]] && fails=0
+
+        if [[ "$summary" -eq 1 ]]; then
+            prior="${worst[$node]:-}"
+            if [[ -z "$prior" || "${rank[$status]}" -gt "${rank[$prior]}" ]]; then
+                worst["$node"]="$status"
+            fi
+            continue
+        fi
+
         # The reason is part of the line on purpose. dshbak groups identical
         # lines, so nodes failing the same way collapse into one block and a
         # single node failing differently stands out -- the same reason
@@ -180,4 +219,53 @@ for node_dir in "$results_dir"/$pattern/; do
         [[ "$fails" -gt 0 ]] && line+=" (fails: $fails)"
         echo "$line"
     done
-done | sort | dshbak -c
+done
+}
+
+if [[ "$summary" -ne 1 ]]; then
+    scan | sort | dshbak -c
+    exit 0
+fi
+
+# Ranges rather than a bare comma list, so a bucket can be pasted straight into
+# scancel/pdsh -w. Falls back to the raw list where scontrol is not on PATH,
+# which is still valid input to most of the same tools.
+compress() {
+    local out
+    out=$(scontrol show hostlistsorted "$1" 2>/dev/null)
+    [[ -n "$out" ]] && printf '%s' "$out" || printf '%s' "$1"
+}
+
+plural() { [[ "$1" -eq 1 ]] && printf 'node' || printf 'nodes'; }
+
+scan
+
+# Name the tests up front. A roll-up carries no column names, so without this
+# a list produced by -t reads as a verdict on the whole benchmark set.
+if [[ ${#tests[@]} -gt 0 ]]; then
+    echo "SUMMARY — judged on: ${columns[*]}"
+else
+    echo "SUMMARY — judged on all ${#columns[@]} active columns"
+fi
+echo
+
+bucket() {
+    local status="$1" note="$2" list="" n=0 node
+    # Sorted, because the fallback path prints this list as-is and associative
+    # array order is a hash order -- the same cluster would export the same
+    # nodes in a different order on every run, and no diff of two runs would
+    # mean anything.
+    while IFS= read -r node; do
+        [[ "${worst[$node]}" == "$status" ]] && { list+="${list:+,}$node"; ((n++)); }
+    done < <(printf '%s\n' "${!worst[@]}" | sort)
+    [[ "$n" -eq 0 ]] && return
+    printf '%s — %d %s (%s)\n' "$status" "$n" "$(plural "$n")" "$note"
+    printf '%s\n\n' "$(compress "$list")"
+}
+
+# Failures first: on an export the actionable list is the one being reached for.
+bucket FAIL       "ran and was rejected by the current gate"
+bucket INCOMPLETE "died before writing an end marker"
+bucket RETRY      "last attempt rejected, resubmitted, nothing written yet"
+bucket NOT_RUN    "no attempt has ever been made"
+bucket DONE       "every selected test passes the current gate"

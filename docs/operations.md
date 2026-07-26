@@ -12,6 +12,8 @@ bash status-check.sh                      # every node
 bash status-check.sh ink50-dh01-h20        # one rack (bare prefix)
 bash status-check.sh -t allreduce          # one benchmark, every run of it
 bash status-check.sh -t 'allreduce*' -t dcgm ink50-dh01-h20
+bash status-check.sh -s                    # node lists per status, no reasons
+bash status-check.sh -s -t allreduce       # ...judged on allreduce alone
 ```
 
 `-t` is repeatable and matched as written -- no `*` is appended the way it is
@@ -20,6 +22,24 @@ for the node pattern, because benchmark names are prefixes of each other and
 the job name (`-t allreduce` → every run) or a full column (`-t allreduce-run2`
 → that run). A pattern matching no active benchmark exits 1 and lists what is
 active, rather than printing an empty report that reads like a clean cluster.
+
+`-s` replaces the per-column report with one compressed node list per status
+(FAIL / INCOMPLETE / RETRY / NOT_RUN / DONE), reasons dropped, for pasting into
+`scancel`, `pdsh -w` or `scontrol`:
+
+```
+SUMMARY — judged on: allreduce
+
+FAIL — 2 nodes (ran and was rejected by the current gate)
+ink50-dh01-h20-[03,17]
+```
+
+Every node appears in exactly one list, under the worst status it holds across
+the selected tests (FAIL > INCOMPLETE > RETRY > NOT_RUN > DONE), so the lists
+are disjoint and a node cannot be acted on twice. DONE there means *every*
+selected test passes, not that some did. The header names the tests the roll-up
+covers, because a `-t`-scoped list that does not say so is one paste away from
+draining nodes over a test they were never judged on.
 
 Reads `results/` and prints per-node status for each benchmark column, grouped
 by identical status via `dshbak`. Verdicts are derived from the log by
