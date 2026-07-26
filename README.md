@@ -28,7 +28,7 @@ A local user named `cmods` must exist on the **headnode and every compute node**
 | `numactl` | `node_health.sh` (NUMA checks) |
 | `dmidecode` | `node_health.sh` (BIOS/memory checks) |
 | `dcgmi` | `jobs/dcgm.sbatch`, `jobs/dcgm-r2.sbatch`, `jobs/dcgm-r4.sbatch` |
-| `nvsm` | `jobs/nvsm.sbatch` (runs on the host, no container) |
+| `nvsm` | `jobs/nvsm.sbatch` (runs on the host, no container, needs root — see [below](#running-nvsm-as-root)) |
 | `nvidia-imex-ctl` | `node_health.sh` (IMEX checks, GB series only) |
 | `dshbak` | `status-check.sh` |
 | `rsync` | `actions/file_copy.sh` (optional) |
@@ -156,6 +156,46 @@ side. `dcgm*` and `nvsm` use host-installed binaries; the NCCL jobs pull the
 public `docker://nvcr.io#nvidia/hpc-benchmarks:26.02` image, which enroot
 fetches and caches on first use. `hpl`, `cublasmatmul`, and `stream` use the
 same upstream image.
+
+#### Running nvsm as root
+
+`nvsm` exits immediately with `nvsm must be run with root privileges` for any
+other user:
+
+```
+ERROR:nvsm:nvsm must be run with root privileges
+srun: error: node001: task 0: Exited with exit code 1
+```
+
+Jobs are submitted via `su - cmods`, and Slurm runs the task as the submitting
+user — there is no way to have `srun` launch the task as root. `jobs/nvsm.sbatch`
+therefore calls `sudo -n nvsm`, which needs a passwordless sudoers grant for
+`cmods` on **every compute node** (not just the headnode). Drop a file in
+`/etc/sudoers.d/` — via the BCM software image so it survives a reprovision:
+
+```bash
+# /etc/sudoers.d/cmods-nvsm  (mode 0440, root:root)
+cmods ALL=(root) NOPASSWD: /usr/bin/nvsm, /usr/sbin/nvsm
+```
+
+Use the path `command -v nvsm` reports on the node; both are listed above
+because the location varies by NVSM package. Validate before deploying:
+
+```bash
+visudo -cf /etc/sudoers.d/cmods-nvsm
+su - cmods -c 'sudo -n nvsm show version'    # run on a compute node
+```
+
+The job preflights the grant with `nvsm show version` and writes `FAIL` with an
+explicit "no passwordless sudo grant" line if it is missing, so a sudoers gap is
+distinguishable from a real stress-test failure in `results/<node>/nvsm.txt`.
+Note that this is the one job where a bad node drain can be caused by cluster
+configuration rather than the hardware.
+
+If site policy forbids the grant, the alternative is to drop `nvsm` from the
+`benchmarks=` list in `actions/launch_job.sh` and run the stress test by hand
+from the headnode as root (`pdsh -w <nodes> nvsm stress-test --force`), outside
+the automated sequence.
 
 `nvbandwidth`, `nvloom`, and `mnubergemm` have no public upstream image and are
 left out of the default list for that reason. See

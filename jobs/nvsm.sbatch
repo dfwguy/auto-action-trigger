@@ -20,12 +20,30 @@ STRESS_SECONDS=1200
 
 unset CUDA_VISIBLE_DEVICES
 
-## nvsm is installed on the host alongside dcgmi -- no container. Must run as
-## root on the node under test.
-srun --ntasks-per-node=1 nvsm stress-test --force --duration="${STRESS_SECONDS}"
+## nvsm is installed on the host alongside dcgmi -- no container. It refuses to
+## run as anyone but root, and Slurm runs the task as the submitting user
+## (cmods), so we escalate with sudo. `-n` keeps it non-interactive -- there is
+## no tty on a batch task, so a password prompt would hang until the walltime.
+## Requires a NOPASSWD sudoers grant for cmods on every compute node; see the
+## nvsm section of the README.
+if [[ $(id -u) -eq 0 ]]; then
+	NVSM=(nvsm)
+else
+	NVSM=(sudo -n nvsm)
+fi
+
+## Fail fast and loudly if the grant is missing, so the parse below reports a
+## setup problem instead of a bogus hardware failure.
+if ! srun --ntasks-per-node=1 "${NVSM[@]}" show version > /dev/null 2>&1; then
+	echo "ERROR: cannot run nvsm as root -- no passwordless sudo grant for $(id -un)"
+	echo FAIL
+	exit 0
+fi
+
+srun --ntasks-per-node=1 "${NVSM[@]}" stress-test --force --duration="${STRESS_SECONDS}"
 
 ## Follow-on health summary for the same node
-srun --ntasks-per-node=1 nvsm show health
+srun --ntasks-per-node=1 "${NVSM[@]}" show health
 
 
 ## ------------- parse info starts here ----------- ##
