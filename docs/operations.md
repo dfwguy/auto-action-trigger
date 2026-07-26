@@ -10,7 +10,16 @@ this page is the full set.
 ```bash
 bash status-check.sh                      # every node
 bash status-check.sh ink50-dh01-h20        # one rack (bare prefix)
+bash status-check.sh -t allreduce          # one benchmark, every run of it
+bash status-check.sh -t 'allreduce*' -t dcgm ink50-dh01-h20
 ```
+
+`-t` is repeatable and matched as written -- no `*` is appended the way it is
+for the node pattern, because benchmark names are prefixes of each other and
+`-t allreduce` would otherwise drag in `allreduce-nonvlink`. It matches either
+the job name (`-t allreduce` → every run) or a full column (`-t allreduce-run2`
+→ that run). A pattern matching no active benchmark exits 1 and lists what is
+active, rather than printing an empty report that reads like a clean cluster.
 
 Reads `results/` and prints per-node status for each benchmark column, grouped
 by identical status via `dshbak`. Verdicts are derived from the log by

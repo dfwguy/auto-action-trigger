@@ -1,18 +1,46 @@
 #!/bin/bash
 #
-# Usage: status-check.sh [pattern]
+# Usage: status-check.sh [-t test] [pattern]
 #
 #   pattern  optional node-name filter. A bare string matches every node whose
 #            name starts with it, so a rack prefix (dh01-rack01) covers the
 #            whole rack. Shell globs (dh01-rack0[12]*, *node05) are honored as
 #            written, so an explicit pattern can match anywhere in the name.
 #            With no pattern, every node under results/ is reported.
+#
+#   -t, --test <pattern>
+#            optional test filter, repeatable (-t dcgm -t allreduce). Unlike the
+#            node pattern this does NOT append a `*`: benchmark names are
+#            prefixes of each other (allreduce, allreduce-nonvlink), so an
+#            implicit prefix match would quietly pull in the nonvlink variant
+#            every time someone asked for allreduce. Match it as written and
+#            spell the glob out -- `-t 'allreduce*'` for both, `-t '*nonvlink'`
+#            for the nonvlink pair.
+#
+#            The pattern is matched against the job name AND against the full
+#            column name, so `-t allreduce` selects every run of allreduce
+#            (allreduce-run1..runN) while `-t allreduce-run2` selects the one
+#            run. A pattern matching no active benchmark is an error rather
+#            than an empty report -- with no output, a typo'd test name reads
+#            exactly like a clean cluster.
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 results_dir="$home/results"
 jobs_dir="$home/jobs"
 
-pattern="$1"
+tests=()
+args=()
+while (($#)); do
+    case "$1" in
+        -t|--test)
+            [[ -n "$2" ]] || { echo "ERROR: $1 needs a test pattern" >&2; exit 1; }
+            tests+=("$2"); shift 2 ;;
+        -h|--help) sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        *)         args+=("$1"); shift ;;
+    esac
+done
+
+pattern="${args[0]}"
 if [[ -z "$pattern" ]]; then
     pattern='*'
 elif [[ "$pattern" != *[\*\?\[]* ]]; then
@@ -25,6 +53,17 @@ active_benchmarks=$(grep -E '^benchmarks=' "$home/actions/launch_job.sh" | head 
 # Build ordered job+run list matching what launch_job.sh actually tracks
 declare -a columns  # each entry is "job" or "job-runN"
 
+# Both names are offered to the pattern rather than stripping "-runN" off the
+# column: the split is only reliable here, where the suffix was just built.
+select_test() {
+    local job="$1" col="$2" pat
+    [[ ${#tests[@]} -eq 0 ]] && return 0
+    for pat in "${tests[@]}"; do
+        [[ "$job" == $pat || "$col" == $pat ]] && return 0
+    done
+    return 1
+}
+
 for job in $active_benchmarks; do
     sbatch="$jobs_dir/$job.sbatch"
     [[ -f "$sbatch" ]] || continue
@@ -35,13 +74,23 @@ for job in $active_benchmarks; do
     fi
 
     if [[ "$totalRuns" -eq 1 ]]; then
-        columns+=("$job")
+        select_test "$job" "$job" && columns+=("$job")
     else
         for ((r=1; r<=totalRuns; r++)); do
-            columns+=("${job}-run${r}")
+            select_test "$job" "${job}-run${r}" && columns+=("${job}-run${r}")
         done
     fi
 done
+
+if [[ ${#columns[@]} -eq 0 ]]; then
+    if [[ ${#tests[@]} -gt 0 ]]; then
+        echo "No active benchmark matches: ${tests[*]}" >&2
+        echo "Active benchmarks: $active_benchmarks" >&2
+    else
+        echo "No active benchmark has a job file under $jobs_dir" >&2
+    fi
+    exit 1
+fi
 
 ## The verdict is derived from the log by verdict.sh on every run, not read from
 ## a marker the sbatch wrote. So this reports what the CURRENT gate makes of a

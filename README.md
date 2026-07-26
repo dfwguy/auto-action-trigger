@@ -139,6 +139,7 @@ rm /home/cmods/bringup/NODRAIN
 ```bash
 bash status-check.sh                      # per-node benchmark status, all nodes
 bash status-check.sh ink50-dh01-h20        # one rack (bare prefix)
+bash status-check.sh -t allreduce          # one benchmark (repeatable, globs OK)
 bash status-daily-report.sh               # CSV to reports/, with performance metrics
 bash watch-rack.sh "rack01-node[1-32]"    # live view of DOWN/drained nodes
 ```
