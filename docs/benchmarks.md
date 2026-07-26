@@ -60,3 +60,10 @@ The parse section should require positive evidence of a completed run, not just
 the absence of the word `error`. Every job here greps for something the tool
 only prints when it actually ran — a results table, a health summary, a
 bandwidth figure — because an empty output file otherwise reports `DONE`.
+
+Where the point of a job is *how* the work ran rather than that it ran, gate on
+that too. `allreduce-nonvlink` and `alltoall-nonvlink` exist to exercise the
+HCAs, and NCCL will silently fall back to TCP over `bond0` when it finds no
+device — producing a correct, complete, entirely worthless result. Both jobs
+force the transport (`NCCL_NET=IB`) and require the log to name it, so a
+fallback fails instead of passing at a tenth of the bandwidth.
