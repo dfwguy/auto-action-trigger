@@ -46,15 +46,9 @@ if ! command -v srun &>/dev/null; then
     module load slurm
 fi
 
-## Same image resolution as the -nonvlink sbatch files: node-local copy first,
-## the NFS original as fallback. Overridable as $2 so a suspect image can be
-## tested against a known-good one on the same node.
-IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
+## Explicit image, if given. Otherwise it is resolved on the NODE in section 1
+## below -- see there for why it cannot be resolved here.
 CONT="${2:-}"
-if [[ -z "$CONT" ]]; then
-    CONT=/tmp/containers/$IMG
-    [[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
-fi
 
 ## The jobs source this from the NFS path, and the probe text plus the HCA
 ## filter both have to be the ones the benchmark uses -- probing with a
@@ -68,7 +62,6 @@ if [[ ! -f "$HCA_LIB" ]]; then
 fi
 
 echo "=== ib-visibility: $node"
-echo "=== container:     $CONT"
 
 ## ── 1. Host side ──────────────────────────────────────────────────────────
 ## Through srun rather than ssh. ssh puts you on the host too, but it also puts
@@ -115,17 +108,48 @@ else
     done
 fi
 
+## Resolved HERE, on the node, and read back on the head node for the container
+## sruns below. /tmp is node-local: the head node is where build_containers.sh
+## builds, so /tmp/containers/<img> exists there whether or not file_copy.sh has
+## rsynced it to this node yet. Testing for it on the head node picked a path
+## that was real where it was looked for and absent where it ran, and pyxis
+## failed with `No such file or directory` on a node whose NFS fallback was
+## fine. That is this script'"'"'s own subject matter -- asking the wrong machine
+## -- so it does not get to make that mistake itself.
+##
+## The arch comes from the node for the same reason.
+img=nvidia+hpc-benchmarks+26.02-$(uname -m | sed "s/aarch64/arm/;s/x86_64/x86/").sqsh
+if [[ -f /tmp/containers/$img ]]; then
+    echo "CONTAINER=/tmp/containers/$img"
+else
+    echo "CONTAINER=/home/cmods/bringup/containers/$img"
+    echo "## node-local /tmp/containers/$img is absent -- file_copy.sh has not"
+    echo "##   reached this node. Falling back to the NFS copy, which is the same"
+    echo "##   image; the job would do the same. Slower first start, nothing more."
+fi
+
 echo "HOSTSELECTED=$NCCL_IB_HCA"
 ' 2>&1)
 
 echo
 echo "---------------- HOST $node ----------------"
-printf '%s\n' "$host_out" | grep -v '^HOSTSELECTED='
+printf '%s\n' "$host_out" | grep -vE '^(HOSTSELECTED|CONTAINER)='
 
 ## Empty is a legitimate answer (case 1) and is passed through as empty rather
 ## than defaulted: NCCL_IB_HCA="" does not mean "no devices" to NCCL, it means
 ## "any device", so the container section below has to know the difference.
 host_hca=$(printf '%s\n' "$host_out" | sed -n 's/^HOSTSELECTED=//p' | tail -1)
+
+## An explicit $2 wins -- that is the whole point of passing one. Otherwise take
+## what the node resolved.
+[[ -n "$CONT" ]] || CONT=$(printf '%s\n' "$host_out" | sed -n 's/^CONTAINER=//p' | tail -1)
+if [[ -z "$CONT" ]]; then
+    echo
+    echo "ERROR: the host srun produced no container path, so it did not run." >&2
+    echo "       Its output is above; the container sections cannot be attempted." >&2
+    exit 1
+fi
+echo "## container image: $CONT"
 
 ## ── 2. Container side ─────────────────────────────────────────────────────
 ## Same image, same mounts, and the same libibverbs call the benchmark makes.
@@ -202,8 +226,15 @@ fi
 ## Output is filtered to the transport lines. The full log is enormous and the
 ## four lines that decide the verdict -- what plugin loaded, what network was
 ## chosen, and what each channel actually used -- are what verdict.sh reads.
+##
+## The filter also keeps pyxis, enroot and srun errors. It did not, and a run
+## that never started a container printed an empty section under a heading
+## saying NCCL init -- which reads as "NCCL ran and said nothing", the single
+## most misleading thing this script could produce. A section with no output at
+## all now means the grep found nothing, and that is itself reported.
 echo
 echo "---------------- NCCL init on $node ----------------"
+nccl_out=$(
 srun --mpi=pmix --ntasks=4 --gpus-per-node=4 -w "$node" \
      --export=ALL,NCCL_IB_HCA="$host_hca" \
      --cpu-bind=none --mem-bind=none \
@@ -214,8 +245,15 @@ export NCCL_SOCKET_IFNAME=bond0 NCCL_DEBUG=INFO
 export NCCL_P2P_DISABLE=1 NCCL_SHM_DISABLE=1 NCCL_NVLS_ENABLE=0 NCCL_MNNVL_ENABLE=0
 export NCCL_IB_DISABLE=0 NCCL_NET=IB
 allreduce_perf_mpi -b 8 -e 8 -f 2 -g 1' 2>&1 \
-    | grep -E 'NET/IB|NET/Socket|Using network|NCCL WARN|No device found|Failed to initialize|^# Avg bus|via ' \
-    | sort -u | sed 's/^/  /'
+    | grep -E 'NET/IB|NET/Socket|Using network|NCCL WARN|No device found|Failed to initialize|^# Avg bus|via |pyxis|enroot|^srun: error' \
+    | sort -u | sed 's/^/  /')
+
+if [[ -n "$nccl_out" ]]; then
+    printf '%s\n' "$nccl_out"
+else
+    echo "  (no matching lines -- the run produced no transport output and no"
+    echo "   error either. Re-run this srun by hand without the grep.)"
+fi
 
 echo
 echo "=== Read the sections in order. The first one that is wrong is the cause;"
