@@ -32,6 +32,19 @@ Refreshes every 20 seconds, showing only nodes that are DOWN or drained.
 ## Health checks
 
 ```bash
+bash health-check.sh                      # every node
+bash health-check.sh ink50-dh01-h20       # one rack (bare prefix)
+```
+
+Reads the Slurm drain reasons and groups every failed check across the cluster,
+most-common check first, so one BIOS rollout reads as one line rather than as
+nine separate node failures. Also separates operator drains from health drains,
+and flags any check with no entry in `valid-config/default/` — those can never
+pass, because `node_health.sh` is diffing against a file that is not there.
+
+Nothing is contacted or re-run: it reports what the last health run concluded.
+
+```bash
 bash node-health-refresh.sh node001
 bash node-health-refresh.sh "node00[1-18]"
 ```

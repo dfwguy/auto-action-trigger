@@ -9,9 +9,16 @@ A `refresh` sentinel file in `logs/<node>/` must exist for the health script to
 run — this is what prevents redundant re-checks on every monitoring cycle. Use
 `node-health-refresh.sh` to set it.
 
-`sync-check.sh <node>` diffs a drained node's output against the baseline for
-each check named in the drain reason, which is usually the fastest way to see
-why a node was taken down.
+`health-check.sh` summarizes which checks are failing across the whole cluster,
+grouped by check. `sync-check.sh <node>` then diffs one node's output against the
+baseline for each check named in its drain reason, which is usually the fastest
+way to see why that node was taken down.
+
+The reason string is not simply a list of check names — `append_reason` writes
+`Check BIOS` for the `bios` check, `cuuid` for `nvidia-smi-cuuid`, and
+`dmesg-xid` carries its own output into the reason. `health-check.sh` matches
+reason text against the known check names for that reason; anything reading the
+reason field needs to do the same.
 
 | Check | What it validates |
 |-------|-------------------|
