@@ -43,20 +43,16 @@ for job in $active_benchmarks; do
     fi
 done
 
-file_status() {
-    local file="$1"
-    if [[ ! -f "$file" ]]; then
-        echo "NOT_RUN"
-        return
-    fi
-    local last
-    last=$(tail -1 "$file")
-    case "$last" in
-        DONE) echo "DONE"        ;;
-        FAIL) echo "FAIL"        ;;
-        *)    echo "IN_PROGRESS" ;;
-    esac
-}
+## The verdict is derived from the log by verdict.sh on every run, not read from
+## a marker the sbatch wrote. So this reports what the CURRENT gate makes of a
+## result, which is the point -- a result that passed an older, looser gate is
+## re-judged here rather than keeping its original DONE.
+if [[ ! -f "$home/verdict.sh" ]]; then
+    echo "ERROR: $home/verdict.sh is missing -- it carries the pass/fail rule for" >&2
+    echo "       every job, and without it nothing can be judged." >&2
+    exit 1
+fi
+source "$home/verdict.sh"
 
 # Prior failed attempts archived by launch_job.sh as <col>.fail<N>.txt.
 # A column with archives and no current file is queued for its next retry.
@@ -80,17 +76,23 @@ for node_dir in "$results_dir"/$pattern/; do
     node=$(basename "$node_dir")
     for col in "${columns[@]}"; do
         file="$results_dir/$node/${col}.txt"
-        status=$(file_status "$file")
+        # Not $(verdict ...) -- a subshell would lose the reason. See verdict().
+        verdict "$(verdict_job_name "$col")" "$file"
+        status="$VERDICT_STATUS"
+        reason="$VERDICT_REASON"
         fails=$(fail_count "$node" "$col")
         # A passing column is done -- how many tries it took is history, not
         # status, and annotating it splits DONE nodes into dshbak groups that
         # all mean the same thing. The archives stay on disk either way, and
         # the daily CSV still carries the per-job counts.
         [[ "$status" == "DONE" ]] && fails=0
-        if [[ "$fails" -gt 0 ]]; then
-            echo "$node: $col: $status (fails: $fails)"
-        else
-            echo "$node: $col: $status"
-        fi
+        # The reason is part of the line on purpose. dshbak groups identical
+        # lines, so nodes failing the same way collapse into one block and a
+        # single node failing differently stands out -- the same reason
+        # health-check.sh groups by failure signature rather than by check.
+        line="$node: $col: $status"
+        [[ "$status" != "DONE" && "$status" != "NOT_RUN" && -n "$reason" ]] && line+=" -- $reason"
+        [[ "$fails" -gt 0 ]] && line+=" (fails: $fails)"
+        echo "$line"
     done
 done | sort | dshbak -c

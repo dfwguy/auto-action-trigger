@@ -1,0 +1,19 @@
+# nccl-tests version 2.17.8 nccl-headers=22902 nccl-library=22902
+# Collective test starting: alltoall_perf_mpi
+INFO: forcing collectives over HCAs: mlx5_0,mlx5_1,mlx5_2,mlx5_3
+node:100:100 [0] NCCL INFO NCCL version 2.29.2+cuda13.1
+node:100:100 [0] NCCL INFO P2P plugin v11 IBext_v11
+node:100:100 [0] NCCL INFO NET/IB : Using [0]mlx5_0:1/IB [1]mlx5_1:1/IB [RO]; OOB bond0:10.40.16.5<0>
+node:100:100 [0] NCCL INFO Initialized NET plugin IBext_v11
+node:100:100 [0] NCCL INFO Using network IBext_v11
+node:100:100 [0] NCCL INFO NCCL_P2P_DISABLE set by environment to 1
+node:100:100 [0] NCCL INFO NCCL_SHM_DISABLE set by environment to 1.
+node:100:100 [0] NCCL INFO Channel 01/1 : 0[0] -> 1[1] [send] via NET/IBext_v11/0/Shared
+node:100:100 [0] NCCL INFO Channel 00/1 : 1[1] -> 0[0] [receive] via NET/IBext_v11/0/Shared
+#       size         count      type   redop    root     time   algbw   busbw  #wrong     time   algbw   busbw  #wrong
+ 17179869184    1073741824     float    none      -1   398211    43.14   32.35       0   397001    43.27   32.45    N/A
+# Out of bounds values : 0 OK
+# Avg bus bandwidth    : 28.4113
+#
+# Collective test concluded: alltoall_perf_mpi
+PENDING

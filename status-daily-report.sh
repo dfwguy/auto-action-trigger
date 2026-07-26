@@ -81,20 +81,16 @@ fi
 
 # ── Helper functions ──────────────────────────────────────────────────────────
 
-file_status() {
-    local file="$1"
-    if [[ ! -f "$file" ]]; then
-        echo "NOT_RUN"
-        return
-    fi
-    local last
-    last=$(tail -1 "$file")
-    case "$last" in
-        DONE) echo "DONE"        ;;
-        FAIL) echo "FAIL"        ;;
-        *)    echo "IN_PROGRESS" ;;
-    esac
-}
+## Status comes from verdict.sh, derived from the log on every report rather
+## than read from a marker the sbatch wrote at run time. A result that passed an
+## older, looser gate is re-judged here, so a report reflects what the current
+## gate makes of the cluster rather than a mix of every gate ever deployed.
+if [[ ! -f "$home/verdict.sh" ]]; then
+    echo "ERROR: $home/verdict.sh is missing -- it carries the pass/fail rule for" >&2
+    echo "       every job, and without it nothing can be judged." >&2
+    exit 1
+fi
+source "$home/verdict.sh"
 
 # Failed attempts archived by launch_job.sh as <job>.fail<N>.txt, summed across
 # every run of the job. Reported in its own column so the result cells stay
@@ -130,7 +126,9 @@ for node in $nodes; do
         mlabel=$(metric_label "$job")
         if [[ "$runs" -eq 1 ]]; then
             file="$results_dir/$node/$job.txt"
-            status=$(file_status "$file")
+            # Not $(...) -- a subshell would lose the reason. See verdict().
+            verdict "$job" "$file"
+            status="$VERDICT_STATUS"
             if [[ "$status" == "DONE" && -n "$mlabel" ]]; then
                 metric=$(extract_metric "$job" "$file")
                 row+=",${metric:-$status}"
@@ -140,7 +138,8 @@ for node in $nodes; do
         else
             for ((r=1; r<=runs; r++)); do
                 file="$results_dir/$node/$job-run${r}.txt"
-                status=$(file_status "$file")
+                verdict "$job" "$file"
+                status="$VERDICT_STATUS"
                 if [[ "$status" == "DONE" && -n "$mlabel" ]]; then
                     metric=$(extract_metric "$job" "$file")
                     row+=",${metric:-$status}"

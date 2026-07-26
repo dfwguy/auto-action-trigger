@@ -253,13 +253,28 @@ if [[ -n "$job_info" ]]; then
 fi
 
 ## ── Survey what has and has not passed ────────────────────────────────────
-## A job passes when every one of its runs ends in DONE. Anything else — FAIL,
-## truncated output from a crashed node, or no file at all — is not a pass and
-## gets queued again on the next sweep.
+## A job passes when verdict() returns DONE for every one of its runs. Anything
+## else — FAIL, truncated output from a crashed node, or no file at all — is not
+## a pass and gets queued again on the next sweep.
+##
+## The verdict is derived from the log here, on every sweep, rather than read
+## from a marker the sbatch wrote at run time. That is deliberate: a result
+## judged by an older, looser gate is re-judged by the current one instead of
+## keeping its original pass forever. See the header of verdict.sh.
+
+if [[ ! -f "$home/verdict.sh" ]]; then
+    trace "EXIT: $home/verdict.sh is missing -- it carries the pass/fail rule for"
+    trace "      every job, and without it nothing can be judged. Refusing to run,"
+    trace "      because treating that as 'no results yet' would requeue the whole"
+    trace "      benchmark list on every node, every hour, forever."
+    exit 0
+fi
+source "$home/verdict.sh"
 
 declare -a pending_jobs=()
 declare -a failed_jobs=()
 declare -A job_runs=()
+declare -A fail_reasons=()
 newest_result=0
 swept=1
 
@@ -290,19 +305,27 @@ for job in $benchmarks; do
         [[ "$mtime" -gt "$newest_result" ]] && newest_result=$mtime
 
         ## Only DONE is a pass. Everything else counts as a failure, including
-        ## a file that ends in neither verdict because the job never reached
-        ## its parse block -- node crash, walltime kill, OOM. Treating that as
+        ## a file that ends in no marker at all because the job never reached
+        ## its last line -- node crash, walltime kill, OOM. Treating that as
         ## "no verdict yet" left the job pending forever without ever entering
         ## failed_jobs, so a node that reliably kills its jobs retried hourly
-        ## and never drained.
+        ## and never drained. verdict() reports that case as INCOMPLETE.
         ##
         ## No job is running on this node by the time we get here -- the squeue
         ## check above exits early if one is -- so an unterminated file is a
         ## dead job, not one still being written.
-        case "$(tail -1 "$file" 2>/dev/null)" in
-            DONE) passed=$((passed + 1)) ;;
-            *) failed=1 ;;
-        esac
+        ## Not $(verdict ...) -- that would run it in a subshell and the reason
+        ## would be set in a child and lost. See the note on verdict().
+        verdict "$job" "$file"
+        if [[ "$VERDICT_STATUS" == "DONE" ]]; then
+            passed=$((passed + 1))
+        else
+            failed=1
+            ## Why, not just that. This is the line that turns "allreduce-nonvlink
+            ## FAIL" into something an operator can act on without opening the log.
+            fail_reasons["$job"]="$VERDICT_REASON"
+            trace "$job run $r: $VERDICT_STATUS -- ${VERDICT_REASON}${VERDICT_DETAIL:+ [$VERDICT_DETAIL]}"
+        fi
     done
 
     ## Archived attempts still count as having run — a job whose output was
@@ -339,9 +362,14 @@ fi
 age=-1
 [[ "$newest_result" -gt 0 ]] && age=$(( $(date +%s) - newest_result ))
 
+## The reason carries why the first failing job failed, not just its name. A
+## Slurm reason is a single short field and there may be several failures, so
+## only the first is named -- the rest, and the full text for every one, are in
+## trigger.log and quick-view.txt next to the results.
 if [[ "$swept" -eq 1 && "${#failed_jobs[@]}" -gt 0 && \
       "$age" -ge 0 && "$age" -lt $(( DRAIN_WINDOW_MINUTES * 60 )) ]]; then
-    drain_node "${failed_jobs[*]} FAIL ($DRAIN_MARKER)"
+    first_reason="${fail_reasons[${failed_jobs[0]}]}"
+    drain_node "${failed_jobs[*]} FAIL${first_reason:+: $first_reason} ($DRAIN_MARKER)"
 fi
 
 ## ── Hourly gate ───────────────────────────────────────────────────────────
@@ -374,7 +402,12 @@ for job in "${pending_jobs[@]}"; do
 
     for ((r = 1; r <= totalRuns; r++)); do
         file=$(result_file "$job" "$r" "$totalRuns")
-        [[ -f "$file" && "$(tail -1 "$file" 2>/dev/null)" == "DONE" ]] && continue
+        ## Judged by the current gate, not by whatever marker the sbatch left
+        ## behind. A run that passed an older, looser gate is re-queued here --
+        ## which is the whole point, and is what the old `tail -1 == DONE` test
+        ## structurally could not do.
+        verdict "$job" "$file"
+        [[ "$VERDICT_STATUS" == "DONE" ]] && continue
 
         ## Every benchmark for a node is submitted under one shared Slurm job
         ## name so --dependency=singleton serializes them: a job waits until
@@ -417,10 +450,13 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J bringup-$HOSTNAME --dependency=singleto
 done
 
 ## Reflect the newly queued state for anyone reading quick-view directly
+## Queued lines carry the reason the previous attempt was rejected, so this file
+## answers "why is this node still being retested" on its own.
 {
     for job in $benchmarks; do
         if printf '%s\n' "${pending_jobs[@]}" | grep -Fxq "$job"; then
-            echo "$job: QUEUED"
+            reason="${fail_reasons[$job]}"
+            echo "$job: QUEUED${reason:+  <- $reason}"
         else
             echo "$job: DONE"
         fi

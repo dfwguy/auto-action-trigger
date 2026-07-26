@@ -18,20 +18,12 @@ unset CUDA_VISIBLE_DEVICES
 
 #module load cuda-dcgm
 dcgmi diag -r 4
+rc=$?
 
 
 ## ------------- parse info starts here ----------- ##
-## `dcgmi diag` prints a results table of `| <test> | Pass |` rows on a clean
-## run. Requiring at least one is what distinguishes a passing diagnostic from
-## one that never ran -- no dcgmi binary, nv-hostengine down, no GPUs visible.
-## Without it the error grep alone reports DONE for empty output.
-
-passes=$(grep -cE "\|[[:space:]]*Pass[[:space:]]*\|" "$RESULT_FILE")
-status=$(grep -iE "fail|warn|error" "$RESULT_FILE")
-
-if [[ -n "$RESULT_FILE" && -z "$status" && "$passes" -gt 0 ]];
-then
-	echo DONE
-else
-	echo FAIL
-fi
+## Only whether the job ran is decided here. Whether the result is any good is
+## decided by verdict.sh, which is read on every status check rather than
+## written once into this file. That is what lets a tightened gate re-judge
+## results that already exist -- see the header of verdict.sh.
+[[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

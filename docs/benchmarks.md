@@ -54,18 +54,62 @@ Everything else needs one of three things first:
 1. Copy `jobs/example.sbatch` to `jobs/<name>.sbatch`.
 2. Set `job_name=<name>` and optionally `totalRuns=N`.
 3. Add your workload between the job and parse sections.
-4. The parse section must `echo DONE` on success or `echo FAIL` on failure as
-   the last line. Nothing else counts as a pass.
-5. Add `<name>` to the `benchmarks=` list in `actions/launch_job.sh`.
+4. The parse section must `echo PENDING` if the workload ran and `echo FAIL` if
+   it could not, as the last line — capture the exit status immediately after
+   the workload with `rc=$?` and end the file with:
 
-The parse section should require positive evidence of a completed run, not just
-the absence of the word `error`. Every job here greps for something the tool
-only prints when it actually ran — a results table, a health summary, a
-bandwidth figure — because an empty output file otherwise reports `DONE`.
+   ```bash
+   [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL
+   ```
+5. Add a gate for `<name>` to the `case` in `verdict.sh`. Without one it falls
+   through to `_v_gate_generic`, which only checks for common crash signatures
+   and cannot know what your job's output is supposed to look like.
+6. Add a fixture under `tests/fixtures/` and a line to `tests/verdict-test.sh`.
+7. Add `<name>` to the `benchmarks=` list in `actions/launch_job.sh`.
+
+## Where a pass is decided
+
+An sbatch does **not** decide whether its own result is good. It reports only
+whether it ran (`PENDING`) or could not (`FAIL`). `DONE` is derived by
+`verdict.sh`, which is read by `launch_job.sh`, `status-check.sh` and
+`status-daily-report.sh` every time they look at a result — it is never written
+to disk.
+
+That split exists because the alternative failed in a way nothing could
+recover from. When each sbatch judged itself and wrote `DONE`, that verdict was
+frozen at run time: `launch_job.sh` skips any job whose result file says `DONE`,
+so tightening a gate could never re-examine the results it was written for. The
+`-nonvlink` jobs ran entirely over TCP at 1.17 GB/s on 25 nodes, all reporting
+`DONE`; the fix written to catch exactly that was correct, deployed, and
+structurally unable to reach a single one of them. Clearing them by hand was the
+only way out.
+
+With the verdict derived, tightening a gate re-judges every result already on
+disk on the next sweep. Result files ending in the old `DONE` marker are treated
+as legacy and re-judged rather than trusted, which is what retires them.
+
+A gate should require positive evidence of a completed run, not just the absence
+of the word `error`. Every job here greps for something the tool only prints
+when it actually ran — a results table, a health summary, a bandwidth figure —
+because an empty output file otherwise reports a pass.
 
 Where the point of a job is *how* the work ran rather than that it ran, gate on
 that too. `allreduce-nonvlink` and `alltoall-nonvlink` exist to exercise the
 HCAs, and NCCL will silently fall back to TCP over `bond0` when it finds no
 device — producing a correct, complete, entirely worthless result. Both jobs
-force the transport (`NCCL_NET=IB`) and require the log to name it, so a
-fallback fails instead of passing at a tenth of the bandwidth.
+force the transport (`NCCL_NET=IB`), and the gate rejects any run whose
+per-channel `via NET/...` lines name Socket. Note that `Using network IB` alone
+does not clear a run: it names the plugin NCCL registered, not what the bytes
+crossed.
+
+Bandwidth floors live in `VERDICT_MIN_BW_NVLINK` and `VERDICT_MIN_BW_NONVLINK`
+at the top of `verdict.sh`. They are set low deliberately — enough to catch a
+transport that is obviously wrong, not to assert the fabric performs to spec.
+Raise them once a known-good run on the platform establishes what good looks
+like. They read the `# Avg bus bandwidth` summary line, which is an average
+across every message size and roughly half the largest-size figure that
+`status-daily-report.sh` reports as the metric; do not compare the two.
+
+Run `tests/verdict-test.sh` after changing a gate. It checks `verdict.sh`
+against captured result files, including a real socket run, and asserts the
+reason as well as the verdict.

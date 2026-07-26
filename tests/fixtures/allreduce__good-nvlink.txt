@@ -1,0 +1,10 @@
+# nccl-tests version 2.17.8
+# Collective test starting: all_reduce_perf_mpi
+node:100:100 [0] NCCL INFO NCCL_P2P_LEVEL set by environment to NVL
+node:100:100 [0] NCCL INFO Channel 00/0 : 0[0] -> 1[1] via P2P/CUMEM
+node:100:100 [0] NCCL INFO Connected NVLS tree
+# Out of bounds values : 0 OK
+# Avg bus bandwidth    : 214.663
+#
+# Collective test concluded: all_reduce_perf_mpi
+PENDING

@@ -27,7 +27,7 @@ This page covers what has to be in place, how to stand the framework up, and the
 | [architecture.md](docs/architecture.md) | Trigger chain in detail, directory layout, runtime paths |
 | [sequencer.md](docs/sequencer.md) | `launch_job.sh` — sweep order, retry and drain rules, result-path ownership, Slurm permissions |
 | [health-checks.md](docs/health-checks.md) | `node_health.sh` — every check and what it validates |
-| [benchmarks.md](docs/benchmarks.md) | The `jobs/` catalog, test-plan coverage, what to set before enabling a job, adding a new one |
+| [benchmarks.md](docs/benchmarks.md) | The `jobs/` catalog, test-plan coverage, what to set before enabling a job, adding a new one, and where a pass is decided (`verdict.sh`) |
 | [containers.md](docs/containers.md) | `build_containers.sh` — why images are local, the two-pass source build, per-image notes |
 | [nvsm.md](docs/nvsm.md) | The sudoers grant and platform definition files `jobs/nvsm.sbatch` needs |
 | [operations.md](docs/operations.md) | Full operator command reference |

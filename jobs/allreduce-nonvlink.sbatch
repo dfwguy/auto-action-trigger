@@ -94,34 +94,17 @@ srun --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none \
                 --container-image="${CONT}" \
                 --container-mounts=/dev/infiniband:/dev/infiniband \
                 all_reduce_perf_mpi -b 8 -e 16G -f 2 -g 1
+rc=$?
 
 
 ## ------------- parse info starts here ----------- ##
 
-## nccl-tests only prints the out-of-bounds line and the bus-bandwidth summary
-## once every message size has run and validated, so requiring both makes this
-## a positive check. A run that dies in ncclCommInitRank prints neither and now
-## reads as a failure -- the old negative-only `grep "code 1"` passed it, and
-## also missed `exit code 3` and every NCCL WARN.
+## Only whether the job ran is decided here. Whether the result is any good is
+## decided by verdict.sh, which is read on every status check rather than
+## written once into this file. That is what lets a tightened gate re-judge
+## results that already exist -- see the header of verdict.sh.
 ##
-## The error grep is a second gate for the case where the summary is printed
-## but a rank still died on the way out.
-
-##
-## The transport is a third gate, and for this job the only one that matters.
-## Correctness and bandwidth lines both print on a socket run, so "0 OK" plus a
-## bus-bandwidth number does not mean the traffic went anywhere near an HCA.
-## The pass now has to name IB as the chosen network, and `NET/IB : No device
-## found.` -- previously logged and ignored -- is a hard failure.
-
-ok=$(grep -cE "^# Out of bounds values *: *0 OK" "$RESULT_FILE")
-bw=$(grep -cE "^# Avg bus bandwidth *:" "$RESULT_FILE")
-ib=$(grep -c "Using network IB" "$RESULT_FILE")
-errors=$(grep -iE "NCCL WARN|Test NCCL failure|Test failure|srun: error|Segmentation fault|CANCELLED AT|NET/IB : No device found|Using network Socket|NET/Socket : Using" "$RESULT_FILE")
-
-if [[ -n "$RESULT_FILE" && -z "$errors" && "$ok" -gt 0 && "$bw" -gt 0 && "$ib" -gt 0 ]];
-then
-	echo DONE
-else
-	echo FAIL
-fi
+## srun's exit status is the one thing that cannot be recovered from the log
+## afterwards: a run can print a complete, valid summary and still have a rank
+## die on the way out.
+[[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

@@ -44,7 +44,8 @@ export NCCL_IB_DISABLE=0
 srun --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none \
                 --container-image="${CONT}" \
                 alltoall_perf_mpi -b 8 -e 16G -f 2 -g 1
-#                --dat /hpldat/hpl${SLURM_NNODES}N.dat 
+rc=$?
+#                --dat /hpldat/hpl${SLURM_NNODES}N.dat
 #                --mem-affinity 0:0:1:1 \
 #                --cpu-affinity 0-35:36-71:72-107:108-143 \
 #                --gpu-affinity 0:1:2:3
@@ -56,24 +57,16 @@ srun --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none \
 
 ## ------------- parse info starts here ----------- ##
 
-## nccl-tests only prints the out-of-bounds line and the bus-bandwidth summary
-## once every message size has run and validated, so requiring both makes this
-## a positive check. A run that dies in ncclCommInitRank prints neither and now
-## reads as a failure -- the old negative-only `grep "code 1"` passed it, and
-## also missed `exit code 3` and every NCCL WARN.
+## Only whether the job ran is decided here. Whether the result is any good is
+## decided by verdict.sh, which is read on every status check rather than
+## written once into this file. That is what lets a tightened gate re-judge
+## results that already exist -- see the header of verdict.sh.
 ##
-## The error grep is a second gate for the case where the summary is printed
-## but a rank still died on the way out.
-
-ok=$(grep -cE "^# Out of bounds values *: *0 OK" "$RESULT_FILE")
-bw=$(grep -cE "^# Avg bus bandwidth *:" "$RESULT_FILE")
-errors=$(grep -iE "NCCL WARN|Test NCCL failure|Test failure|srun: error|Segmentation fault|CANCELLED AT" "$RESULT_FILE")
-
-if [[ -n "$RESULT_FILE" && -z "$errors" && "$ok" -gt 0 && "$bw" -gt 0 ]];
-then
-	echo DONE
-else
-	echo FAIL
-fi
+## Note that /dev/infiniband is deliberately NOT mounted for this job, unlike
+## its -nonvlink counterpart. This is the NVLink scope: the collective is meant
+## to stay on NVLink and never reach the network at all. Making the HCAs
+## reachable would let a run that has lost NVLink quietly succeed over IB
+## instead of being caught.
+[[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL
 
 
