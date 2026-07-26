@@ -36,9 +36,14 @@ export NCCL_MNNVL_ENABLE=1
 export NCCL_IB_DISABLE=0
 
 
-srun --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none --ntasks-per-node=1 \
+## No --ntasks-per-node here on purpose: srun inherits the 4 from the #SBATCH
+## header above. Setting it in both places let them drift -- the header asked
+## for 4 and srun asked for 1, which Slurm resolves by warning `can't honor
+## --ntasks-per-node set to 1` and running 4 anyway. One rank per GPU, so `-g 1`
+## pairs with 4 tasks to cover all 4 GPUs.
+srun --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none \
                 --container-image="${CONT}" \
-                alltoall_perf_mpi -b 8 -e 16G -f 2 -g 1 
+                alltoall_perf_mpi -b 8 -e 16G -f 2 -g 1
 #                --dat /hpldat/hpl${SLURM_NNODES}N.dat 
 #                --mem-affinity 0:0:1:1 \
 #                --cpu-affinity 0-35:36-71:72-107:108-143 \
