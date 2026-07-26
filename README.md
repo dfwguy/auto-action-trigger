@@ -1,6 +1,6 @@
 # auto-action-trigger
 
-Automated node bring-up and validation framework for HPC clusters managed by **Bright Cluster Manager (BCM)**. When a node boots and its device status becomes `UP`, BCM monitoring triggers fire two action scripts that run hardware health checks and sequence through Slurm benchmark jobs — draining the node in Slurm automatically on any failure.
+Automated node bring-up and validation framework for HPC clusters managed by **Bright Cluster Manager (BCM)**. When a node boots and its device status becomes `UP`, BCM monitoring triggers fire three action scripts that run hardware health checks, cache container images on local disk, and sequence through Slurm benchmark jobs — draining the node in Slurm automatically on any failure.
 
 ## Prerequisites
 
@@ -30,7 +30,8 @@ A local user named `cmods` must exist on the **headnode and every compute node**
 | `dcgmi` | `jobs/dcgm.sbatch`, `jobs/dcgm-r2.sbatch`, `jobs/dcgm-r4.sbatch` |
 | `nvsm` | `jobs/nvsm.sbatch` (runs on the host, no container, needs root — see [below](#running-nvsm-as-root)) |
 | `nvidia-imex-ctl` | `node_health.sh` (IMEX checks, GB series only) |
-| `enroot`, `docker` (with `buildx`) | `build_containers.sh` (headnode only; compute nodes need enroot/pyxis to run the images) |
+| `enroot` | `build_containers.sh` (headnode for the fetch pass, compute nodes for the source-build pass; pyxis already needs it there) |
+| `squashfs-tools` | `build_containers.sh` (optional — shrinks the staged package set) |
 | `dshbak` | `status-check.sh` |
 | `rsync` | `actions/file_copy.sh` (optional) |
 
@@ -58,13 +59,17 @@ Node boots → BCM device status = UP
     │       Compares hardware/software state against a known-good baseline.
     │       Sets node IDLE (all checks pass) or DOWN with a reason (any fail).
     │
+    ├── FileCopyTrigger → file_copy.sh
+    │       Rsyncs containers/ to /tmp/containers/ so job start reads the image
+    │       off local disk. Silent no-op if there is nothing to copy.
+    │
     └── LaunchJobTrigger → launch_job.sh
             Sequences through benchmarks (dcgm → allreduce → alltoall).
             Submits the next Slurm job when the node is idle and the prior run passed.
             Drains the node if a benchmark fails or runs too long.
 ```
 
-Both triggers fire continuously while the device is UP (`duringactions`), so they re-evaluate on each BCM monitoring cycle without manual intervention.
+All three triggers fire continuously while the device is UP (`duringactions`), so they re-evaluate on each BCM monitoring cycle without manual intervention.
 
 ## Directory layout
 
@@ -77,7 +82,7 @@ Both triggers fire continuously while the device is UP (`duringactions`), so the
 ├── actions/
 │   ├── node_health.sh             # Hardware/software health checks → Slurm node state
 │   ├── launch_job.sh              # Benchmark sequencer → Slurm job submissions
-│   ├── file_copy.sh               # Rsync containers to /tmp on each node (category-gated)
+│   ├── file_copy.sh               # Rsync containers to /tmp on each node (silent no-op if none)
 │   └── valid-node-check.sh        # BCM health-check script (category-based PASS/FAIL)
 │
 ├── jobs/
@@ -227,7 +232,11 @@ and enable the job.
 bash pre-post/create-action-trigger.sh
 ```
 
-This registers two actions (`node_health_action`, `launch_job_action`) and two triggers (`NodeHealthTrigger`, `LaunchJobTrigger`) in BCM monitoring. To remove them:
+This registers three actions (`node_health_action`, `file_copy_action`, `launch_job_action`) and three triggers (`NodeHealthTrigger`, `FileCopyTrigger`, `LaunchJobTrigger`) in BCM monitoring.
+
+It is safe to re-run: each object is removed before it is added, so an existing registration is replaced rather than colliding. Removals are silent — on a first run there is nothing to remove — but the adds report `ok:` or `FAILED:` per object and the script exits non-zero if any failed. A registration that fails quietly is how you end up believing a node is being health-checked when it is not.
+
+To remove them:
 
 ```bash
 bash pre-post/delete-action-trigger.sh
