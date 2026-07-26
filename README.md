@@ -451,6 +451,39 @@ bash single-node-purge.sh node001
 
 Removes `results/node001/` so the benchmark sequence restarts from scratch.
 
+### Debug the trigger chain
+
+```bash
+bash trigger-debug.sh                 # whole cluster
+bash trigger-debug.sh ink50-dh01-h20  # one rack
+```
+
+Run on the head node. Walks the chain from BCM down to `sbatch` and names the broken link: action registered, trigger enabled *and* with its action actually bound, script present, the last decision each node's sequencer made, and result-path ownership. Read-only.
+
+To ask a single node directly instead of waiting for a monitoring cycle:
+
+```bash
+pdsh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --explain'
+```
+
+`--explain` prints every gate the sequencer evaluates and the `sbatch` commands it would issue, as a dry run — nothing is submitted, drained, or archived, so it is safe while the trigger is live.
+
+Each node also keeps a running trace at `results/<node>/trigger.log`, one line per monitoring cycle recording what it did or why it stopped.
+
+### Clearing or archiving `results/`
+
+```bash
+mv results results.$(date +%F)     # or: rm -rf results
+```
+
+Safe to do at any time. The sequencer runs as root on each node (BCM actions do), so root is what recreates `results/` and `results/<node>` on the next monitoring cycle — but the benchmarks are submitted as `cmods`, and `sbatch --output` writes as that user. A root-owned result directory means `sbatch` returns a job id, Slurm schedules the job, and it dies at startup with nowhere to write: the node returns to idle with no result file, no `FAIL`, and no archive, which is indistinguishable from never having been tested.
+
+`launch_job.sh` therefore re-checks ownership of both directories on every cycle and hands them back to `cmods`, so a cleared tree repairs itself. To fix an existing tree immediately rather than waiting for a cycle:
+
+```bash
+chown -R cmods:cmods /home/cmods/bringup/results
+```
+
 ## Adding a new benchmark
 
 1. Copy `jobs/example.sbatch` to `jobs/<name>.sbatch`.
