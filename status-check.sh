@@ -58,6 +58,11 @@ for node_dir in "$results_dir"/*/; do
         file="$results_dir/$node/${col}.txt"
         status=$(file_status "$file")
         fails=$(fail_count "$node" "$col")
+        # A passing column is done -- how many tries it took is history, not
+        # status, and annotating it splits DONE nodes into dshbak groups that
+        # all mean the same thing. The archives stay on disk either way, and
+        # the daily CSV still carries the per-job counts.
+        [[ "$status" == "DONE" ]] && fails=0
         if [[ "$fails" -gt 0 ]]; then
             echo "$node: $col: $status (fails: $fails)"
         else
