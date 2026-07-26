@@ -72,13 +72,95 @@ RETRY_INTERVAL_HOURS=1
 DRAIN_WINDOW_MINUTES=15
 DRAIN_MARKER="auto-retry"
 
-source /etc/profile.d/modules.sh
-module load slurm
-
 ## set paths
 home=/home/cmods/bringup
 logs="$home/results/$HOSTNAME"
 quickview="$logs/quick-view.txt"
+tracelog="$logs/trigger.log"
+
+## The account slurm jobs are submitted as. BCM runs this script as root on the
+## node, so anything root creates under results/ has to be handed over -- see
+## ensure_owned below.
+JOB_USER=cmods
+
+## ── Tracing ───────────────────────────────────────────────────────────────
+##
+## Every gate below can end the run with a plain `exit 0`, which is correct --
+## the trigger re-fires on every monitoring cycle and most cycles have nothing
+## to do. But it also means a node that has silently stopped testing looks
+## exactly like a node that is quietly idle: no output, no exit code, nothing
+## in a log. Each decision is therefore recorded, so "nothing is running"
+## always has a written reason next to it.
+##
+## `launch_job.sh --explain` mirrors the trace to stdout and makes the run a
+## dry run: state is read, but no sbatch, drain, or resume is issued and no
+## result file is archived. Safe to run by hand on a node while the trigger is
+## live -- it cannot queue a duplicate job or move a result out from under one.
+EXPLAIN=0
+case "$1" in
+    --explain|-n|--dry-run) EXPLAIN=1 ;;
+esac
+
+mkdir -p "$logs"
+
+## The append is allowed to fail silently: running --explain by hand as an
+## unprivileged user should still print its trace, not die on the log file.
+trace() {
+    printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$tracelog" 2>/dev/null
+    [[ "$EXPLAIN" -eq 1 ]] && printf '%s\n' "$*"
+    return 0
+}
+
+## Keep the trace from growing without bound -- it gets a line or two per
+## monitoring cycle, forever.
+if [[ -f "$tracelog" ]] && [[ "$(stat -c %s "$tracelog" 2>/dev/null || echo 0)" -gt 1000000 ]]; then
+    tail -2000 "$tracelog" > "$tracelog.tmp" && mv "$tracelog.tmp" "$tracelog"
+fi
+
+## ── Hand the result path to $JOB_USER ─────────────────────────────────────
+##
+## BCM runs this script as root, but the benchmarks are submitted with
+## `su - $JOB_USER` and sbatch writes its --output as that user. So when root
+## is the one that creates results/ or results/<node>, they land root-owned at
+## mode 755 and $JOB_USER cannot create a file inside. sbatch still returns a
+## job id and slurm still schedules the job -- it dies at startup with nowhere
+## to write its output. The node goes back to idle with no result file, no
+## FAIL, and no archive: identical, from every angle, to never having run.
+##
+## This is not hypothetical. Clearing results/ by hand is a normal thing to do
+## between bringup passes, and the very next monitoring cycle has root recreate
+## the tree. So rather than only getting ownership right on creation, fix it on
+## every cycle: `mv results results.old` or `rm -rf results` is then a safe
+## operation, and any tree already broken repairs itself without intervention.
+ensure_owned() {
+    local d="$1"
+    [[ -d "$d" ]] || mkdir -p "$d" 2>/dev/null || return 1
+    [[ "$(stat -c %U "$d" 2>/dev/null)" == "$JOB_USER" ]] && return 0
+    ## Only root can hand a directory over. Running by hand as an unprivileged
+    ## user, this is a diagnosis rather than something we can act on.
+    if [[ "$EUID" -ne 0 ]]; then
+        trace "WARNING: $d is owned by $(stat -c %U "$d" 2>/dev/null), not $JOB_USER, and we are not root -- sbatch --output will fail"
+        return 0
+    fi
+    trace "chown $JOB_USER $d (was $(stat -c %U "$d" 2>/dev/null))"
+    chown "$JOB_USER:$JOB_USER" "$d" 2>/dev/null
+}
+
+ensure_owned "$home/results"
+ensure_owned "$logs"
+
+source /etc/profile.d/modules.sh
+module load slurm
+
+## The trigger runs this with BCM's environment, not a login shell. If the
+## slurm module did not give us the client tools, every downstream check reads
+## as "node not in slurm" and the script exits looking perfectly healthy.
+for tool in sinfo squeue scontrol sbatch; do
+    command -v "$tool" >/dev/null 2>&1 || {
+        trace "EXIT: $tool not on PATH after 'module load slurm' (PATH=$PATH)"
+        exit 0
+    }
+done
 
 ## Result file for run $2 of job $1. Single-run jobs use <job>.txt.
 result_file() {
@@ -109,10 +191,12 @@ archive_result() {
 ## node is just never taken out of service. Remove the file to re-enable.
 drain_node() {
     local reason="$1"
-    [[ -f "$home/NODRAIN" ]] && return 0
+    [[ -f "$home/NODRAIN" ]] && { trace "drain suppressed by NODRAIN: $reason"; return 0; }
     case "$state" in
-        *drain*|*down*|*fail*|*maint*) return 0 ;;
+        *drain*|*down*|*fail*|*maint*) trace "drain skipped, already $state: $reason"; return 0 ;;
     esac
+    trace "DRAIN: $reason"
+    [[ "$EXPLAIN" -eq 1 ]] && return 0
     scontrol update nodename="$HOSTNAME" state=DRAIN reason="$reason"
 }
 
@@ -121,12 +205,18 @@ resume_node() {
     local current
     current=$(sinfo -n "$HOSTNAME" -h -o '%E' 2>/dev/null | head -1)
     [[ "$current" == *"$DRAIN_MARKER"* ]] || return 0
+    trace "RESUME: clearing own drain ($current)"
+    [[ "$EXPLAIN" -eq 1 ]] && return 0
     scontrol update nodename="$HOSTNAME" state=RESUME
 }
 
 ## Check if node is in slurm; if not - quit
 state=$(sinfo -N -n "$HOSTNAME" -h -o '%T')
-[[ -z "$state" ]] && exit 0
+if [[ -z "$state" ]]; then
+    trace "EXIT: $HOSTNAME not known to slurm (sinfo -N -n returned nothing)"
+    exit 0
+fi
+trace "state=$(printf '%s' "$state" | tr '\n' ',') explain=$EXPLAIN"
 
 ## If a job is actively running or pending on this node, wait.
 ## Check elapsed time against MAX_JOB_HOURS and drain if stuck.
@@ -146,10 +236,9 @@ if [[ -n "$job_info" ]]; then
     if [[ "$elapsed_hours" -ge "$MAX_JOB_HOURS" ]]; then
         drain_node "benchmark timeout after ${elapsed_hours}h (${job_state})"
     fi
+    trace "EXIT: job already on node, ${job_state} for ${elapsed} (limit ${MAX_JOB_HOURS}h)"
     exit 0
 fi
-
-mkdir -p "$logs"
 
 ## ── Survey what has and has not passed ────────────────────────────────────
 ## A job passes when every one of its runs ends in DONE. Anything else — FAIL,
@@ -164,7 +253,10 @@ swept=1
 
 for job in $benchmarks; do
     launch="$home/jobs/$job.sbatch"
-    [[ -f "$launch" ]] || continue
+    ## A benchmark named in the list with no sbatch file behind it drops out of
+    ## the sweep entirely -- it never goes pending, so it never blocks a node
+    ## and never shows up as missing. Worth a line.
+    [[ -f "$launch" ]] || { trace "skip $job: no $launch"; continue; }
 
     if grep -Fq "totalRuns" "$launch"; then
         totalRuns=$(grep -F totalRuns "$launch" | head -1 | awk -F= '{print $2}' | tr -d '[:space:]')
@@ -215,9 +307,12 @@ done
 
 ## ── Everything passing — nothing left to do ───────────────────────────────
 
+trace "survey: pending=[${pending_jobs[*]}] failed=[${failed_jobs[*]}] swept=$swept"
+
 if [[ "${#pending_jobs[@]}" -eq 0 ]]; then
     printf '%s: DONE\n' $benchmarks > "$quickview"
     resume_node
+    trace "EXIT: every benchmark passing"
     exit 0
 fi
 
@@ -239,7 +334,11 @@ fi
 
 ## ── Hourly gate ───────────────────────────────────────────────────────────
 
-[[ "$age" -ge 0 && "$age" -lt $(( RETRY_INTERVAL_HOURS * 3600 )) ]] && exit 0
+if [[ "$age" -ge 0 && "$age" -lt $(( RETRY_INTERVAL_HOURS * 3600 )) ]]; then
+    trace "EXIT: newest result is ${age}s old, next sweep in $(( RETRY_INTERVAL_HOURS * 3600 - age ))s"
+    exit 0
+fi
+trace "hourly gate open (newest result age=${age}s, -1 means no results on disk)"
 
 ## ── Queue every non-passing job, in listed order ──────────────────────────
 
@@ -248,7 +347,10 @@ fi
 drain_reason=$(sinfo -n "$HOSTNAME" -h -o '%E' 2>/dev/null | head -1)
 case "$state" in
     *drain*|*down*|*fail*|*maint*)
-        [[ "$drain_reason" == *"$DRAIN_MARKER"* ]] || exit 0
+        if [[ "$drain_reason" != *"$DRAIN_MARKER"* ]]; then
+            trace "EXIT: node is $state for a reason that is not ours -- '${drain_reason:-<empty>}' does not carry '$DRAIN_MARKER'. scontrol update nodename=$HOSTNAME state=RESUME to release it."
+            exit 0
+        fi
         ;;
 esac
 
@@ -261,10 +363,29 @@ for job in "${pending_jobs[@]}"; do
     for ((r = 1; r <= totalRuns; r++)); do
         file=$(result_file "$job" "$r" "$totalRuns")
         [[ -f "$file" && "$(tail -1 "$file" 2>/dev/null)" == "DONE" ]] && continue
+
+        submit="source /etc/profile.d/modules.sh; module load slurm; \
+mkdir -p $logs && sbatch -w $HOSTNAME --export=ALL,RESULT_FILE=$file --output=$file $launch"
+
+        if [[ "$EXPLAIN" -eq 1 ]]; then
+            trace "WOULD SUBMIT $job run $r: su - $JOB_USER -c \"$submit\""
+            continue
+        fi
+
         archive_result "$file"
 
-        su - cmods -c "source /etc/profile.d/modules.sh; module load slurm; \
-            mkdir -p $logs && sbatch -w $HOSTNAME --export=ALL,RESULT_FILE=$file --output=$file $launch"
+        ## sbatch's own diagnosis of a rejected submission is the single most
+        ## useful line in this whole script, and it used to go to BCM's action
+        ## output, which nothing reads. A bad partition, an unknown node name,
+        ## an account limit, or su failing for cmods all land here -- and all
+        ## of them look identical from outside: no job, no result file, no
+        ## complaint. Merge stderr and keep it.
+        out=$(su - "$JOB_USER" -c "$submit" 2>&1)
+        if [[ "$out" == *"Submitted batch job"* ]]; then
+            trace "submitted $job run $r: ${out##*$'\n'}"
+        else
+            trace "SUBMIT FAILED $job run $r: ${out:-<no output>}"
+        fi
     done
 done
 
