@@ -6,8 +6,9 @@
 # $home/reports/report-YYYY-MM-DD_HH-MM-SS.csv
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$home/settings.sh"
 results_dir="$home/results"
-jobs_dir="$home/jobs"
+jobs_dir="$JOBS_DIR"
 report_dir="$home/reports"
 report_file="$report_dir/report-$(date '+%Y-%m-%d_%H-%M-%S').csv"
 
@@ -57,12 +58,12 @@ metric_label() {
     esac
 }
 
-# ── Discover active jobs from launch_job.sh benchmarks variable ───────────────
+# ── Discover active jobs from the BENCHMARKS setting ──────────────────────────
 
 declare -a job_order
 declare -A job_total_runs
 
-active_benchmarks=$(grep -E '^benchmarks=' "$home/actions/launch_job.sh" | head -1 | tr -d '"' | cut -d= -f2-)
+active_benchmarks="$BENCHMARKS"
 
 for job in $active_benchmarks; do
     sbatch="$jobs_dir/$job.sbatch"
@@ -86,16 +87,17 @@ fi
 
 # ── Helper functions ──────────────────────────────────────────────────────────
 
-## Status comes from verdict.sh, derived from the log on every report rather
+## Status comes from the parser, derived from the log on every report rather
 ## than read from a marker the sbatch wrote at run time. A result that passed an
 ## older, looser gate is re-judged here, so a report reflects what the current
 ## gate makes of the cluster rather than a mix of every gate ever deployed.
-if [[ ! -f "$home/verdict.sh" ]]; then
-    echo "ERROR: $home/verdict.sh is missing -- it carries the pass/fail rule for" >&2
-    echo "       every job, and without it nothing can be judged." >&2
+if [[ ! -f "$PARSERS_DIR/verdict.sh" ]]; then
+    echo "ERROR: $PARSERS_DIR/verdict.sh is missing -- it carries the pass/fail rule" >&2
+    echo "       for every job, and without it nothing can be judged." >&2
+    echo "       PARSERS=$PARSERS, from ${SETTINGS_FILE:-<no settings file found>}." >&2
     exit 1
 fi
-source "$home/verdict.sh"
+source "$PARSERS_DIR/verdict.sh"
 
 # ── Build the table ───────────────────────────────────────────────────────────
 # Rows are assembled once, tab separated. The CSV on disk is the same rows with

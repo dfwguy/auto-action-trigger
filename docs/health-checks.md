@@ -1,9 +1,16 @@
-# Health checks (`actions/node_health.sh`)
+# Health checks (`actions/node_health.sh`, `health-checks/$HEALTHCHECKS/`)
 
-The script runs each check, writes output to `logs/<node>/<check-name>`, and
-diffs against the baseline in `valid-config/default/`. Any mismatch appends to a
-`reason` string. After all checks, it either sets the node `IDLE` (no failures)
-or `DOWN` with the accumulated reason.
+Each check is one file: `health-checks/<set>/NN-<check>.sh`. `HEALTHCHECKS` in
+`SETTINGS` names the set — `nvl72` ships, and everything below describes it.
+
+`node_health.sh` is the runner. It executes each check in numeric order, writes
+its output to `logs/<node>/<check>`, and diffs that against the baseline in
+`valid-config/default/`. Any mismatch appends the check name to a `reason`
+string. After all checks, it either sets the node `IDLE` (no failures) or `DOWN`
+with the accumulated reason — but only when `DRAIN_AFTER_FAILED_HEALTH_CHECK`
+is on. With it off, which is how it ships, the run is identical up to that
+point and Slurm is simply left alone; see
+[operations.md](operations.md#disabling-drains).
 
 A `refresh` sentinel file in `logs/<node>/` must exist for the health script to
 run — this is what prevents redundant re-checks on every monitoring cycle. Use
@@ -43,10 +50,10 @@ params, IMEX and NVLink for every other node, so validate it by hand first.
 
 ## Informational checks
 
-Three checks are **informational**: `node_health.sh` still runs them and still
-writes `logs/<node>/<check>`, but they never call `append_reason`, so they
-cannot appear in a drain reason and cannot take a node down. They are marked in
-the table below.
+Three checks carry `# informational: yes`: `node_health.sh` still runs them and
+still writes `logs/<node>/<check>`, but never appends them to the reason, so
+they cannot appear in a drain reason and cannot take a node down. They are
+marked in the table below.
 
 All three compare something that is per-rack, so they can never match a single
 cluster-wide baseline — every node outside the baseline node's rack differs by
@@ -69,11 +76,62 @@ Node-local IMEX health is unaffected and still drains: `imex-channels`,
 `imex-profile`, `imex-service` and `imex-readiness` all compare values that are
 the same on every node in the cluster.
 
-The reason string is not simply a list of check names — `append_reason` writes
-`Check BIOS` for the `bios` check, `cuuid` for `nvidia-smi-cuuid`, and
-`dmesg-xid` carries its own output into the reason. `health-check.sh` matches
-reason text against the known check names for that reason; anything reading the
-reason field needs to do the same.
+## The check file format
+
+```bash
+#!/bin/bash
+# banner: ########INFO: Check BIOS
+# informational: yes      (optional -- recorded, never contributes a reason)
+# reason-detail: yes      (optional -- the check's output joins the reason)
+
+grep -r . /sys/class/dmi/id/bios_* 2>/dev/null | cut -d'/' -f6- | sort | paste -s -d','
+```
+
+The check writes its result to stdout and nothing else; the runner adds the
+banner, writes the file, and does the diff. stderr is not captured — it goes to
+the BCM action output, so a tool's own complaint is visible without polluting
+the file being diffed.
+
+Three things are load-bearing:
+
+- **The banner is reproduced verbatim** as the first line of the log file, and
+  the baseline is a copy of that same log file. Change its text — including how
+  many `#` it starts with — and every node fails that check against every
+  baseline taken before the change.
+- **The filename after the `NN-` prefix is the check name**, and that name is
+  what the log file, the baseline file and the drain reason all use.
+  Renumbering a check does not invalidate a baseline; renaming one does.
+- **Each check runs in its own `bash`**, not sourced. One check that exits or
+  sets a shell option cannot truncate the other 37.
+
+To add a check: drop in a numbered file, run `node-health-refresh.sh` against
+the baseline node, and re-run `set-valid-default.sh` so the baseline has an
+entry for it. Without that second step the new check diffs against a missing
+file and fails on every node.
+
+To support another platform, copy the directory and delete what does not apply
+— a check that is not there does not run, which is why this is a directory
+rather than a pile of `uname` tests inside one script. Sets worth having:
+
+| Set | Contents |
+|-----|----------|
+| `common` | The platform-agnostic subset — bios, os, kernel-params, cpu, memory, numa, dmesg, iface, enroot. The right starting point for a new platform. |
+| `hgx-x86` | `common` plus GPU, NVLink, IB and PCIe, minus every IMEX and MNNVL check. Those are GB200/GB300-only and fail identically on every x86 HGX node, which is a whole-cluster drain for hardware that was never there — the same trap that keeps `nvsm` out of the default benchmark list. |
+| `cpu-only` | Login, head and CPU compute nodes: `common` plus iface and bond, no GPU or NVLink. |
+| `storage` | `common` plus IB, bond and mount checks, no GPU. |
+
+## Reading the reason field
+
+The reason is a list of check names, but it still cannot be split on whitespace
+and used as filenames: `dmesg-xid` carries its own output into the reason
+(`# reason-detail: yes`) and that output is free text. Reasons written before
+checks moved into `health-checks/` also used hand-written headers that did not
+match the log file — `Check BIOS` for `bios`, `enroot missing` for `enroot`.
+
+`reason-map.sh` carries both cases and is shared by `health-check.sh` and
+`sync-check.sh`. Anything else reading the reason field needs to go through it
+too: match reason text against the known check names, and treat everything else
+as free text a check dragged in.
 
 | Check | What it validates |
 |-------|-------------------|

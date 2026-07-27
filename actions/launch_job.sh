@@ -4,56 +4,32 @@
 
 #[[ "$CMD_CATEGORY" == "spcx-hosts" ]] || exit 0
 
-## Active single-node benchmark list. Everything without a passing result is
-## queued once an hour, in the order listed here.
+## ── Settings ──────────────────────────────────────────────────────────────
 ##
-## Available single-node jobs in jobs/ (AI Factory Testing Plan, SNT tiers):
-##   dcgm-r2                TTM DCGM gate      (dcgmi diag -r 2)
-##   dcgm                   Hybrid DCGM gate   (dcgmi diag -r 3)
-##   dcgm-r4                Exhaustive gate    (dcgmi diag -r 4)
-##   nvbandwidth            HBM / PCIe / NVLink bandwidth
-##   allreduce alltoall     NCCL single node, NVLink scope
-##   allreduce-nonvlink     NCCL single node, no NVLink (HCA loopback)
-##   alltoall-nonvlink      NCCL single node, no NVLink (HCA loopback)
-##   nvsm                   NVSM stress (Hybrid / Exhaustive, DGX only)
-##   stream memtester       CPU memory bandwidth + DRAM integrity (Exhaustive)
-##   stress-ng              CPU stress (Exhaustive)
-##   stressapptest          extended memory integrity (Exhaustive)
-##   fio                    local NVMe / shared storage (Exhaustive)
-##   ethr                   north-south management + storage NIC (Exhaustive)
-##   nvloom                 MNNVL fabric (Exhaustive, optional/exploratory)
-##   mnubergemm             burn-in (Hybrid / Exhaustive)
-##   llm-pretrain           single-node LLM pre-training workload gate
-##   hpl cublasmatmul       remediation-only single-node GEMM -- run by hand
+## Everything configurable lives in SETTINGS (or SETTINGS.default when a site
+## has not made one). BCM invokes this script by absolute path with no working
+## directory to infer from, so the checkout is located the same way it always
+## was -- by the hardcoded path below -- and the settings are read from there.
 ##
-## Pick the set matching the delivery methodology for the site.
-## Default list holds only jobs whose dependencies are always available: dcgm
-## uses a host binary, and the NCCL jobs use the hpc-benchmarks image, which
-## build_containers.sh pulls from the public catalog. Jobs whose image has to be
-## built or obtained (nvbandwidth, nvloom, mnubergemm) are covered in
-## docs/containers.md and are added here once their image exists.
+## This gives us: BENCHMARKS, JOBS_DIR, PARSERS_DIR, JOB_USER, MAX_JOB_HOURS,
+## RETRY_INTERVAL_HOURS, DRAIN_WINDOW_MINUTES, DRAIN_MARKER, and
+## DRAIN_AFTER_FAILED_BENCHMARK.
 ##
-## nvsm is deliberately NOT in the default list: it is a DGX-only tool. It ships
-## with DGX OS and only carries platform definition files for DGX platforms, so
-## on anything else it exits before doing any work ("Failed to find a matching
-## definition file for this platform") and fails identically on every node of
-## that platform. In the list, that is a whole-cluster drain for a tool that was
-## never going to run -- GPU stress is already covered by dcgm and mnubergemm.
-##
-## Add it back on a DGX site, where it also needs a passwordless sudoers grant
-## on every compute node. Put it between the NVLink NCCL jobs and the no-NVLink
-## ones so a fabric problem does not push a GPU stress test to the back of the
-## queue -- nvsm has no fabric dependency and should report early:
-##
-##   benchmarks="dcgm allreduce alltoall nvsm allreduce-nonvlink alltoall-nonvlink"
-##
-## See docs/nvsm.md for both requirements.
-benchmarks="dcgm allreduce alltoall allreduce-nonvlink alltoall-nonvlink"
-MAX_JOB_HOURS=6
+## A missing settings.sh is fatal rather than defaulted. Without it BENCHMARKS
+## is empty, the sweep finds nothing pending on every node, and the whole
+## cluster reads as "every benchmark passing" -- a silent stop, which is the
+## one failure mode the tracing below exists to prevent.
+home=/home/cmods/bringup
+if [[ ! -f "$home/settings.sh" ]]; then
+    echo "ERROR: $home/settings.sh is missing -- refusing to run, because an" >&2
+    echo "       empty benchmark list reads as 'everything passing' on every node." >&2
+    exit 1
+fi
+source "$home/settings.sh"
 
 ## Retry policy.
 ##
-## Once an hour, every benchmark in the list above that does not have a passing
+## Once an hour, every benchmark in BENCHMARKS that does not have a passing
 ## result is queued, in listed order. Slurm runs them back to back on the node.
 ## There is no retry limit -- a node keeps being re-tested until it passes or an
 ## operator intervenes.
@@ -78,22 +54,14 @@ MAX_JOB_HOURS=6
 ## be pulled straight back out of service. Failures only take the node down
 ## again once a fresh retry sweep has failed again.
 ##
-## Keep this above the BCM monitoring interval, or the drain is missed
-## entirely, and well below RETRY_INTERVAL_HOURS.
-RETRY_INTERVAL_HOURS=1
-DRAIN_WINDOW_MINUTES=15
-DRAIN_MARKER="auto-retry"
+## Keep DRAIN_WINDOW_MINUTES above the BCM monitoring interval, or the drain is
+## missed entirely, and well below RETRY_INTERVAL_HOURS. Both, along with
+## MAX_JOB_HOURS and DRAIN_MARKER, are set in SETTINGS.
 
 ## set paths
-home=/home/cmods/bringup
 logs="$home/results/$HOSTNAME"
 quickview="$logs/quick-view.txt"
 tracelog="$logs/trigger.log"
-
-## The account slurm jobs are submitted as. BCM runs this script as root on the
-## node, so anything root creates under results/ has to be handed over -- see
-## ensure_owned below.
-JOB_USER=cmods
 
 ## ── Tracing ───────────────────────────────────────────────────────────────
 ##
@@ -197,13 +165,18 @@ archive_result() {
 ## Drain only if the node is currently usable and not already drained by us.
 ## A node drained for any other reason is left alone.
 ##
-## `touch /home/cmods/bringup/NODRAIN` disables every drain this script would
-## issue, including the MAX_JOB_HOURS timeout drain. Testing continues exactly
-## as before — results are still recorded and failures still retry hourly — the
-## node is just never taken out of service. Remove the file to re-enable.
+## DRAIN_AFTER_FAILED_BENCHMARK=no in SETTINGS disables every drain this script
+## would issue, including the MAX_JOB_HOURS timeout drain. Testing continues
+## exactly as before — results are still recorded and failures still retry
+## hourly — the node is just never taken out of service. The suppressed drain
+## is still traced, so the trigger log answers "what would this have done" for
+## a site running with drains off.
 drain_node() {
     local reason="$1"
-    [[ -f "$home/NODRAIN" ]] && { trace "drain suppressed by NODRAIN: $reason"; return 0; }
+    setting_enabled "$DRAIN_AFTER_FAILED_BENCHMARK" || {
+        trace "drain suppressed by DRAIN_AFTER_FAILED_BENCHMARK=$DRAIN_AFTER_FAILED_BENCHMARK: $reason"
+        return 0
+    }
     case "$state" in
         *drain*|*down*|*fail*|*maint*) trace "drain skipped, already $state: $reason"; return 0 ;;
     esac
@@ -292,14 +265,15 @@ fi
 ## judged by an older, looser gate is re-judged by the current one instead of
 ## keeping its original pass forever. See the header of verdict.sh.
 
-if [[ ! -f "$home/verdict.sh" ]]; then
-    trace "EXIT: $home/verdict.sh is missing -- it carries the pass/fail rule for"
-    trace "      every job, and without it nothing can be judged. Refusing to run,"
+if [[ ! -f "$PARSERS_DIR/verdict.sh" ]]; then
+    trace "EXIT: $PARSERS_DIR/verdict.sh is missing -- it carries the pass/fail rule"
+    trace "      for every job, and without it nothing can be judged. Refusing to run,"
     trace "      because treating that as 'no results yet' would requeue the whole"
     trace "      benchmark list on every node, every hour, forever."
+    trace "      PARSERS=$PARSERS, from ${SETTINGS_FILE:-<no settings file found>}."
     exit 0
 fi
-source "$home/verdict.sh"
+source "$PARSERS_DIR/verdict.sh"
 
 declare -a pending_jobs=()
 declare -a failed_jobs=()
@@ -308,8 +282,8 @@ declare -A fail_reasons=()
 newest_result=0
 swept=1
 
-for job in $benchmarks; do
-    launch="$home/jobs/$job.sbatch"
+for job in $BENCHMARKS; do
+    launch="$JOBS_DIR/$job.sbatch"
     ## A benchmark named in the list with no sbatch file behind it drops out of
     ## the sweep entirely -- it never goes pending, so it never blocks a node
     ## and never shows up as missing. Worth a line.
@@ -375,7 +349,7 @@ done
 trace "survey: pending=[${pending_jobs[*]}] failed=[${failed_jobs[*]}] swept=$swept"
 
 if [[ "${#pending_jobs[@]}" -eq 0 ]]; then
-    printf '%s: DONE\n' $benchmarks > "$quickview"
+    printf '%s: DONE\n' $BENCHMARKS > "$quickview"
     resume_node
     trace "EXIT: every benchmark passing"
     exit 0
@@ -427,7 +401,7 @@ esac
 resume_node
 
 for job in "${pending_jobs[@]}"; do
-    launch="$home/jobs/$job.sbatch"
+    launch="$JOBS_DIR/$job.sbatch"
     totalRuns=${job_runs["$job"]}
 
     for ((r = 1; r <= totalRuns; r++)); do
@@ -458,7 +432,7 @@ for job in "${pending_jobs[@]}"; do
         ## keeps somebody else's job off the node mid-benchmark, which singleton
         ## never did: it only ever held back OUR jobs of the same name.
         ##
-        ## Ordering still follows the listed order of benchmarks= in practice:
+        ## Ordering still follows the listed order of BENCHMARKS in practice:
         ## these are submitted in that order, carry equal priority, and a
         ## whole-node job leaves no backfill window for a later one to slip
         ## into. It is a scheduling consequence rather than a guarantee, so do
@@ -499,7 +473,7 @@ done
 ## Queued lines carry the reason the previous attempt was rejected, so this file
 ## answers "why is this node still being retested" on its own.
 {
-    for job in $benchmarks; do
+    for job in $BENCHMARKS; do
         if printf '%s\n' "${pending_jobs[@]}" | grep -Fxq "$job"; then
             reason="${fail_reasons[$job]}"
             echo "$job: QUEUED${reason:+  <- $reason}"

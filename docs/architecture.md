@@ -40,34 +40,48 @@ across the cluster and names the broken link.
 │   ├── file_copy.sh               # Rsync containers to /tmp on each node (silent no-op if none)
 │   └── valid-node-check.sh        # BCM health-check script (category-based PASS/FAIL)
 │
-├── jobs/
-│   ├── example.sbatch             # Annotated template for adding new benchmarks
-│   ├── dcgm-r2.sbatch             # DCGM diagnostics (level 2, TTM gate)
-│   ├── dcgm.sbatch                # DCGM diagnostics (level 3, Hybrid gate)
-│   ├── dcgm-r4.sbatch             # DCGM diagnostics (level 4, Exhaustive gate)
-│   ├── nvbandwidth.sbatch         # HBM / PCIe / NVLink bandwidth
-│   ├── allreduce.sbatch           # NCCL all-reduce, NVLink scope
-│   ├── alltoall.sbatch            # NCCL all-to-all, NVLink scope
-│   ├── allreduce-nonvlink.sbatch  # NCCL all-reduce over HCAs (NVLink excluded)
-│   ├── alltoall-nonvlink.sbatch   # NCCL all-to-all over HCAs (NVLink excluded)
-│   ├── nvsm.sbatch                # NVSM stress test
-│   ├── stream.sbatch              # STREAM CPU memory bandwidth
-│   ├── memtester.sbatch           # DRAM integrity
-│   ├── stress-ng.sbatch           # CPU / cache / mmap stress
-│   ├── stressapptest.sbatch       # Extended memory integrity
-│   ├── fio.sbatch                 # Local NVMe / shared storage I/O
-│   ├── ethr.sbatch                # North-south management + storage NIC
-│   ├── nvloom.sbatch              # MNNVL fabric health (optional/exploratory)
-│   ├── mnubergemm.sbatch          # GPU burn-in (single node per the plan)
-│   ├── llm-pretrain.sbatch        # Single-node LLM pre-training workload gate
-│   ├── hpl.sbatch                 # HPL (Linpack), GB200 remediation-only GEMM
-│   ├── cublasmatmul.sbatch        # GB300 remediation-only single-node GEMM
-│   └── hpl/
-│       ├── hpl1N.dat              # HPL config for 1-node runs
-│       └── hpl2N.dat              # HPL config for 2-node runs
+├── SETTINGS.default               # Shipped configuration; copy to SETTINGS to change anything
+├── settings.sh                    # Loads SETTINGS, else SETTINGS.default; backfills unset keys
+├── reason-map.sh                  # Slurm drain reason → check names (health-check.sh, sync-check.sh)
+│
+├── health-checks/                 # One directory per platform; HEALTHCHECKS picks one
+│   └── nvl72/                     # One file per check, NN-<check>.sh, run in numeric order
+│       ├── 01-bios.sh
+│       ├── ...
+│       └── 38-dmesg-mlx5_core.sh
+│
+├── parsers/                       # One directory per platform; PARSERS picks one
+│   └── nvl72/
+│       └── verdict.sh             # Pass/fail rule and bandwidth floors for every job
+│
+├── jobs/                          # One directory per platform; JOBS picks one
+│   └── nvl72/
+│       ├── example.sbatch             # Annotated template for adding new benchmarks
+│       ├── dcgm-r2.sbatch             # DCGM diagnostics (level 2, TTM gate)
+│       ├── dcgm.sbatch                # DCGM diagnostics (level 3, Hybrid gate)
+│       ├── dcgm-r4.sbatch             # DCGM diagnostics (level 4, Exhaustive gate)
+│       ├── nvbandwidth.sbatch         # HBM / PCIe / NVLink bandwidth
+│       ├── allreduce.sbatch           # NCCL all-reduce, NVLink scope
+│       ├── alltoall.sbatch            # NCCL all-to-all, NVLink scope
+│       ├── allreduce-nonvlink.sbatch  # NCCL all-reduce over HCAs (NVLink excluded)
+│       ├── alltoall-nonvlink.sbatch   # NCCL all-to-all over HCAs (NVLink excluded)
+│       ├── nvsm.sbatch                # NVSM stress test
+│       ├── stream.sbatch              # STREAM CPU memory bandwidth
+│       ├── memtester.sbatch           # DRAM integrity
+│       ├── stress-ng.sbatch           # CPU / cache / mmap stress
+│       ├── stressapptest.sbatch       # Extended memory integrity
+│       ├── fio.sbatch                 # Local NVMe / shared storage I/O
+│       ├── ethr.sbatch                # North-south management + storage NIC
+│       ├── nvloom.sbatch              # MNNVL fabric health (optional/exploratory)
+│       ├── mnubergemm.sbatch          # GPU burn-in (single node per the plan)
+│       ├── llm-pretrain.sbatch        # Single-node LLM pre-training workload gate
+│       ├── hpl.sbatch                 # HPL (Linpack), GB200 remediation-only GEMM
+│       ├── cublasmatmul.sbatch        # GB300 remediation-only single-node GEMM
+│       └── hpl/
+│           ├── hpl1N.dat              # HPL config for 1-node runs
+│           └── hpl2N.dat              # HPL config for 2-node runs
 │
 ├── docs/                          # This directory
-├── NODRAIN                        # Present = never drain on failure (delete to enable)
 ├── build_containers.sh            # Build job container images into containers/
 ├── set-valid-default.sh           # Capture a validated node as the health baseline
 ├── node-health-refresh.sh         # Trigger a re-health-check on one or more nodes
@@ -82,8 +96,11 @@ across the cluster and names the broken link.
 ## Runtime paths
 
 Scripts assume the repo is deployed at `/home/cmods/bringup/` — the home
-directory of the `cmods` user. Adjust the paths at the top of each script if
-deploying elsewhere.
+directory of the `cmods` user. The two BCM actions carry that path literally,
+because BCM invokes them with no working directory to infer one from; every
+other script resolves its own location. Deploying elsewhere means editing
+`home=` in `actions/node_health.sh` and `actions/launch_job.sh`, and
+`BRINGUP_HOME` in `SETTINGS`.
 
 | Path | Purpose |
 |------|---------|

@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Compute-plane HCA discovery for the NCCL -nonvlink jobs. Sourced by
-# jobs/allreduce-nonvlink.sbatch and jobs/alltoall-nonvlink.sbatch, which had
+# jobs/nvl72/allreduce-nonvlink.sbatch and jobs/nvl72/alltoall-nonvlink.sbatch, which had
 # byte-identical copies of this until now. The same lspci/uniq -c incantation
 # also appears three times in actions/node_health.sh; those are next.
 #

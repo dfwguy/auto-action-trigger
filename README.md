@@ -25,11 +25,12 @@ This page covers what has to be in place, how to stand the framework up, and the
 | Page | Covers |
 |------|--------|
 | [architecture.md](docs/architecture.md) | Trigger chain in detail, directory layout, runtime paths |
+| [settings.md](docs/settings.md) | `SETTINGS` — the job, health-check and parser sets, the two drain switches, and the retry policy |
 | [sequencer.md](docs/sequencer.md) | `launch_job.sh` — sweep order, retry and drain rules, result-path ownership, Slurm permissions |
-| [health-checks.md](docs/health-checks.md) | `node_health.sh` — every check and what it validates |
-| [benchmarks.md](docs/benchmarks.md) | The `jobs/` catalog, test-plan coverage, what to set before enabling a job, adding a new one, and where a pass is decided (`verdict.sh`) |
+| [health-checks.md](docs/health-checks.md) | `node_health.sh` and `health-checks/$HEALTHCHECKS/` — every check, the check file format, adding a set for another platform |
+| [benchmarks.md](docs/benchmarks.md) | The `jobs/$JOBS/` catalog, test-plan coverage, what to set before enabling a job, adding a new one, and where a pass is decided (`parsers/$PARSERS/verdict.sh`) |
 | [containers.md](docs/containers.md) | `build_containers.sh` — why images are local, the two-pass source build, per-image notes |
-| [nvsm.md](docs/nvsm.md) | The sudoers grant and platform definition files `jobs/nvsm.sbatch` needs |
+| [nvsm.md](docs/nvsm.md) | The sudoers grant and platform definition files `jobs/nvl72/nvsm.sbatch` needs |
 | [operations.md](docs/operations.md) | Full operator command reference |
 
 ## Prerequisites
@@ -44,7 +45,7 @@ A local user named `cmods` must exist on the **headnode and every compute node**
 - The `cmods` user must have write access to `/home/cmods/bringup/logs/`, `/home/cmods/bringup/results/`, and `/home/cmods/bringup/reports/` on the headnode.
 - If the home directory is shared via NFS or another network filesystem, compute nodes will inherit it automatically. If not, `/home/cmods/bringup/` must be accessible on each compute node (e.g., via a shared filesystem mount).
 
-`jobs/nvsm.sbatch` runs only on **DGX** systems and additionally needs a passwordless sudoers grant for `cmods` on every compute node — see [docs/nvsm.md](docs/nvsm.md). It is the only job with either requirement, and for both reasons it is not in the default `benchmarks=` list.
+`jobs/nvl72/nvsm.sbatch` runs only on **DGX** systems and additionally needs a passwordless sudoers grant for `cmods` on every compute node — see [docs/nvsm.md](docs/nvsm.md). It is the only job with either requirement, and for both reasons it is not in the default `BENCHMARKS` list.
 
 ### Required software
 
@@ -57,8 +58,8 @@ A local user named `cmods` must exist on the **headnode and every compute node**
 | `lspci` | `node_health.sh` (PCIe checks) |
 | `numactl` | `node_health.sh` (NUMA checks) |
 | `dmidecode` | `node_health.sh` (BIOS/memory checks) |
-| `dcgmi` | `jobs/dcgm.sbatch`, `jobs/dcgm-r2.sbatch`, `jobs/dcgm-r4.sbatch` |
-| `nvsm` | `jobs/nvsm.sbatch` (DGX only; runs on the host, no container, needs root — see [docs/nvsm.md](docs/nvsm.md)) |
+| `dcgmi` | `jobs/nvl72/dcgm.sbatch`, `jobs/nvl72/dcgm-r2.sbatch`, `jobs/nvl72/dcgm-r4.sbatch` |
+| `nvsm` | `jobs/nvl72/nvsm.sbatch` (DGX only; runs on the host, no container, needs root — see [docs/nvsm.md](docs/nvsm.md)) |
 | `nvidia-imex-ctl` | `node_health.sh` (IMEX checks, GB series only) |
 | `enroot` | `build_containers.sh` (headnode for the fetch pass, compute nodes for the source-build pass; pyxis already needs it there) |
 | `squashfs-tools` | `build_containers.sh` (optional — shrinks the staged package set) |
@@ -109,7 +110,7 @@ bash pre-post/delete-action-trigger.sh
 ./build_containers.sh
 ```
 
-Run on the headnode, once per CPU architecture in the cluster. Only `hpc-benchmarks` is needed for the default `benchmarks=` list; the rest go with the jobs they enable. See [docs/containers.md](docs/containers.md).
+Run on the headnode, once per CPU architecture in the cluster. Which images it builds is `CONTAINERS` in `SETTINGS`, which ships as `hpc-benchmarks` alone — that is all the default `BENCHMARKS` list needs. Add an image there when you add the job that uses it; `-A` builds everything the script knows about. See [docs/containers.md](docs/containers.md).
 
 ### 3. Establish a valid-config baseline
 
@@ -122,17 +123,30 @@ bash set-valid-default.sh <node_name>
 
 This copies `logs/<node_name>/` to `valid-config/<node_name>/` and symlinks it as `valid-config/default/`. All subsequent health checks diff against this baseline.
 
-### 4. Choose the benchmark list
+### 4. Make a SETTINGS file
 
-The active list is the `benchmarks=` variable at the top of `actions/launch_job.sh`. The default holds only jobs whose dependencies are always available; which subset a site should run depends on its delivery methodology. See [docs/benchmarks.md](docs/benchmarks.md).
-
-### 5. Decide whether failures should drain
-
-The repo ships with a `NODRAIN` file present, so no failure takes a node out of service. Delete it once you want drains:
+Everything configurable lives in one file. `SETTINGS.default` ships with the framework and is read when there is no `SETTINGS`; `SETTINGS` is what a site edits and is never overwritten by an upgrade.
 
 ```bash
-rm /home/cmods/bringup/NODRAIN
+cp SETTINGS.default SETTINGS
 ```
+
+Editing `SETTINGS.default` in place works until the next tarball drop replaces it. A `SETTINGS` only has to carry the lines you changed — anything it leaves out falls back to the shipped default. See [docs/settings.md](docs/settings.md).
+
+### 5. Choose the benchmark list
+
+The active list is `BENCHMARKS` in `SETTINGS`. The default holds only jobs whose dependencies are always available; which subset a site should run depends on its delivery methodology. See [docs/benchmarks.md](docs/benchmarks.md).
+
+### 6. Decide whether failures should drain
+
+Both drain switches ship **off**, so no failure takes a node out of service:
+
+```bash
+DRAIN_AFTER_FAILED_HEALTH_CHECK=no   # health check mismatched the baseline
+DRAIN_AFTER_FAILED_BENCHMARK=no      # benchmark sweep failed, or a job ran past MAX_JOB_HOURS
+```
+
+Turn them on once the failures being reported are real ones. Health-check drains are the riskier half — a bad baseline drains the whole cluster on the first monitoring cycle — so bring that one up only after `bash health-check.sh --summary` reads clean. See [docs/operations.md](docs/operations.md#disabling-drains).
 
 ## Operating a bringup
 

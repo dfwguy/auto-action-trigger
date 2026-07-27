@@ -5,21 +5,28 @@
 # drifting apart is what made sync-check.sh try to diff files called "Check",
 # "BIOS", "missing", "(no" and "output)".
 #
-# node_health.sh's append_reason does not always write the name of the log file
-# the check produced:
+# A drain reason still cannot be split on whitespace and used as filenames
+# directly, for two reasons that survive the split into health-checks/:
 #
-#   append_reason "Check BIOS"    -> logs/<node>/bios          (two words)
-#   append_reason "cuuid"         -> logs/<node>/nvidia-smi-cuuid
-#   append_reason "enroot missing"-> logs/<node>/enroot         (two words)
-#   append_reason "dmesg-xid " "${dmesg_xid_out}"
-#                                 -> logs/<node>/dmesg-xid, plus the Xid output
-#                                    itself, which is free text and tokenizes
-#                                    into anything
+#   dmesg-xid carries its own output into the reason (`# reason-detail: yes`),
+#   and that output is free text which tokenizes into anything.
 #
-# So a reason cannot be split on whitespace and used as filenames directly.
-# Rewrite the multi-word names first, resolve the single-token renames, and then
-# keep only tokens that name a check that actually exists -- anything else is
-# free text that a check dragged into the reason field.
+#   Reasons written before the split used hand-written headers that did not
+#   match the log file the check produced:
+#
+#     "Check BIOS"     -> logs/<node>/bios            (two words)
+#     "cuuid"          -> logs/<node>/nvidia-smi-cuuid
+#     "enroot missing" -> logs/<node>/enroot          (two words)
+#
+# The rewrites below exist for that second case and are now legacy. Every check
+# is a file in health-checks/<set>/, and node_health.sh writes the check name
+# straight into the reason, so nothing new can produce these strings. They stay
+# because a node drained before the upgrade keeps its old reason text in Slurm
+# until something resumes it, and until then this is what parses it.
+#
+# So: rewrite the multi-word legacy names first, resolve the single-token
+# renames, and then keep only tokens that name a check that actually exists --
+# anything else is free text that a check dragged into the reason field.
 
 canonicalize_reason() {
     local r="$1"

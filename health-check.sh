@@ -28,8 +28,17 @@
 # baseline, so the Slurm reason field is the source of truth here -- no node is
 # contacted and nothing is re-run. Use node-health-refresh.sh to re-run checks
 # and sync-check.sh to see the actual diff for a node named below.
+#
+# That makes this report only as complete as the drains behind it. With
+# DRAIN_AFTER_FAILED_HEALTH_CHECK=no -- the shipped default -- node_health.sh
+# records failures and never drains, so nothing reaches the reason field and
+# every node reads as PASSING here. The banner below says so rather than
+# leaving a clean report to be read as a clean cluster. Until drains are turned
+# on, sync-check.sh is the tool that answers "is this node in spec": it diffs
+# the logs directly and does not go through Slurm at all.
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$home/settings.sh"
 logs_dir="$home/logs"
 valid_dir="$home/valid-config/default"
 
@@ -287,6 +296,18 @@ if [[ ! -d "$valid_dir" ]]; then
     echo "         artifacts of the missing baseline, not node faults. Fix it first:"
     echo "             rm -f $valid_dir"
     echo "             bash set-valid-default.sh <validated-node>"
+    echo
+fi
+
+# Drains off means this report has nothing to read. Say it at the top, for the
+# same reason the baseline warning is at the top: an empty report and a healthy
+# cluster look identical, and only one of them is worth trusting.
+if ! setting_enabled "$DRAIN_AFTER_FAILED_HEALTH_CHECK"; then
+    echo "NOTE: DRAIN_AFTER_FAILED_HEALTH_CHECK=$DRAIN_AFTER_FAILED_HEALTH_CHECK in ${SETTINGS_FILE##*/}"
+    echo "      node_health.sh records failures without draining, so a failing node"
+    echo "      carries no Slurm reason and is reported below as passing. This report"
+    echo "      is complete only once drains are on. Until then:"
+    echo "          bash sync-check.sh <node>     # diff the logs directly"
     echo
 fi
 

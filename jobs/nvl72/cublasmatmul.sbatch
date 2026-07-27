@@ -18,7 +18,7 @@
 ## AI Factory Testing Plan: single-node GEMM, remediation-only.
 ## GB300/B300 uses cuBlasMatMul; GB200 uses HPL (hpl.sbatch). Used to isolate a
 ## suspect node during remediation -- not part of the primary execution order,
-## so leave this out of the `benchmarks=` list in actions/launch_job.sh and
+## so leave this out of the `BENCHMARKS` list in SETTINGS and
 ## submit it by hand against the node under investigation.
 ## GB300 MOP 7.5.2.
 

@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
 #SBATCH -t 1:00:00
-##SBATCH -o /home/cmods/bringup/results/%N/allreduce-nonvlink.txt
+##SBATCH -o /home/cmods/bringup/results/%N/alltoall-nonvlink.txt
 
 ## Allocation. --exclusive is a JOB-level guarantee, and a step inherits only
 ## what was explicitly requested -- never what the job was implicitly granted.
@@ -15,14 +15,13 @@
 ## and would shrink every srun below to that core count. See the allocation
 ## header section of docs/benchmarks.md.
 
-## AI Factory Testing Plan: NCCL AllReduce -- Single Node, No NVLink -- SNT2
+## AI Factory Testing Plan: NCCL AllToAll -- Single Node, No NVLink -- SNT2
 ## Intra-node GPU collectives forced over the HCAs (GB300 MOP 7.3 Scope A,
-## loopback east/west fabric with NVLink excluded). Confirms the in-system
-## network is configured correctly and performant.
-## NVLink-scope counterpart: allreduce.sbatch
+## loopback east/west fabric with NVLink excluded).
+## NVLink-scope counterpart: alltoall.sbatch
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
-job_name=allreduce-nonvlink
+job_name=alltoall-nonvlink
 totalRuns=1
 
 ## ------------- job info starts here ------------- ##
@@ -75,10 +74,10 @@ export NCCL_IB_DISABLE=0
 ## rather than a quietly meaningless result.
 export NCCL_NET=IB
 
-## Compute-plane HCA discovery lives in jobs/nccl-hca.sh. This file and
-## alltoall-nonvlink.sbatch carried byte-identical copies of it, so ab9121d had
+## Compute-plane HCA discovery lives in jobs/nvl72/nccl-hca.sh. This file and
+## allreduce-nonvlink.sbatch carried byte-identical copies of it, so ab9121d had
 ## to make the same edit twice. See that file for what is filtered out and why.
-HCA_LIB=/home/cmods/bringup/jobs/nccl-hca.sh
+HCA_LIB=/home/cmods/bringup/jobs/nvl72/nccl-hca.sh
 if [[ ! -f "$HCA_LIB" ]]; then
 	echo "Missing $HCA_LIB -- cannot work out which HCAs to run over."
 	echo FAIL
@@ -127,7 +126,7 @@ srun --ntasks=1 --export=ALL \
 srun --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none \
                 --container-image="${CONT}" \
                 --container-mounts=/dev/infiniband:/dev/infiniband \
-                all_reduce_perf_mpi -b 8 -e 16G -f 2 -g 1
+                alltoall_perf_mpi -b 8 -e 16G -f 2 -g 1
 rc=$?
 
 

@@ -1,0 +1,12 @@
+# The site's own settings are never committed.
+#
+# SETTINGS.default is the shipped configuration and IS tracked; SETTINGS is the
+# copy a site edits. Committing one means the next tarball drop overwrites the
+# settings of whatever cluster it is unpacked on with another cluster's -- a
+# node list, a drain switch and a job set, all replaced silently by an upgrade.
+SETTINGS
+
+# Per-node output, written on the cluster.
+results/
+logs/
+reports/*.csv

@@ -1,9 +1,14 @@
-# Benchmark jobs (`jobs/`)
+# Benchmark jobs (`jobs/$JOBS/`)
 
-`jobs/` covers the single-node (SNT) rows of the
+The job set is a directory: `jobs/nvl72/` ships, and `JOBS` in `SETTINGS`
+selects which one `launch_job.sh` submits from. Everything below describes
+`jobs/nvl72/`; a second platform is a second directory, not a second copy of
+this framework.
+
+`jobs/nvl72/` covers the single-node (SNT) rows of the
 [AI Factory Testing Plan](https://gitlab-master.nvidia.com/nvis-npi/validation-mops/-/blob/main/ai_factory_testing_plan.md).
 Which subset runs depends on the delivery methodology for the site — see the
-commented catalog above `benchmarks=` in `actions/launch_job.sh`.
+commented catalog above `BENCHMARKS` in `SETTINGS`.
 
 | Plan row | Job | Variants |
 |----------|-----|----------|
@@ -30,7 +35,7 @@ rather than as a submitted job.
 
 ## Before enabling a job
 
-The default `benchmarks=` list holds only jobs whose dependencies are always
+The default `BENCHMARKS` list holds only jobs whose dependencies are always
 available: `dcgm` uses a host binary, and the NCCL jobs use the
 `hpc-benchmarks` image that `build_containers.sh` pulls from the public catalog.
 
@@ -51,7 +56,7 @@ Everything else needs one of three things first:
 
 ## The allocation header
 
-Every job in `jobs/` asks for the whole node. That is what serializes the sweep
+Every job in `jobs/nvl72/` asks for the whole node. That is what serializes the sweep
 (see [sequencer.md](sequencer.md)) and what makes a bandwidth or latency number
 mean anything: a benchmark sharing a node with another job is measuring the
 other job.
@@ -100,7 +105,7 @@ preflight: <node> gpus=4 cores=144/144
 and fails the job if it is not what was asked for. This is checked from inside a
 step because that is the only place that can see it — a step is a different
 cgroup from the batch script body, so a correct `AllocTRES` on the job tells you
-nothing about what the workload will get. `jobs/example.sbatch` carries the full
+nothing about what the workload will get. `jobs/nvl72/example.sbatch` carries the full
 reasoning, including why the passing line is worded the way it is: several parse
 blocks and `verdict.sh` grep the same file case-insensitively for
 `fail`/`warn`/`error`, and the nccl-tests parser reads any line starting with a
@@ -122,7 +127,7 @@ written not to depend on any of them.
 
 ## Adding a new benchmark
 
-1. Copy `jobs/example.sbatch` to `jobs/<name>.sbatch`. Its `#SBATCH` header and
+1. Copy `jobs/nvl72/example.sbatch` to `jobs/$JOBS/<name>.sbatch`. Its `#SBATCH` header and
    preflight block are part of what you are copying — see
    [the allocation header](#the-allocation-header).
 2. Set `job_name=<name>` and optionally `totalRuns=N`.
@@ -134,11 +139,11 @@ written not to depend on any of them.
    ```bash
    [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL
    ```
-5. Add a gate for `<name>` to the `case` in `verdict.sh`. Without one it falls
+5. Add a gate for `<name>` to the `case` in `parsers/$PARSERS/verdict.sh`. Without one it falls
    through to `_v_gate_generic`, which only checks for common crash signatures
    and cannot know what your job's output is supposed to look like.
 6. Add a fixture under `tests/fixtures/` and a line to `tests/verdict-test.sh`.
-7. Add `<name>` to the `benchmarks=` list in `actions/launch_job.sh`.
+7. Add `<name>` to the `BENCHMARKS` in `SETTINGS`.
 
 ## Where a pass is decided
 
@@ -210,7 +215,7 @@ did not contain.
 
 ### Host HCAs are not container HCAs
 
-`jobs/nccl-hca.sh` does two separate things, and conflating them is what cost
+`jobs/nvl72/nccl-hca.sh` does two separate things, and conflating them is what cost
 weeks. `nccl_hca_detect` runs on the **host** and chooses what to pin
 `NCCL_IB_HCA` to. `NCCL_HCA_PROBE` runs **inside the container** and reports
 what is visible there, via `ibv_devinfo` — the same libibverbs call NCCL makes.
@@ -241,13 +246,16 @@ true, and would send someone to look at the fabric instead of at a missing bind
 mount. Keep new checks in causal order.
 
 Bandwidth floors live in `VERDICT_MIN_BW_NVLINK` and `VERDICT_MIN_BW_NONVLINK`
-at the top of `verdict.sh`. They are set low deliberately — enough to catch a
+at the top of `parsers/nvl72/verdict.sh`. They are set low deliberately — enough to catch a
 transport that is obviously wrong, not to assert the fabric performs to spec.
 Raise them once a known-good run on the platform establishes what good looks
 like. They read the `# Avg bus bandwidth` summary line, which is an average
 across every message size and roughly half the largest-size figure that
 `status-daily-report.sh` reports as the metric; do not compare the two.
 
-Run `tests/verdict-test.sh` after changing a gate. It checks `verdict.sh`
-against captured result files, including a real socket run, and asserts the
-reason as well as the verdict.
+Run `tests/verdict-test.sh` after changing a gate. It checks
+`parsers/nvl72/verdict.sh` against captured result files, including a real
+socket run, and asserts the reason as well as the verdict.
+`tests/health-runner-test.sh` is the equivalent for the health side: it runs
+the check loop out of `node_health.sh` against a synthetic check set and
+asserts which mismatches reach the drain reason.

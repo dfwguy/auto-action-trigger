@@ -34,6 +34,7 @@
 set -u
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$home/settings.sh"
 
 node="${1:-}"
 if [[ -z "$node" ]]; then
@@ -53,7 +54,7 @@ CONT="${2:-}"
 ## The jobs source this from the NFS path, and the probe text plus the HCA
 ## filter both have to be the ones the benchmark uses -- probing with a
 ## different rule would not test what actually runs.
-HCA_LIB="$home/jobs/nccl-hca.sh"
+HCA_LIB="$JOBS_DIR/nccl-hca.sh"
 if [[ ! -f "$HCA_LIB" ]]; then
     echo "ERROR: missing $HCA_LIB -- it carries the HCA filter and the container" >&2
     echo "       probe the jobs use, and probing with a different one would not" >&2

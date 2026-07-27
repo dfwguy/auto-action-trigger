@@ -15,7 +15,7 @@
 ##
 ## This asked for one GPU before, which is not what the job runs -- the
 ## commented --gpu-affinity line below maps four. Remediation-only either way:
-## it is not in the benchmarks= list and is submitted by hand.
+## it is not in the BENCHMARKS list and is submitted by hand.
 #
 ## Locally built image (build_containers.sh). The node-local copy that
 ## actions/file_copy.sh rsyncs to /tmp is preferred so job start does not read
@@ -27,7 +27,7 @@ CONT=/tmp/containers/$IMG
 ## Registry alternative -- every node pulls it over the network on first use.
 ## Note the enroot `#` separator between registry host and image path.
 #CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
-HPLDATPATH=/home/cmods/bringup/jobs/hpl/
+HPLDATPATH=/home/cmods/bringup/jobs/nvl72/hpl/
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=hpl

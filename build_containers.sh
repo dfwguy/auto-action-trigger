@@ -17,14 +17,23 @@
 # are done in two passes: -F fetches everything on the headnode, -B compiles it
 # natively on a node. Registry pulls need only the -F pass.
 #
-#   ./build_containers.sh                    # everything that is missing
-#   ./build_containers.sh hpc-benchmarks     # just one image
+#   ./build_containers.sh                    # the CONTAINERS list, whatever is missing
+#   ./build_containers.sh hpc-benchmarks     # just one image, ignoring CONTAINERS
+#   ./build_containers.sh -A                 # every image this script knows about
 #   ./build_containers.sh -f nvloom          # rebuild even if the .sqsh exists
 #   ./build_containers.sh -l                 # list images and their status
 #   ./build_containers.sh -a arm -F          # headnode: fetch ARM sources
 #   srun -N1 ./build_containers.sh -B        # ARM node: compile what was fetched
 #
+# With no image named, the list comes from CONTAINERS in SETTINGS -- the images
+# this site's BENCHMARKS actually need. It ships as hpc-benchmarks alone,
+# matching the default benchmark list. Naming images on the command line
+# overrides it; -A selects everything regardless.
+#
 set -u
+
+home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$home/settings.sh"
 
 DEST=${CONTAINER_DIR:-/home/cmods/bringup/containers}
 STAGE=${STAGE_DIR:-/home/cmods/bringup/container-src}
@@ -76,11 +85,16 @@ UBUNTU_MIRROR_arm64=http://ports.ubuntu.com/ubuntu-ports
 ## host's release.
 HELPER_URI=docker://ubuntu:24.04
 
+## Every image this script knows how to produce. CONTAINERS picks a subset of
+## these; -A is this list.
+ALL_IMAGES="hpc-benchmarks nvbandwidth nvloom mnubergemm"
+
 usage() {
     awk 'NR > 2 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
     echo
-    echo "Images: hpc-benchmarks nvbandwidth nvloom mnubergemm"
-    echo "Arch:   arm x86 (default: this machine; \$ARCH also works)"
+    echo "Images:     $ALL_IMAGES"
+    echo "CONTAINERS: ${CONTAINERS:-<empty>}  (${SETTINGS_FILE:-no settings file})"
+    echo "Arch:       arm x86 (default: this machine; \$ARCH also works)"
     exit "${1:-0}"
 }
 
@@ -89,7 +103,7 @@ warn() { printf 'build_containers: %s\n' "$*" >&2; }
 die()  { warn "$*"; exit 1; }
 
 ## Name of the .sqsh each image lands as. Job scripts build the same string, so
-## a rename here needs the matching edit in jobs/.
+## a rename here needs the matching edit in jobs/$JOBS/.
 image_file() {
     case "$1" in
         hpc-benchmarks) echo "nvidia+hpc-benchmarks+${HPC_BENCHMARKS_TAG}-${arch}.sqsh" ;;
@@ -440,12 +454,14 @@ build_mnubergemm() {
     return 1
 }
 
-while getopts ':fld:a:FBh' opt; do
+ALL=0
+while getopts ':fld:a:AFBh' opt; do
     case "$opt" in
         f) FORCE=1 ;;
         l) LIST=1 ;;
         d) DEST="$OPTARG" ;;
         a) arch="$OPTARG" ;;
+        A) ALL=1 ;;
         F) MODE=fetch ;;
         B) MODE=build ;;
         h) usage 0 ;;
@@ -456,11 +472,34 @@ shift $((OPTIND - 1))
 
 [[ -n "$(enroot_arch "$arch")" ]] || die "unknown architecture: $arch (want arm or x86)"
 
+## Three sources for the image list, most specific first: what was named on the
+## command line, -A, then CONTAINERS.
+##
+## CONTAINERS is the site's answer to "which images do the benchmarks we run
+## actually need", and it defaults to hpc-benchmarks because the default
+## BENCHMARKS list needs nothing else. That is also why a bare run no longer
+## attempts all four: mnubergemm is NVIDIA-internal and cannot be built from
+## anything we have, so including it by default meant every plain invocation
+## ended in "did not build: mnubergemm" and a non-zero exit, on a site that was
+## never going to run it. -A is still there for the old behaviour.
 images=("$@")
-[[ "${#images[@]}" -eq 0 ]] && images=(hpc-benchmarks nvbandwidth nvloom mnubergemm)
+if [[ "${#images[@]}" -eq 0 ]]; then
+    if [[ "$ALL" -eq 1 ]]; then
+        read -r -a images <<<"$ALL_IMAGES"
+    else
+        read -r -a images <<<"${CONTAINERS:-}"
+        if [[ "${#images[@]}" -eq 0 ]]; then
+            echo "CONTAINERS is empty in ${SETTINGS_FILE:-<no settings file>} -- nothing to build."
+            echo "Set it, name an image, or use -A for all of: $ALL_IMAGES"
+            exit 0
+        fi
+        [[ "$LIST" -eq 1 ]] || echo "building the CONTAINERS list from ${SETTINGS_FILE##*/}: ${images[*]}"
+    fi
+fi
 
 for img in "${images[@]}"; do
-    image_file "$img" >/dev/null || die "unknown image: $img"
+    image_file "$img" >/dev/null ||
+        die "unknown image: $img (known: $ALL_IMAGES). Check CONTAINERS in ${SETTINGS_FILE:-SETTINGS}."
 done
 
 ## The build pass only ever has something to do for the source-built images.

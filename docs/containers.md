@@ -1,16 +1,56 @@
 # Containers for the benchmark jobs
 
-`build_containers.sh` builds every container image the jobs need as a local
-`.sqsh` in `/home/cmods/bringup/containers/`. `actions/file_copy.sh` rsyncs
-that directory to `/tmp/containers/` on each node, and every job prefers the
-node-local copy. Nothing is pulled from a registry at job start.
+`build_containers.sh` builds the container images the jobs need as local
+`.sqsh` files in `/home/cmods/bringup/containers/`. `actions/file_copy.sh`
+rsyncs that directory to `/tmp/containers/` on each node, and every job prefers
+the node-local copy. Nothing is pulled from a registry at job start.
 
 ```bash
-./build_containers.sh          # build everything missing
+./build_containers.sh          # build the CONTAINERS list, whatever is missing
 ./build_containers.sh -l       # what is present, what is not
 ```
 
 Run it on the headnode, once per CPU architecture in the cluster.
+
+## Which images get built
+
+`CONTAINERS` in `SETTINGS` is the list a bare run uses — the images this site's
+`BENCHMARKS` actually need. It ships as `hpc-benchmarks` alone, which is what
+the default benchmark list needs and nothing more.
+
+```bash
+CONTAINERS="hpc-benchmarks"           # SETTINGS
+```
+
+| Image | Needed by |
+|-------|-----------|
+| `hpc-benchmarks` | `allreduce`, `alltoall`, both `-nonvlink` variants, `hpl`, `cublasmatmul`, `stream` |
+| `nvbandwidth` | `nvbandwidth` |
+| `nvloom` | `nvloom` |
+| `mnubergemm` | `mnubergemm` |
+
+`dcgm` and `nvsm` are not in the table — they run host binaries and need no
+image at all.
+
+Add an image to `CONTAINERS` at the same time as you add the job that uses it
+to `BENCHMARKS`. A job whose image is missing fails on every node, and it fails
+at run time rather than at submission.
+
+Two ways to override the setting for one run:
+
+```bash
+./build_containers.sh nvloom   # just this image, ignoring CONTAINERS
+./build_containers.sh -A       # every image the script knows about
+```
+
+`-A` is the old default. It stopped being the default because `mnubergemm` is
+NVIDIA-internal and cannot be built from anything we have, so every plain run
+ended in `did not build: mnubergemm` and a non-zero exit — on sites that were
+never going to run it.
+
+An explicitly empty `CONTAINERS=""` means "build nothing", and is respected as
+written rather than defaulted back: a site whose images are already in place,
+or which obtains them another way, does not need this script.
 
 ---
 
@@ -193,6 +233,7 @@ whatever the headnode is.
 ## Options
 
 ```
+-A            every image the script knows about, ignoring CONTAINERS
 -f            rebuild even if the .sqsh is already there
 -l            list images and whether they are present, build nothing
 -d DIR        write somewhere other than /home/cmods/bringup/containers
@@ -202,7 +243,8 @@ whatever the headnode is.
 ```
 
 Options must come before image names — `getopts` stops at the first
-non-option argument.
+non-option argument. With no image named and no `-A`, the list is `CONTAINERS`
+from `SETTINGS`; see [Which images get built](#which-images-get-built).
 
 Environment: `CONTAINER_DIR` (same as `-d`), `STAGE_DIR` (source staging,
 default `/home/cmods/bringup/container-src`), `ARCH` (same as `-a`), `WORKDIR`
@@ -235,7 +277,7 @@ The generated Dockerfile bases on `nvcr.io/nvidia/cuda:13.0.1-devel-ubuntu24.04`
 edit `NVBANDWIDTH_CUDA` in the script if the driver on the nodes is older, since
 a CUDA base newer than the driver fails at run time, not at build time.
 
-To enable the job, add `nvbandwidth` to `benchmarks=` in
+To enable the job, add `nvbandwidth` to `BENCHMARKS` in
 `actions/launch_job.sh`.
 
 The job's parse section enforces only the platform-independent criteria from
@@ -260,7 +302,7 @@ The node-side prerequisite is IMEX, not fabricmanager:
 healthy. On NVL72 the NVLink domain is managed by NMX-C on the switch trays and
 the hosts run `nvidia-imex`; `node_health.sh` already covers those checks.
 
-To enable, add `nvloom` to `benchmarks=` in `actions/launch_job.sh`. Scope 1
+To enable, add `nvloom` to `BENCHMARKS` in `SETTINGS`. Scope 1
 (basic health, ~10 min) is what runs by default; the Scope 2 burn-in `srun` is
 present but commented, and needs `#SBATCH -t` raised above `BURN_IN_DURATION`
 before use. nvloom is flagged *optional / exploratory* in the AI Factory Testing
@@ -277,7 +319,7 @@ enroot import -o /home/cmods/bringup/containers/mnubergemm-26.03-v1.17-arm.sqsh 
     dockerd://<image>:<tag>
 ```
 
-Update `IMG` in `jobs/mnubergemm.sbatch` if the version or architecture suffix
+Update `IMG` in `jobs/nvl72/mnubergemm.sbatch` if the version or architecture suffix
 differs.
 
 Burn-in runs 24–72 hours per the plan, so it is not a candidate for the default

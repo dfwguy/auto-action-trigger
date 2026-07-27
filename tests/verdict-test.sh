@@ -19,8 +19,12 @@
 # here before changing the rule -- that is what stops the next change to
 # verdict.sh from quietly undoing this one.
 
+## The fixtures were captured on nvl72 hardware and the expectations below are
+## that platform's gates, so this tests parsers/nvl72 specifically rather than
+## whatever PARSERS happens to be set to. A site that switches PARSERS wants a
+## second fixture set, not this one silently re-pointed at its parser.
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$home/verdict.sh"
+source "$home/parsers/nvl72/verdict.sh"
 
 ## fixture | expected status | expected reason (empty for DONE)
 ##

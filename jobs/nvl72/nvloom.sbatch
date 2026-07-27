@@ -56,7 +56,7 @@ srun --ntasks=1 bash -c '
 ## NOT ENABLED BY DEFAULT -- nvloom publishes no prebuilt image, only a sample
 ## Dockerfile at github.com/NVIDIA/nvloom. Run `./build_containers.sh nvloom`
 ## on the headnode to build the image below, then add this job to the
-## benchmarks= list in actions/launch_job.sh. See docs/containers.md.
+## BENCHMARKS list in SETTINGS. See docs/containers.md.
 ## MOP reference image: /home/nvis/nvidian+nvis+nvloom+v2.0.0-arm.sqsh
 IMG=nvloom-v2.0.0-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG

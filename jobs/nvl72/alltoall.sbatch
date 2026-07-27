@@ -48,7 +48,7 @@ CONT=/tmp/containers/$IMG
 ## Registry alternative -- every node pulls it over the network on first use.
 ## Note the enroot `#` separator between registry host and image path.
 #CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
-#HPLDATPATH=/home/cmods/bringup/jobs/hpl/
+#HPLDATPATH=/home/cmods/bringup/jobs/nvl72/hpl/
 
 export NCCL_SOCKET_IFNAME=bond0
 export NCCL_DEBUG=INFO

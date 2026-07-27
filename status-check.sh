@@ -42,8 +42,9 @@
 #            from draining nodes for a test they were never judged on.
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$home/settings.sh"
 results_dir="$home/results"
-jobs_dir="$home/jobs"
+jobs_dir="$JOBS_DIR"
 
 tests=()
 summary=0
@@ -66,8 +67,10 @@ elif [[ "$pattern" != *[\*\?\[]* ]]; then
     pattern="${pattern}*"
 fi
 
-# Read active benchmark list from launch_job.sh
-active_benchmarks=$(grep -E '^benchmarks=' "$home/actions/launch_job.sh" | head -1 | tr -d '"' | cut -d= -f2-)
+# The active benchmark list is the setting itself, read from the same SETTINGS
+# launch_job.sh reads. It used to be grepped back out of launch_job.sh, which
+# worked only for as long as the two agreed on where the list lived.
+active_benchmarks="$BENCHMARKS"
 
 # Build ordered job+run list matching what launch_job.sh actually tracks
 declare -a columns  # each entry is "job" or "job-runN"
@@ -111,16 +114,17 @@ if [[ ${#columns[@]} -eq 0 ]]; then
     exit 1
 fi
 
-## The verdict is derived from the log by verdict.sh on every run, not read from
+## The verdict is derived from the log by the parser on every run, not read from
 ## a marker the sbatch wrote. So this reports what the CURRENT gate makes of a
 ## result, which is the point -- a result that passed an older, looser gate is
 ## re-judged here rather than keeping its original DONE.
-if [[ ! -f "$home/verdict.sh" ]]; then
-    echo "ERROR: $home/verdict.sh is missing -- it carries the pass/fail rule for" >&2
-    echo "       every job, and without it nothing can be judged." >&2
+if [[ ! -f "$PARSERS_DIR/verdict.sh" ]]; then
+    echo "ERROR: $PARSERS_DIR/verdict.sh is missing -- it carries the pass/fail rule" >&2
+    echo "       for every job, and without it nothing can be judged." >&2
+    echo "       PARSERS=$PARSERS, from ${SETTINGS_FILE:-<no settings file found>}." >&2
     exit 1
 fi
-source "$home/verdict.sh"
+source "$PARSERS_DIR/verdict.sh"
 
 # Prior failed attempts archived by launch_job.sh as <col>.fail<N>.txt.
 # A column with archives and no current file is queued for its next retry.

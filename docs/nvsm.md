@@ -1,10 +1,10 @@
-# NVSM (`jobs/nvsm.sbatch`)
+# NVSM (`jobs/nvl72/nvsm.sbatch`)
 
 > **DGX only, and not in the default benchmark list.**
 > `nvsm` ships as part of DGX OS and only carries platform definition files for
 > DGX platforms. On anything else it exits before doing any work, identically on
-> every node, so leaving it in `benchmarks=` drains the whole cluster for a tool
-> that was never going to run. It is omitted from the default `benchmarks=` list
+> every node, so leaving it in `BENCHMARKS` drains the whole cluster for a tool
+> that was never going to run. It is omitted from the default `BENCHMARKS` list
 > in `actions/launch_job.sh` for that reason — add it back only on a DGX site.
 > GPU stress is covered by `dcgm` and `mnubergemm` everywhere else.
 
@@ -23,7 +23,7 @@ srun: error: node001: task 0: Exited with exit code 1
 ```
 
 Jobs are submitted via `su - cmods`, and Slurm runs the task as the submitting
-user — there is no way to have `srun` launch the task as root. `jobs/nvsm.sbatch`
+user — there is no way to have `srun` launch the task as root. `jobs/nvl72/nvsm.sbatch`
 therefore calls `sudo -n nvsm`, which needs a passwordless sudoers grant for
 `cmods`. Drop a file in `/etc/sudoers.d/` — via the BCM software image so it
 survives a reprovision:
@@ -57,7 +57,7 @@ If the node sets `Defaults requiretty`, add an exemption alongside the grant:
 Defaults:cmods !requiretty
 ```
 
-If site policy forbids the grant entirely, leave `nvsm` out of `benchmarks=` and
+If site policy forbids the grant entirely, leave `nvsm` out of `BENCHMARKS` and
 run the stress test by hand from the headnode as root
 (`pdsh -w <nodes> nvsm stress-test --force`), outside the automated sequence.
 
@@ -75,7 +75,7 @@ Please toggle autogenerate_pdf flag from nvsm.config for auto generating pdf.
 This is neither a sudo problem nor a hardware problem, and it is not
 node-specific — every node of the same platform running the same NVSM package
 fails identically, so `nvsm` fails its sweep and drains the whole rack for a
-software gap. That is why it is not in the default `benchmarks=` list: on a
+software gap. That is why it is not in the default `BENCHMARKS` list: on a
 non-DGX platform it cannot pass, and a check that cannot pass is a check that
 drains every node it runs on.
 
@@ -93,7 +93,7 @@ autogenerate_pdf = true
 
 then restart the NVSM services (`systemctl restart nvsm nvsm-core nvsm-api-gateway`)
 and re-check with `sudo -n nvsm show version` before adding `nvsm` back to
-`benchmarks=`. Confirm on one node first — the failure is platform-wide, so a
+`BENCHMARKS`. Confirm on one node first — the failure is platform-wide, so a
 single node tells you what the whole fleet will do.
 
 ## Reading a failed result

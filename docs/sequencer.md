@@ -1,9 +1,10 @@
 # Benchmark sequencer (`actions/launch_job.sh`)
 
-The active benchmark list is the `benchmarks=` variable at the top of
-`actions/launch_job.sh`. The commented catalog above it lists every job in
-`jobs/` and which delivery methodology calls for it — see
-[benchmarks.md](benchmarks.md).
+The active benchmark list is the `BENCHMARKS` variable in `SETTINGS` (or
+`SETTINGS.default`, when a site has not made a `SETTINGS`). The commented
+catalog above it lists every job in `jobs/$JOBS/` and which delivery
+methodology calls for it — see [benchmarks.md](benchmarks.md) and
+[settings.md](settings.md).
 
 Once an hour, every benchmark in that list without a passing result is queued in
 listed order, and Slurm runs them back to back on the node. A job passes when
@@ -20,7 +21,7 @@ run) or `<job>-run<N>.txt` (multiple runs). Prior failures are archived as
 What serializes the batch is `#SBATCH --exclusive` in every `jobs/*.sbatch`.
 Without serialization the whole batch is eligible at once and a GPU job landing
 on top of dcgm's stress plugins fails on buffer allocation. Ordering follows the
-`benchmarks=` list in practice — the jobs are submitted in that order, carry
+`BENCHMARKS` list in practice — the jobs are submitted in that order, carry
 equal priority, and a whole-node job leaves no backfill window for a later one
 to slip into — but that is a scheduling consequence, not a guarantee. No job
 should depend on an earlier one having finished.

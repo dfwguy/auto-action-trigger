@@ -189,28 +189,43 @@ lets Slurm put the node back to `idle` or `alloc` on its own. Setting
 These commands need privilege — see
 [Slurm permissions](sequencer.md#slurm-permissions).
 
-## Disabling drains (`NODRAIN`)
+## Disabling drains
 
-A file named `NODRAIN` in the bringup root disables every drain the sequencer
-would issue, including the `MAX_JOB_HOURS` timeout drain:
+Two settings decide whether a failure takes a node out of service. Both live in
+`SETTINGS` (or `SETTINGS.default` when a site has not made a `SETTINGS`), and
+both ship **off** — see [settings.md](settings.md).
 
 ```bash
-touch /home/cmods/bringup/NODRAIN     # stop draining on failure
-rm /home/cmods/bringup/NODRAIN        # resume normal behaviour
+DRAIN_AFTER_FAILED_HEALTH_CHECK=no   # node_health.sh: mismatch against baseline
+DRAIN_AFTER_FAILED_BENCHMARK=no      # launch_job.sh: failed sweep, and MAX_JOB_HOURS
 ```
 
-Nothing else changes — benchmarks still run, results are still recorded, and
-failures still re-queue hourly. The node is simply never taken out of service,
-so failures show up in `status-check.sh` and the CSV report rather than in
-`sinfo`.
+Nothing else changes with either off — checks and benchmarks still run, results
+are still recorded, and failures still re-queue hourly. The node is simply never
+taken out of service, so failures show up in `status-check.sh`, `sync-check.sh`
+and the CSV report rather than in `sinfo`.
 
-Useful during early bringup when you want the full picture across a rack before
-nodes start dropping out, or while debugging a benchmark that is failing for
-reasons unrelated to the hardware.
+That is the state to be in during early bringup, when you want the full picture
+across a rack before nodes start dropping out, and while debugging a benchmark
+that is failing for reasons unrelated to the hardware.
 
-**This repo ships with `NODRAIN` present**, so drains are off out of the box.
-Delete it once you want failures to pull nodes from the pool. It does not clear
-drains that already exist.
+Two consequences worth knowing before turning them on or leaving them off:
+
+- With `DRAIN_AFTER_FAILED_HEALTH_CHECK=no`, `health-check.sh` reads the Slurm
+  reason field and therefore reports every node as passing. It prints a banner
+  saying so. Use `sync-check.sh <node>`, which diffs the logs directly, until
+  drains are on.
+- Turning either on does not clear drains that already exist, and does not
+  drain a node that is already failing — the next monitoring cycle does that.
+
+`DRAIN_AFTER_FAILED_HEALTH_CHECK` is the riskier of the two and should stay off
+the longest: a health check drains on *any* diff against
+`valid-config/default`, so a baseline taken from a node that is itself slightly
+off drains the entire cluster on the first cycle. Bring it up only once
+`bash health-check.sh --summary` reads clean across the fleet.
+
+These replace the old `NODRAIN` file, which is gone. A `NODRAIN` left over from
+an earlier deployment now does nothing; delete it.
 
 ## Debugging the trigger chain
 

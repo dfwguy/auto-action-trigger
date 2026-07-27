@@ -200,7 +200,7 @@ _v_gate_nccl() {
     ## nodes as "collective carried over TCP", which is true, and would send
     ## someone to look at the fabric instead of at a missing bind mount.
     if [[ "$transport" == "ib" ]]; then
-        ## jobs/nccl-hca.sh probes libibverbs from inside the container -- the
+        ## jobs/nvl72/nccl-hca.sh probes libibverbs from inside the container -- the
         ## same call NCCL makes -- and prints a fixed last line. `(none)` there
         ## is the root cause, stated plainly and without anyone needing to know
         ## what `NET/IB : No device found.` implies about enroot. A result from
