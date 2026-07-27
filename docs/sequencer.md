@@ -186,6 +186,37 @@ sweep now: a single "is anything of ours out there" check would let a three-day
 burn-in block every benchmark retry behind it, and the nice values would never
 get a chance to matter.
 
+### Jobs the scheduler has given up on
+
+A failed launch — slurmd not answering at the moment the scheduler tried to
+start the job — does not fail the job. Slurm requeues it and *holds* it, and a
+held job reads as `PENDING` to the name queries above while carrying priority 0:
+it will never start, however healthy the node later becomes. Left alone, the
+queue gate waits on it forever and the node idles, tracing `waiting on our own
+queue` every cycle.
+
+So a job of ours held with reason `launch failed requeued held` is cancelled and
+left to the survey to re-queue. Cancelling is safe without any further check —
+the queue was matched by name, so everything in it is `bringup-<node>` or
+`burnin-<node>` by construction, and another user's job is never in that list.
+
+Two bounds on it:
+
+- **An operator's hold is never cancelled.** `JobHeldUser` and `JobHeldAdmin`
+  are the same `PENDING`-at-priority-0, but a person chose it. Those are named
+  in the trace and otherwise left alone.
+- **One attempt per `RETRY_INTERVAL_HOURS`,** measured from the held job's own
+  submit time — no counter on disk, and the replacement carries a fresh
+  timestamp. The bound is load-bearing rather than tidy: the hourly gate keys
+  off result mtime, and a job that never ran writes no result, so that gate
+  stays open and would not slow a cancel/resubmit loop down at all. Without it
+  a node that cannot launch anything would resubmit every monitoring cycle.
+
+The scheduler's reason for any job of ours that is not cleanly schedulable is
+appended to both the `queue:` line and the `EXIT: waiting on our own queue`
+line. `waiting on our own queue` reads identically whether the job starts in a
+minute or never starts at all, and the reason is the whole difference.
+
 ## Result-path ownership
 
 Clearing `results/` is safe at any time:

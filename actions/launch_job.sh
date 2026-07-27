@@ -448,8 +448,105 @@ trace "state=$(printf '%s' "$state" | tr '\n' ',') explain=$EXPLAIN"
 ## chance to matter. The names are also worth having in `squeue` on their own:
 ## an operator can see which of the two a node is doing, and stop just the
 ## burn-in with `scancel -n burnin-<node>`.
-mine_bench=$(squeue -h -n "$JOB_NAME_BENCH"  -o '%i %T %M' 2>/dev/null)
-mine_burnin=$(squeue -h -n "$JOB_NAME_BURNIN" -o '%i %T %M' 2>/dev/null)
+##
+## %V (submit time) and %r (why the scheduler has not started it) come last and
+## in that order, because a Slurm reason is free text with spaces in it -- "launch
+## failed requeued held" is one field. Everything that reads these lines takes
+## $1..$4 positionally and the reason as the remainder, so nothing may be added
+## after %r.
+queue_fmt='%i %T %M %V %r'
+mine_bench=$(squeue -h -n "$JOB_NAME_BENCH"  -o "$queue_fmt" 2>/dev/null)
+mine_burnin=$(squeue -h -n "$JOB_NAME_BURNIN" -o "$queue_fmt" 2>/dev/null)
+
+## One queued job, rendered for a trace line, reason included -- which is the
+## only part of a stuck queue that says anything. RUNNING and cleanly-schedulable
+## jobs report "None" and are left out, so this is empty on a healthy cycle and
+## the trace stays one line.
+queue_detail() {
+    awk 'NF >= 5 {
+             reason = $5
+             for (i = 6; i <= NF; i++) reason = reason " " $i
+             if (reason == "None" || reason == "(null)") next
+             printf " [%s %s: %s]", $1, $2, reason
+         }' <<<"$1"
+}
+
+## ── Jobs the scheduler has given up on ────────────────────────────────────
+##
+## A failed launch -- slurmd not answering at the moment the scheduler tried to
+## start the job -- does not fail the job. Slurm requeues it and *holds* it. A
+## held job reads as PENDING to every query above while carrying priority 0: it
+## will never start, however healthy the node becomes. The busy gate below then
+## waits on it forever and the node sits idle, tracing "waiting on our own
+## queue" every cycle -- true, useless, and exactly the silence this script
+## exists to prevent. Seen for real on ink50-dh01-h22-34, whose slurmd flapped
+## for two minutes and whose sweep then stopped for good.
+##
+## Cancelling one is safe on ownership grounds without any further check: the
+## queue was matched by name, so every id here is bringup-<node> or
+## burnin-<node>, ours by construction. Anyone else's work is $foreign below and
+## is never touched.
+##
+## An operator's own hold (JobHeldUser / JobHeldAdmin) is left alone. It is the
+## same PENDING-at-priority-0, but a person chose it, and a script that cancels
+## a hold is a script that argues with whoever set it. It gets named in the
+## trace instead, which is all it needs.
+##
+## The retry cadence is taken from the job's own submit time rather than a
+## counter on disk: a held job is cancelled only once it has sat for
+## RETRY_INTERVAL_HOURS. Its replacement carries a fresh timestamp, so a node
+## that genuinely cannot launch anything retries hourly rather than every
+## monitoring cycle -- and this script gets to remember nothing between runs.
+## Without that bound it would be a resubmit loop every 30s: the hourly gate
+## further down keys off result mtime, and a job that never ran writes no
+## result, so that gate stays open and would not slow this down at all.
+LAUNCH_FAILED_HELD='launch failed requeued held'
+
+reap_held_jobs() {
+    local queue="$1" id state elapsed submit reason age submit_epoch out now
+    local wait_secs=$(( RETRY_INTERVAL_HOURS * 3600 ))
+    now=$(date +%s)
+    reaped=0
+    while read -r id state elapsed submit reason; do
+        [[ -n "$id" && "$state" == "PENDING" ]] || continue
+        [[ "$reason" == "$LAUNCH_FAILED_HELD" ]] || continue
+
+        ## No parseable submit time means no cadence, and cancelling on every
+        ## cycle is worse than leaving it -- the operator still gets the reason.
+        if ! submit_epoch=$(date -d "$submit" +%s 2>/dev/null) || [[ -z "$submit_epoch" ]]; then
+            trace "job $id is held after a failed launch, but its submit time ('$submit') did not parse -- left queued; 'scancel $id' to clear it"
+            continue
+        fi
+        age=$(( now - submit_epoch ))
+
+        if [[ "$age" -lt "$wait_secs" ]]; then
+            trace "job $id held after a failed launch ('$reason') ${age}s ago -- cancelling and resubmitting in $(( wait_secs - age ))s"
+            continue
+        fi
+        if [[ "$EXPLAIN" -eq 1 ]]; then
+            trace "WOULD CANCEL $id -- held ${age}s after a failed launch ('$reason')"
+            continue
+        fi
+        if ! command -v scancel >/dev/null 2>&1; then
+            trace "WARNING: job $id is held after a failed launch but scancel is not on PATH -- left queued"
+            continue
+        fi
+
+        out=$(scancel "$id" 2>&1)
+        trace "CANCELLED $id -- held ${age}s after a failed launch ('$reason'); the survey below decides what to resubmit${out:+ -- $out}"
+        reaped=1
+    done <<<"$queue"
+}
+
+reap_held_jobs "$mine_bench";  bench_reaped=$reaped
+reap_held_jobs "$mine_burnin"; burnin_reaped=$reaped
+
+## Re-ask rather than editing the lists in place: scancel is asynchronous and
+## the busy gate must act on what the scheduler actually holds now, not on what
+## this script believes it cancelled.
+[[ "$bench_reaped"  -eq 1 ]] && mine_bench=$(squeue -h -n "$JOB_NAME_BENCH"  -o "$queue_fmt" 2>/dev/null)
+[[ "$burnin_reaped" -eq 1 ]] && mine_burnin=$(squeue -h -n "$JOB_NAME_BURNIN" -o "$queue_fmt" 2>/dev/null)
+
 mine="$(printf '%s\n%s\n' "$mine_bench" "$mine_burnin" | grep -v '^$')"
 
 ## Anything on the node that is not ours. Matched by name, because the node
@@ -491,7 +588,7 @@ fi
 ## being submitted, which is the whole point of giving them separate names.
 bench_busy=0;  [[ -n "$mine_bench"  ]] && bench_busy=1
 burnin_busy=0; [[ -n "$mine_burnin" ]] && burnin_busy=1
-trace "queue: bench=$(grep -c . <<<"$mine_bench") burnin=$(grep -c . <<<"$mine_burnin")${running:+ running=${elapsed}}"
+trace "queue: bench=$(grep -c . <<<"$mine_bench") burnin=$(grep -c . <<<"$mine_burnin")${running:+ running=${elapsed}}$(queue_detail "$mine")"
 
 ## ── Survey what has and has not passed ────────────────────────────────────
 ## A job passes when verdict() returns DONE for every one of its runs. Anything
@@ -727,7 +824,12 @@ if [[ "$bench_busy" -eq 1 || "$burnin_busy" -eq 1 ]]; then
     if [[ ( "${#bench_pending[@]}" -eq 0 || "$bench_busy" -eq 1 ) && \
           ( "${#burn_pending[@]}" -eq 0 || "$burnin_busy" -eq 1 ) ]]; then
         write_quickview
-        trace "EXIT: waiting on our own queue${running:+ (RUNNING for $elapsed, limit ${MAX_JOB_HOURS}h)}.${force_note:+$force_note Submitting on top of a queued batch is how a node runs the same job twice; scancel -n $JOB_NAME_BENCH / -n $JOB_NAME_BURNIN first if that is what you want.}"
+        ## The reason is repeated on the EXIT line and not left to the `queue:`
+        ## line above, because this is the line that says why the node stopped
+        ## and it has to stand on its own. "Waiting on our own queue" reads the
+        ## same whether the job starts in a minute or never starts at all; the
+        ## scheduler's reason is the whole difference between the two.
+        trace "EXIT: waiting on our own queue${running:+ (RUNNING for $elapsed, limit ${MAX_JOB_HOURS}h)}$(queue_detail "$mine").${force_note:+$force_note Submitting on top of a queued batch is how a node runs the same job twice; scancel -n $JOB_NAME_BENCH / -n $JOB_NAME_BURNIN first if that is what you want.}"
         exit 0
     fi
 fi
