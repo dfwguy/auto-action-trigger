@@ -38,6 +38,20 @@ cm_replace() {
 
 rc=0
 
+## The path BCM will hand the nodes. It is deliberately not this script's own
+## location: BCM invokes the action on the node with no working directory to
+## infer one from, so the registration has to carry the absolute NFS path the
+## tree is deployed at, which is what BRINGUP_HOME means. Running this from a
+## git checkout therefore registers the deployed tree, not the checkout -- the
+## preflight below checks the deployed paths for the same reason.
+_home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[[ -f "$_home/settings.sh" ]] && source "$_home/settings.sh"
+: "${BRINGUP_HOME:=/home/cmods/bringup}"
+
+NODE_HEALTH_SCRIPT="$BRINGUP_HOME/actions/node_health.sh"
+FILE_COPY_SCRIPT="$BRINGUP_HOME/actions/file_copy.sh"
+LAUNCH_JOB_SCRIPT="$BRINGUP_HOME/actions/launch_job.sh"
+
 ####################
 ### PREFLIGHT    ###
 ####################
@@ -49,13 +63,7 @@ rc=0
 ## an scp of a single file, an editor that rewrites rather than edits. Check it
 ## here, restore it where we can, and refuse to register an action whose script
 ## is missing or still not runnable.
-ACTION_SCRIPTS="
-/home/cmods/bringup/actions/node_health.sh
-/home/cmods/bringup/actions/file_copy.sh
-/home/cmods/bringup/actions/launch_job.sh
-"
-
-for s in $ACTION_SCRIPTS; do
+for s in "$NODE_HEALTH_SCRIPT" "$FILE_COPY_SCRIPT" "$LAUNCH_JOB_SCRIPT"; do
     if [[ ! -f "$s" ]]; then
         echo "FAILED: $s does not exist -- nothing to register" >&2
         rc=1
@@ -75,7 +83,7 @@ done
 
 # Action for Node Health
 cm_replace action node_health_action \
-    'script node_health_action; set runon node; set script /home/cmods/bringup/actions/node_health.sh; set timeout 2m; set nodeenvironment yes; set runinshell yes; set mergedelay 0s; set mergetriggers yes; set mergemeasurables no' || rc=1
+    "script node_health_action; set runon node; set script ${NODE_HEALTH_SCRIPT}; set timeout 2m; set nodeenvironment yes; set runinshell yes; set mergedelay 0s; set mergetriggers yes; set mergemeasurables no" || rc=1
 
 # Action for Container Copy
 ## 2m is BCM's hard maximum for an action timeout -- anything larger is
@@ -84,11 +92,11 @@ cm_replace action node_health_action \
 ## file_copy.sh detaches the rsync and returns immediately rather than being
 ## killed mid-transfer on every monitoring cycle. See the header there.
 cm_replace action file_copy_action \
-    'script file_copy_action; set runon node; set script /home/cmods/bringup/actions/file_copy.sh; set timeout 2m; set nodeenvironment yes; set runinshell no; set mergedelay 0s; set mergetriggers no; set mergemeasurables no' || rc=1
+    "script file_copy_action; set runon node; set script ${FILE_COPY_SCRIPT}; set timeout 2m; set nodeenvironment yes; set runinshell no; set mergedelay 0s; set mergetriggers no; set mergemeasurables no" || rc=1
 
 # Action for Launch Job (slurm)
 cm_replace action launch_job_action \
-    'script launch_job_action; set runon node; set script /home/cmods/bringup/actions/launch_job.sh; set timeout 2m; set nodeenvironment yes; set runinshell yes; set mergedelay 0s; set mergetriggers yes; set mergemeasurables no' || rc=1
+    "script launch_job_action; set runon node; set script ${LAUNCH_JOB_SCRIPT}; set timeout 2m; set nodeenvironment yes; set runinshell yes; set mergedelay 0s; set mergetriggers yes; set mergemeasurables no" || rc=1
 
 ################
 ### TRIGGERS ###
