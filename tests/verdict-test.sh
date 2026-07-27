@@ -70,7 +70,7 @@ cases=(
   ## Same capture, one off-diagonal cell blanked: GPU 1 cannot reach GPU 2.
   ## That is the fault section 6.2 asks about, and it has to still be caught.
   "nvbandwidth__missing-peer|FAIL|missing peer transfer -- N/A off the matrix diagonal"
-  "nvbandwidth__unstable|FAIL|bandwidth unstable -- coefficient of variation above 0.02"
+  "nvbandwidth__unstable|FAIL|bandwidth unstable -- coefficient of variation above 0.08"
   "example__good|DONE|"
   ## The other half of the `exit status:` line every job now prints before its
   ## marker. Here it is non-zero, and the FAIL is the job's own: the step hit

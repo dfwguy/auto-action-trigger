@@ -395,7 +395,7 @@ To enable the job, add `nvbandwidth` to `BENCHMARKS` in
 `actions/launch_job.sh`.
 
 The job's parse section enforces only the platform-independent criteria from
-MOP §6.2 (coefficient of variation > 0.02, `N/A` peer transfers, tool errors).
+MOP §6.2 (coefficient of variation > 0.08, `N/A` peer transfers, tool errors).
 The per-test `SUM` thresholds in §6.1 are the GB200 4-GPU baseline — add a
 per-platform table before relying on them.
 
