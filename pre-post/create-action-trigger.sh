@@ -38,6 +38,41 @@ cm_replace() {
 
 rc=0
 
+####################
+### PREFLIGHT    ###
+####################
+
+## BCM will register an action pointing at a script it cannot execute and
+## report success -- the same "looks healthy, runs nothing" failure the
+## trigger check below guards against, one link further down. The exec bit is
+## easy to lose in transit: a tarball unpacked through a Windows-mounted path,
+## an scp of a single file, an editor that rewrites rather than edits. Check it
+## here, restore it where we can, and refuse to register an action whose script
+## is missing or still not runnable.
+ACTION_SCRIPTS="
+/home/cmods/bringup/actions/node_health.sh
+/home/cmods/bringup/actions/file_copy.sh
+/home/cmods/bringup/actions/launch_job.sh
+"
+
+for s in $ACTION_SCRIPTS; do
+    if [[ ! -f "$s" ]]; then
+        echo "FAILED: $s does not exist -- nothing to register" >&2
+        rc=1
+        continue
+    fi
+    if [[ ! -x "$s" ]]; then
+        if chmod +x "$s" 2>/dev/null; then
+            echo "fixed: restored exec bit on $s"
+        else
+            echo "FAILED: $s is not executable and chmod failed -- the action would register and never run" >&2
+            rc=1
+        fi
+    fi
+done
+
+[[ "$rc" -eq 0 ]] || { echo "refusing to register actions while a script is unusable" >&2; exit "$rc"; }
+
 # Action for Node Health
 cm_replace action node_health_action \
     'script node_health_action; set runon node; set script /home/cmods/bringup/actions/node_health.sh; set timeout 2m; set nodeenvironment yes; set runinshell yes; set mergedelay 0s; set mergetriggers yes; set mergemeasurables no' || rc=1
