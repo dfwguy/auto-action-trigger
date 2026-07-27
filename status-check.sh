@@ -142,10 +142,19 @@ fail_count() {
 # the suffix is what launch_job.sh increments, and an rsync or a restore can
 # reorder mtimes without changing which attempt was last.
 last_fail_file() {
-    local node="$1" col="$2" n
+    last_archive_file "$1" "$2" fail
+}
+
+# Same, for either archive suffix. .prev<N>.txt is a result that PASSED and was
+# moved aside by `launch_job.sh --all` re-running the job, so it is not a failed
+# attempt and is never counted as one -- but it is still the last thing this
+# column is known to have produced, which is what the NOT_RUN fallback below
+# needs to avoid reporting a forced re-sweep as a job that never ran.
+last_archive_file() {
+    local node="$1" col="$2" kind="$3" n
     n=$(ls "$results_dir/$node" 2>/dev/null \
-        | sed -n "s/^${col}\.fail\([0-9]\+\)\.txt$/\1/p" | sort -n | tail -1)
-    [[ -n "$n" ]] && printf '%s' "$results_dir/$node/${col}.fail${n}.txt"
+        | sed -n "s/^${col}\.${kind}\([0-9]\+\)\.txt$/\1/p" | sort -n | tail -1)
+    [[ -n "$n" ]] && printf '%s' "$results_dir/$node/${col}.${kind}${n}.txt"
 }
 
 # The slurm client tools are behind a module, so they are on PATH in a login
@@ -213,9 +222,11 @@ fi
 #
 # Archives are excluded: a .fail<N>.txt is created by launch_job.sh's `mv` at
 # submit time, which can leave it newer than the file the new job is writing.
+# Same for .prev<N>.txt, the passing result `launch_job.sh --all` moves aside
+# when it re-runs a job that had already passed.
 live_column() {
     local node="$1" f
-    f=$(ls -t "$results_dir/$node"/*.txt 2>/dev/null | grep -v '\.fail[0-9]\+\.txt$' | head -1)
+    f=$(ls -t "$results_dir/$node"/*.txt 2>/dev/null | grep -vE '\.(fail|prev)[0-9]+\.txt$' | head -1)
     [[ -n "$f" ]] || return
     f="${f##*/}"
     printf '%s' "${f%.txt}"
@@ -288,6 +299,15 @@ for node_dir in "$results_dir"/$pattern/; do
             else
                 reason="$VERDICT_REASON"
             fi
+        ## The same gap, opened by `launch_job.sh --all`: it archives a PASSING
+        ## result as <col>.prevN.txt before resubmitting, so the column has no
+        ## current file and no failures either. Without this the operator who
+        ## just forced the re-sweep is told the job has never run.
+        elif [[ "$status" == "NOT_RUN" ]] &&
+             prev=$(last_archive_file "$node" "$col" prev) && [[ -n "$prev" ]]; then
+            verdict "$(verdict_job_name "$col")" "$prev"
+            status=RETRY
+            reason="re-queued by --all; previous result: $VERDICT_STATUS"
         fi
         ## The one column on this node that a live batch is writing is not a
         ## job that died before its last line -- it has not reached its last

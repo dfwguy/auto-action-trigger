@@ -107,10 +107,56 @@ JOB_NAME_BURNIN="burnin-$HOSTNAME"
 ## dry run: state is read, but no sbatch, drain, or resume is issued and no
 ## result file is archived. Safe to run by hand on a node while the trigger is
 ## live -- it cannot queue a duplicate job or move a result out from under one.
+##
+## The other two flags are for an operator standing in front of a node who does
+## not want to wait for the next cycle. BCM passes no arguments, so the trigger
+## never takes either path.
+##
+##   --force  ignore the hourly gate and sweep now. Everything that is not
+##            passing is queued, exactly as the next open cycle would have
+##            queued it -- the gate decides *when*, and this answers "now".
+##   --all    additionally re-queue jobs that are already passing, so the node
+##            is swept from scratch. Implies --force, because a full re-sweep
+##            held behind the hourly gate would do nothing at all.
+##
+## What neither flag overrides, deliberately:
+##
+##   PAUSE_JOBS         a site-wide switch, not a timing gate. Forcing past it
+##                      would defeat the one setting that means "stop".
+##   an operator drain  the same argument as in the gate below: queueing behind
+##                      somebody's drain dumps the batch the moment they resume.
+##                      Our own auto-retry drain is still cleared and swept.
+##   our own queue      a forced submit on top of a queued batch is how a node
+##                      ends up running the same benchmark twice. The trace
+##                      names the jobs to scancel if that is what is wanted.
+##
+## Unknown arguments are traced rather than fatal: BCM invoking this with an
+## argument we did not expect must not stop the sweep cluster-wide, and a
+## mistyped flag by hand needs to be visible rather than silently inert.
 EXPLAIN=0
-case "$1" in
-    --explain|-n|--dry-run) EXPLAIN=1 ;;
-esac
+FORCE=0
+FORCE_ALL=0
+unknown_args=()
+for arg in "$@"; do
+    case "$arg" in
+        --explain|-n|--dry-run) EXPLAIN=1 ;;
+        --force|-f)             FORCE=1 ;;
+        --all|-a)               FORCE=1; FORCE_ALL=1 ;;
+        -h|--help)
+            cat <<'USAGE'
+Usage: launch_job.sh [--explain] [--force] [--all]
+
+  --explain, -n   dry run: print every gate, submit/drain/archive nothing
+  --force,   -f   ignore the hourly retry gate and sweep now
+  --all,     -a   re-queue every job, passing ones included (implies --force)
+
+With no arguments -- how BCM invokes it -- the hourly gate applies and only
+jobs without a passing result are queued.
+USAGE
+            exit 0 ;;
+        *) unknown_args+=("$arg") ;;
+    esac
+done
 
 mkdir -p "$logs"
 
@@ -127,6 +173,19 @@ trace() {
 if [[ -f "$tracelog" ]] && [[ "$(stat -c %s "$tracelog" 2>/dev/null || echo 0)" -gt 1000000 ]]; then
     tail -2000 "$tracelog" > "$tracelog.tmp" && mv "$tracelog.tmp" "$tracelog"
 fi
+
+## Appended to the gates a forced run does NOT open, so the trace answers "I
+## ran it with --force and nothing happened" where the operator is reading.
+force_note=""
+[[ "$FORCE" -eq 1 ]] && force_note=" --force does not override that."
+
+## A forced run is a human decision, and the trace has to say so: without this
+## line, an hour of results appearing off-cadence -- or a passing job suddenly
+## re-running -- reads as the sequencer misbehaving.
+[[ "$FORCE" -eq 1 ]] &&
+    trace "MANUAL: --force -- hourly gate bypassed$([[ "$FORCE_ALL" -eq 1 ]] && printf ', --all -- passing jobs re-queued too')"
+[[ "${#unknown_args[@]}" -gt 0 ]] &&
+    trace "WARNING: ignoring unrecognised argument(s): ${unknown_args[*]} -- see --help"
 
 ## ── Hand the result path to $JOB_USER ─────────────────────────────────────
 ##
@@ -222,6 +281,8 @@ if setting_enabled "$PAUSE_JOBS"; then
         trace "PAUSE_JOBS: job $id still RUNNING for $elapsed -- left to finish; 'scancel $id' to stop it now"
     done <<<"$paused_queue"
 
+    [[ "$FORCE" -eq 1 ]] &&
+        trace "--force does not override PAUSE_JOBS: it is a site switch, not a timing gate. Set PAUSE_JOBS=no in ${SETTINGS_FILE:-SETTINGS} to sweep."
     trace "EXIT: PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE:-<no settings file found>} -- no submissions, no drains, no resumes"
     exit 0
 fi
@@ -236,14 +297,21 @@ result_file() {
     fi
 }
 
-## Move a non-passing result aside as <name>.fail<N>.txt so the slot is free
-## for the next attempt. The archives double as the per-job attempt history.
+## Move a result aside so the slot is free for the next attempt. The archives
+## double as the per-job attempt history.
+##
+## Two suffixes, because the archive name is read as a verdict and not just as
+## a serial number: status-check.sh counts <job>.fail<N>.txt to report how many
+## times a column has been rejected, and re-judges the newest one to turn a
+## column with no current file into `RETRY <- <reason>`. A passing result that
+## --all is re-running is neither of those things, so it archives as
+## <job>.prev<N>.txt -- kept, and counted against nothing.
 archive_result() {
-    local file="$1" base n
+    local file="$1" kind="${2:-fail}" base n
     [[ -f "$file" ]] || return 0
     base=$(basename "$file" .txt)
-    n=$(ls "$logs" 2>/dev/null | grep -cE "^${base}\.fail[0-9]+\.txt$")
-    mv "$file" "$logs/${base}.fail$((n + 1)).txt"
+    n=$(ls "$logs" 2>/dev/null | grep -cE "^${base}\.${kind}[0-9]+\.txt$")
+    mv "$file" "$logs/${base}.${kind}$((n + 1)).txt"
 }
 
 ## Drain only if the node is currently usable and not already drained by us.
@@ -380,6 +448,7 @@ source "$PARSERS_DIR/verdict.sh"
 
 declare -a pending_jobs=()
 declare -a failed_jobs=()
+declare -a surveyed_jobs=()
 declare -A job_runs=()
 declare -A fail_reasons=()
 newest_result=0
@@ -400,6 +469,7 @@ survey() {
 
     pending_jobs=()
     failed_jobs=()
+    surveyed_jobs=()
     swept=1
 
 for job in $list; do
@@ -408,6 +478,10 @@ for job in $list; do
     ## the sweep entirely -- it never goes pending, so it never blocks a node
     ## and never shows up as missing. Worth a line.
     [[ -f "$launch" ]] || { trace "skip $job: no $launch"; continue; }
+    ## Everything --all can re-queue: the listed jobs that have a job file
+    ## behind them. Taken from here rather than from $list directly so a
+    ## forced sweep cannot pend a job that has nothing to submit.
+    surveyed_jobs+=("$job")
 
     if grep -Fq "totalRuns" "$launch"; then
         totalRuns=$(grep -F totalRuns "$launch" | head -1 | awk -F= '{print $2}' | tr -d '[:space:]')
@@ -454,9 +528,10 @@ for job in $list; do
     done
 
     ## Archived attempts still count as having run — a job whose output was
-    ## rotated aside is mid-retry, not untested.
+    ## rotated aside is mid-retry, not untested. Either suffix: .prev<N> is a
+    ## pass that --all moved aside, which is even less "untested".
     if [[ "$attempted" -eq 0 ]] &&
-       ls "$logs" 2>/dev/null | grep -qE "^${job}(-run[0-9]+)?\.fail[0-9]+\.txt$"; then
+       ls "$logs" 2>/dev/null | grep -qE "^${job}(-run[0-9]+)?\.(fail|prev)[0-9]+\.txt$"; then
         attempted=1
     fi
 
@@ -480,6 +555,12 @@ in_list() {
 ## both lists. A burn-in nobody has run must not read as DONE next to the
 ## benchmarks that are -- that would report a node as burned in on the strength
 ## of having passed a fifteen-minute allreduce.
+##
+## Under --all a job can be queued with nothing wrong with it, and a QUEUED
+## line with no reason next to it is exactly the silence this file exists to
+## remove -- so it says who asked for the re-run.
+forced_reason=""
+[[ "$FORCE_ALL" -eq 1 ]] && forced_reason="re-queued by --all"
 write_quickview() {
     local job reason
     {
@@ -489,7 +570,7 @@ write_quickview() {
             elif [[ "$bench_busy" -eq 1 ]]; then
                 echo "$job: IN QUEUE"
             else
-                reason="${fail_reasons[$job]}"
+                reason="${fail_reasons[$job]:-${forced_reason}}"
                 echo "$job: QUEUED${reason:+  <- $reason}"
             fi
         done
@@ -501,7 +582,7 @@ write_quickview() {
             elif [[ "$burnin_busy" -eq 1 ]]; then
                 echo "$job: IN QUEUE"
             else
-                reason="${fail_reasons[$job]}"
+                reason="${fail_reasons[$job]:-${forced_reason}}"
                 echo "$job: QUEUED${reason:+  <- $reason}"
             fi
         done
@@ -522,10 +603,16 @@ write_quickview() {
 ## every job here is --exclusive. The gain is that a benchmark goes ahead of
 ## the *remaining* burn-in runs rather than behind all of them, which on the
 ## shipped list is a wait of one run rather than of twelve.
+##
+## --all widens `pending` to every job in the list, and only that. The failure
+## and sweep bookkeeping keeps reading the results on disk, so a forced
+## re-sweep neither invents a failure nor clears one: whether the node is
+## drained is still decided by what its results say.
 survey "$BENCHMARKS" "$bench_busy"
 bench_pending=("${pending_jobs[@]}")
 bench_failed=("${failed_jobs[@]}")
 bench_swept=$swept
+[[ "$FORCE_ALL" -eq 1 ]] && bench_pending=("${surveyed_jobs[@]}")
 trace "survey: pending=[${bench_pending[*]}] failed=[${bench_failed[*]}] swept=$bench_swept busy=$bench_busy"
 
 burn_pending=()
@@ -542,6 +629,7 @@ if setting_enabled "$RUN_BURNIN"; then
         burn_pending=("${pending_jobs[@]}")
         burn_failed=("${failed_jobs[@]}")
         burn_swept=$swept
+        [[ "$FORCE_ALL" -eq 1 ]] && burn_pending=("${surveyed_jobs[@]}")
         trace "burn-in survey: pending=[${burn_pending[*]}] failed=[${burn_failed[*]}] swept=$burn_swept busy=$burnin_busy"
     fi
 fi
@@ -564,7 +652,7 @@ if [[ "$bench_busy" -eq 1 || "$burnin_busy" -eq 1 ]]; then
     if [[ ( "${#bench_pending[@]}" -eq 0 || "$bench_busy" -eq 1 ) && \
           ( "${#burn_pending[@]}" -eq 0 || "$burnin_busy" -eq 1 ) ]]; then
         write_quickview
-        trace "EXIT: waiting on our own queue${running:+ (RUNNING for $elapsed, limit ${MAX_JOB_HOURS}h)}"
+        trace "EXIT: waiting on our own queue${running:+ (RUNNING for $elapsed, limit ${MAX_JOB_HOURS}h)}.${force_note:+$force_note Submitting on top of a queued batch is how a node runs the same job twice; scancel -n $JOB_NAME_BENCH / -n $JOB_NAME_BURNIN first if that is what you want.}"
         exit 0
     fi
 fi
@@ -612,21 +700,34 @@ fi
 
 ## ── Hourly gate ───────────────────────────────────────────────────────────
 
+## The only gate --force opens. It is a cadence, not a safety check: everything
+## that decides whether this node should be given work at all -- PAUSE_JOBS, an
+## operator's drain, somebody else's job, our own batch already queued -- is
+## asked somewhere else and is asked the same way either way.
 if [[ "$age" -ge 0 && "$age" -lt $(( RETRY_INTERVAL_HOURS * 3600 )) ]]; then
-    trace "EXIT: newest result is ${age}s old, next sweep in $(( RETRY_INTERVAL_HOURS * 3600 - age ))s"
-    exit 0
+    if [[ "$FORCE" -eq 1 ]]; then
+        trace "hourly gate bypassed by --force (newest result is ${age}s old, would have waited $(( RETRY_INTERVAL_HOURS * 3600 - age ))s)"
+    else
+        trace "EXIT: newest result is ${age}s old, next sweep in $(( RETRY_INTERVAL_HOURS * 3600 - age ))s"
+        exit 0
+    fi
+else
+    trace "hourly gate open (newest result age=${age}s, -1 means no results on disk)"
 fi
-trace "hourly gate open (newest result age=${age}s, -1 means no results on disk)"
 
 ## ── Queue every non-passing job, in listed order ──────────────────────────
 
 ## A node drained by an operator stays untouched — queueing work behind their
-## drain would dump the whole batch on the node the moment they resume it.
+## drain would dump the whole batch on the node the moment they resume it. That
+## holds for a forced run too: --force and --all move the *schedule*, not this.
+## A down, drained or maintenance node gets nothing added to the queue on its
+## behalf unless the drain is one of ours, which is the retry loop working as
+## it always has.
 drain_reason=$(sinfo -n "$HOSTNAME" -h -o '%E' 2>/dev/null | head -1)
 case "$state" in
     *drain*|*down*|*fail*|*maint*)
         if [[ "$drain_reason" != *"$DRAIN_MARKER"* ]]; then
-            trace "EXIT: node is $state for a reason that is not ours -- '${drain_reason:-<empty>}' does not carry '$DRAIN_MARKER'. scontrol update nodename=$HOSTNAME state=RESUME to release it."
+            trace "EXIT: node is $state for a reason that is not ours -- '${drain_reason:-<empty>}' does not carry '$DRAIN_MARKER'.${force_note} scontrol update nodename=$HOSTNAME state=RESUME to release it."
             exit 0
         fi
         ;;
@@ -642,7 +743,7 @@ resume_node
 ## the queue. See docs/benchmarks.md.
 submit_list() {
     local jname="$1"; shift
-    local job launch totalRuns r file submit out
+    local job launch totalRuns r file submit out kind
 
     for job in "$@"; do
     launch="$JOBS_DIR/$job.sbatch"
@@ -654,8 +755,16 @@ submit_list() {
         ## behind. A run that passed an older, looser gate is re-queued here --
         ## which is the whole point, and is what the old `tail -1 == DONE` test
         ## structurally could not do.
+        ##
+        ## --all submits the run anyway, and the verdict is still taken --
+        ## it decides which suffix the existing result is kept under, so a pass
+        ## being re-run is not filed as a rejected attempt. See archive_result.
+        kind=fail
         verdict "$job" "$file"
-        [[ "$VERDICT_STATUS" == "DONE" ]] && continue
+        if [[ "$VERDICT_STATUS" == "DONE" ]]; then
+            [[ "$FORCE_ALL" -eq 1 ]] || continue
+            kind=prev
+        fi
 
         ## What serializes the batch is `#SBATCH --exclusive` in every
         ## jobs/*.sbatch, not anything passed here. Without serialization the
@@ -693,11 +802,11 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
 --export=ALL,RESULT_FILE=$file --output=$file $launch"
 
         if [[ "$EXPLAIN" -eq 1 ]]; then
-            trace "WOULD SUBMIT $job run $r: su - $JOB_USER -c \"$submit\""
+            trace "WOULD SUBMIT $job run $r$([[ -f "$file" ]] && printf ' (existing %s result kept as .%s<N>.txt)' "$VERDICT_STATUS" "$kind"): su - $JOB_USER -c \"$submit\""
             continue
         fi
 
-        archive_result "$file"
+        archive_result "$file" "$kind"
 
         ## sbatch's own diagnosis of a rejected submission is the single most
         ## useful line in this whole script, and it used to go to BCM's action

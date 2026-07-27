@@ -16,7 +16,9 @@ operator intervenes.
 Benchmarks support multiple runs via `totalRuns=N` in the `.sbatch` file (see
 `mnubergemm.sbatch`, which uses 12). Result files are named `<job>.txt` (single
 run) or `<job>-run<N>.txt` (multiple runs). Prior failures are archived as
-`<job>.fail<N>.txt` and left in place as the attempt history.
+`<job>.fail<N>.txt` and left in place as the attempt history. A *passing*
+result that `--all` re-runs is archived as `<job>.prev<N>.txt` instead — kept
+the same way, but not counted as a rejected attempt by `status-check.sh`.
 
 What serializes the batch is `#SBATCH --exclusive` in every `jobs/*.sbatch`.
 Without serialization the whole batch is eligible at once and a GPU job landing
@@ -65,6 +67,46 @@ drained on until its queue is empty.
 With `RUN_BURNIN=no` — the default — nothing burns in, and `BURNIN` jobs appear
 in `quick-view.txt` as `BURN-IN OFF` so a burn-in that never ran cannot be
 misread as one that passed. See [settings.md](settings.md#burn-in).
+
+## Running it by hand
+
+BCM passes no arguments, so the flags below are only ever an operator's. Run
+the script on the node itself (`pdsh -w <node> '...'`) — everything it decides
+is about `$HOSTNAME`.
+
+| Flag | Effect |
+|------|--------|
+| `--explain`, `-n` | Dry run. Prints every gate and the `sbatch` commands it would issue; submits, drains, resumes and archives nothing. Safe while the trigger is live |
+| `--force`, `-f` | Ignore the hourly gate and sweep now. Queues exactly what the next open cycle would have queued: everything without a passing result |
+| `--all`, `-a` | Also re-queue jobs that *are* passing, sweeping the node from scratch. Implies `--force` |
+
+`--force` opens the hourly retry gate and nothing else. Every check that
+decides whether the node should be given work at all is asked the same way as
+on a normal cycle, and each one traces that `--force` did not override it:
+
+- **`PAUSE_JOBS=yes`** — nothing is submitted. It is a site switch, not a
+  timing gate; set it back to `no` to sweep.
+- **A drained, down or maintenance node** — nothing is submitted, and nothing
+  is added to `squeue` on its behalf, unless the drain is one of ours (it
+  carries `DRAIN_MARKER`), which is the ordinary retry loop. An operator's
+  drain still has to be released by an operator.
+- **Another user's job on the node** — the node is left to them.
+- **Our own batch already queued** — skipped, per list. Forcing on top of a
+  queued batch is how a node ends up running the same benchmark twice; the
+  trace names the `scancel -n bringup-<node>` / `-n burnin-<node>` to run first
+  if that is really what is wanted.
+
+`--all` does not turn burn-in on: with `RUN_BURNIN=no` the `BURNIN` list is not
+surveyed and not queued. It also does not invent or clear failures — the drain
+decision still comes from what the results on disk say — and the jobs it
+re-queues appear in `quick-view.txt` as `QUEUED  <- re-queued by --all`, so a
+job being re-run with nothing wrong with it says so.
+
+Combine either with `--explain` to see the batch before committing to it:
+
+```bash
+pdsh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --all --explain'
+```
 
 ## Retry and drain behaviour
 

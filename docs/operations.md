@@ -51,7 +51,7 @@ disk:
 | `DONE` | the gate accepted the result |
 | `FAIL` | the job reported it could not run, or the gate rejected it |
 | `INCOMPLETE` | no end marker and no job on the node -- it died before finishing (crash, walltime, OOM) |
-| `RETRY` | the last attempt was archived as `.fail<N>.txt` and a retry is queued; the reason shown is why that attempt was rejected |
+| `RETRY` | the last attempt was archived and a retry is queued; the reason shown is why that attempt was rejected — or, after `launch_job.sh --all` archived a passing result as `.prev<N>.txt`, that the re-run was asked for |
 | `NOT_RUN` | no attempt has ever been made |
 | `RUNNING` | a benchmark is executing on the node right now; nothing to judge until it writes its end marker |
 
@@ -348,6 +348,20 @@ pdsh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --explain'
 `--explain` prints every gate the sequencer evaluates and the `sbatch` commands
 it would issue, as a dry run — nothing is submitted, drained, or archived, so it
 is safe while the trigger is live.
+
+To make it act rather than report, without waiting for the hourly gate:
+
+```bash
+pdsh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --force'
+pdsh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --all'
+```
+
+`--force` sweeps now, queueing what the next open cycle would have queued;
+`--all` additionally re-runs jobs that already passed. Neither adds anything to
+`squeue` for a node that is paused, drained by an operator, down, running
+somebody else's job, or already holding a batch of ours — those gates are
+unchanged, and each says in `trigger.log` that `--force` did not override it.
+See [sequencer.md](sequencer.md#running-it-by-hand).
 
 Each node also keeps a running trace at `results/<node>/trigger.log`, one line
 per monitoring cycle recording what it did or why it stopped.
