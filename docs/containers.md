@@ -96,9 +96,11 @@ EOF
 chmod 600 ~/.config/enroot/.credentials
 ```
 
-Get the key from [ngc.nvidia.com](https://ngc.nvidia.com) → *Setup* → *Generate
-API Key*, and check that your account can read org `0948245400141054`; a valid
-key for the wrong org fails exactly like no key at all.
+Generate the key at
+[org.ngc.nvidia.com/account](https://org.ngc.nvidia.com/account) — `-L` prints
+that link, as does every private-org failure. Check that the org you are signed
+in to is `0948245400141054`; a valid key for the wrong org fails exactly like
+no key at all.
 
 Notes on what `-L` does beyond the heredoc above:
 

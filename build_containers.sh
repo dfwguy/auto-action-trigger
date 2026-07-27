@@ -142,10 +142,11 @@ have() { command -v "$1" >/dev/null 2>&1; }
 ## entry as the registry's basic auth, so "logging in" is writing one line.
 ##
 ## The username is the literal string $oauthtoken -- NGC's own convention, not
-## a variable to expand -- and the password is the API key from
-## ngc.nvidia.com > Setup > Generate API Key. Quote the heredoc if you write
-## this file by hand, or the shell eats the username.
+## a variable to expand -- and the password is an API key generated at
+## NGC_KEY_URL below. Quote the heredoc if you write this file by hand, or the
+## shell eats the username.
 CREDS_FILE=${ENROOT_CONFIG_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/enroot}/.credentials
+NGC_KEY_URL=https://org.ngc.nvidia.com/account
 
 ## Present means "there is an nvcr.io entry", not "the key is valid" -- nothing
 ## short of an import can tell us that, so a wrong key still surfaces as a
@@ -159,7 +160,7 @@ have_ngc_login() {
 ## whoever hit it rather than in the docs.
 login_hint() {
     warn "    nvcr.io login: $(have_ngc_login && echo "present in $CREDS_FILE" || echo "no entry in $CREDS_FILE")"
-    warn "    get an API key from ngc.nvidia.com > Setup > Generate API Key, then:"
+    warn "    get an API key at $NGC_KEY_URL, then:"
     warn "        $0 -L                     # prompts for the key"
     warn "        NGC_API_KEY=nvapi-... $0 -L   # unattended"
 }
@@ -170,6 +171,11 @@ login_hint() {
 ngc_login() {
     local key=${NGC_API_KEY:-} dir tmp
     dir=$(dirname "$CREDS_FILE")
+
+    ## Where the key comes from, printed whether or not we go on to prompt --
+    ## an unattended run with the wrong key needs the same page.
+    echo "Generate an API key at $NGC_KEY_URL (sign in, then Generate API Key)."
+    echo "The key is what goes below; the username is always the literal \$oauthtoken."
 
     if [[ -z "$key" ]]; then
         if [[ ! -t 0 ]]; then
