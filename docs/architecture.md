@@ -38,7 +38,7 @@ across the cluster and names the broken link.
 │   ├── node_health.sh             # Hardware/software health checks → Slurm node state
 │   ├── launch_job.sh              # Benchmark sequencer → Slurm job submissions
 │   ├── file_copy.sh               # Rsync containers to /tmp on each node (silent no-op if none)
-│   └── valid-node-check.sh        # BCM health-check script (category-based PASS/FAIL)
+│   └── valid-node-check.sh        # BCM health-check script (first-run-since-boot PASS/FAIL)
 │
 ├── SETTINGS.default               # Shipped configuration; copy to SETTINGS to change anything
 ├── settings.sh                    # Loads SETTINGS, else SETTINGS.default; backfills unset keys

@@ -38,15 +38,6 @@ if declare -F setting_enabled >/dev/null && setting_enabled "${PAUSE_CONTAINER_C
     exit 0
 fi
 
-## Category gate. node_health.sh and launch_job.sh both have this line
-## commented out, so leaving it active here would make this the only action
-## that no-ops at a site not using BCM categories. Kept as an unset-safe test:
-## it now runs everywhere, and gates only if the variable is actually set to
-## something else.
-if [[ -n "${CMD_CATEGORY:-}" && "$CMD_CATEGORY" != "spcx-hosts" ]]; then
-    exit 0
-fi
-
 #sleep 60
 
 ## Nothing to copy from -- images not built yet, or NFS not mounted here.

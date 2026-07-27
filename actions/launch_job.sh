@@ -2,8 +2,6 @@
 #
 #
 
-#[[ "$CMD_CATEGORY" == "spcx-hosts" ]] || exit 0
-
 ## ── Settings ──────────────────────────────────────────────────────────────
 ##
 ## Everything configurable lives in SETTINGS (or SETTINGS.default when a site

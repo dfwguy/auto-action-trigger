@@ -29,9 +29,6 @@
 # many '#' it starts with -- is load-bearing. Change one and every node fails
 # that check against every baseline taken before the change.
 
-## use if categories are used
-#[[ "$CMD_CATEGORY" == "spcx-hosts" ]] || exit 0
-
 source /etc/profile.d/modules.sh
 module load slurm
 
