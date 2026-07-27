@@ -86,6 +86,29 @@ PARSERS=nvl72
 ##   BENCHMARKS="dcgm allreduce alltoall nvsm allreduce-nonvlink alltoall-nonvlink"
 ##
 ## See docs/nvsm.md for both requirements.
+##
+## Everything, in a sensible order -- the Exhaustive tier plus the optional
+## jobs. Uncomment ONE of these two lines, not both. Nothing stops you running
+## this list, but read the notes above first: nvsm drains a non-DGX cluster on
+## every node, and nvbandwidth, nvloom and mnubergemm each need an image that
+## does not exist until CONTAINERS builds it. Both hpl and cublasmatmul are
+## remediation tools meant to be submitted by hand against one suspect node,
+## not swept across a fleet. A sweep of this list takes many hours per node,
+## and every job holds the whole node while it runs.
+##
+##   BENCHMARKS="dcgm-r2 dcgm dcgm-r4 nvbandwidth allreduce alltoall nvsm \
+##               allreduce-nonvlink alltoall-nonvlink stream memtester \
+##               stress-ng stressapptest fio ethr nvloom mnubergemm \
+##               llm-pretrain hpl cublasmatmul"
+##
+## Everything that needs no image beyond hpc-benchmarks and no DGX -- the same
+## list minus nvsm, nvbandwidth, nvloom, mnubergemm and the two remediation
+## GEMMs. This one runs as shipped on any site:
+##
+##   BENCHMARKS="dcgm-r2 dcgm dcgm-r4 allreduce alltoall allreduce-nonvlink \
+##               alltoall-nonvlink stream memtester stress-ng stressapptest \
+##               fio ethr llm-pretrain"
+##
 BENCHMARKS="dcgm allreduce alltoall allreduce-nonvlink alltoall-nonvlink"
 
 ## ── Container images to build ─────────────────────────────────────────────
@@ -112,6 +135,23 @@ BENCHMARKS="dcgm allreduce alltoall allreduce-nonvlink alltoall-nonvlink"
 ## `build_containers.sh -A` builds everything the script knows about regardless
 ## of this setting, and naming images as arguments overrides it. See
 ## docs/containers.md.
+##
+## Everything. mnubergemm always fails here -- it has no source and no registry
+## to pull from -- so a run with this set exits non-zero even when the other
+## three built cleanly. Leave it out unless you want the reminder:
+##
+##   CONTAINERS="hpc-benchmarks nvbandwidth nvloom mnubergemm"
+##
+## Everything that can actually be built without an internal channel:
+##
+##   CONTAINERS="hpc-benchmarks nvbandwidth nvloom"
+##
+## Nothing. Respected as written rather than defaulted back to the shipped
+## value -- for a site whose images are already in containers/, or which
+## obtains them some other way:
+##
+##   CONTAINERS=""
+##
 CONTAINERS="hpc-benchmarks"
 
 ## ── Drains ────────────────────────────────────────────────────────────────
@@ -133,12 +173,18 @@ CONTAINERS="hpc-benchmarks"
 ## itself slightly off, or one check that is per-rack rather than per-cluster,
 ## drains the entire cluster on the first monitoring cycle. Bring it up only
 ## after `bash health-check.sh --summary` reads clean across the fleet.
+##
+##   DRAIN_AFTER_FAILED_HEALTH_CHECK=yes
+##
 DRAIN_AFTER_FAILED_HEALTH_CHECK=no
 
 ## Drain a node that has completed a full benchmark sweep with something still
 ## failing. Never fires mid-sweep -- see the retry policy notes in
 ## actions/launch_job.sh -- and only ever clears a drain carrying
 ## $DRAIN_MARKER, so an operator drain is never auto-resumed.
+##
+##   DRAIN_AFTER_FAILED_BENCHMARK=yes
+##
 DRAIN_AFTER_FAILED_BENCHMARK=no
 
 ## ── Retry and drain policy ────────────────────────────────────────────────
