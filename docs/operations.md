@@ -92,19 +92,26 @@ separator to commas. Run at a terminal the table is column-aligned; redirected
 or piped it is the raw separated rows, so `cut -f2` and a spreadsheet both get
 what they expect.
 
-Under the table, on stderr, a `Summary:` block counts the nodes in each Slurm
-state and the cells holding each status, then gives `min`/`median`/`mean`/`max`
-per job over the cells that hold a number. The statistics are per job rather
-than pooled — Gflops, GB/s and MB/s share a table but not a scale. It stays on
+Under the table, on stderr, a summary counts the nodes in each Slurm state and
+the cells holding each status, then gives `min`/`median`/`mean`/`max` per job
+over the cells that hold a number. The statistics are per job rather than
+pooled — Gflops, GB/s and MB/s share a table but not a scale. It stays on
 stderr so neither `-o` nor a redirect ever gets prose mixed into the data.
 
-All three blocks in that summary are fixed-width tables over one shared set of
-column positions, each with a header row, so the block can be pasted into a
-spreadsheet and split with text-to-columns in fixed-width mode. The widths are
-measured across every block before anything prints — per-block widths would
-leave each block tidy on its own and none of them lining up with the next. `-c`
-does not change this: the separator governs the rows on stdout, not the human
-block on stderr.
+At a terminal, the node table and every summary block are laid out on one grid:
+no indentation, one set of column positions shared by all of them, and every
+line a row — blocks are named by the first cell of their own header row rather
+than by a title line above them. That is what makes the whole screen selectable
+in one sweep and importable with text-to-columns in fixed-width mode. The import
+picks a single set of break points and applies them to everything pasted, so
+blocks that are each tidy on their own but disagree on where a column starts all
+get sliced through the middle, and a free-form line like `254 nodes, 4 jobs` puts
+words at offsets no boundary passes through. Widths are therefore measured across
+every row of every block before anything prints.
+
+`-c` does not change the summary: the separator governs the rows on stdout, not
+the human block on stderr. A spreadsheet opening the `.csv` or `.tsv` written by
+`-o` splits on the delimiter and needs none of this.
 
 ```bash
 bash watch-rack.sh "rack01-node[1-32]"

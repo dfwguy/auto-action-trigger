@@ -16,17 +16,22 @@
 # it is the raw separated rows, so the screen and the file carry the same
 # fields and a pipeline gets something parseable.
 #
-# A "Summary:" block follows on stderr -- how many nodes are in each slurm
-# state, how many cells hold each status, and min/median/mean/max per job for
-# the cells that hold a number. It is on stderr and not in the rows on purpose:
-# the file written by -o and a redirect of stdout both have to stay
-# machine-readable.
+# A summary follows on stderr -- how many nodes are in each slurm state, how
+# many cells hold each status, and min/median/mean/max per job for the cells
+# that hold a number. It is on stderr and not in the rows on purpose: the file
+# written by -o and a redirect of stdout both have to stay machine-readable.
 #
-# Every block in the summary is a fixed-width table sharing one set of column
-# positions, so the whole thing can be pasted into a spreadsheet and split with
-# text-to-columns in fixed-width mode. That holds under -c too: the separator
-# governs the rows on stdout, not the human block on stderr, which a comma
-# would only make harder to read.
+# Everything printed at a terminal -- the node table and every summary block --
+# is laid out on ONE grid: no indentation, one set of column positions, and
+# every line a row rather than a title or a sentence. The whole screen can then
+# be selected in one sweep, pasted into a spreadsheet, and split with
+# text-to-columns in fixed-width mode, because there is a single set of break
+# points that fits all of it. Blocks aligned only within themselves cannot
+# survive that import -- see the note on the grid below.
+#
+# -c does not change the summary. The separator governs the rows on stdout, not
+# the human block on stderr, and a spreadsheet opening the .csv or .tsv written
+# by -o splits on the delimiter and needs none of this.
 #
 # Read-only apart from -o. It submits nothing and drains nothing.
 
@@ -46,7 +51,7 @@ while [[ $# -gt 0 ]]; do
             [[ -n "$2" ]] || { echo "ERROR: $1 needs a file to write" >&2; exit 1; }
             report_file="$2"; shift 2 ;;
         -h|--help)
-            sed -n '2,31p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+            sed -n '2,36p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         *)  echo "ERROR: unknown argument $1" >&2; exit 1 ;;
     esac
 done
@@ -251,35 +256,19 @@ for node in $nodes; do
     rows+=("$row")
 done
 
-# ── Emit ──────────────────────────────────────────────────────────────────────
-
-if [[ -n "$report_file" ]]; then
-    printf '%s\n' "${rows[@]}" | tr '\t' "$sep" > "$report_file" || exit 1
-fi
-
-## Aligned only for a human reading TSV at a terminal. Anything else -- a pipe,
-## a redirect, -c -- gets the raw rows, because that is what a caller asking for
-## separated values wants back.
-if [[ "$sep" == $'\t' && -t 1 ]] && command -v column >/dev/null 2>&1; then
-    printf '%s\n' "${rows[@]}" | column -t -s $'\t'
-else
-    printf '%s\n' "${rows[@]}" | tr '\t' "$sep"
-fi
-
-if [[ -n "$report_file" ]]; then
-    echo >&2
-    echo "Written to: $report_file" >&2
-fi
-
-# ── Summary ───────────────────────────────────────────────────────────────────
-# On stderr, never in the rows. The file written by -o and a redirect of stdout
-# both have to stay machine-readable; a trailing prose block in a CSV is the
-# kind of thing that silently poisons whatever reads it next.
+# ── Summary rows ──────────────────────────────────────────────────────────────
+# Built before anything prints, because the summary shares its column positions
+# with the node table and neither can be laid out until both are known.
+#
+# The summary goes to stderr, never into the rows. The file written by -o and a
+# redirect of stdout both have to stay machine-readable; a trailing prose block
+# in a CSV is the kind of thing that silently poisons whatever reads it next.
 
 ## Reads "<count><tab><label>" lines and returns "<label><tab><count>" rows,
 ## largest population first, ties broken by name so two runs of the same cluster
 ## produce the same block. Padding is not applied here: the widths are shared
-## with the other blocks and cannot be known until every row exists.
+## with every other row in the report and cannot be known until all of them
+## exist.
 count_rows() {
     local n key
     sort -k1,1nr -k2,2 | while IFS=$'\t' read -r n key; do
@@ -304,45 +293,19 @@ stats_row() {
         }'
 }
 
-## Column widths are shared by every block in the summary, so they are measured
-## across all the rows before any row prints. Measuring per block would leave
-## each block internally tidy and none of them lining up with the next, which is
-## exactly what a fixed-width paste cannot cope with.
-declare -a col_width
+## Every block is rows and nothing else -- no title line, no prose. A block is
+## named by the first cell of its own header row instead, so that every line in
+## the report has its content inside a column. A free-form line like
+## "254 nodes, 4 jobs" sitting above the rows puts words at offsets no column
+## boundary passes through, and that is what a fixed-width import cuts in half.
+declare -a total_rows slurm_rows status_rows metric_rows
 
-measure_row() {
-    local -a f
-    IFS=$'\t' read -r -a f <<< "$1"
-    local i
-    for ((i = 0; i < ${#f[@]}; i++)); do
-        (( ${#f[i]} > ${col_width[i]:-0} )) && col_width[i]=${#f[i]}
-    done
-}
-
-## Label left, numbers right, two spaces between. A column boundary is then
-## always a run of at least two spaces, which is what makes the split points
-## unambiguous to a human dragging them in a text-to-columns dialog.
-##
-## printf -v rather than $(printf ...): command substitution strips the trailing
-## spaces off the label's padding, and every column after it shifts left.
-print_row() {
-    local -a f
-    IFS=$'\t' read -r -a f <<< "$1"
-    local i out piece
-    printf -v out '%-*s' "${col_width[0]}" "${f[0]}"
-    for ((i = 1; i < ${#f[@]}; i++)); do
-        printf -v piece '  %*s' "${col_width[i]}" "${f[i]}"
-        out+="$piece"
-    done
-    printf '    %s\n' "$out"
-}
-
-## Each block carries its own header row: once the statistics are bare columns,
-## the header is the only thing saying which one is the median.
-declare -a slurm_rows status_rows metric_rows
+total_rows=("summary"$'\t'"count"
+            "nodes"$'\t'"$node_count"
+            "jobs"$'\t'"${#job_order[@]}")
 
 if [[ ${#slurm_count[@]} -gt 0 ]]; then
-    slurm_rows=("state"$'\t'"nodes")
+    slurm_rows=("slurm state"$'\t'"nodes")
     mapfile -t -O 1 slurm_rows < <(
         for key in "${!slurm_count[@]}"; do
             printf '%d\t%s\n' "${slurm_count[$key]}" "$key"
@@ -372,30 +335,100 @@ if [[ ${#job_values[@]} -gt 0 ]]; then
     fi
 fi
 
-for row in "${slurm_rows[@]}" "${status_rows[@]}" "${metric_rows[@]}"; do
+# ── The grid ──────────────────────────────────────────────────────────────────
+# One set of column positions for the whole report -- the node table and every
+# summary block. Column 3 starts at the same character on a metrics row as it
+# does on a node row.
+#
+# This is what "fixed width" has to mean to be worth anything. A spreadsheet's
+# fixed-width import picks ONE set of break points and applies them to the whole
+# paste. Blocks that are each internally tidy but disagree on where a column
+# starts cannot all survive that: whichever set of boundaries is chosen slices
+# through the middle of every other block's text. So the widths are measured
+# across every row of every block first, and nothing prints until they are all
+# known.
+#
+# Two rules follow from it and are not negotiable per block:
+#
+#   - No indentation. A leading indent is an offset into the first column that
+#     only some lines carry, which is the same problem one level down.
+#   - Every line is a row. See the note on block titles above.
+
+declare -a col_width
+
+measure_row() {
+    local -a f
+    IFS=$'\t' read -r -a f <<< "$1"
+    local i
+    for ((i = 0; i < ${#f[@]}; i++)); do
+        (( ${#f[i]} > ${col_width[i]:-0} )) && col_width[i]=${#f[i]}
+    done
+}
+
+## Label left, every column after it right, two spaces between. A column
+## boundary is then always a run of at least two spaces, which is what lets the
+## import find the split points on its own rather than guessing them.
+##
+## printf -v rather than $(printf ...): command substitution strips the trailing
+## spaces off the label's padding, and every column after it shifts left.
+print_row() {
+    local -a f
+    IFS=$'\t' read -r -a f <<< "$1"
+    local i out piece
+    printf -v out '%-*s' "${col_width[0]}" "${f[0]}"
+    for ((i = 1; i < ${#f[@]}; i++)); do
+        printf -v piece '  %*s' "${col_width[i]}" "${f[i]}"
+        out+="$piece"
+    done
+    printf '%s\n' "$out"
+}
+
+for row in "${rows[@]}" "${total_rows[@]}" "${slurm_rows[@]}" \
+           "${status_rows[@]}" "${metric_rows[@]}"; do
     measure_row "$row"
 done
 
+# ── Emit ──────────────────────────────────────────────────────────────────────
+
+if [[ -n "$report_file" ]]; then
+    printf '%s\n' "${rows[@]}" | tr '\t' "$sep" > "$report_file" || exit 1
+fi
+
+## Aligned only for a human reading TSV at a terminal -- which is the case where
+## the report is about to be selected and pasted somewhere. Anything else -- a
+## pipe, a redirect, -c -- gets the raw rows, because that is what a caller
+## asking for separated values wants back, and a spreadsheet opening a .tsv or a
+## .csv splits on the delimiter without needing any of this.
+if [[ "$sep" == $'\t' && -t 1 ]]; then
+    for row in "${rows[@]}"; do print_row "$row"; done
+else
+    printf '%s\n' "${rows[@]}" | tr '\t' "$sep"
+fi
+
 {
     echo
-    echo "Summary:"
-    echo "  $node_count nodes, ${#job_order[@]} jobs"
+    for row in "${total_rows[@]}"; do print_row "$row"; done
 
     if [[ ${#slurm_rows[@]} -gt 0 ]]; then
         echo
-        echo "  slurm state"
         for row in "${slurm_rows[@]}"; do print_row "$row"; done
     fi
 
     if [[ ${#status_rows[@]} -gt 0 ]]; then
         echo
-        echo "  status"
         for row in "${status_rows[@]}"; do print_row "$row"; done
     fi
 
     if [[ ${#metric_rows[@]} -gt 0 ]]; then
         echo
-        echo "  metrics"
         for row in "${metric_rows[@]}"; do print_row "$row"; done
+    fi
+
+    ## Last, not between the table and the summary: everything between the first
+    ## row and the last is on the grid, so the whole report can be selected in
+    ## one sweep. A path is the one string here that no column is sized for.
+    if [[ -n "$report_file" ]]; then
+        echo
+        echo "Written to: $report_file"
     fi
 } >&2
