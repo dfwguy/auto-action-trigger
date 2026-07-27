@@ -88,9 +88,7 @@ jobs show extracted performance metrics (Gflops for HPL, busbw GB/s for
 allreduce/alltoall) instead of a status string.
 
 Nothing is written to disk unless `-o` names a file, and `-c` switches the
-separator to commas. Run at a terminal the table is column-aligned; redirected
-or piped it is the raw separated rows, so `cut -f2` and a spreadsheet both get
-what they expect.
+separator to commas.
 
 Under the table, on stderr, a summary counts the nodes in each Slurm state and
 the cells holding each status, then gives `min`/`median`/`mean`/`max` per job
@@ -98,20 +96,30 @@ over the cells that hold a number. The statistics are per job rather than
 pooled — Gflops, GB/s and MB/s share a table but not a scale. It stays on
 stderr so neither `-o` nor a redirect ever gets prose mixed into the data.
 
-At a terminal, the node table and every summary block are laid out on one grid:
-no indentation, one set of column positions shared by all of them, and every
-line a row — blocks are named by the first cell of their own header row rather
-than by a title line above them. That is what makes the whole screen selectable
-in one sweep and importable with text-to-columns in fixed-width mode. The import
-picks a single set of break points and applies them to everything pasted, so
-blocks that are each tidy on their own but disagree on where a column starts all
-get sliced through the middle, and a free-form line like `254 nodes, 4 jobs` puts
-words at offsets no boundary passes through. Widths are therefore measured across
-every row of every block before anything prints.
+Both halves are laid out the same way, always, under one rule: **TSV at a
+terminal** is column-aligned for reading, and **anything else** — a pipe, a
+redirect, `-o`, or `-c` — is the raw separated rows.
 
-`-c` does not change the summary: the separator governs the rows on stdout, not
-the human block on stderr. A spreadsheet opening the `.csv` or `.tsv` written by
-`-o` splits on the delimiter and needs none of this.
+### Getting it into a spreadsheet
+
+Use `-c` and split on the delimiter. That gives comma separated rows for the
+table *and* the summary, so a paste of the whole screen imports in one pass.
+`daily-report.sh | cat` is the same thing with tabs, which most spreadsheets
+split on paste without a dialog at all.
+
+Do not import the aligned form with text-to-columns in fixed-width mode. It
+looks like it should work and it does not: the import guesses where the columns
+are from whatever was selected, so pasting one block gets different break points
+than pasting the whole report, and either guess can land mid-word. No amount of
+padding or shifting fixes that — a separator has nothing to guess. The aligned
+form is for reading on screen.
+
+When it is aligned, the node table and every summary block share one grid: no
+indentation, one set of column positions measured across every row of every
+block before anything prints, and every line a row — blocks are named by the
+first cell of their own header row rather than by a title line above them, since
+a free-form line like `254 nodes, 4 jobs` puts words at offsets no column
+boundary passes through.
 
 ```bash
 bash watch-rack.sh "rack01-node[1-32]"

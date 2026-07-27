@@ -11,27 +11,28 @@
 #                     written to disk -- a report is only ever produced
 #                     because someone asked for one.
 #
-# The table goes to stdout as TSV. When stdout is a terminal and the format is
-# TSV it is column-aligned for reading; redirected, piped, or written with -o
-# it is the raw separated rows, so the screen and the file carry the same
-# fields and a pipeline gets something parseable.
+# The table goes to stdout, and a summary follows on stderr -- how many nodes
+# are in each slurm state, how many cells hold each status, and
+# min/median/mean/max per job for the cells that hold a number. The summary is
+# on stderr and not in the rows on purpose: the file written by -o and a
+# redirect of stdout both have to stay machine-readable.
 #
-# A summary follows on stderr -- how many nodes are in each slurm state, how
-# many cells hold each status, and min/median/mean/max per job for the cells
-# that hold a number. It is on stderr and not in the rows on purpose: the file
-# written by -o and a redirect of stdout both have to stay machine-readable.
+# The two halves are laid out the same way, always. One rule decides it for the
+# whole report:
 #
-# Everything printed at a terminal -- the node table and every summary block --
-# is laid out on ONE grid: no indentation, one set of column positions, and
-# every line a row rather than a title or a sentence. The whole screen can then
-# be selected in one sweep, pasted into a spreadsheet, and split with
-# text-to-columns in fixed-width mode, because there is a single set of break
-# points that fits all of it. Blocks aligned only within themselves cannot
-# survive that import -- see the note on the grid below.
+#   TSV at a terminal    column-aligned on one shared grid -- see the note on
+#                        the grid below -- for reading on screen.
+#   anything else        the raw separated rows. A pipe, a redirect, -o, or -c.
 #
-# -c does not change the summary. The separator governs the rows on stdout, not
-# the human block on stderr, and a spreadsheet opening the .csv or .tsv written
-# by -o splits on the delimiter and needs none of this.
+# So -c gives comma separated rows for the table AND the summary, which is the
+# form to use for a spreadsheet: paste it and split on the delimiter. Aligned
+# text is for reading, not for importing -- a fixed-width import has to guess
+# where the columns are, and it guesses from whatever was selected, so pasting
+# part of a report gets different break points than pasting all of it. Nothing
+# about the layout can fix that. Splitting on a separator has nothing to guess.
+#
+# `daily-report.sh | cat` is the same thing with tabs, which a spreadsheet
+# splits on paste without a dialog at all.
 #
 # Read-only apart from -o. It submits nothing and drains nothing.
 
@@ -51,7 +52,7 @@ while [[ $# -gt 0 ]]; do
             [[ -n "$2" ]] || { echo "ERROR: $1 needs a file to write" >&2; exit 1; }
             report_file="$2"; shift 2 ;;
         -h|--help)
-            sed -n '2,36p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+            sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         *)  echo "ERROR: unknown argument $1" >&2; exit 1 ;;
     esac
 done
@@ -394,34 +395,52 @@ if [[ -n "$report_file" ]]; then
     printf '%s\n' "${rows[@]}" | tr '\t' "$sep" > "$report_file" || exit 1
 fi
 
-## Aligned only for a human reading TSV at a terminal -- which is the case where
-## the report is about to be selected and pasted somewhere. Anything else -- a
-## pipe, a redirect, -c -- gets the raw rows, because that is what a caller
-## asking for separated values wants back, and a spreadsheet opening a .tsv or a
-## .csv splits on the delimiter without needing any of this.
-if [[ "$sep" == $'\t' && -t 1 ]]; then
-    for row in "${rows[@]}"; do print_row "$row"; done
-else
-    printf '%s\n' "${rows[@]}" | tr '\t' "$sep"
-fi
+## One rule, applied to the node table and to every summary block alike: the
+## grid is for reading TSV at a terminal, and everything else -- a pipe, a
+## redirect, -c -- gets the raw separated rows.
+##
+## The summary used to sit outside this rule, so `-c` produced a comma separated
+## table above a fixed-width block. That is not a cosmetic inconsistency: the
+## two halves of one report could not be pasted the same way, and the separated
+## half is the half that pastes correctly.
+##
+## Decided once, for the whole report, rather than per stream. The summary is on
+## stderr and the table is on stdout, so testing each stream separately would put
+## an aligned block under a raw table whenever only stdout was redirected -- the
+## same split this is here to remove. One report, one layout.
+aligned=0; [[ "$sep" == $'\t' && -t 1 ]] && aligned=1
+
+## Guarded on the argument count: `printf '%s\n'` with nothing to print still
+## prints one empty line, which in a separated stream is an empty record.
+emit_rows() {
+    local aligned="$1" row; shift
+    (( $# )) || return 0
+    if [[ "$aligned" == 1 ]]; then
+        for row in "$@"; do print_row "$row"; done
+    else
+        printf '%s\n' "$@" | tr '\t' "$sep"
+    fi
+}
+
+emit_rows "$aligned" "${rows[@]}"
 
 {
     echo
-    for row in "${total_rows[@]}"; do print_row "$row"; done
+    emit_rows "$aligned" "${total_rows[@]}"
 
     if [[ ${#slurm_rows[@]} -gt 0 ]]; then
         echo
-        for row in "${slurm_rows[@]}"; do print_row "$row"; done
+        emit_rows "$aligned" "${slurm_rows[@]}"
     fi
 
     if [[ ${#status_rows[@]} -gt 0 ]]; then
         echo
-        for row in "${status_rows[@]}"; do print_row "$row"; done
+        emit_rows "$aligned" "${status_rows[@]}"
     fi
 
     if [[ ${#metric_rows[@]} -gt 0 ]]; then
         echo
-        for row in "${metric_rows[@]}"; do print_row "$row"; done
+        emit_rows "$aligned" "${metric_rows[@]}"
     fi
 
     ## Last, not between the table and the summary: everything between the first
