@@ -186,10 +186,38 @@ done
 
 mkdir -p "$logs"
 
-## The append is allowed to fail silently: running --explain by hand as an
-## unprivileged user should still print its trace, not die on the log file.
+## The append is allowed to fail: a hand-run as $JOB_USER should print its trace
+## rather than die on the log file, and the log file is very often not writable
+## by them. root's cycles create trigger.log and quick-view.txt, so they end up
+## root-owned at 644 inside a $JOB_USER-owned directory -- fixed for good by
+## ensure_owned below, but only from the next root cycle, and only for a tree
+## that still gets them.
+##
+## Tested once, not per line, and the result decides where the trace goes: a run
+## that cannot write anything down has to say everything out loud, or it is
+## silent in both directions at once, which is the state this whole mechanism
+## exists to make impossible.
+##
+## `>> file 2>/dev/null` does NOT suppress the failure. Redirections are opened
+## left to right, so the append fails while stderr is still the terminal and
+## bash reports it there -- once per traced line, which over a pdsh of a rack is
+## the only thing you see.
+TRACE_WRITABLE=-1
+trace_writable() {
+    [[ "$TRACE_WRITABLE" -ge 0 ]] && return "$TRACE_WRITABLE"
+    if { : >> "$tracelog"; } 2>/dev/null; then
+        TRACE_WRITABLE=0
+    else
+        TRACE_WRITABLE=1
+        VERBOSE=1
+        echo "WARNING: cannot write $tracelog as $(id -un) -- $(stat -c '%U owns it, mode %a' "$tracelog" 2>/dev/null || echo 'and it cannot be created')." >&2
+        echo "         Tracing to stdout only. Root's next cycle repairs it, or:" >&2
+        echo "           sudo chown -R $JOB_USER:$JOB_USER $logs" >&2
+    fi
+    return "$TRACE_WRITABLE"
+}
 trace() {
-    printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$tracelog" 2>/dev/null
+    trace_writable && printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$tracelog" 2>/dev/null
     [[ "$EXPLAIN" -eq 1 || "$VERBOSE" -eq 1 ]] && printf '%s\n' "$*"
     return 0
 }
@@ -240,8 +268,25 @@ ensure_owned() {
     chown "$JOB_USER:$JOB_USER" "$d" 2>/dev/null
 }
 
+## The same repair, for the two files this script writes itself. A directory
+## handed to $JOB_USER is not enough: root's cycle creates trigger.log and
+## quick-view.txt inside it, and they stay root-owned at 644, so the operator
+## who runs this by hand gets "Permission denied" per traced line from a tree
+## whose permissions otherwise look right. Also fixed on every cycle rather than
+## on creation, so a tree already in that state repairs itself.
+ensure_file_owned() {
+    local f="$1"
+    [[ -e "$f" ]] || return 0
+    [[ "$(stat -c %U "$f" 2>/dev/null)" == "$JOB_USER" ]] && return 0
+    [[ "$EUID" -eq 0 ]] || return 0   # diagnosed by trace_writable, not here
+    trace "chown $JOB_USER $f (was $(stat -c %U "$f" 2>/dev/null))"
+    chown "$JOB_USER:$JOB_USER" "$f" 2>/dev/null
+}
+
 ensure_owned "$home/results"
 ensure_owned "$logs"
+ensure_file_owned "$tracelog"
+ensure_file_owned "$quickview"
 
 source /etc/profile.d/modules.sh
 module load slurm
@@ -583,6 +628,13 @@ in_list() {
 ## Under --all a job can be queued with nothing wrong with it, and a QUEUED
 ## line with no reason next to it is exactly the silence this file exists to
 ## remove -- so it says who asked for the re-run.
+##
+## Written to a temp file and renamed, rather than truncated in place. Rename
+## needs write permission on the *directory*, which $JOB_USER has, while
+## truncating needs it on the file, which they do not when root's cycle created
+## it -- so a hand-run can still record its state on a tree ensure_file_owned
+## has not caught up with yet. It also means a reader never sees the file
+## half-written.
 forced_reason=""
 [[ "$FORCE_ALL" -eq 1 ]] && forced_reason="re-queued by --all"
 write_quickview() {
@@ -610,7 +662,8 @@ write_quickview() {
                 echo "$job: QUEUED${reason:+  <- $reason}"
             fi
         done
-    } > "$quickview"
+    } > "$quickview.tmp" 2>/dev/null && mv "$quickview.tmp" "$quickview" 2>/dev/null ||
+        trace "WARNING: could not write $quickview as $(id -un) -- $(stat -c '%U owns it' "$quickview" 2>/dev/null || echo 'the directory is not writable'). The trace above is the current state."
 }
 
 ## ── Survey both lists ─────────────────────────────────────────────────────
