@@ -306,6 +306,19 @@ for node_dir in "$results_dir"/$pattern/; do
         # the daily CSV still carries the per-job counts.
         [[ "$status" == "DONE" ]] && fails=0
 
+        ## fail_count() counts *archives*, and the result that made this column
+        ## FAIL has not been archived yet -- launch_job.sh rotates it aside on
+        ## the next sweep, just before it resubmits. So a first failure counted
+        ## 0 and printed no annotation at all, and a second one printed
+        ## `(fails: 1)` beside a FAIL that was itself the second. Count the
+        ## current result too, so FAIL always carries a count and the count is
+        ## the number of failed attempts.
+        ##
+        ## Only FAIL. RETRY is the archives-only case by construction -- it is
+        ## reached when there is no current file -- so its count is already
+        ## right, and INCOMPLETE has a result that no gate has rejected.
+        [[ "$status" == "FAIL" ]] && fails=$((fails + 1))
+
         if [[ "$summary" -eq 1 ]]; then
             prior="${worst[$node]:-}"
             if [[ -z "$prior" || "${rank[$status]}" -gt "${rank[$prior]}" ]]; then
