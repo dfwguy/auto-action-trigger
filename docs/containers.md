@@ -43,10 +43,10 @@ Two ways to override the setting for one run:
 ./build_containers.sh -A       # every image the script knows about
 ```
 
-`-A` is the old default. It stopped being the default because `mnubergemm` is
-NVIDIA-internal and cannot be built from anything we have, so every plain run
-ended in `did not build: mnubergemm` and a non-zero exit — on sites that were
-never going to run it.
+`-A` is the old default. It stopped being the default because `mnubergemm`
+comes from a private NGC org, so every plain run on a site without credentials
+for that org ended in `did not build: mnubergemm` and a non-zero exit — on
+sites that were never going to run it.
 
 An explicitly empty `CONTAINERS=""` means "build nothing", and is respected as
 written rather than defaulted back: a site whose images are already in place,
@@ -64,8 +64,8 @@ Jobs could name a registry URI directly — `docker://nvcr.io#nvidia/hpc-benchma
 - **A registry outage stops testing.** Bringup often happens before the
   cluster has reliable external network, and the private NGC org behind the
   nvbandwidth image needs credentials distributed to every compute node.
-- **Two of the images cannot be pulled at all.** nvloom publishes only a
-  sample Dockerfile, and mnubergemm is internal.
+- **One of the images cannot be pulled at all.** nvloom publishes only a
+  sample Dockerfile. mnubergemm can be pulled, but only from the private org.
 
 The registry URI is still in each job as a commented alternative, so a node can
 fall back by hand if an image is missing.
@@ -119,7 +119,7 @@ and every monitoring cycle re-transfers the whole directory.
 | hpc-benchmarks | `nvidia+hpc-benchmarks+26.02-<arch>.sqsh` | public NGC pull | `allreduce`, `alltoall`, both `-nonvlink`, `hpl`, `cublasmatmul`, `stream` |
 | nvbandwidth | `nvbandwidth-v0.9-<arch>.sqsh` | private NGC org, else built from source | `nvbandwidth` |
 | nvloom | `nvloom-v2.0.0-<arch>.sqsh` | built from the upstream sample Dockerfile | `nvloom` |
-| mnubergemm | `mnubergemm-26.03-v1.17-arm.sqsh` | internal channel only | `mnubergemm` |
+| mnubergemm | `mnubergemm-26.03-v1.17-<arch>.sqsh` | private NGC org, ARM only | `mnubergemm` |
 
 Jobs not listed need no container at all — `dcgm*`, `nvsm`, `stress-ng`,
 `memtester`, `stressapptest`, `fio`, and `ethr` run a host-installed binary.
@@ -216,8 +216,8 @@ build the two images on any ARM box with internet and drop the `.sqsh` files
 into `containers/` by hand. Nothing downstream cares which machine produced
 them.
 
-`mnubergemm` is unaffected — it is internal, ARM-only, and imported by hand
-whatever the headnode is.
+`mnubergemm` is unaffected — it is a registry import, so the headnode's own
+architecture does not matter.
 
 ## Prerequisites
 
@@ -310,17 +310,23 @@ Plan — Exhaustive only, not a required gate in any variant.
 
 ### mnubergemm
 
-NVIDIA-internal, not publicly distributed and not buildable from anything we
-have. `build_containers.sh` reports it as missing and prints the import command;
-obtain the image through the internal channel for your platform and run:
+NVIDIA-internal and not buildable from anything we have, but it is published in
+the same private NGC org as nvbandwidth, so `./build_containers.sh mnubergemm`
+imports it like any other registry image — given credentials that can read org
+`0948245400141054`.
+
+Without those, the script prints the command and exits non-zero; obtain the
+image through the internal channel for your platform and run it by hand:
 
 ```bash
 enroot import -o /home/cmods/bringup/containers/mnubergemm-26.03-v1.17-arm.sqsh \
-    dockerd://<image>:<tag>
+    docker://nvcr.io#0948245400141054/mnubergemm:tensorrt-26.03-v1.17-arm
 ```
 
-Update `IMG` in `jobs/nvl72/mnubergemm.sbatch` if the version or architecture suffix
-differs.
+The tag carries its own `-arm` suffix in addition to the `tensorrt-` prefix,
+and only ARM is published today — an x86 build will fail the import rather than
+silently produce the wrong image. Update `IMG` in `jobs/nvl72/mnubergemm.sbatch`
+if the version or architecture suffix differs.
 
 Burn-in runs 24–72 hours per the plan, so it is not a candidate for the default
 sequence — `MAX_JOB_HOURS` in `actions/launch_job.sh` defaults to 6 and will

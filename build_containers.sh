@@ -69,9 +69,12 @@ WORKDIR=${WORKDIR:-/tmp/container-build-$UID}
 
 HPC_BENCHMARKS_TAG=26.02
 NVBANDWIDTH_VERSION=v0.9
-NVBANDWIDTH_ORG=0948245400141054
 NVLOOM_VERSION=v2.0.0
-MNUBERGEMM_IMAGE=mnubergemm-26.03-v1.17-arm.sqsh
+MNUBERGEMM_VERSION=26.03-v1.17
+
+## Private NGC org holding the nvbandwidth and mnubergemm images. Reading it
+## needs credentials on the machine doing the import; neither image is public.
+NGC_ORG=0948245400141054
 
 ## Ubuntu release the CUDA base images are built on, and the mirrors the
 ## packages come from. Ubuntu serves ARM from a different host than x86.
@@ -109,7 +112,7 @@ image_file() {
         hpc-benchmarks) echo "nvidia+hpc-benchmarks+${HPC_BENCHMARKS_TAG}-${arch}.sqsh" ;;
         nvbandwidth)    echo "nvbandwidth-${NVBANDWIDTH_VERSION}-${arch}.sqsh" ;;
         nvloom)         echo "nvloom-${NVLOOM_VERSION}-${arch}.sqsh" ;;
-        mnubergemm)     echo "$MNUBERGEMM_IMAGE" ;;
+        mnubergemm)     echo "mnubergemm-${MNUBERGEMM_VERSION}-${arch}.sqsh" ;;
         *)              return 1 ;;
     esac
 }
@@ -416,14 +419,14 @@ build_hpc_benchmarks() {
 ## straight import and the build pass has nothing to do; otherwise it falls
 ## back to the two-pass source build.
 build_nvbandwidth() {
-    local out="$1" uri="docker://nvcr.io#${NVBANDWIDTH_ORG}/nvbandwidth-single-node:${NVBANDWIDTH_VERSION}-${arch}"
+    local out="$1" uri="docker://nvcr.io#${NGC_ORG}/nvbandwidth-single-node:${NVBANDWIDTH_VERSION}-${arch}"
 
     if [[ "$MODE" != build ]]; then
         log "nvbandwidth: trying the NGC org image"
         if import "$out" "$uri"; then
             return 0
         fi
-        warn "nvbandwidth: NGC org import failed (no access to org ${NVBANDWIDTH_ORG}?) -- staging a source build"
+        warn "nvbandwidth: NGC org import failed (no access to org ${NGC_ORG}?) -- staging a source build"
         fetch_source_image nvbandwidth || return 1
     fi
     [[ "$MODE" == fetch ]] && return 0
@@ -442,14 +445,25 @@ build_nvloom() {
 }
 
 ## ── mnubergemm ────────────────────────────────────────────────────────────
-## NVIDIA-internal, not distributed publicly and not buildable from anything we
-## have. Nothing to do but say so.
+## NVIDIA-internal, with no public source to fall back on, but it is published
+## in the same private NGC org as nvbandwidth -- so this is a plain import for
+## anyone whose credentials can read that org, and a hand import for anyone
+## else.
+##
+## The tag carries a `tensorrt-` prefix and its own -arch suffix, so unlike the
+## multi-arch images the architecture is chosen by the tag as well as by
+## enroot's --arch. Only ARM is published today; x86 will fail the import.
 build_mnubergemm() {
-    local out="$1"
+    local out="$1" uri="docker://nvcr.io#${NGC_ORG}/mnubergemm:tensorrt-${MNUBERGEMM_VERSION}-${arch}"
+
     [[ "$MODE" == build ]] && return 0
-    warn "mnubergemm is NVIDIA-internal -- there is no public source or registry to build from."
-    warn "Obtain the image through the internal channel for your platform and import it:"
-    warn "    enroot import -o $out dockerd://<image>:<tag>"
+    log "mnubergemm: importing ${uri#docker://} ($arch)"
+    import "$out" "$uri" && return 0
+
+    warn "mnubergemm: import failed (no access to org ${NGC_ORG}, or no ${arch} build of ${MNUBERGEMM_VERSION}?)"
+    warn "It is NVIDIA-internal and has no public source to build from. Obtain the"
+    warn "image through the internal channel for your platform and import it by hand:"
+    warn "    enroot import -o $out $uri"
     warn "The version and -arch suffix must match the nodes under test."
     return 1
 }
@@ -478,10 +492,10 @@ shift $((OPTIND - 1))
 ## CONTAINERS is the site's answer to "which images do the benchmarks we run
 ## actually need", and it defaults to hpc-benchmarks because the default
 ## BENCHMARKS list needs nothing else. That is also why a bare run no longer
-## attempts all four: mnubergemm is NVIDIA-internal and cannot be built from
-## anything we have, so including it by default meant every plain invocation
-## ended in "did not build: mnubergemm" and a non-zero exit, on a site that was
-## never going to run it. -A is still there for the old behaviour.
+## attempts all four: mnubergemm comes from a private NGC org, so including it
+## by default meant every plain invocation ended in "did not build: mnubergemm"
+## and a non-zero exit on any site without credentials for that org -- sites
+## that were never going to run it. -A is still there for the old behaviour.
 images=("$@")
 if [[ "${#images[@]}" -eq 0 ]]; then
     if [[ "$ALL" -eq 1 ]]; then
