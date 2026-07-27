@@ -55,6 +55,12 @@ disk:
 | `NOT_RUN` | no attempt has ever been made |
 | `RUNNING` | a benchmark is executing on the node right now; nothing to judge until it writes its end marker |
 
+Columns for `BURNIN` jobs appear only while `RUN_BURNIN` is on, so an unused
+burn-in phase does not leave a permanent `NOT_RUN` column that reads like work
+outstanding. Per node, `results/<node>/quick-view.txt` carries the phase state
+directly — `BURN-IN OFF` or `BURN-IN WAITING` for a burn-in that is not due
+yet, which is what keeps it from being misread as a burn-in that passed.
+
 `RUNNING` is not written by `verdict.sh`, which sees only the result file and
 reports a marker-less one as `INCOMPLETE`. That is right for `launch_job.sh`,
 which judges a node only after `squeue` says nothing is queued or running on
@@ -207,8 +213,8 @@ What that leaves running, in order of how long it takes to stop:
 - **Pending benchmarks are cancelled on the first paused cycle.** They wrote
   nothing, and the sweep re-queues them when the pause lifts.
 - **One benchmark per node may still be running**, and is left to finish — up to
-  `MAX_JOB_HOURS`. Its job id is in that node's `trigger.log`. To empty the
-  cluster immediately instead:
+  `MAX_JOB_HOURS`, so up to ~6.5 hours if it is a burn-in run. Its job id is in
+  that node's `trigger.log`. To empty the cluster immediately instead:
 
   ```bash
   squeue -h -n bringup-$(hostname -s) -o '%i %T'   # what is left on one node

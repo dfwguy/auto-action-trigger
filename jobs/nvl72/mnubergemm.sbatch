@@ -5,7 +5,7 @@
 #SBATCH --mem=0
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
-#SBATCH -t 12:05:00
+#SBATCH -t 6:41:00
 
 ## Allocation. --exclusive is a JOB-level guarantee and a step inherits only
 ## what was explicitly requested, so --gres and --mem=0 are stated even though
@@ -23,12 +23,32 @@
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=mnubergemm
 
-## Step time limit, handed to srun --time below: 2x --time_to_run below, not
-## the plan's 24-72 hr burn-in row.
-## Slurm cancels the STEP at this limit, which leaves the batch script alive to
-## write its marker. #SBATCH -t above is this plus a margin, so the step limit
-## is what fires -- see example.sbatch.
-STEP_TIMELIMIT=11:54:00
+## Step time limit, handed to srun --time below. The workload itself is capped
+## by --time_to_run 21420 further down -- 5h57m -- so this is that plus half an
+## hour, not the 2x it used to be. A step limit at twice the workload cannot
+## catch a hung run: it waits six hours past the point the job was supposed to
+## be finished before admitting anything is wrong, and MAX_JOB_HOURS then has
+## to be set high enough to clear the padding rather than the work.
+##
+## Four limits in a ladder, each above the one before, and they have to move
+## together. Change --time_to_run and all four move:
+##
+##   --time_to_run 21420   5:57  the workload's own cap -- what normally ends it
+##   STEP_TIMELIMIT        6:30  srun kills the step; the script still writes
+##   #SBATCH -t            6:41  slurm kills the job, marker or not
+##   MAX_JOB_HOURS            7  the sequencer drains the node for timeout
+##
+## Slurm cancels the STEP at STEP_TIMELIMIT, which leaves the batch script
+## alive to write its marker; #SBATCH -t above is that plus a margin so the
+## step limit is what fires -- see example.sbatch. MAX_JOB_HOURS is in
+## SETTINGS, and is the one that is not in this file: set it below the job
+## limit and the sequencer drains healthy nodes running on schedule.
+STEP_TIMELIMIT=6:30:00
+
+## 12 runs of ~6h, submitted one at a time, so a full burn-in holds the node
+## for about three days -- the plan's 24-72 hour row. Each run is its own job
+## and its own result file, so an interrupted burn-in resumes at the run it got
+## to rather than starting over.
 totalRuns=12
 
 

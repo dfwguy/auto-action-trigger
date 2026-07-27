@@ -14,10 +14,18 @@ PARSERS=nvl72
 
 ## ── Benchmark list ────────────────────────────────────────────────────────
 ## Order matters: nvbandwidth reports a fabric problem in half an hour, before
-## the collectives spend longer rediscovering it, and mnubergemm is last
-## because it is burn-in and holds the node for days once it starts.
+## the collectives spend longer rediscovering it.
 BENCHMARKS="dcgm nvbandwidth allreduce alltoall allreduce-nonvlink \
-            alltoall-nonvlink mnubergemm"
+            alltoall-nonvlink"
+
+## ── Burn-in ───────────────────────────────────────────────────────────────
+## A second phase, queued only once every job in BENCHMARKS passes, and only
+## when RUN_BURNIN says so. Burn-in holds a node for days, so it is a decision
+## rather than a default: the sweep answers "does this node work", and burn-in
+## answers "does it keep working", which is a question worth asking after the
+## first one has been answered and not before.
+RUN_BURNIN=no
+BURNIN="mnubergemm"
 
 ## ── Container images ──────────────────────────────────────────────────────
 ## nvbandwidth and mnubergemm come from a private NGC org -- run
@@ -40,10 +48,11 @@ DRAIN_AFTER_FAILED_BENCHMARK=no
 
 ## ── Retry and drain policy ────────────────────────────────────────────────
 RETRY_INTERVAL_HOURS=1
-## Above the longest single run in BENCHMARKS, which is mnubergemm's 11:54:00
-## step -- a job still RUNNING past this drains the node for timeout, so a
-## value below it drains every node mid-burn-in for finishing on schedule.
-MAX_JOB_HOURS=13
+## Above the longest single run in BENCHMARKS *and* BURNIN, which is
+## mnubergemm's 6:30:00 step -- a job still RUNNING past this drains the node
+## for timeout, so a value below it drains healthy nodes for finishing on
+## schedule. The ladder is workload 5:57 < srun 6:30 < sbatch -t 6:41 < this.
+MAX_JOB_HOURS=7
 DRAIN_WINDOW_MINUTES=15
 DRAIN_MARKER="auto-retry"
 

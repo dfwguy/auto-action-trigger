@@ -70,7 +70,12 @@ fi
 # The active benchmark list is the setting itself, read from the same SETTINGS
 # launch_job.sh reads. It used to be grepped back out of launch_job.sh, which
 # worked only for as long as the two agreed on where the list lived.
+#
+# Burn-in is appended only when RUN_BURNIN is on, matching what the sequencer
+# will actually queue. With it off, a BURNIN column would read NOT_RUN on every
+# node forever -- a permanent empty column that looks like work outstanding.
 active_benchmarks="$BENCHMARKS"
+setting_enabled "$RUN_BURNIN" && active_benchmarks="$BENCHMARKS $BURNIN"
 
 # Build ordered job+run list matching what launch_job.sh actually tracks
 declare -a columns  # each entry is "job" or "job-runN"

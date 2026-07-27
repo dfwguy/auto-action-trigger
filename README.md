@@ -145,12 +145,21 @@ The active list is `BENCHMARKS` in `SETTINGS`; which subset a site should run de
 
 ```bash
 BENCHMARKS="dcgm nvbandwidth allreduce alltoall allreduce-nonvlink \
-            alltoall-nonvlink mnubergemm"
+            alltoall-nonvlink"
 ```
 
-`mnubergemm` is burn-in and holds a node for days — 12 runs of a 11:54:00 step, one job at a time. That is why `MAX_JOB_HOURS` ships at `13`: it has to clear a single run, or the sequencer drains healthy nodes mid-burn-in for a timeout. Drop `mnubergemm` from the list for a sweep that finishes in hours.
+### 6. Decide whether to burn in
 
-### 6. Decide whether failures should drain
+Burn-in is a second phase, queued only once every benchmark passes, and off until you ask for it:
+
+```bash
+RUN_BURNIN=no
+BURNIN="mnubergemm"
+```
+
+`mnubergemm` is 12 runs of a ~6-hour step, one job at a time, so a node is held for about three days. `MAX_JOB_HOURS` ships at `7` to clear a single run — lower it and the sequencer drains healthy nodes mid-burn-in for a timeout. The image is downloaded by default even though the phase is off, so turning it on does not mean a fleet-wide failure while the image catches up. See [docs/settings.md](docs/settings.md#burn-in).
+
+### 7. Decide whether failures should drain
 
 Both drain switches ship **off**, so no failure takes a node out of service:
 

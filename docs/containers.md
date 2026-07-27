@@ -31,9 +31,10 @@ CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm"    # SETTINGS
 Two of those three are in a private NGC org, so [`-L`](#logging-in-to-ngc) is a
 prerequisite of the shipped configuration rather than an optional extra: with no
 credentials the run builds `hpc-benchmarks`, fails the other two, and exits
-non-zero. A site that does not want that dependency drops `nvbandwidth` and
-`mnubergemm` from **both** `CONTAINERS` and `BENCHMARKS` — dropping them from
-one alone is the failure this section is about.
+non-zero. A site that does not want that dependency drops `nvbandwidth` from
+**both** `CONTAINERS` and `BENCHMARKS` — dropping it from one alone is the
+failure this section is about — and drops `mnubergemm` from `CONTAINERS` while
+leaving `RUN_BURNIN=no`.
 
 | Image | Needed by |
 |-------|-----------|
@@ -443,11 +444,17 @@ and only ARM is published today — an x86 build will fail the import rather tha
 silently produce the wrong image. Update `IMG` in `jobs/nvl72/mnubergemm.sbatch`
 if the version or architecture suffix differs.
 
-Burn-in runs 24–72 hours per the plan, and `mnubergemm` *is* in the default
-`BENCHMARKS` list, so budget for a node being held by it for days: 12 runs of an
-11:54:00 step, submitted one at a time. `MAX_JOB_HOURS` ships at `13` to clear a
-single one of those runs. Lowering it — the old default was `6` — drains every
-node mid-burn-in with a timeout reason, for a job that is on schedule.
+`mnubergemm` is not in `BENCHMARKS`. It is the burn-in phase — `BURNIN` in
+`SETTINGS`, gated by `RUN_BURNIN`, which ships off — so the image is downloaded
+by default but the job does not run until someone turns the phase on. That is
+deliberate: flipping the switch at a site that never downloaded the image would
+mean a fleet-wide failure on the first cycle instead of a burn-in.
+
+Budget for a node being held for about three days once it is on: 12 runs of a
+6:30:00 step, submitted one at a time, matching the plan's 24–72 hour row.
+`MAX_JOB_HOURS` ships at `7` to clear a single run — see
+[settings.md](settings.md#retry-and-drain-policy) for the full ladder of
+limits, which have to move together if the workload's `--time_to_run` changes.
 
 ---
 

@@ -43,7 +43,11 @@ fi
 : "${JOBS:=nvl72}"
 : "${HEALTHCHECKS:=nvl72}"
 : "${PARSERS:=nvl72}"
-: "${BENCHMARKS:=dcgm nvbandwidth allreduce alltoall allreduce-nonvlink alltoall-nonvlink mnubergemm}"
+: "${BENCHMARKS:=dcgm nvbandwidth allreduce alltoall allreduce-nonvlink alltoall-nonvlink}"
+## `=` rather than `:=`, for the same reason CONTAINERS uses it below: an
+## explicitly empty BURNIN means "no burn-in phase" and is a real answer.
+: "${RUN_BURNIN:=no}"
+: "${BURNIN=mnubergemm}"
 ## `=` rather than `:=`, unlike everything else here: an explicitly empty
 ## CONTAINERS is a real answer -- a site whose images are already in place, or
 ## which obtains them some other way, builds nothing. Backfilling that to
@@ -59,7 +63,7 @@ fi
 : "${DRAIN_AFTER_FAILED_HEALTH_CHECK:=no}"
 : "${DRAIN_AFTER_FAILED_BENCHMARK:=no}"
 : "${RETRY_INTERVAL_HOURS:=1}"
-: "${MAX_JOB_HOURS:=13}"
+: "${MAX_JOB_HOURS:=7}"
 : "${DRAIN_WINDOW_MINUTES:=15}"
 : "${DRAIN_MARKER:=auto-retry}"
 : "${JOB_USER:=cmods}"

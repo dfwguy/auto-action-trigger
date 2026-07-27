@@ -38,10 +38,14 @@ rather than as a submitted job.
 Most of the default `BENCHMARKS` list has dependencies that are always
 available: `dcgm` uses a host binary, and the NCCL jobs use the
 `hpc-benchmarks` image that `build_containers.sh` pulls from the public catalog.
-The two exceptions are `nvbandwidth` and `mnubergemm`, which are in the default
-list and are pulled from a private NGC org — so a head node that has not run
-`./build_containers.sh -L` has no image for either, and both fail on every node.
-`./build_containers.sh -l` is the check.
+The exception is `nvbandwidth`, which is in the default list and comes from a
+private NGC org — so a head node that has not run `./build_containers.sh -L`
+has no image for it and it fails on every node. `./build_containers.sh -l` is
+the check.
+
+`mnubergemm` is not in `BENCHMARKS` at all. It is the burn-in phase (`BURNIN`,
+gated by `RUN_BURNIN`, off by default), which the sequencer queues only after
+every benchmark passes — see [settings.md](settings.md#burn-in).
 
 Everything else needs one of three things first:
 

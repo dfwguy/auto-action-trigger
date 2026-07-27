@@ -90,24 +90,16 @@ from the public catalog. Jobs whose image has to be built or obtained
 **Default — ships as written:**
 ```bash
 BENCHMARKS="dcgm nvbandwidth allreduce alltoall allreduce-nonvlink \
-            alltoall-nonvlink mnubergemm"
+            alltoall-nonvlink"
 ```
 
-Two things this default assumes, both covered in
-[containers.md](containers.md):
+This default assumes an NGC login: `nvbandwidth` is pulled from a private NGC
+org, so `./build_containers.sh -L` has to have been run on the head node.
+Without it the image never arrives, and a job whose image is missing fails on
+every node — the same fleet-wide false failure the `nvsm` note below warns
+about. `./build_containers.sh -l` says which images are actually present.
 
-- **An NGC login.** `nvbandwidth` and `mnubergemm` are pulled from a private
-  NGC org, so `./build_containers.sh -L` has to have been run on the head node.
-  Without it neither image arrives, and a job whose image is missing fails on
-  every node — the same fleet-wide false failure the `nvsm` note below warns
-  about. `./build_containers.sh -l` says which images are actually present.
-- **A long `MAX_JOB_HOURS`.** `mnubergemm` is burn-in: 12 runs of a 11:54:00
-  step, so a node is under it for days and each individual run sits close to
-  twelve hours. `MAX_JOB_HOURS` ships at `13` for that reason. Dropping it back
-  to the old `6` while `mnubergemm` is in the list drains every node mid-run
-  for a timeout it did not have.
-
-Drop both names for a shorter sweep with no credentials needed:
+For a sweep with no credentials needed, drop `nvbandwidth` from both lists:
 
 ```bash
 BENCHMARKS="dcgm allreduce alltoall allreduce-nonvlink alltoall-nonvlink"
@@ -136,6 +128,52 @@ BENCHMARKS="dcgm-r2 dcgm dcgm-r4 nvbandwidth allreduce alltoall nvsm \
             stress-ng stressapptest fio ethr nvloom mnubergemm \
             llm-pretrain hpl cublasmatmul"
 ```
+
+## Burn-in
+
+```bash
+RUN_BURNIN=no
+BURNIN="mnubergemm"
+```
+
+A second phase, on top of the sweep. `BURNIN` is a list of jobs in exactly the
+same format as `BENCHMARKS` — same directory, same `totalRuns`, same verdict
+rules — and the only thing that makes it different is when the sequencer looks
+at it:
+
+1. Every cycle, `BENCHMARKS` is surveyed first.
+2. Only once every job in it passes, and only if `RUN_BURNIN` is on, is
+   `BURNIN` surveyed and queued.
+3. If a benchmark later stops passing, the node drops back to phase 1 on the
+   next cycle. Burn-in results stay on disk, so it resumes at the run it had
+   reached rather than starting over.
+
+They are separate lists rather than a longer `BENCHMARKS` because they answer
+different questions on different timescales — *does this node work*, in
+minutes, and *does it keep working*, in days. Days of burn-in on a node that
+has not yet passed a fifteen-minute collective proves nothing, and burn-in that
+starts before the fast tests have reported hides which of the two actually
+failed.
+
+`RUN_BURNIN` ships **off**, and reads like every other switch here: `yes`,
+`true`, `1` and `on` enable it, everything else does not. An empty `BURNIN` is
+a real answer meaning "no burn-in phase", so it is not backfilled — but
+`RUN_BURNIN=yes` with an empty `BURNIN` is a mistake, and the sequencer traces
+it rather than reporting a node as burning in forever.
+
+What to expect once it is on: `mnubergemm` is 12 runs of a ~6-hour step,
+submitted one job at a time, so a node is held for about three days — the
+plan's 24–72 hour burn-in row. `status-check.sh` and `status-daily-report.sh`
+grow a column for each `BURNIN` job when the switch is on, and drop it again
+when it is off, so an unused phase does not leave a permanent `NOT_RUN` column
+that reads like work outstanding. A burn-in failure drains with `burn-in` in
+the reason, because a node that ran for hours and then stopped is a different
+finding from one that failed a collective in fifteen minutes.
+
+The image has to be there **before** the switch is flipped — `mnubergemm` is in
+the default `CONTAINERS` for that reason even though its job does not run by
+default. Turning burn-in on at a site that never downloaded it means a
+fleet-wide failure on the first cycle instead of a burn-in.
 
 ### The `nvsm` note
 
@@ -271,7 +309,7 @@ and which one to turn on first — is in
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | `RETRY_INTERVAL_HOURS` | `1` | Hours between sweeps, measured from the newest result file on the node |
-| `MAX_JOB_HOURS` | `13` | A benchmark `RUNNING` longer than this drains the node |
+| `MAX_JOB_HOURS` | `7` | A benchmark `RUNNING` longer than this drains the node |
 | `DRAIN_WINDOW_MINUTES` | `15` | Only failures newer than this drain |
 | `DRAIN_MARKER` | `auto-retry` | Written into every drain reason this framework issues; only drains carrying it are ever cleared automatically |
 
@@ -281,12 +319,24 @@ that without it, `launch_job.sh` would re-drain from stale result files on every
 monitoring cycle — a node an operator had just resumed would be pulled straight
 back out of service.
 
-`MAX_JOB_HOURS` has to clear the longest single run in `BENCHMARKS`, not the
-longest sweep — each run is submitted as its own job, so what it is compared
-against is one job's elapsed time. The binding constraint in the default list is
-`mnubergemm`, whose step is capped at `11:54:00`; hence `13`. Set it below the
-longest `STEP_TIMELIMIT` and the sequencer drains healthy nodes for a timeout
-while the job is still doing exactly what it was asked to do:
+`MAX_JOB_HOURS` has to clear the longest single run in `BENCHMARKS` **and**
+`BURNIN`, not the longest sweep — each run is submitted as its own job, so what
+it is compared against is one job's elapsed time. The binding constraint is
+`mnubergemm`, whose step is capped at `6:30:00`; hence `7`.
+
+It is the top of a four-rung ladder that has to stay in order, and only the top
+rung lives in `SETTINGS` — the other three are in the `.sbatch`:
+
+| Limit | `mnubergemm` | What it does |
+|---|---|---|
+| workload's own cap | `--time_to_run 21420` (5:57) | what normally ends the run |
+| `STEP_TIMELIMIT` | `6:30:00` | `srun` kills the step; the script still writes its marker |
+| `#SBATCH -t` | `6:41:00` | Slurm kills the job, marker or not |
+| `MAX_JOB_HOURS` | `7` | the sequencer drains the node for timeout |
+
+Set it below the longest `STEP_TIMELIMIT` and the sequencer drains healthy nodes
+for a timeout while the job is still doing exactly what it was asked to do. Set
+it far above and a genuinely hung job holds the node until someone notices:
 
 ```bash
 grep -H STEP_TIMELIMIT jobs/$JOBS/*.sbatch | sort -t= -k2   # longest run in the set

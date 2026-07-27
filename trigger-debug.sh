@@ -109,12 +109,30 @@ else
 
     ## A benchmark named in BENCHMARKS with no .sbatch behind it is skipped per
     ## node, per cycle, silently. After a job-set rename that is the whole sweep.
+    ## BURNIN is checked the same way and only when the phase is on -- a name
+    ## with no file behind it would otherwise leave every node reporting a
+    ## clean sweep and never burning in, with nothing said about why.
     if [[ -d "$JOBS_DIR" ]]; then
         missing=""
         for b in $BENCHMARKS; do
             [[ -f "$JOBS_DIR/$b.sbatch" ]] || missing="$missing $b"
         done
         [[ -n "$missing" ]] && bad "BENCHMARKS names jobs with no .sbatch in $JOBS_DIR:$missing"
+
+        if setting_enabled "$RUN_BURNIN"; then
+            if [[ -z "${BURNIN// /}" ]]; then
+                bad "RUN_BURNIN=$RUN_BURNIN but BURNIN is empty -- the burn-in phase has no jobs"
+            else
+                missing=""
+                for b in $BURNIN; do
+                    [[ -f "$JOBS_DIR/$b.sbatch" ]] || missing="$missing $b"
+                done
+                [[ -n "$missing" ]] && bad "BURNIN names jobs with no .sbatch in $JOBS_DIR:$missing"
+                [[ -z "$missing" ]] && note "RUN_BURNIN=$RUN_BURNIN -> burn-in phase queues:$(printf ' %s' $BURNIN)"
+            fi
+        else
+            note "RUN_BURNIN=$RUN_BURNIN -- burn-in phase off; nodes stop after the benchmark sweep"
+        fi
     fi
 fi
 

@@ -11,9 +11,9 @@
 ## directory to infer from, so the checkout is located the same way it always
 ## was -- by the hardcoded path below -- and the settings are read from there.
 ##
-## This gives us: BENCHMARKS, JOBS_DIR, PARSERS_DIR, JOB_USER, MAX_JOB_HOURS,
-## RETRY_INTERVAL_HOURS, DRAIN_WINDOW_MINUTES, DRAIN_MARKER, and
-## DRAIN_AFTER_FAILED_BENCHMARK.
+## This gives us: BENCHMARKS, BURNIN, RUN_BURNIN, JOBS_DIR, PARSERS_DIR,
+## JOB_USER, MAX_JOB_HOURS, RETRY_INTERVAL_HOURS, DRAIN_WINDOW_MINUTES,
+## DRAIN_MARKER, PAUSE_JOBS, and DRAIN_AFTER_FAILED_BENCHMARK.
 ##
 ## A missing settings.sh is fatal rather than defaulted. Without it BENCHMARKS
 ## is empty, the sweep finds nothing pending on every node, and the whole
@@ -33,6 +33,18 @@ source "$home/settings.sh"
 ## result is queued, in listed order. Slurm runs them back to back on the node.
 ## There is no retry limit -- a node keeps being re-tested until it passes or an
 ## operator intervenes.
+##
+## Two phases, and only one of them is ever being swept on a given cycle.
+## BENCHMARKS is phase 1 and always runs. BURNIN is phase 2: it is surveyed
+## only once every job in phase 1 passes, and only when RUN_BURNIN is on. The
+## two are separate lists rather than a longer BENCHMARKS because they answer
+## different questions on different timescales -- "does this node work", in
+## minutes, and "does it keep working", in days -- and because days of burn-in
+## on a node that has not yet passed a fifteen-minute collective is time spent
+## proving nothing. A phase-1 regression preempts burn-in automatically: the
+## sweep is surveyed first on every cycle, so the node drops back to phase 1 as
+## soon as anything stops passing, with its burn-in results left on disk to be
+## resumed rather than restarted.
 ##
 ## This script fires on every BCM monitoring cycle, so the hourly cadence needs
 ## no cron and no second trigger -- just a time gate. Retry state is derived
@@ -331,8 +343,23 @@ declare -A job_runs=()
 declare -A fail_reasons=()
 newest_result=0
 swept=1
+phase=benchmarks
 
-for job in $BENCHMARKS; do
+## Survey one phase's job list. The per-phase findings are reset on each call,
+## because everything downstream -- the drain reason, the hourly gate, the
+## submission loop -- acts on one phase at a time and must not see the other's
+## jobs. What is *not* reset is newest_result: the retry interval is a property
+## of the node, not of a phase, and a burn-in run that finished ten minutes ago
+## is exactly as good a reason to wait as a benchmark that did.
+survey() {
+    local list="$1" job launch totalRuns passed attempted failed r file mtime
+
+    pending_jobs=()
+    failed_jobs=()
+    fail_reasons=()
+    swept=1
+
+for job in $list; do
     launch="$JOBS_DIR/$job.sbatch"
     ## A benchmark named in the list with no sbatch file behind it drops out of
     ## the sweep entirely -- it never goes pending, so it never blocks a node
@@ -393,16 +420,91 @@ for job in $BENCHMARKS; do
     [[ "$failed" -eq 1 ]] && failed_jobs+=("$job")
     [[ "$passed" -lt "$totalRuns" ]] && pending_jobs+=("$job")
 done
+    return 0
+}
 
-## ── Everything passing — nothing left to do ───────────────────────────────
+is_pending() {
+    local job="$1" p
+    for p in "${pending_jobs[@]}"; do
+        [[ "$p" == "$job" ]] && return 0
+    done
+    return 1
+}
 
+## quick-view.txt is the one file an operator reads per node, so it carries
+## both phases even though only one of them is ever being swept. A burn-in job
+## that is merely not due yet must not read as DONE next to the benchmarks that
+## are -- that would report a node as fully burned in on the strength of having
+## passed a fifteen-minute allreduce.
+write_quickview() {
+    local job reason
+    {
+        for job in $BENCHMARKS; do
+            if is_pending "$job"; then
+                reason="${fail_reasons[$job]}"
+                echo "$job: QUEUED${reason:+  <- $reason}"
+            else
+                echo "$job: DONE"
+            fi
+        done
+        for job in $BURNIN; do
+            if ! setting_enabled "$RUN_BURNIN"; then
+                echo "$job: BURN-IN OFF  <- RUN_BURNIN=$RUN_BURNIN"
+            elif [[ "$phase" != burnin ]]; then
+                echo "$job: BURN-IN WAITING  <- benchmarks not all passing yet"
+            elif is_pending "$job"; then
+                reason="${fail_reasons[$job]}"
+                echo "$job: QUEUED${reason:+  <- $reason}"
+            else
+                echo "$job: DONE"
+            fi
+        done
+    } > "$quickview"
+}
+
+## ── Phase 1: the benchmark sweep ──────────────────────────────────────────
+
+survey "$BENCHMARKS"
 trace "survey: pending=[${pending_jobs[*]}] failed=[${failed_jobs[*]}] swept=$swept"
 
+## ── Phase 2: burn-in, on top of a clean sweep ─────────────────────────────
+##
+## Only reached once every benchmark passes. That ordering is the whole point
+## of a separate phase: burn-in holds the node for days, and spending days
+## proving a node stays up under load is wasted on a node that has not yet
+## shown it works at all. A benchmark that regresses later takes precedence
+## again -- the survey above runs first on every cycle, so a node drops back to
+## phase 1 the moment something stops passing, and its burn-in results stay on
+## disk to be resumed rather than restarted.
 if [[ "${#pending_jobs[@]}" -eq 0 ]]; then
-    printf '%s: DONE\n' $BENCHMARKS > "$quickview"
-    resume_node
-    trace "EXIT: every benchmark passing"
-    exit 0
+    if ! setting_enabled "$RUN_BURNIN"; then
+        write_quickview
+        resume_node
+        trace "EXIT: every benchmark passing (burn-in not run: RUN_BURNIN=$RUN_BURNIN)"
+        exit 0
+    fi
+
+    ## An empty BURNIN with the switch on is a settings mistake worth naming:
+    ## the operator asked for a phase that has no jobs in it, and without this
+    ## line the node reports "every benchmark passing" forever and looks like
+    ## it is burning in.
+    if [[ -z "${BURNIN// /}" ]]; then
+        write_quickview
+        resume_node
+        trace "EXIT: every benchmark passing, but RUN_BURNIN=$RUN_BURNIN with BURNIN empty -- nothing to burn in"
+        exit 0
+    fi
+
+    phase=burnin
+    survey "$BURNIN"
+    trace "burn-in survey: pending=[${pending_jobs[*]}] failed=[${failed_jobs[*]}] swept=$swept"
+
+    if [[ "${#pending_jobs[@]}" -eq 0 ]]; then
+        write_quickview
+        resume_node
+        trace "EXIT: every benchmark and every burn-in job passing"
+        exit 0
+    fi
 fi
 
 ## ── Drain once the full sweep has run and something is still failing ──────
@@ -420,10 +522,17 @@ age=-1
 ## Slurm reason is a single short field and there may be several failures, so
 ## only the first is named -- the rest, and the full text for every one, are in
 ## trigger.log and quick-view.txt next to the results.
+## The phase is named in the reason because the two mean different things to
+## whoever reads `sinfo -R`: a benchmark failure is a node that does not work,
+## and a burn-in failure is a node that worked for hours and then stopped --
+## which is the more interesting of the two and should not be reported as if
+## the node had failed a fifteen-minute collective.
 if [[ "$swept" -eq 1 && "${#failed_jobs[@]}" -gt 0 && \
       "$age" -ge 0 && "$age" -lt $(( DRAIN_WINDOW_MINUTES * 60 )) ]]; then
     first_reason="${fail_reasons[${failed_jobs[0]}]}"
-    drain_node "${failed_jobs[*]} FAIL${first_reason:+: $first_reason} ($DRAIN_MARKER)"
+    label=""
+    [[ "$phase" == burnin ]] && label="burn-in "
+    drain_node "${label}${failed_jobs[*]} FAIL${first_reason:+: $first_reason} ($DRAIN_MARKER)"
 fi
 
 ## ── Hourly gate ───────────────────────────────────────────────────────────
@@ -434,7 +543,7 @@ if [[ "$age" -ge 0 && "$age" -lt $(( RETRY_INTERVAL_HOURS * 3600 )) ]]; then
 fi
 trace "hourly gate open (newest result age=${age}s, -1 means no results on disk)"
 
-## ── Queue every non-passing job, in listed order ──────────────────────────
+## ── Queue every non-passing job in this phase, in listed order ────────────
 
 ## A node drained by an operator stays untouched — queueing work behind their
 ## drain would dump the whole batch on the node the moment they resume it.
@@ -519,16 +628,7 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J bringup-$HOSTNAME \
     done
 done
 
-## Reflect the newly queued state for anyone reading quick-view directly
+## Reflect the newly queued state for anyone reading quick-view directly.
 ## Queued lines carry the reason the previous attempt was rejected, so this file
 ## answers "why is this node still being retested" on its own.
-{
-    for job in $BENCHMARKS; do
-        if printf '%s\n' "${pending_jobs[@]}" | grep -Fxq "$job"; then
-            reason="${fail_reasons[$job]}"
-            echo "$job: QUEUED${reason:+  <- $reason}"
-        else
-            echo "$job: DONE"
-        fi
-    done
-} > "$quickview"
+write_quickview

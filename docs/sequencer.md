@@ -38,6 +38,24 @@ The shared job name `bringup-<node>` stays, for a different reason: `squeue -n
 bringup-<node>` is how the sequencer sees its own jobs while they are still
 queued and unplaced, which `squeue -w <node>` cannot show.
 
+## Two phases
+
+`BENCHMARKS` is phase 1 and is surveyed on every cycle. `BURNIN` is phase 2,
+reached only when every job in phase 1 passes *and* `RUN_BURNIN` is on. Only one
+phase is ever being swept: whatever the survey finds pending is what gets
+queued, drained on, and written to `quick-view.txt`.
+
+The ordering does the work. Burn-in holds a node for days, so it must not start
+before the fast tests have reported — and if a benchmark regresses while a node
+is burning in, phase 1 wins again on the very next cycle, because it is
+surveyed first. Burn-in results are left on disk, so the node picks up at the
+run it had reached rather than starting the burn-in over.
+
+With `RUN_BURNIN=no` — the default — a node that passes everything simply goes
+idle, exactly as before. `BURNIN` jobs still appear in `quick-view.txt`, marked
+`BURN-IN OFF` or `BURN-IN WAITING`, so a burn-in that has not run cannot be
+misread as one that passed. See [settings.md](settings.md#burn-in).
+
 ## Retry and drain behaviour
 
 The script fires on every BCM monitoring cycle, so the hourly cadence needs no
@@ -64,14 +82,14 @@ and nothing is queued behind their drain — otherwise the whole batch would lan
 the moment they resumed it.
 
 ```
-sweep runs → all pass            → node left idle, quick-view all DONE
+sweep runs → all pass            → burn-in if RUN_BURNIN, else idle + all DONE
 sweep runs → some fail           → drain "<jobs> FAIL (auto-retry)"
              +1 hour             → resume, archive failures, re-queue them
              fails again         → drain again, repeat indefinitely
 ```
 
-If a job has been running longer than `MAX_JOB_HOURS` (default: 13, sized to
-clear `mnubergemm`'s 11:54:00 step — see
+If a job has been running longer than `MAX_JOB_HOURS` (default: 7, sized to
+clear `mnubergemm`'s 6:30:00 step — see
 [settings.md](settings.md#retry-and-drain-policy)), the node is
 drained with a timeout reason. That reason carries no marker, so a stuck job
 stops the retry loop and waits for a human. Only a `RUNNING` job is measured

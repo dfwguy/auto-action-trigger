@@ -63,7 +63,9 @@ metric_label() {
 declare -a job_order
 declare -A job_total_runs
 
+# Burn-in columns only when the phase is enabled -- see status-check.sh.
 active_benchmarks="$BENCHMARKS"
+setting_enabled "$RUN_BURNIN" && active_benchmarks="$BENCHMARKS $BURNIN"
 
 for job in $active_benchmarks; do
     sbatch="$jobs_dir/$job.sbatch"
