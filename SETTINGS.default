@@ -13,35 +13,16 @@ HEALTHCHECKS=nvl72
 PARSERS=nvl72
 
 ## ── Benchmark list ────────────────────────────────────────────────────────
-## Order matters: nvbandwidth reports a fabric problem in half an hour, before
-## the collectives spend longer rediscovering it.
-BENCHMARKS="dcgm nvbandwidth allreduce alltoall allreduce-nonvlink \
-            alltoall-nonvlink"
+BENCHMARKS="dcgm nvbandwidth allreduce alltoall allreduce-nonvlink alltoall-nonvlink"
 
 ## ── Burn-in ───────────────────────────────────────────────────────────────
-## A second list, queued alongside the sweep whenever RUN_BURNIN is on. It is
-## not gated on the benchmarks passing -- it is ordered behind them, so a node
-## can be burning in and still pick up a benchmark retry without waiting for
-## the burn-in to end.
-##
-## What does the ordering is `#SBATCH --nice` in each job file -- 0 for the
-## dcgm gates, 20 for the rest of the sweep, 100000 for mnubergemm -- and not a
-## setting here, because it belongs with the rest of a job's scheduling
-## character. See docs/benchmarks.md#queue-priority.
 RUN_BURNIN=no
 BURNIN="mnubergemm"
 
 ## ── Container images ──────────────────────────────────────────────────────
-## nvbandwidth and mnubergemm come from a private NGC org -- run
-## `./build_containers.sh -L` once on the head node, or the images do not
-## arrive and the two jobs that need them fail on every node. See
-## docs/containers.md.
 CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm"
 
 ## ── Pause switches ────────────────────────────────────────────────────────
-## Stop the framework doing anything, without unregistering it from BCM. The
-## triggers keep firing; each action reads these and returns having done
-## nothing, saying so in its trace. See docs/operations.md#pausing-everything.
 PAUSE_JOBS=no
 PAUSE_HEALTH_CHECKS=no
 PAUSE_CONTAINER_COPY=no
@@ -52,10 +33,6 @@ DRAIN_AFTER_FAILED_BENCHMARK=no
 
 ## ── Retry and drain policy ────────────────────────────────────────────────
 RETRY_INTERVAL_HOURS=1
-## Above the longest single run in BENCHMARKS *and* BURNIN, which is
-## mnubergemm's 6:30:00 step -- a job still RUNNING past this drains the node
-## for timeout, so a value below it drains healthy nodes for finishing on
-## schedule. The ladder is workload 5:57 < srun 6:30 < sbatch -t 6:41 < this.
 MAX_JOB_HOURS=7
 DRAIN_WINDOW_MINUTES=15
 DRAIN_MARKER="auto-retry"
