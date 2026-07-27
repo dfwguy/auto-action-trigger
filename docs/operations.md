@@ -98,6 +98,14 @@ per job over the cells that hold a number. The statistics are per job rather
 than pooled — Gflops, GB/s and MB/s share a table but not a scale. It stays on
 stderr so neither `-o` nor a redirect ever gets prose mixed into the data.
 
+All three blocks in that summary are fixed-width tables over one shared set of
+column positions, each with a header row, so the block can be pasted into a
+spreadsheet and split with text-to-columns in fixed-width mode. The widths are
+measured across every block before anything prints — per-block widths would
+leave each block tidy on its own and none of them lining up with the next. `-c`
+does not change this: the separator governs the rows on stdout, not the human
+block on stderr.
+
 ```bash
 bash watch-rack.sh "rack01-node[1-32]"
 ```

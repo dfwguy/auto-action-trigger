@@ -22,6 +22,12 @@
 # the file written by -o and a redirect of stdout both have to stay
 # machine-readable.
 #
+# Every block in the summary is a fixed-width table sharing one set of column
+# positions, so the whole thing can be pasted into a spreadsheet and split with
+# text-to-columns in fixed-width mode. That holds under -c too: the separator
+# governs the rows on stdout, not the human block on stderr, which a comma
+# would only make harder to read.
+#
 # Read-only apart from -o. It submits nothing and drains nothing.
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,7 +46,7 @@ while [[ $# -gt 0 ]]; do
             [[ -n "$2" ]] || { echo "ERROR: $1 needs a file to write" >&2; exit 1; }
             report_file="$2"; shift 2 ;;
         -h|--help)
-            sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+            sed -n '2,31p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         *)  echo "ERROR: unknown argument $1" >&2; exit 1 ;;
     esac
 done
@@ -270,71 +276,126 @@ fi
 # both have to stay machine-readable; a trailing prose block in a CSV is the
 # kind of thing that silently poisons whatever reads it next.
 
-## Reads "<count><tab><label>" lines and prints them padded to the widest label,
+## Reads "<count><tab><label>" lines and returns "<label><tab><count>" rows,
 ## largest population first, ties broken by name so two runs of the same cluster
-## produce the same block.
-count_block() {
-    local n key width=0
-    local -a lines
-    while IFS=$'\t' read -r n key; do
-        (( ${#key} > width )) && width=${#key}
-        lines+=("$n"$'\t'"$key")
-    done
-    printf '%s\n' "${lines[@]}" | sort -k1,1nr -k2,2 | while IFS=$'\t' read -r n key; do
-        printf '    %-*s  %d\n' "$width" "$key" "$n"
+## produce the same block. Padding is not applied here: the widths are shared
+## with the other blocks and cannot be known until every row exists.
+count_rows() {
+    local n key
+    sort -k1,1nr -k2,2 | while IFS=$'\t' read -r n key; do
+        printf '%s\t%s\n' "$key" "$n"
     done
 }
 
 ## Median needs the values in order, so sort first and let awk index them.
-stats_line() {
+##
+## The five statistics come back as separate tab separated fields rather than as
+## "min=... median=..." text, because they are columns now. What each number is
+## comes from the header row instead of from a prefix glued to the number, which
+## is what let them drift out of line with each other.
+stats_row() {
     sort -g | awk '
         { v[NR] = $1; sum += $1 }
         END {
             if (NR == 0) exit
             mid = int((NR + 1) / 2)
             med = (NR % 2) ? v[mid] : (v[mid] + v[mid + 1]) / 2
-            printf "n=%-4d  min=%-11.6g  median=%-11.6g  mean=%-11.6g  max=%.6g",
-                   NR, v[1], med, sum / NR, v[NR]
+            printf "%d\t%.6g\t%.6g\t%.6g\t%.6g\n", NR, v[1], med, sum / NR, v[NR]
         }'
 }
+
+## Column widths are shared by every block in the summary, so they are measured
+## across all the rows before any row prints. Measuring per block would leave
+## each block internally tidy and none of them lining up with the next, which is
+## exactly what a fixed-width paste cannot cope with.
+declare -a col_width
+
+measure_row() {
+    local -a f
+    IFS=$'\t' read -r -a f <<< "$1"
+    local i
+    for ((i = 0; i < ${#f[@]}; i++)); do
+        (( ${#f[i]} > ${col_width[i]:-0} )) && col_width[i]=${#f[i]}
+    done
+}
+
+## Label left, numbers right, two spaces between. A column boundary is then
+## always a run of at least two spaces, which is what makes the split points
+## unambiguous to a human dragging them in a text-to-columns dialog.
+##
+## printf -v rather than $(printf ...): command substitution strips the trailing
+## spaces off the label's padding, and every column after it shifts left.
+print_row() {
+    local -a f
+    IFS=$'\t' read -r -a f <<< "$1"
+    local i out piece
+    printf -v out '%-*s' "${col_width[0]}" "${f[0]}"
+    for ((i = 1; i < ${#f[@]}; i++)); do
+        printf -v piece '  %*s' "${col_width[i]}" "${f[i]}"
+        out+="$piece"
+    done
+    printf '    %s\n' "$out"
+}
+
+## Each block carries its own header row: once the statistics are bare columns,
+## the header is the only thing saying which one is the median.
+declare -a slurm_rows status_rows metric_rows
+
+if [[ ${#slurm_count[@]} -gt 0 ]]; then
+    slurm_rows=("state"$'\t'"nodes")
+    mapfile -t -O 1 slurm_rows < <(
+        for key in "${!slurm_count[@]}"; do
+            printf '%d\t%s\n' "${slurm_count[$key]}" "$key"
+        done | count_rows)
+fi
+
+if [[ ${#cell_count[@]} -gt 0 ]]; then
+    status_rows=("status"$'\t'"cells")
+    mapfile -t -O 1 status_rows < <(
+        for key in "${!cell_count[@]}"; do
+            printf '%d\t%s\n' "${cell_count[$key]}" "$key"
+        done | count_rows)
+fi
+
+## Per job, not pooled: Gflops and GB/s and MB/s share a table but not a scale,
+## and one mean across all of them would be a number with no meaning.
+if [[ ${#job_values[@]} -gt 0 ]]; then
+    for job in "${job_order[@]}"; do
+        [[ -n "${job_values[$job]}" ]] || continue
+        stats=$(printf '%s' "${job_values[$job]}" | stats_row)
+        [[ -n "$stats" ]] || continue
+        metric_rows+=("$job ($(metric_label "$job"))"$'\t'"$stats")
+    done
+    if [[ ${#metric_rows[@]} -gt 0 ]]; then
+        metric_rows=("job (metric)"$'\t'"n"$'\t'"min"$'\t'"median"$'\t'"mean"$'\t'"max"
+                     "${metric_rows[@]}")
+    fi
+fi
+
+for row in "${slurm_rows[@]}" "${status_rows[@]}" "${metric_rows[@]}"; do
+    measure_row "$row"
+done
 
 {
     echo
     echo "Summary:"
     echo "  $node_count nodes, ${#job_order[@]} jobs"
 
-    if [[ ${#slurm_count[@]} -gt 0 ]]; then
+    if [[ ${#slurm_rows[@]} -gt 0 ]]; then
         echo
         echo "  slurm state"
-        for key in "${!slurm_count[@]}"; do
-            printf '%d\t%s\n' "${slurm_count[$key]}" "$key"
-        done | count_block
+        for row in "${slurm_rows[@]}"; do print_row "$row"; done
     fi
 
-    if [[ ${#cell_count[@]} -gt 0 ]]; then
+    if [[ ${#status_rows[@]} -gt 0 ]]; then
         echo
         echo "  status"
-        for key in "${!cell_count[@]}"; do
-            printf '%d\t%s\n' "${cell_count[$key]}" "$key"
-        done | count_block
+        for row in "${status_rows[@]}"; do print_row "$row"; done
     fi
 
-    ## Per job, not pooled: Gflops and GB/s and MB/s share a table but not a
-    ## scale, and one mean across all of them would be a number with no meaning.
-    if [[ ${#job_values[@]} -gt 0 ]]; then
+    if [[ ${#metric_rows[@]} -gt 0 ]]; then
         echo
         echo "  metrics"
-        width=0
-        for job in "${job_order[@]}"; do
-            [[ -n "${job_values[$job]}" ]] || continue
-            label="$job ($(metric_label "$job"))"
-            (( ${#label} > width )) && width=${#label}
-        done
-        for job in "${job_order[@]}"; do
-            [[ -n "${job_values[$job]}" ]] || continue
-            label="$job ($(metric_label "$job"))"
-            printf '    %-*s  %s\n' "$width" "$label" \
-                   "$(printf '%s' "${job_values[$job]}" | stats_line)"
-        done
+        for row in "${metric_rows[@]}"; do print_row "$row"; done
     fi
 } >&2
