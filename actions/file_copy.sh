@@ -19,8 +19,24 @@
 # it. Genuine copy problems are left to surface as a job start reading from
 # NFS, which still works.
 
-src=/home/cmods/bringup/containers
+home=/home/cmods/bringup
+src="$home/containers"
 dst=/tmp/containers
+
+## Settings are read for one switch, PAUSE_CONTAINER_COPY, and a missing
+## settings.sh is not fatal here -- unlike the other two actions, which refuse
+## to run without one. Nothing is judged or drained from this script, so the
+## worst a missing file costs is a cache warm that keeps happening during a
+## pause. Refusing to copy would be the more surprising of the two.
+[[ -f "$home/settings.sh" ]] && source "$home/settings.sh"
+
+## An rsync detached by an earlier cycle is left to finish -- it is NFS reads
+## into a local cache, holds no node and blocks no job, and killing it mid-copy
+## just means transferring those bytes again later. What the pause stops is
+## starting another one.
+if declare -F setting_enabled >/dev/null && setting_enabled "${PAUSE_CONTAINER_COPY:-no}"; then
+    exit 0
+fi
 
 ## Category gate. node_health.sh and launch_job.sh both have this line
 ## commented out, so leaving it active here would make this the only action

@@ -299,6 +299,17 @@ if [[ ! -d "$valid_dir" ]]; then
     echo
 fi
 
+# Paused means no node is re-running its checks, so this report is a snapshot
+# of whatever was true when the pause went on -- including for nodes queued for
+# a refresh, whose sentinel is held until it lifts.
+if setting_enabled "$PAUSE_HEALTH_CHECKS"; then
+    echo "NOTE: PAUSE_HEALTH_CHECKS=$PAUSE_HEALTH_CHECKS in ${SETTINGS_FILE##*/}"
+    echo "      node_health.sh is not running on any node, so nothing below can change"
+    echo "      and a node-health-refresh.sh request will not be picked up until this"
+    echo "      is set back to no."
+    echo
+fi
+
 # Drains off means this report has nothing to read. Say it at the top, for the
 # same reason the baseline warning is at the top: an empty report and a healthy
 # cluster look identical, and only one of them is worth trusting.

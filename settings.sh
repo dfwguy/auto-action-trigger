@@ -50,6 +50,12 @@ fi
 ## hpc-benchmarks would quietly overrule it. Empty is only defaulted when the
 ## key is absent altogether.
 : "${CONTAINERS=hpc-benchmarks}"
+## Pause switches. Default `no` for the same reason the drain switches default
+## off: a settings file written before these existed leaves them empty, and an
+## empty value must mean "carry on as before" rather than "stop the fleet".
+: "${PAUSE_JOBS:=no}"
+: "${PAUSE_HEALTH_CHECKS:=no}"
+: "${PAUSE_CONTAINER_COPY:=no}"
 : "${DRAIN_AFTER_FAILED_HEALTH_CHECK:=no}"
 : "${DRAIN_AFTER_FAILED_BENCHMARK:=no}"
 : "${RETRY_INTERVAL_HOURS:=1}"

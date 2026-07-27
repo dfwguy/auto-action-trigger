@@ -142,6 +142,56 @@ for tool in sinfo squeue scontrol sbatch; do
     }
 done
 
+## ── Pause ─────────────────────────────────────────────────────────────────
+##
+## PAUSE_JOBS=yes stops the sequencer here: nothing is submitted, nothing is
+## drained, nothing is resumed, and no result is archived. Results already on
+## disk are left exactly as they are, so unpausing resumes the sweep rather
+## than restarting it.
+##
+## Pausing has to reach the queue as well, or it is not a pause. The trigger
+## fires every monitoring cycle but the batch it already submitted sits in
+## Slurm for hours, so gating submission alone leaves the cluster running
+## benchmarks for the rest of the sweep. Two populations, handled differently:
+##
+##   PENDING -- cancelled. A pending job has produced nothing, and the next
+##              unpaused sweep queues it again from the same survey, so this
+##              costs a queue slot and no results.
+##   RUNNING -- left to finish. It holds the node exclusively and has been
+##              writing to its result file for some time; killing it turns
+##              hours of burn-in into a truncated log that the gate reads as
+##              INCOMPLETE, which is indistinguishable from a node that
+##              crashed mid-benchmark. The id is traced so an operator who
+##              wants the node back now can scancel it deliberately.
+##
+## Only jobs named bringup-$HOSTNAME are ever cancelled -- the same name query
+## the queue check below uses. Somebody else's job on this node is not ours to
+## stop, and a pause is not a reason to touch it.
+if setting_enabled "$PAUSE_JOBS"; then
+    paused_queue=$(squeue -h -n "bringup-$HOSTNAME" -o '%i %T %M' 2>/dev/null)
+    pending_ids=$(awk '$2 == "PENDING" { print $1 }' <<<"$paused_queue" | tr '\n' ' ')
+    pending_ids="${pending_ids% }"
+
+    if [[ -n "$pending_ids" ]]; then
+        if [[ "$EXPLAIN" -eq 1 ]]; then
+            trace "WOULD CANCEL pending: $pending_ids"
+        elif ! command -v scancel >/dev/null 2>&1; then
+            trace "WARNING: PAUSE_JOBS=yes but scancel is not on PATH -- pending jobs left queued: $pending_ids"
+        else
+            out=$(scancel $pending_ids 2>&1)
+            trace "PAUSE_JOBS: cancelled pending $pending_ids${out:+ -- $out}"
+        fi
+    fi
+
+    while read -r id state elapsed; do
+        [[ "$state" == "RUNNING" ]] || continue
+        trace "PAUSE_JOBS: job $id still RUNNING for $elapsed -- left to finish; 'scancel $id' to stop it now"
+    done <<<"$paused_queue"
+
+    trace "EXIT: PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE:-<no settings file found>} -- no submissions, no drains, no resumes"
+    exit 0
+fi
+
 ## Result file for run $2 of job $1. Single-run jobs use <job>.txt.
 result_file() {
     local job="$1" run="$2" total="$3"

@@ -59,6 +59,23 @@ if [[ ! -f "$home/settings.sh" ]]; then
 fi
 source "$home/settings.sh"
 
+## PAUSE_HEALTH_CHECKS=yes stops here -- no checks run, no logs are rewritten,
+## and Slurm is not touched in either direction.
+##
+## Before the `refresh` sentinel is consumed, deliberately. A node queued for a
+## re-check by node-health-refresh.sh keeps its sentinel through the pause and
+## is re-checked on the first cycle after it lifts; clearing it here would drop
+## the request on the floor and leave the operator waiting for a run that is
+## never going to happen.
+##
+## There is no trigger.log on this side, so the pause is announced in the BCM
+## action output, which is where this script's other diagnostics go.
+if setting_enabled "$PAUSE_HEALTH_CHECKS"; then
+    echo "########INFO: PAUSE_HEALTH_CHECKS=${PAUSE_HEALTH_CHECKS} in ${SETTINGS_FILE:-<none>}" \
+         "-- health checks not run on ${HOSTNAME}"
+    exit 0
+fi
+
 ## Create valid-config/default by using "ln -s {target} default
 valid_health="$home/valid-config/default/"
 #valid_health="/cm/shared/apps/bringup/valid-config/air-test/"

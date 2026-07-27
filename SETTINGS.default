@@ -18,6 +18,14 @@ BENCHMARKS="dcgm allreduce alltoall allreduce-nonvlink alltoall-nonvlink"
 ## ── Container images ──────────────────────────────────────────────────────
 CONTAINERS="hpc-benchmarks"
 
+## ── Pause switches ────────────────────────────────────────────────────────
+## Stop the framework doing anything, without unregistering it from BCM. The
+## triggers keep firing; each action reads these and returns having done
+## nothing, saying so in its trace. See docs/operations.md#pausing-everything.
+PAUSE_JOBS=no
+PAUSE_HEALTH_CHECKS=no
+PAUSE_CONTAINER_COPY=no
+
 ## ── Drains ────────────────────────────────────────────────────────────────
 DRAIN_AFTER_FAILED_HEALTH_CHECK=no
 DRAIN_AFTER_FAILED_BENCHMARK=no

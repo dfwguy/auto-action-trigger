@@ -168,6 +168,46 @@ so `settings.sh` backfills it only when the key is absent altogether. See
 `build_containers.sh -A` builds everything the script knows about regardless of
 this setting, and naming images as arguments overrides it.
 
+## Pause switches
+
+```bash
+PAUSE_JOBS=no             # launch_job.sh: submit nothing, drain nothing, resume nothing
+PAUSE_HEALTH_CHECKS=no    # node_health.sh: run no checks, touch Slurm in neither direction
+PAUSE_CONTAINER_COPY=no   # file_copy.sh: start no new rsync into /tmp/containers
+```
+
+All three ship off, and read the same way as the drain switches — `yes`, `true`,
+`1` and `on` pause, everything else, including a typo and including empty, does
+not. A `SETTINGS` written before these existed leaves them empty and keeps
+running, which is the right way round: an unreadable value must not stop a
+fleet.
+
+These stop the framework *doing* things without unregistering it from BCM. The
+triggers keep firing and each action still runs — it reads its switch, does
+nothing, and says so. That is deliberate: an unregistered trigger looks exactly
+like a broken one, and the state is only visible from `cmsh`. A pause leaves a
+trace line on every node saying it is paused, and `trigger-debug.sh` reports it
+in section 0 before it walks any of the links.
+
+Nothing is lost across a pause. Results stay on disk, the sweep resumes from
+where it stopped rather than restarting, and a `refresh` sentinel set by
+`node-health-refresh.sh` is held rather than consumed.
+
+`PAUSE_JOBS` also reaches work already in the queue, because gating submission
+alone would leave hours of already-queued benchmarks running:
+
+| | What happens |
+|---|---|
+| Pending jobs (ours) | Cancelled. They have produced nothing, and the next unpaused sweep queues them again. |
+| Running job (ours) | Left to finish, with its job id traced. Killing it turns a part-written result into an `INCOMPLETE` that is indistinguishable from a crash. `scancel <id>` if you need the node back now. |
+| Anyone else's job | Untouched. Only jobs named `bringup-<node>` are ever cancelled. |
+
+`PAUSE_CONTAINER_COPY` likewise stops new copies and lets a detached `rsync`
+from an earlier cycle finish — it holds no node and blocks no job.
+
+See [operations.md](operations.md#pausing-everything) for what to expect while
+paused.
+
 ## Drains
 
 ```bash

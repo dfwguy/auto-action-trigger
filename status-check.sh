@@ -317,6 +317,15 @@ for node_dir in "$results_dir"/$pattern/; do
 done
 }
 
+# Paused means this report stops moving: no sweep runs, so every RETRY and
+# NOT_RUN below stays exactly where it is until the pause lifts. Say it on
+# stderr so it survives -s being piped somewhere, and so it cannot end up
+# inside a node list being pasted into scancel.
+if setting_enabled "$PAUSE_JOBS"; then
+    echo "NOTE: PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE##*/} -- no benchmarks are" >&2
+    echo "      being submitted, so nothing below will change until it is set to no." >&2
+fi
+
 if [[ "$summary" -ne 1 ]]; then
     # dshbak (from pdsh) only groups the lines -- every line it would print is
     # already on stdout without it. Guarded because a missing dshbak takes the

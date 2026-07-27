@@ -25,7 +25,7 @@ This page covers what has to be in place, how to stand the framework up, and the
 | Page | Covers |
 |------|--------|
 | [architecture.md](docs/architecture.md) | Trigger chain in detail, directory layout, runtime paths |
-| [settings.md](docs/settings.md) | `SETTINGS` — the job, health-check and parser sets, the two drain switches, and the retry policy |
+| [settings.md](docs/settings.md) | `SETTINGS` — the job, health-check and parser sets, the pause and drain switches, and the retry policy |
 | [sequencer.md](docs/sequencer.md) | `launch_job.sh` — sweep order, retry and drain rules, result-path ownership, Slurm permissions |
 | [health-checks.md](docs/health-checks.md) | `node_health.sh` and `health-checks/$HEALTHCHECKS/` — every check, the check file format, adding a set for another platform |
 | [benchmarks.md](docs/benchmarks.md) | The `jobs/$JOBS/` catalog, test-plan coverage, what to set before enabling a job, adding a new one, and where a pass is decided (`parsers/$PARSERS/verdict.sh`) |
@@ -185,6 +185,16 @@ sinfo -n node001 -o '%T %E'               # state and reason
 bash sync-check.sh node001                # diff its health output vs the baseline
 scontrol update nodename=node001 state=RESUME
 ```
+
+Stop the whole framework for a maintenance window, without unregistering it from BCM — in `SETTINGS`, effective fleet-wide on the next monitoring cycle:
+
+```bash
+PAUSE_JOBS=yes             # no benchmarks submitted; queued ones cancelled
+PAUSE_HEALTH_CHECKS=yes    # no health checks run; Slurm untouched
+PAUSE_CONTAINER_COPY=yes   # no new rsync into /tmp/containers
+```
+
+Nothing is lost — results stay, the sweep resumes where it stopped. One already-running benchmark per node is left to finish; `scancel -u cmods` empties the queue immediately if you cannot wait. See [docs/operations.md](docs/operations.md#pausing-everything).
 
 A drain reason containing `auto-retry` is the sequencer's own — it clears it on the next retry pass, so resuming by hand only starts the next sweep sooner. Any other reason is an operator drain, and the sequencer will neither clear it nor queue work behind it.
 

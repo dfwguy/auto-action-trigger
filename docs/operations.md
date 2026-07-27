@@ -189,6 +189,62 @@ lets Slurm put the node back to `idle` or `alloc` on its own. Setting
 These commands need privilege — see
 [Slurm permissions](sequencer.md#slurm-permissions).
 
+## Pausing everything
+
+Three switches in `SETTINGS` stop the framework doing anything, without
+unregistering it from BCM. Edit them on the head node; every node reads the same
+NFS-exported file, so a pause takes effect fleet-wide on the next monitoring
+cycle.
+
+```bash
+PAUSE_JOBS=yes             # no benchmarks submitted; queued ones cancelled
+PAUSE_HEALTH_CHECKS=yes    # no health checks run; Slurm untouched
+PAUSE_CONTAINER_COPY=yes   # no new rsync into /tmp/containers
+```
+
+What that leaves running, in order of how long it takes to stop:
+
+- **Pending benchmarks are cancelled on the first paused cycle.** They wrote
+  nothing, and the sweep re-queues them when the pause lifts.
+- **One benchmark per node may still be running**, and is left to finish — up to
+  `MAX_JOB_HOURS`. Its job id is in that node's `trigger.log`. To empty the
+  cluster immediately instead:
+
+  ```bash
+  squeue -h -n bringup-$(hostname -s) -o '%i %T'   # what is left on one node
+  scancel -n bringup-<node>                        # or by node
+  scancel -u cmods                                 # every job the framework owns
+  ```
+
+  Each one killed leaves a part-written result file that the gate reads as
+  `INCOMPLETE`, and the sweep retries it after the pause. That is the cost of a
+  hard stop; it is not a failure of the node.
+- **A detached `rsync` from an earlier cycle finishes.** It reads NFS into a
+  local cache, holds no node and blocks no job.
+- **Existing drains stay.** A pause neither drains nor resumes anything, so a
+  node the sequencer drained before the pause stays drained, marker and all,
+  and is picked up again when the pause lifts. Resume by hand if you need it
+  back sooner.
+
+Nothing is lost. Results stay on disk and the sweep resumes rather than
+restarting, and a `refresh` set by `node-health-refresh.sh` is held through the
+pause rather than consumed by a run that does nothing.
+
+Confirming a pause is on, and that it is why the cluster is quiet:
+
+```bash
+bash trigger-log.sh                 # every node's last decision: PAUSE_JOBS=yes ...
+bash trigger-debug.sh               # reports the switches in section 0, before the links
+```
+
+Both `status-check.sh` and `health-check.sh` print a banner while their half is
+paused, because a report that cannot change looks exactly like a cluster that
+has settled.
+
+The switches are separate because they stop different things: pausing the
+benchmarks during a maintenance window usually should *not* stop health checks
+from telling you what state the nodes came back in.
+
 ## Disabling drains
 
 Two settings decide whether a failure takes a node out of service. Both live in

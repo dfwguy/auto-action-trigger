@@ -50,6 +50,7 @@ ACTIONS="node_health_action file_copy_action launch_job_action"
 TRIGGERS="NodeHealthTrigger:node_health_action FileCopyTrigger:file_copy_action LaunchJobTrigger:launch_job_action"
 
 problems=0
+paused=""
 note()  { printf '  %s\n' "$*"; }
 bad()   { printf '  ** %s\n' "$*"; problems=$((problems + 1)); }
 hdr()   { printf '\n=== %s ===\n' "$*"; }
@@ -73,6 +74,20 @@ if [[ -z "$SETTINGS_FILE" && ! -f "$home/settings.sh" ]]; then
     note "  the whole deployment is stale; nothing below is worth reading until it is replaced"
 else
     note "settings from ${SETTINGS_FILE:-<neither SETTINGS nor SETTINGS.default found>}"
+
+    ## A pause produces exactly the symptom this script gets run over -- the
+    ## triggers fire, the scripts run, and nothing happens -- so it is reported
+    ## before any of the links, not as a footnote. It is not counted as a
+    ## problem: it is a choice someone made, and the answer to the question.
+    for spec in "PAUSE_JOBS:benchmarks:$PAUSE_JOBS" \
+                "PAUSE_HEALTH_CHECKS:health checks:$PAUSE_HEALTH_CHECKS" \
+                "PAUSE_CONTAINER_COPY:container copy:$PAUSE_CONTAINER_COPY"; do
+        var="${spec%%:*}"; rest="${spec#*:}"; what="${rest%%:*}"; val="${rest#*:}"
+        if setting_enabled "$val"; then
+            printf '  ** %s=%s -- %s are paused; this is why nothing is running\n' "$var" "$val" "$what"
+            paused="$paused $var"
+        fi
+    done
     [[ -f "$home/verdict.sh" ]] && bad "verdict.sh is at the top level -- stale tree, it belongs in parsers/\$PARSERS/"
 
     for spec in "JOBS:$JOBS:$JOBS_DIR" "HEALTHCHECKS:$HEALTHCHECKS:$HEALTHCHECKS_DIR" "PARSERS:$PARSERS:$PARSERS_DIR"; do
@@ -233,6 +248,8 @@ if [[ "$problems" -eq 0 ]]; then
 else
     echo "  $problems problem(s) flagged above."
 fi
+[[ -n "$paused" ]] &&
+    echo "  Paused by settings:$paused -- set them to no in ${SETTINGS_FILE##*/} to resume."
 cat <<EOF
 
 Next step -- ask one node directly, without waiting for a monitoring cycle:
