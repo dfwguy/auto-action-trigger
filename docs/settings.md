@@ -55,8 +55,87 @@ passing result is queued once an hour, in listed order. A name with no
 than failing — so a job set that does not have every listed benchmark is not an
 error, it just runs fewer of them.
 
-The commented catalog above it in `SETTINGS.default` lists every available job
-and which delivery methodology calls for it.
+### Available single-node jobs (`jobs/nvl72/`)
+
+Jobs are organized by AI Factory Testing Plan (SNT) tier:
+
+| Job | Description | Tier |
+|-----|-------------|------|
+| `dcgm-r2` | TTM DCGM gate (`dcgmi diag -r 2`) | TTM |
+| `dcgm` | Hybrid DCGM gate (`dcgmi diag -r 3`) | Hybrid |
+| `dcgm-r4` | Exhaustive gate (`dcgmi diag -r 4`) | Exhaustive |
+| `nvbandwidth` | HBM / PCIe / NVLink bandwidth | Hybrid / Exhaustive |
+| `allreduce` `alltoall` | NCCL single-node, NVLink scope | Hybrid / Exhaustive |
+| `allreduce-nonvlink` `alltoall-nonvlink` | NCCL single-node, no NVLink (HCA loopback) | Hybrid / Exhaustive |
+| `nvsm` | NVSM stress — DGX only; see note below | Hybrid / Exhaustive |
+| `stream` `memtester` | CPU memory bandwidth + DRAM integrity | Exhaustive |
+| `stress-ng` | CPU stress | Exhaustive |
+| `stressapptest` | Extended memory integrity | Exhaustive |
+| `fio` | Local NVMe / shared storage | Exhaustive |
+| `ethr` | North-south management + storage NIC | Exhaustive |
+| `nvloom` | MNNVL fabric — optional / exploratory | Exhaustive |
+| `mnubergemm` | Burn-in | Hybrid / Exhaustive |
+| `llm-pretrain` | Single-node LLM pre-training workload gate | Hybrid / Exhaustive |
+| `hpl` `cublasmatmul` | Remediation-only single-node GEMM — run by hand | Remediation |
+
+### Choosing a `BENCHMARKS` list
+
+Pick the set matching the delivery methodology. The default holds only jobs
+whose dependencies are always available: `dcgm` uses a host binary, and the
+NCCL jobs use the `hpc-benchmarks` image, which `build_containers.sh` pulls
+from the public catalog. Jobs whose image has to be built or obtained
+(`nvbandwidth`, `nvloom`, `mnubergemm`) are covered in
+[containers.md](containers.md) and are added here once their image exists.
+
+**Default — ships as written:**
+```bash
+BENCHMARKS="dcgm allreduce alltoall allreduce-nonvlink alltoall-nonvlink"
+```
+
+**Everything that needs no image beyond `hpc-benchmarks` and no DGX** — the
+same list minus `nvsm`, `nvbandwidth`, `nvloom`, `mnubergemm` and the two
+remediation GEMMs. This one runs as shipped on any site:
+```bash
+BENCHMARKS="dcgm-r2 dcgm dcgm-r4 allreduce alltoall allreduce-nonvlink \
+            alltoall-nonvlink stream memtester stress-ng stressapptest \
+            fio ethr llm-pretrain"
+```
+
+**Everything** — the Exhaustive tier plus the optional jobs. Nothing stops you
+running this, but read the notes above first: `nvsm` drains a non-DGX cluster
+on every node, and `nvbandwidth`, `nvloom`, and `mnubergemm` each need an image
+that does not exist until CONTAINERS builds it. Both `hpl` and `cublasmatmul`
+are remediation tools meant to be submitted by hand against one suspect node,
+not swept across a fleet. A sweep of this list takes many hours per node, and
+every job holds the whole node while it runs. `mnubergemm` always fails in the
+CONTAINERS build — it has no source and no registry to pull from — so the
+build exits non-zero even when the others built cleanly:
+```bash
+BENCHMARKS="dcgm-r2 dcgm dcgm-r4 nvbandwidth allreduce alltoall nvsm \
+            allreduce-nonvlink alltoall-nonvlink stream memtester \
+            stress-ng stressapptest fio ethr nvloom mnubergemm \
+            llm-pretrain hpl cublasmatmul"
+```
+
+### The `nvsm` note
+
+`nvsm` is deliberately NOT in the default list. It is a DGX-only tool that
+ships with DGX OS and only carries platform definition files for DGX platforms,
+so on anything else it exits before doing any work ("Failed to find a matching
+definition file for this platform") and fails identically on every node — which
+means a whole-cluster drain for a tool that was never going to run. GPU stress
+is already covered by `dcgm` and `mnubergemm`.
+
+Add it back on a DGX site, where it also needs a passwordless sudoers grant on
+every compute node. Put it between the NVLink NCCL jobs and the no-NVLink ones
+so a fabric problem does not push a GPU stress test to the back of the queue —
+`nvsm` has no fabric dependency and should report early:
+
+```bash
+BENCHMARKS="dcgm allreduce alltoall nvsm allreduce-nonvlink alltoall-nonvlink"
+```
+
+See [nvsm.md](nvsm.md) for both requirements.
 
 ## Container images
 
@@ -65,10 +144,29 @@ the command line. It ships as `hpc-benchmarks`, which is what the default
 `BENCHMARKS` list needs and nothing more; add an image here at the same time as
 you add the job that uses it.
 
+| Image | Jobs that use it | Source |
+|-------|-----------------|--------|
+| `hpc-benchmarks` | `allreduce`, `alltoall`, both `-nonvlink` variants, `hpl`, `cublasmatmul`, `stream` | Public NGC image |
+| `nvbandwidth` | `nvbandwidth` | Private NGC org; falls back to two-pass source build |
+| `nvloom` | `nvloom` | No published image; always a two-pass source build |
+| `mnubergemm` | `mnubergemm` | NVIDIA-internal; must be imported by hand — listing it here only produces an explanatory failure |
+
+`dcgm` and `nvsm` are not in this table — they run host binaries and need no image.
+
+```bash
+CONTAINERS="hpc-benchmarks"            # default — what the default BENCHMARKS needs
+CONTAINERS="hpc-benchmarks nvbandwidth nvloom"   # everything that can actually be built
+CONTAINERS="hpc-benchmarks nvbandwidth nvloom mnubergemm"  # everything (mnubergemm always fails)
+CONTAINERS=""                          # build nothing — images already in containers/ or obtained another way
+```
+
 An explicitly empty `CONTAINERS=""` means "build nothing" and is left that way
 — it is the one setting where empty is a real answer rather than an omission,
 so `settings.sh` backfills it only when the key is absent altogether. See
 [containers.md](containers.md#which-images-get-built).
+
+`build_containers.sh -A` builds everything the script knows about regardless of
+this setting, and naming images as arguments overrides it.
 
 ## Drains
 
@@ -84,6 +182,13 @@ Anything not affirmative reads as off — `yes`, `true`, `1` and `on` enable, an
 everything else, including a typo and including empty, disables. For two
 switches that decide whether nodes get taken out of service, an unreadable
 value has to mean "don't".
+
+`DRAIN_AFTER_FAILED_HEALTH_CHECK` is the one to leave off longest. A health
+check drains on any diff against `valid-config/default`, so a baseline taken
+from a node that is itself slightly off, or one check that is per-rack rather
+than per-cluster, drains the entire cluster on the first monitoring cycle.
+Bring it up only after `bash health-check.sh --summary` reads clean across the
+fleet.
 
 The full operational picture — what changes when they are off, what does not,
 and which one to turn on first — is in

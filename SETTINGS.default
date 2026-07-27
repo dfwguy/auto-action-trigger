@@ -1,222 +1,33 @@
 ## Shipped defaults for this framework. Read by settings.sh when there is no
-## SETTINGS file next to it.
+## SETTINGS file next to it. See docs/settings.md for the full reference.
 ##
 ## To change anything here, copy this file to SETTINGS and edit that. SETTINGS
 ## is git-ignored and is never written by a tarball drop, so a site's choices
-## survive an upgrade -- editing SETTINGS.default in place does not, it is
-## overwritten by the next unpack.
+## survive an upgrade; editing this file in place does not.
 ##
 ##   cp SETTINGS.default SETTINGS
-##
-## A SETTINGS written against an older release does not have to be updated when
-## a key is added here: settings.sh backfills anything the file leaves unset.
-## That means SETTINGS only needs to carry the lines a site actually changed.
-##
-## Plain shell, sourced. Comments and blank lines are fine; nothing else should
-## be -- this file is read by every script in the framework, including ones
-## running as root on every node on every monitoring cycle.
 
-## ── Which set of things to run ────────────────────────────────────────────
-##
-## Each of these names a subdirectory. They are separate variables rather than
-## one PLATFORM because they do not have to move together: a site can run the
-## nvl72 job set against a health-check set trimmed for its hardware, and a new
-## platform usually starts by reusing the existing parsers.
-
-## Job set: jobs/$JOBS/<name>.sbatch
+## ── Job sets ──────────────────────────────────────────────────────────────
 JOBS=nvl72
-
-## Health check set: health-checks/$HEALTHCHECKS/NN-<name>.sh
-## Each file is one check. See docs/health-checks.md for the format and for
-## the other sets worth building (common, hgx-x86, cpu-only, storage).
 HEALTHCHECKS=nvl72
-
-## Result parsers: parsers/$PARSERS/verdict.sh
-## Carries the pass/fail rule and the bandwidth floors every job is judged
-## against. A site with different hardware wants its own set here before it
-## wants a different job list.
 PARSERS=nvl72
 
-## ── Active benchmark list ─────────────────────────────────────────────────
-##
-## Everything here without a passing result is queued once an hour, in the
-## order listed. A name with no jobs/$JOBS/<name>.sbatch behind it is skipped
-## with a line in the trace.
-##
-## Available single-node jobs in jobs/nvl72/ (AI Factory Testing Plan, SNT
-## tiers):
-##   dcgm-r2                TTM DCGM gate      (dcgmi diag -r 2)
-##   dcgm                   Hybrid DCGM gate   (dcgmi diag -r 3)
-##   dcgm-r4                Exhaustive gate    (dcgmi diag -r 4)
-##   nvbandwidth            HBM / PCIe / NVLink bandwidth
-##   allreduce alltoall     NCCL single node, NVLink scope
-##   allreduce-nonvlink     NCCL single node, no NVLink (HCA loopback)
-##   alltoall-nonvlink      NCCL single node, no NVLink (HCA loopback)
-##   nvsm                   NVSM stress (Hybrid / Exhaustive, DGX only)
-##   stream memtester       CPU memory bandwidth + DRAM integrity (Exhaustive)
-##   stress-ng              CPU stress (Exhaustive)
-##   stressapptest          extended memory integrity (Exhaustive)
-##   fio                    local NVMe / shared storage (Exhaustive)
-##   ethr                   north-south management + storage NIC (Exhaustive)
-##   nvloom                 MNNVL fabric (Exhaustive, optional/exploratory)
-##   mnubergemm             burn-in (Hybrid / Exhaustive)
-##   llm-pretrain           single-node LLM pre-training workload gate
-##   hpl cublasmatmul       remediation-only single-node GEMM -- run by hand
-##
-## Pick the set matching the delivery methodology for the site. The default
-## holds only jobs whose dependencies are always available: dcgm uses a host
-## binary, and the NCCL jobs use the hpc-benchmarks image, which
-## build_containers.sh pulls from the public catalog. Jobs whose image has to
-## be built or obtained (nvbandwidth, nvloom, mnubergemm) are covered in
-## docs/containers.md and are added here once their image exists.
-##
-## nvsm is deliberately NOT in the default list: it is a DGX-only tool. It
-## ships with DGX OS and only carries platform definition files for DGX
-## platforms, so on anything else it exits before doing any work ("Failed to
-## find a matching definition file for this platform") and fails identically on
-## every node of that platform. In the list, that is a whole-cluster drain for
-## a tool that was never going to run -- GPU stress is already covered by dcgm
-## and mnubergemm.
-##
-## Add it back on a DGX site, where it also needs a passwordless sudoers grant
-## on every compute node. Put it between the NVLink NCCL jobs and the no-NVLink
-## ones so a fabric problem does not push a GPU stress test to the back of the
-## queue -- nvsm has no fabric dependency and should report early:
-##
-##   BENCHMARKS="dcgm allreduce alltoall nvsm allreduce-nonvlink alltoall-nonvlink"
-##
-## See docs/nvsm.md for both requirements.
-##
-## Everything, in a sensible order -- the Exhaustive tier plus the optional
-## jobs. Uncomment ONE of these two lines, not both. Nothing stops you running
-## this list, but read the notes above first: nvsm drains a non-DGX cluster on
-## every node, and nvbandwidth, nvloom and mnubergemm each need an image that
-## does not exist until CONTAINERS builds it. Both hpl and cublasmatmul are
-## remediation tools meant to be submitted by hand against one suspect node,
-## not swept across a fleet. A sweep of this list takes many hours per node,
-## and every job holds the whole node while it runs.
-##
-##   BENCHMARKS="dcgm-r2 dcgm dcgm-r4 nvbandwidth allreduce alltoall nvsm \
-##               allreduce-nonvlink alltoall-nonvlink stream memtester \
-##               stress-ng stressapptest fio ethr nvloom mnubergemm \
-##               llm-pretrain hpl cublasmatmul"
-##
-## Everything that needs no image beyond hpc-benchmarks and no DGX -- the same
-## list minus nvsm, nvbandwidth, nvloom, mnubergemm and the two remediation
-## GEMMs. This one runs as shipped on any site:
-##
-##   BENCHMARKS="dcgm-r2 dcgm dcgm-r4 allreduce alltoall allreduce-nonvlink \
-##               alltoall-nonvlink stream memtester stress-ng stressapptest \
-##               fio ethr llm-pretrain"
-##
+## ── Benchmark list ────────────────────────────────────────────────────────
 BENCHMARKS="dcgm allreduce alltoall allreduce-nonvlink alltoall-nonvlink"
 
-## ── Container images to build ─────────────────────────────────────────────
-##
-## The images build_containers.sh produces when it is run with no image named
-## on the command line: the ones this site's BENCHMARKS actually need.
-##
-##   hpc-benchmarks   allreduce, alltoall, both -nonvlink variants, hpl,
-##                    cublasmatmul, stream -- six jobs, public NGC image
-##   nvbandwidth      nvbandwidth. Private NGC org, falls back to a two-pass
-##                    source build if that org is not readable
-##   nvloom           nvloom. No published image anywhere; always a two-pass
-##                    source build
-##   mnubergemm       mnubergemm. NVIDIA-internal: there is nothing to build
-##                    from, and it has to be imported by hand. Listing it here
-##                    only produces a failure telling you that
-##
-## dcgm and nvsm are not here -- they run host binaries and need no image.
-##
-## The default matches the default BENCHMARKS list, which needs hpc-benchmarks
-## and nothing else. Add an image here at the same time as you add the job that
-## uses it to BENCHMARKS; a job whose image is missing fails on every node.
-##
-## `build_containers.sh -A` builds everything the script knows about regardless
-## of this setting, and naming images as arguments overrides it. See
-## docs/containers.md.
-##
-## Everything. mnubergemm always fails here -- it has no source and no registry
-## to pull from -- so a run with this set exits non-zero even when the other
-## three built cleanly. Leave it out unless you want the reminder:
-##
-##   CONTAINERS="hpc-benchmarks nvbandwidth nvloom mnubergemm"
-##
-## Everything that can actually be built without an internal channel:
-##
-##   CONTAINERS="hpc-benchmarks nvbandwidth nvloom"
-##
-## Nothing. Respected as written rather than defaulted back to the shipped
-## value -- for a site whose images are already in containers/, or which
-## obtains them some other way:
-##
-##   CONTAINERS=""
-##
+## ── Container images ──────────────────────────────────────────────────────
 CONTAINERS="hpc-benchmarks"
 
 ## ── Drains ────────────────────────────────────────────────────────────────
-##
-## Whether a failure takes the node out of service, or is only recorded.
-##
-## Both ship OFF. Testing runs identically either way -- checks still run,
-## results are still written, failures still retry hourly -- the node is just
-## left usable. Turn them on once the baseline is trusted and the failures
-## being reported are real ones, because until then every drain is a node
-## removed from a cluster that was fine.
-##
-## Set to yes/no (true/false, 1/0, on/off also work).
-
-## Drain (DOWN) a node whose health checks do not match the baseline.
-##
-## This is the one to leave off longest. A health check drains on any diff
-## against valid-config/default, so a baseline taken from a node that is
-## itself slightly off, or one check that is per-rack rather than per-cluster,
-## drains the entire cluster on the first monitoring cycle. Bring it up only
-## after `bash health-check.sh --summary` reads clean across the fleet.
-##
-##   DRAIN_AFTER_FAILED_HEALTH_CHECK=yes
-##
 DRAIN_AFTER_FAILED_HEALTH_CHECK=no
-
-## Drain a node that has completed a full benchmark sweep with something still
-## failing. Never fires mid-sweep -- see the retry policy notes in
-## actions/launch_job.sh -- and only ever clears a drain carrying
-## $DRAIN_MARKER, so an operator drain is never auto-resumed.
-##
-##   DRAIN_AFTER_FAILED_BENCHMARK=yes
-##
 DRAIN_AFTER_FAILED_BENCHMARK=no
 
 ## ── Retry and drain policy ────────────────────────────────────────────────
-
-## Hours between sweeps. Every benchmark without a passing result is requeued
-## once this has elapsed since the newest result file on the node.
 RETRY_INTERVAL_HOURS=1
-
-## Drain a benchmark that has been RUNNING longer than this. Also the ceiling
-## on how long a single job may hold a node.
 MAX_JOB_HOURS=6
-
-## Only failures newer than this drain. Without the window, launch_job.sh would
-## re-drain from stale result files on every monitoring cycle, so a node an
-## operator had just resumed would be pulled straight back out of service.
-## Keep it above the BCM monitoring interval, or the drain is missed entirely,
-## and well below RETRY_INTERVAL_HOURS.
 DRAIN_WINDOW_MINUTES=15
-
-## Marker written into every drain reason this framework issues. Only drains
-## carrying it are ever cleared automatically -- it is the whole reason an
-## operator drain survives.
 DRAIN_MARKER="auto-retry"
 
 ## ── Accounts and paths ────────────────────────────────────────────────────
-
-## The account slurm jobs are submitted as. BCM runs the actions as root on the
-## node, so anything root creates under results/ is handed to this user before
-## sbatch tries to write its --output there.
 JOB_USER=cmods
-
-## Where this checkout lives on the cluster. Only the BCM actions need it --
-## they are invoked by path with no working directory to infer from. Every
-## other script resolves its own location and ignores this.
 BRINGUP_HOME=/home/cmods/bringup
