@@ -1,10 +1,39 @@
 # auto-action-trigger
 
-Automated node bring-up and validation framework for HPC clusters managed by **Bright Cluster Manager (BCM)**. When a node boots and its device status becomes `UP`, BCM monitoring triggers fire two action scripts that run hardware health checks and sequence through Slurm benchmark jobs — draining the node in Slurm automatically on any failure.
+Automated node bring-up and validation framework for HPC clusters managed by **Bright Cluster Manager (BCM)**. When a node boots and its device status becomes `UP`, BCM monitoring triggers fire three action scripts that run hardware health checks, cache container images on local disk, and sequence through Slurm benchmark jobs — draining the node in Slurm automatically on any failure.
+
+```
+Node boots → BCM device status = UP
+    ├── NodeHealthTrigger → node_health.sh
+    │       Compares hardware/software state against a known-good baseline.
+    │       Sets node IDLE (all checks pass) or DOWN with a reason (any fail).
+    │
+    ├── FileCopyTrigger → file_copy.sh
+    │       Rsyncs containers/ to /tmp/containers/ so job start reads the image
+    │       off local disk. Silent no-op if there is nothing to copy.
+    │
+    └── LaunchJobTrigger → launch_job.sh
+            Sequences through benchmarks (dcgm → allreduce → alltoall).
+            Submits the next Slurm job when the node is idle and the prior run passed.
+            Drains the node if a benchmark fails or runs too long.
+```
+
+All three triggers fire continuously while the device is UP (`duringactions`), so they re-evaluate on each BCM monitoring cycle without manual intervention.
+
+This page covers what has to be in place, how to stand the framework up, and the commands a bringup needs day to day. Everything else is in [docs/](docs/):
+
+| Page | Covers |
+|------|--------|
+| [architecture.md](docs/architecture.md) | Trigger chain in detail, directory layout, runtime paths |
+| [settings.md](docs/settings.md) | `SETTINGS` — the job, health-check and parser sets, the pause and drain switches, and the retry policy |
+| [sequencer.md](docs/sequencer.md) | `launch_job.sh` — sweep order, retry and drain rules, result-path ownership, Slurm permissions |
+| [health-checks.md](docs/health-checks.md) | `node_health.sh` and `health-checks/$HEALTHCHECKS/` — every check, the check file format, adding a set for another platform |
+| [benchmarks.md](docs/benchmarks.md) | The `jobs/$JOBS/` catalog, test-plan coverage, what to set before enabling a job, adding a new one, and where a pass is decided (`parsers/$PARSERS/verdict.sh`) |
+| [containers.md](docs/containers.md) | `build_containers.sh` — why images are local, the two-pass source build, per-image notes |
+| [nvsm.md](docs/nvsm.md) | The sudoers grant and platform definition files `jobs/nvl72/nvsm.sbatch` needs |
+| [operations.md](docs/operations.md) | Full operator command reference |
 
 ## Prerequisites
-
-Before deploying this framework, the following must be in place:
 
 ### The `cmods` user
 
@@ -15,6 +44,8 @@ A local user named `cmods` must exist on the **headnode and every compute node**
 - `launch_job.sh` submits Slurm jobs via `su - cmods`, so `cmods` must be a valid login user with access to the Slurm environment (`/etc/profile.d/modules.sh` and the `slurm` module).
 - The `cmods` user must have write access to `/home/cmods/bringup/logs/`, `/home/cmods/bringup/results/`, and `/home/cmods/bringup/reports/` on the headnode.
 - If the home directory is shared via NFS or another network filesystem, compute nodes will inherit it automatically. If not, `/home/cmods/bringup/` must be accessible on each compute node (e.g., via a shared filesystem mount).
+
+`jobs/nvl72/nvsm.sbatch` runs only on **DGX** systems and additionally needs a passwordless sudoers grant for `cmods` on every compute node — see [docs/nvsm.md](docs/nvsm.md). It is the only job with either requirement, and for both reasons it is not in the default `BENCHMARKS` list.
 
 ### Required software
 
@@ -27,8 +58,11 @@ A local user named `cmods` must exist on the **headnode and every compute node**
 | `lspci` | `node_health.sh` (PCIe checks) |
 | `numactl` | `node_health.sh` (NUMA checks) |
 | `dmidecode` | `node_health.sh` (BIOS/memory checks) |
-| `dcgmi` | `jobs/dcgm.sbatch` |
+| `dcgmi` | `jobs/nvl72/dcgm.sbatch`, `jobs/nvl72/dcgm-r2.sbatch`, `jobs/nvl72/dcgm-r4.sbatch` |
+| `nvsm` | `jobs/nvl72/nvsm.sbatch` (DGX only; runs on the host, no container, needs root — see [docs/nvsm.md](docs/nvsm.md)) |
 | `nvidia-imex-ctl` | `node_health.sh` (IMEX checks, GB series only) |
+| `enroot` | `build_containers.sh` (headnode for the fetch pass, compute nodes for the source-build pass; pyxis already needs it there) |
+| `squashfs-tools` | `build_containers.sh` (optional — shrinks the staged package set) |
 | `dshbak` | `status-check.sh` |
 | `rsync` | `actions/file_copy.sh` (optional) |
 
@@ -39,64 +73,19 @@ The following scripts are run manually by an operator from the headnode and do n
 | Script | Requires |
 |--------|---------|
 | `status-check.sh` | `sinfo`, `dshbak`, read access to `results/` |
-| `status-daily-report.sh` | read access to `results/`, write access to `reports/` |
+| `daily-report.sh` | `sinfo`, read access to `results/`; write access to wherever `-o` points |
+| `health-check.sh` | `sinfo`, `scontrol`, read access to `logs/` and `valid-config/` |
 | `node-health-refresh.sh` | write access to `logs/<node>/` |
 | `sync-check.sh` | read access to `logs/` and `valid-config/` |
+| `trigger-debug.sh` | `cmsh`, `sinfo`, read access to `results/` |
+| `trigger-log.sh` | read access to `results/` and `logs/` |
 | `watch-rack.sh` | `sinfo` |
 | `single-node-purge.sh` | write access to `results/` |
 | `set-valid-default.sh` | write access to `valid-config/` |
 | `pre-post/create-action-trigger.sh` | `cmsh` (BCM admin access) |
 | `pre-post/delete-action-trigger.sh` | `cmsh` (BCM admin access) |
 
-## How it works
-
-```
-Node boots → BCM device status = UP
-    ├── NodeHealthTrigger → node_health.sh
-    │       Compares hardware/software state against a known-good baseline.
-    │       Sets node IDLE (all checks pass) or DOWN with a reason (any fail).
-    │
-    └── LaunchJobTrigger → launch_job.sh
-            Sequences through benchmarks (dcgm → allreduce → alltoall).
-            Submits the next Slurm job when the node is idle and the prior run passed.
-            Drains the node if a benchmark fails or runs too long.
-```
-
-Both triggers fire continuously while the device is UP (`duringactions`), so they re-evaluate on each BCM monitoring cycle without manual intervention.
-
-## Directory layout
-
-```
-.
-├── pre-post/
-│   ├── create-action-trigger.sh   # Register actions and triggers in BCM
-│   └── delete-action-trigger.sh   # Remove actions and triggers from BCM
-│
-├── actions/
-│   ├── node_health.sh             # Hardware/software health checks → Slurm node state
-│   ├── launch_job.sh              # Benchmark sequencer → Slurm job submissions
-│   ├── file_copy.sh               # Rsync containers to node (category-gated)
-│   └── valid-node-check.sh        # BCM health-check script (category-based PASS/FAIL)
-│
-├── jobs/
-│   ├── example.sbatch             # Annotated template for adding new benchmarks
-│   ├── dcgm.sbatch                # DCGM diagnostics (level 3)
-│   ├── allreduce.sbatch           # NCCL all-reduce performance (5 runs)
-│   ├── alltoall.sbatch            # NCCL all-to-all performance
-│   ├── hpl.sbatch                 # HPL (Linpack) benchmark
-│   ├── mnubergemm.sbatch          # Multi-node GEMM benchmark
-│   └── hpl/
-│       ├── hpl1N.dat              # HPL config for 1-node runs
-│       └── hpl2N.dat              # HPL config for 2-node runs
-│
-├── set-valid-default.sh           # Capture a validated node as the health baseline
-├── node-health-refresh.sh         # Trigger a re-health-check on one or more nodes
-├── single-node-purge.sh           # Clear benchmark results for a node
-├── status-check.sh                # Live per-node benchmark status (all nodes)
-├── status-daily-report.sh         # Generate dated CSV report with performance metrics
-├── sync-check.sh                  # Diff a drained node's health output vs baseline
-└── watch-rack.sh                  # Watch a nodelist for DOWN/drained nodes
-```
+Draining and resuming nodes needs Slurm privilege — see [docs/sequencer.md](docs/sequencer.md#slurm-permissions).
 
 ## First-time setup
 
@@ -106,13 +95,30 @@ Both triggers fire continuously while the device is UP (`duringactions`), so the
 bash pre-post/create-action-trigger.sh
 ```
 
-This registers two actions (`node_health_action`, `launch_job_action`) and two triggers (`NodeHealthTrigger`, `LaunchJobTrigger`) in BCM monitoring. To remove them:
+This registers three actions (`node_health_action`, `file_copy_action`, `launch_job_action`) and three triggers (`NodeHealthTrigger`, `FileCopyTrigger`, `LaunchJobTrigger`) in BCM monitoring.
+
+It is safe to re-run: each object is removed before it is added, so an existing registration is replaced rather than colliding. Removals are silent — on a first run there is nothing to remove — but the adds report `ok:` or `FAILED:` per object and the script exits non-zero if any failed. A registration that fails quietly is how you end up believing a node is being health-checked when it is not.
+
+To remove them:
 
 ```bash
 bash pre-post/delete-action-trigger.sh
 ```
 
-### 2. Establish a valid-config baseline
+### 2. Download the container images
+
+```bash
+./build_containers.sh -L     # log in to nvcr.io — once per machine, needed for the private-org images
+./build_containers.sh
+```
+
+Run on the headnode, once per CPU architecture in the cluster. Which images it downloads is `CONTAINERS` in `SETTINGS`, which ships as `hpc-benchmarks nvbandwidth mnubergemm` — exactly what the default `BENCHMARKS` list needs. Add an image there when you add the job that uses it; `-A` adds `nvloom`, the one image no registry publishes.
+
+`-L` is not optional for the shipped list: `nvbandwidth` and `mnubergemm` come from a private NGC org, and without credentials they fail to download and their two jobs then fail on every node. `./build_containers.sh -l` says which images are actually present. A site that would rather not need an NGC key drops both names from `CONTAINERS` *and* `BENCHMARKS`.
+
+Downloading is the default and, without `-S`, the only path: an image that cannot be pulled reports why rather than starting a source build. `-L` writes `~/.config/enroot/.credentials`. See [docs/containers.md](docs/containers.md).
+
+### 3. Establish a valid-config baseline
 
 Run the health script manually on a node that has been fully validated, then capture its output as the reference:
 
@@ -123,133 +129,101 @@ bash set-valid-default.sh <node_name>
 
 This copies `logs/<node_name>/` to `valid-config/<node_name>/` and symlinks it as `valid-config/default/`. All subsequent health checks diff against this baseline.
 
-## Expected directory paths
+### 4. Make a SETTINGS file
 
-Scripts assume the repo is deployed at `/home/cmods/bringup/` (the home directory of the `cmods` user — see [Prerequisites](#prerequisites)). Adjust the paths at the top of each script if deploying elsewhere.
-
-| Path | Purpose |
-|------|---------|
-| `/home/cmods/bringup/logs/<node>/` | Per-node health check output files |
-| `/home/cmods/bringup/valid-config/default/` | Symlink to the reference baseline node |
-| `/home/cmods/bringup/results/<node>/` | Per-node benchmark result files |
-| `/home/cmods/bringup/reports/` | CSV reports from `status-daily-report.sh` |
-| `/home/cmods/bringup/containers/` | Container images rsync'd to nodes |
-
-## Health checks (`node_health.sh`)
-
-The script runs each check, writes output to `logs/<node>/<check-name>`, and diffs against the baseline. Any mismatch appends to a `reason` string. After all checks, it either sets the node `IDLE` (no failures) or `DOWN` with the accumulated reason.
-
-| Check | What it validates |
-|-------|-------------------|
-| `bios` | BIOS version and settings |
-| `os` | Kernel version, OS readiness |
-| `kernel-params` | Kernel command-line parameters |
-| `cpu-specs` | CPU architecture and topology |
-| `cpu-freq` | CPU governor and per-socket frequency (must be >1800 MHz in performance mode) |
-| `memory` | DIMM count and size |
-| `numa-settings` | `kernel.numa_balancing=0`, THP=madvise |
-| `numa` | NUMA node memory sizes |
-| `nvidia-smi-ecc` | GPU ECC errors, remapped rows, power state |
-| `nvlinks` | NVLink count and fabric state (72 links expected on GB/B series) |
-| `nvlink-ber` | NVLink Bit Error Rate |
-| `nvidia-smi-p2p-nvlink` | GPU P2P NVLink capability |
-| `nvidia-smi-p2p-pcie` | GPU P2P PCIe capability |
-| `nvidia-smi-cuuid` | GPU ClusterUUID (rack consistency check) |
-| `ib-status` | InfiniBand port state (all up and active) |
-| `ib-down` | IB link recommendation flags via mlxlink |
-| `ib-link` | IB link_downed and symbol_error counters |
-| `ib-pkey` | IB partition key consistency |
-| `ib-firmware` | IB HCA firmware versions |
-| `pcie-lnk-stat` | PCIe LnkCap vs LnkSta speed/width mismatches |
-| `pcie-acs` | PCIe ACS (Access Control Services) settings |
-| `pcie-mrrs` | PCIe Max Read Request Size (expected 4096) |
-| `iface` | Default gateway network interface |
-| `bond` | Bond interface mode, speed, and member status |
-| `imex-channels` | NVIDIA IMEX channel devices (GB series) |
-| `imex-profile` | IMEX configuration |
-| `imex-node-config` | IMEX nodes_config.cfg checksum |
-| `imex-service` | IMEX service status and ports |
-| `imex-readiness` | IMEX ready state via nvidia-imex-ctl |
-| `imex-status` | IMEX domain and node connection status |
-| `enroot` | Enroot runtime directory writability |
-| `dmesg-nv_err` | NVIDIA driver NV_ERR_* errors |
-| `dmesg-trace` | Kernel call traces |
-| `dmesg-hw_err` | Hardware errors |
-| `dmesg-xid` | NVIDIA Xid events |
-| `dmesg-knvlink` | NVLink discovery failures |
-| `dmesg-ipmi_ssif` | IPMI SSIF errors |
-| `dmesg-mlx5_core` | Mellanox health issue errors |
-
-A `refresh` sentinel file in `logs/<node>/` must exist for the health script to run (prevents redundant re-checks). Use `node-health-refresh.sh` to set it.
-
-## Benchmark sequencer (`launch_job.sh`)
-
-The active benchmark list is controlled by the `benchmarks=` variable at the top of `actions/launch_job.sh`. Jobs run in order; each must complete with `DONE` before the next starts.
-
-Benchmarks support multiple runs via `totalRuns=N` in the `.sbatch` file (see `allreduce.sbatch` for an example with 5 runs). Result files are named `<job>.txt` (single run) or `<job>-run<N>.txt` (multiple runs).
-
-If a job has been running longer than `MAX_JOB_HOURS` (default: 6), the node is drained with a timeout reason.
-
-## Operational scripts
-
-### Check status across all nodes
+Everything configurable lives in one file. `SETTINGS.default` ships with the framework and is read when there is no `SETTINGS`; `SETTINGS` is what a site edits and is never overwritten by an upgrade.
 
 ```bash
-bash status-check.sh
+cp SETTINGS.default SETTINGS
 ```
 
-Reads `results/` and prints per-node status (`NOT_RUN`, `IN_PROGRESS`, `DONE`, `FAIL`) for each benchmark column, grouped by identical status via `dshbak`.
+Editing `SETTINGS.default` in place works until the next tarball drop replaces it. A `SETTINGS` only has to carry the lines you changed — anything it leaves out falls back to the shipped default. See [docs/settings.md](docs/settings.md).
 
-### Generate a CSV performance report
+### 5. Choose the benchmark list
+
+The active list is `BENCHMARKS` in `SETTINGS`; which subset a site should run depends on its delivery methodology. See [docs/benchmarks.md](docs/benchmarks.md).
 
 ```bash
-bash status-daily-report.sh
+BENCHMARKS="dcgm nvbandwidth allreduce alltoall allreduce-nonvlink \
+            alltoall-nonvlink"
 ```
 
-Writes `reports/report-YYYY-MM-DD_HH-MM-SS.csv` with one row per node. Completed jobs show extracted performance metrics (Gflops for HPL, busbw GB/s for allreduce/alltoall) instead of a status string.
+### 6. Decide whether to burn in
 
-### Re-trigger health checks
+Burn-in is a second list, queued alongside the sweep, and off until you ask for it:
+
+```bash
+RUN_BURNIN=no
+BURNIN="mnubergemm"
+```
+
+`mnubergemm` is 12 runs of a ~6-hour step, one job at a time, so a node is under burn-in for about three days. It is not gated on the benchmarks passing — it is ordered behind them by `#SBATCH --nice` in the job files (dcgm at 0, the rest of the sweep at 20, burn-in at 100000), so a benchmark retry queued mid-burn-in goes ahead of the runs still waiting rather than behind all of them. It does not interrupt the run already on the node: every job is `--exclusive`.
+
+`MAX_JOB_HOURS` ships at `7` to clear a single burn-in run — lower it and the sequencer drains healthy nodes mid-run for a timeout. The image is downloaded by default even though the list is off, so turning it on does not mean a fleet-wide failure while the image catches up. See [docs/settings.md](docs/settings.md#burn-in).
+
+### 7. Decide whether failures should drain
+
+Both drain switches ship **off**, so no failure takes a node out of service:
+
+```bash
+DRAIN_AFTER_FAILED_HEALTH_CHECK=no   # health check mismatched the baseline
+DRAIN_AFTER_FAILED_BENCHMARK=no      # benchmark sweep failed, or a job ran past MAX_JOB_HOURS
+```
+
+Turn them on once the failures being reported are real ones. Health-check drains are the riskier half — a bad baseline drains the whole cluster on the first monitoring cycle — so bring that one up only after `bash health-check.sh --summary` reads clean. See [docs/operations.md](docs/operations.md#disabling-drains).
+
+## Operating a bringup
+
+```bash
+bash status-check.sh                      # per-node benchmark status, all nodes
+bash status-check.sh ink50-dh01-h20        # one rack (bare prefix)
+bash status-check.sh -t allreduce          # one benchmark (repeatable, globs OK)
+bash status-check.sh -s                    # node lists per status, no reasons
+bash daily-report.sh                      # TSV table: slurm state + status + metrics
+bash daily-report.sh -c -o reports/r.csv  # same rows as CSV, and keep a copy
+bash watch-rack.sh "rack01-node[1-32]"    # live view of DOWN/drained nodes
+```
+
+A node that has stopped testing:
+
+```bash
+bash trigger-log.sh                       # read the traces: is it firing, and what did it decide
+bash trigger-log.sh ink50-dh01-h20-11     # one node, with its raw trace
+bash trigger-debug.sh ink50-dh01-h20      # walk BCM → sbatch, name the broken link
+```
+
+Start with `trigger-log.sh` — it reads what the sequencer already wrote down and
+separates the two cases that look identical from the outside: logs stale means
+nothing is running the script (a trigger problem, go to `trigger-debug.sh`), logs
+fresh with nothing submitted means the script is running and a gate is closed
+(the reason is already in the trace).
+
+A node that has been drained:
+
+```bash
+bash health-check.sh                      # every failed health check, grouped by check
+sinfo -n node001 -o '%T %E'               # state and reason
+bash sync-check.sh node001                # diff its health output vs the baseline
+scontrol update nodename=node001 state=RESUME
+```
+
+Stop the whole framework for a maintenance window, without unregistering it from BCM — in `SETTINGS`, effective fleet-wide on the next monitoring cycle:
+
+```bash
+PAUSE_JOBS=yes             # no benchmarks submitted; queued ones cancelled
+PAUSE_HEALTH_CHECKS=yes    # no health checks run; Slurm untouched
+PAUSE_CONTAINER_COPY=yes   # no new rsync into /tmp/containers
+```
+
+Nothing is lost — results stay, the sweep resumes where it stopped. One already-running benchmark per node is left to finish; `scancel -u cmods` empties the queue immediately if you cannot wait. See [docs/operations.md](docs/operations.md#pausing-everything).
+
+A drain reason containing `auto-retry` is the sequencer's own — it clears it on the next retry pass, so resuming by hand only starts the next sweep sooner. Any other reason is an operator drain, and the sequencer will neither clear it nor queue work behind it.
+
+Re-run health checks, or start a node's benchmarks over after a hardware swap:
 
 ```bash
 bash node-health-refresh.sh node001
-bash node-health-refresh.sh "node00[1-18]"
-```
-
-### Investigate a drained node
-
-```bash
-bash sync-check.sh node001
-```
-
-Diffs the node's health check output files against the valid-config baseline for each check listed in the Slurm drain reason.
-
-### Watch a rack for node failures
-
-```bash
-bash watch-rack.sh "rack01-node[1-32]"
-```
-
-Refreshes every 20 seconds, showing only nodes that are DOWN or drained.
-
-### Purge benchmark results (e.g., after hardware swap)
-
-```bash
 bash single-node-purge.sh node001
 ```
 
-Removes `results/node001/` so the benchmark sequence restarts from scratch.
-
-## Adding a new benchmark
-
-1. Copy `jobs/example.sbatch` to `jobs/<name>.sbatch`.
-2. Set `job_name=<name>` and optionally `totalRuns=N`.
-3. Add your workload between the job and parse sections.
-4. The parse section must `echo DONE` on success or `echo FAIL` on failure as the last line.
-5. Add `<name>` to the `benchmarks=` list in `actions/launch_job.sh`.
-
-## Dependencies
-
-- **Bright Cluster Manager** (BCM / `cmsh`) for monitoring triggers and actions
-- **Slurm** for job scheduling and node state management
-- Standard HPC tools: `nvidia-smi`, `ibstatus`, `mlxlink`, `lspci`, `numactl`, `dmidecode`, `dcgmi`, `nvidia-imex-ctl`
-- `dshbak` for grouped output in `status-check.sh`
+Full command reference in [docs/operations.md](docs/operations.md); retry and drain rules in [docs/sequencer.md](docs/sequencer.md).

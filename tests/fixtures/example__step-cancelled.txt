@@ -1,0 +1,6 @@
+preflight: ink50-dh01-h01-13 gpus=4 cores=144/144
+ink50-dh01-h01-13
+slurmstepd: error: *** STEP 41827.0 ON ink50-dh01-h01-13 CANCELLED AT 2026-07-24T02:11:03 DUE TO TIME LIMIT ***
+srun: error: ink50-dh01-h01-13: task 0: Terminated
+exit status: 143
+FAIL

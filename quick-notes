@@ -29,7 +29,6 @@ check 4
 - possible cleanup of jobs if check 1 goes from PASS to FAIL (maybe just script, ie clean-node-history.sh, in case of hardware swap and needing to revalidate)
 
 - might need launch job to call health script if health script hasn't ran due to booting before it was added to slurm
-- need to remove category checks
 - confirm what output looks like when node isn't in any slurm partition so we can give an exit status
 
 

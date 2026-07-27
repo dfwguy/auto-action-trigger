@@ -1,0 +1,19 @@
+# nccl-tests version 2.17.8
+# Collective test starting: alltoall_perf_mpi
+INFO: host /sys/class/infiniband: mlx5_0 mlx5_1 mlx5_2 mlx5_3 mlx5_bond_0
+INFO: host /dev/infiniband: issm0 rdma_cm umad0 uverbs0 uverbs1 uverbs2 uverbs3
+INFO: forcing collectives over HCAs: mlx5_0,mlx5_1,mlx5_2,mlx5_3
+INFO: container NCCL_IB_HCA: mlx5_0,mlx5_1,mlx5_2,mlx5_3
+INFO: container /dev/infiniband: 
+INFO: container /sys/class/infiniband: mlx5_0 mlx5_1 mlx5_2 mlx5_3 mlx5_bond_0
+INFO: container sees HCAs (via ibv_devinfo): (none)
+node:100:100 [0] NCCL INFO NET/IB : No device found.
+node:100:100 [0] NCCL INFO Failed to initialize NET plugin IB
+node:100:100 [0] NCCL INFO NET/Socket : Using [0]bond0:10.40.16.5<0>
+node:100:100 [0] NCCL INFO Using network Socket
+node:100:100 [0] NCCL INFO Channel 00/1 : 0[0] -> 1[1] [send] via NET/Socket/0/Shared
+# Out of bounds values : 0 OK
+# Avg bus bandwidth    : 1.17569
+#
+# Collective test concluded: alltoall_perf_mpi
+PENDING

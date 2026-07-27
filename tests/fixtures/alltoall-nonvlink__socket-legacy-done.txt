@@ -1,0 +1,29 @@
+# nccl-tests version 2.17.8 nccl-headers=22902 nccl-library=22902
+# Collective test starting: alltoall_perf_mpi
+#
+# Using devices
+#  Rank  0 Group  0 Pid 1325663 on ink50-dh01-h01-14 device  0 [0008:06:00] NVIDIA GB300
+ink50-dh01-h01-14:1325663:1325663 [0] NCCL INFO Bootstrap: Using bond0:10.40.16.5<0>
+ink50-dh01-h01-14:1325663:1325663 [0] NCCL INFO NCCL version 2.29.2+cuda13.1
+ink50-dh01-h01-14:1325663:1325663 [0] NCCL INFO P2P plugin v11 IBext_v11
+ink50-dh01-h01-14:1325663:1325663 [0] NCCL INFO NET/IB : No device found.
+ink50-dh01-h01-14:1325663:1325663 [0] NCCL INFO Failed to initialize NET plugin IBext_v11
+ink50-dh01-h01-14:1325663:1325663 [0] NCCL INFO NET/IB : No device found.
+ink50-dh01-h01-14:1325663:1325663 [0] NCCL INFO Failed to initialize NET plugin IB
+ink50-dh01-h01-14:1325663:1325663 [0] NCCL INFO NET/Socket : Using [0]bond0:10.40.16.5<0>
+ink50-dh01-h01-14:1325663:1325663 [0] NCCL INFO Initialized NET plugin Socket
+ink50-dh01-h01-14:1325663:1325663 [0] NCCL INFO Using network Socket
+ink50-dh01-h01-14:1325663:1325663 [0] NCCL INFO NCCL_P2P_DISABLE set by environment to 1
+ink50-dh01-h01-14:1325663:1325663 [0] NCCL INFO NCCL_SHM_DISABLE set by environment to 1.
+ink50-dh01-h01-14:1325663:1325663 [0] NCCL INFO Channel 01/1 : 0[0] -> 1[1] [send] via NET/Socket/0/Shared
+ink50-dh01-h01-14:1325663:1325663 [0] NCCL INFO Channel 00/1 : 1[1] -> 0[0] [receive] via NET/Socket/0/Shared
+#
+#                                                              out-of-place                       in-place
+#       size         count      type   redop    root     time   algbw   busbw  #wrong     time   algbw   busbw  #wrong
+     8388608        524288     float    none      -1  2578.34    3.25    2.44       0  2569.57    3.26    2.45    N/A
+ 17179869184    1073741824     float    none      -1  5770226    2.98    2.23       0  5574895    3.08    2.31    N/A
+# Out of bounds values : 0 OK
+# Avg bus bandwidth    : 1.17569
+#
+# Collective test concluded: alltoall_perf_mpi
+DONE

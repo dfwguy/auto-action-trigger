@@ -1,0 +1,10 @@
+# nccl-tests version 2.17.8
+# Collective test starting: all_reduce_perf_mpi
+INFO: forcing collectives over HCAs: mlx5_0
+node:100:100 [0] NCCL INFO Using network IBext_v11
+node:100:100 [0] NCCL INFO Channel 00/1 : 0[0] -> 1[1] [send] via NET/IBext_v11/0/Shared
+# Out of bounds values : 0 OK
+# Avg bus bandwidth    : 4.20311
+#
+# Collective test concluded: all_reduce_perf_mpi
+PENDING
