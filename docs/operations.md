@@ -349,18 +349,16 @@ pdsh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --explain'
 it would issue, as a dry run — nothing is submitted, drained, or archived, so it
 is safe while the trigger is live.
 
-To make it act rather than report, without waiting for the hourly gate — from
-the head node, naming the nodes to sweep:
+To make it act rather than report, without waiting for the hourly gate:
 
 ```bash
-./actions/launch_job.sh --force 'ink50-dh01-h20-[11,13-18]'
-./actions/launch_job.sh --all   ink50-dh01-h20-11
+pdsh -w 'ink50-dh01-h20-[11,13-18]' '/home/cmods/bringup/actions/launch_job.sh --force -v'
+pdsh -w ink50-dh01-h20-11           '/home/cmods/bringup/actions/launch_job.sh --all -v'
 ```
 
-Given a node list the script fans itself out over `pdsh` and each node decides
-for itself, because every decision it makes is about `$HOSTNAME`. Run it as
-`root` or as `cmods`. Without a node list it sweeps the node it is on, which on
-the head node means `not known to slurm` and nothing else.
+It sweeps the node it runs on and takes no node argument — an unrecognised one
+is `exit 2` and nothing swept. `-v` is what gets the trace back through `pdsh`.
+Run as `root` or as `cmods`.
 
 `--force` sweeps now, queueing what the next open cycle would have queued;
 `--all` additionally re-runs jobs that already passed. Neither adds anything to

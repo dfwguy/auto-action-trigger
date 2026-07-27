@@ -78,30 +78,27 @@ BCM passes no arguments, so everything below is only ever an operator's.
 | `--force`, `-f` | Ignore the hourly gate and sweep now. Queues exactly what the next open cycle would have queued: everything without a passing result |
 | `--all`, `-a` | Also re-queue jobs that *are* passing, sweeping the node from scratch. Implies `--force` |
 | `--verbose`, `-v` / `--quiet`, `-q` | Mirror the trace to stdout, or don't. Verbose by default when stdout is a terminal, quiet when it is not — so a hand-run says what it decided and BCM's action output stays empty |
-| `<nodes>` | A pdsh node list. The script re-runs itself on each of those nodes instead of acting where it was typed |
 
 Every decision the script makes is about `$HOSTNAME`, because the trigger fires
-on the node it is deciding about. A node list is therefore not something it can
-act on where you typed it — it fans out over `pdsh` and each node decides for
-itself:
+on the node it is deciding about. There is no node argument: sweeping a set of
+nodes is a `pdsh`, and `-v` is worth adding there because stdout across `pdsh`
+is a pipe rather than a terminal, so the trace would otherwise only reach each
+node's own log.
 
 ```bash
-# from the head node, both equivalent
-./actions/launch_job.sh -f 'ink50-dh01-h02-[11,13-18],ink50-dh01-h04-[11-13]'
-pdsh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/launch_job.sh -f -v'
-
-# on the node itself
-./actions/launch_job.sh -f
+pdsh -w 'ink50-dh01-h02-[11,13-18],ink50-dh01-h04-[11-13]' \
+     '/home/cmods/bringup/actions/launch_job.sh -f -v'
 ```
+
+Anything the script does not recognise — a node list included — is refused with
+`exit 2` and nothing is swept. Run on the head node with no arguments it reports
+`not known to slurm` and stops, which is correct and is now said on stdout
+rather than only in a log under `results/<head node>/`.
 
 Run it as `root` or as `JOB_USER` (`cmods`). Root becomes `JOB_USER` with
 `su -`, and `JOB_USER` submits directly — `su` would ask itself for a password,
 and over `pdsh` there is no terminal to ask on. As anyone else, the submission
 is refused with that reason rather than attempted.
-
-Without a node list the script decides about the node it is on, so running it
-on the head node reports `not known to slurm` and stops — which is correct, and
-is now said on stdout rather than only in a log under `results/<head node>/`.
 
 `--force` opens the hourly retry gate and nothing else. Every check that
 decides whether the node should be given work at all is asked the same way as

@@ -131,38 +131,28 @@ JOB_NAME_BURNIN="burnin-$HOSTNAME"
 ##                      names the jobs to scancel if that is what is wanted.
 ##
 ## Every decision below is about $HOSTNAME and nothing else -- the trigger fires
-## on the node it is deciding about. So a node list is not something this script
-## can act on where it was typed; run from the head node it would sweep the head
-## node, which is not in Slurm, and exit. It takes one anyway and fans itself out
-## over pdsh, because typing the rack you mean is what an operator reaches for
-## and the alternative was a run that read as accepted and did nothing.
+## on the node it is deciding about, and this script has no idea how to reach
+## another one. So there is no node argument: a list belongs in the pdsh that
+## invokes this, not in this.
 ##
-## An unrecognised *flag* is traced rather than fatal: BCM invoking this with an
-## argument we did not expect must not stop the sweep cluster-wide. A mistyped
-## node list is fatal on the spot, since nothing else would be swept in its
-## place and a warning in a log file on the head node is not where anyone typing
-## a rack name is looking.
+## Which makes anything unrecognised fatal, and fatal here rather than traced.
+## An argument this does not understand is an instruction that will not be
+## carried out, and the run that follows would be a sweep of whatever node the
+## command happened to be typed on -- the head node, usually, which is not in
+## Slurm and exits reporting so into a log file nobody is looking at. That reads
+## as a command that worked. Exit 2 with the reason on stderr instead. BCM
+## passes no arguments and cannot trip this.
 EXPLAIN=0
 FORCE=0
 FORCE_ALL=0
-## Mirror the trace to stdout, so a hand-run always says what it decided. On by
-## default when stdout is a terminal and never when it is not: BCM's action
-## output goes nowhere anyone reads, and pdsh gets it via the -v the fan-out
-## below passes explicitly.
+## Mirror the trace to stdout, so a hand-run says what it decided rather than
+## only writing it down. On by default when stdout is a terminal and never when
+## it is not: BCM's action output goes nowhere anyone reads, and neither does
+## pdsh's until you ask for it with -v.
 VERBOSE=0; [[ -t 1 ]] && VERBOSE=1
-unknown_args=()
-targets=()
-forwarded=()
-for arg in "$@"; do
-    case "$arg" in
-        --explain|-n|--dry-run) EXPLAIN=1;              forwarded+=(--explain) ;;
-        --force|-f)             FORCE=1;                forwarded+=(--force) ;;
-        --all|-a)               FORCE=1; FORCE_ALL=1;   forwarded+=(--all) ;;
-        --verbose|-v)           VERBOSE=1 ;;
-        --quiet|-q)             VERBOSE=0 ;;
-        -h|--help)
-            cat <<'USAGE'
-Usage: launch_job.sh [--explain] [--force] [--all] [<nodes>]
+usage() {
+    cat <<'USAGE'
+Usage: launch_job.sh [--explain] [--force] [--all] [--verbose|--quiet]
 
   --explain, -n   dry run: print every gate, submit/drain/archive nothing
   --force,   -f   ignore the hourly retry gate and sweep now
@@ -170,48 +160,29 @@ Usage: launch_job.sh [--explain] [--force] [--all] [<nodes>]
   --verbose, -v   mirror the trace to stdout (default when stdout is a tty)
   --quiet,   -q   never mirror the trace to stdout
 
-<nodes> is a pdsh node list -- ink50-dh01-h02-[11,13-18] and so on. Given one,
-this re-runs itself on each of those nodes over pdsh rather than acting here:
-every decision it makes is about the node it is running on.
+Decides about the node it runs on, and takes no node argument. To sweep a set
+of nodes, name them where they can be reached:
+
+  pdsh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/launch_job.sh -f -v'
 
 With no arguments -- how BCM invokes it -- the hourly gate applies and only
 jobs without a passing result are queued.
 USAGE
-            exit 0 ;;
-        -*) unknown_args+=("$arg") ;;
-        *)  targets+=("$arg") ;;
+}
+for arg in "$@"; do
+    case "$arg" in
+        --explain|-n|--dry-run) EXPLAIN=1 ;;
+        --force|-f)             FORCE=1 ;;
+        --all|-a)               FORCE=1; FORCE_ALL=1 ;;
+        --verbose|-v)           VERBOSE=1 ;;
+        --quiet|-q)             VERBOSE=0 ;;
+        -h|--help)              usage; exit 0 ;;
+        *)
+            echo "ERROR: unrecognised argument '$arg' -- nothing was swept." >&2
+            usage >&2
+            exit 2 ;;
     esac
 done
-
-## ── Fan out to a node list ────────────────────────────────────────────────
-##
-## Everything past this point decides about $HOSTNAME, so a node list is work
-## to be done elsewhere and the only thing settled here is whether that is
-## possible. Handled before the trace file is touched: on the head node the
-## trace would be results/<head node>/trigger.log, a directory for a node that
-## never runs a benchmark, and the lines worth reading are the ones the far
-## side writes.
-##
-## -v goes over explicitly because stdout there is a pipe rather than a
-## terminal, so without it each node would trace to its own log and print
-## nothing back -- and reading what happened is the point of naming a rack.
-if [[ "${#targets[@]}" -gt 0 ]]; then
-    nodelist=$(IFS=,; printf '%s' "${targets[*]}")
-    if [[ "${#unknown_args[@]}" -gt 0 ]]; then
-        echo "ERROR: unrecognised flag(s): ${unknown_args[*]} -- see --help" >&2
-        exit 2
-    fi
-    if ! command -v pdsh >/dev/null 2>&1; then
-        echo "ERROR: '$nodelist' is a node list, and reaching it needs pdsh, which is not on" >&2
-        echo "       PATH here. Every decision this script makes is about the node it runs" >&2
-        echo "       on, so run it there instead:" >&2
-        echo "         ssh <node> '$home/actions/launch_job.sh ${forwarded[*]}'" >&2
-        exit 1
-    fi
-    echo "launch_job.sh ${forwarded[*]:-(no flags)} on $nodelist"
-    pdsh -w "$nodelist" "$home/actions/launch_job.sh -v ${forwarded[*]}"
-    exit $?
-fi
 
 mkdir -p "$logs"
 
@@ -239,8 +210,6 @@ force_note=""
 ## re-running -- reads as the sequencer misbehaving.
 [[ "$FORCE" -eq 1 ]] &&
     trace "MANUAL: --force -- hourly gate bypassed$([[ "$FORCE_ALL" -eq 1 ]] && printf ', --all -- passing jobs re-queued too')"
-[[ "${#unknown_args[@]}" -gt 0 ]] &&
-    trace "WARNING: ignoring unrecognised argument(s): ${unknown_args[*]} -- see --help"
 
 ## ── Hand the result path to $JOB_USER ─────────────────────────────────────
 ##
