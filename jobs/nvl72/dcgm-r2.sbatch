@@ -8,6 +8,11 @@
 ## explicitly requested here.
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=1
+#SBATCH --nice=0
+## --nice orders this job against everything else queued for the node: higher
+## is LATER, 0 is the front. The dcgm gates sit at 0 because they are fast and
+## decide whether the rest of the sweep is worth running at all; the rest of
+## BENCHMARKS is 20 and burn-in is 100000. See docs/benchmarks.md.
 ##SBATCH -o /home/cmods/bringup/results/%N/dcgm-r2.txt
 
 ## AI Factory Testing Plan: DCGM Diagnostics (`dcgmi -r 2`) -- SNT2

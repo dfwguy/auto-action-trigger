@@ -34,17 +34,29 @@ source "$home/settings.sh"
 ## There is no retry limit -- a node keeps being re-tested until it passes or an
 ## operator intervenes.
 ##
-## Two phases, and only one of them is ever being swept on a given cycle.
-## BENCHMARKS is phase 1 and always runs. BURNIN is phase 2: it is surveyed
-## only once every job in phase 1 passes, and only when RUN_BURNIN is on. The
-## two are separate lists rather than a longer BENCHMARKS because they answer
-## different questions on different timescales -- "does this node work", in
-## minutes, and "does it keep working", in days -- and because days of burn-in
-## on a node that has not yet passed a fifteen-minute collective is time spent
-## proving nothing. A phase-1 regression preempts burn-in automatically: the
-## sweep is surveyed first on every cycle, so the node drops back to phase 1 as
-## soon as anything stops passing, with its burn-in results left on disk to be
-## resumed rather than restarted.
+## Two lists, both surveyed every cycle. BENCHMARKS always runs; BURNIN runs
+## when RUN_BURNIN is on. They are separate lists rather than one longer
+## BENCHMARKS because they answer different questions on different timescales
+## -- "does this node work", in minutes, and "does it keep working", in days --
+## and because the queue has to be able to tell them apart.
+##
+## What orders them is Slurm priority, not a gate, and each job states its own
+## in `#SBATCH --nice`: 0 for the dcgm gates, 20 for the rest of the sweep,
+## 100000 for mnubergemm -- large enough that a burn-in is always behind any
+## benchmark in the queue. Burn-in was gated behind a clean sweep before, which
+## made the ordering absolute at the cost of making it rigid: a node failing
+## one benchmark could never start burning in, and a node three days into a
+## burn-in could not pick up a benchmark retry until it finished.
+##
+## The limit of doing it with priority is that priority does not preempt.
+## Everything here is --exclusive, so a burn-in run that has already started
+## holds the node until it ends -- up to MAX_JOB_HOURS. A benchmark submitted
+## behind it goes ahead of the remaining burn-in runs, not ahead of the one on
+## the node. On the shipped list that is a wait of one ~6h run rather than of
+## twelve. A site that needs a benchmark to interrupt a running burn-in needs
+## Slurm preemption (PreemptType/PreemptMode with the two lists in different
+## partitions or QOSes), which is a scheduler configuration and not something
+## this script can arrange.
 ##
 ## This script fires on every BCM monitoring cycle, so the hourly cadence needs
 ## no cron and no second trigger -- just a time gate. Retry state is derived
@@ -74,6 +86,13 @@ source "$home/settings.sh"
 logs="$home/results/$HOSTNAME"
 quickview="$logs/quick-view.txt"
 tracelog="$logs/trigger.log"
+
+## Slurm job names, one per list. Both are per-node because every queue query
+## below is per-node, and they are distinct from each other because the two
+## lists are queued at the same time and have to be counted, cancelled and
+## reasoned about separately. Anything matching neither is somebody else's job.
+JOB_NAME_BENCH="bringup-$HOSTNAME"
+JOB_NAME_BURNIN="burnin-$HOSTNAME"
 
 ## ── Tracing ───────────────────────────────────────────────────────────────
 ##
@@ -176,11 +195,14 @@ done
 ##              crashed mid-benchmark. The id is traced so an operator who
 ##              wants the node back now can scancel it deliberately.
 ##
-## Only jobs named bringup-$HOSTNAME are ever cancelled -- the same name query
-## the queue check below uses. Somebody else's job on this node is not ours to
-## stop, and a pause is not a reason to touch it.
+## Only jobs carrying one of our two names are ever cancelled -- the same name
+## queries the queue check below uses, and both of them, so a pause stops the
+## burn-in as well as the sweep. Somebody else's job on this node is not ours
+## to stop, and a pause is not a reason to touch it.
 if setting_enabled "$PAUSE_JOBS"; then
-    paused_queue=$(squeue -h -n "bringup-$HOSTNAME" -o '%i %T %M' 2>/dev/null)
+    paused_queue=$( { squeue -h -n "$JOB_NAME_BENCH"  -o '%i %T %M' 2>/dev/null
+                      squeue -h -n "$JOB_NAME_BURNIN" -o '%i %T %M' 2>/dev/null
+                    } | grep -v '^$' )
     pending_ids=$(awk '$2 == "PENDING" { print $1 }' <<<"$paused_queue" | tr '\n' ' ')
     pending_ids="${pending_ids% }"
 
@@ -276,26 +298,43 @@ trace "state=$(printf '%s' "$state" | tr '\n' ',') explain=$EXPLAIN"
 ## every hour, with nothing ever draining the pile: nine nodes reached ~35
 ## queued jobs each before anyone noticed.
 ##
-## `-n bringup-$HOSTNAME` matches on the shared job name every submission below
-## carries, so our batch is visible from the moment sbatch returns, wherever
-## the scheduler has or has not placed it. That is the query that closes the
-## requeue loop. The node query stays, because it catches the one thing the
-## name query cannot: somebody else's job occupying the node, which is still a
-## reason not to pile benchmarks on top of it.
-queued=$( { squeue -h -w "$HOSTNAME" -o '%i %T %M' 2>/dev/null
-            squeue -h -n "bringup-$HOSTNAME" -o '%i %T %M' 2>/dev/null
-          } | sort -k1,1 -u )
+## `-n <name>` matches on the job names every submission below carries, so our
+## batch is visible from the moment sbatch returns, wherever the scheduler has
+## or has not placed it. That is the query that closes the requeue loop. The
+## node query stays, because it catches the one thing the name queries cannot:
+## somebody else's job occupying the node, which is still a reason not to pile
+## benchmarks on top of it.
+##
+## The two lists carry different names -- bringup-<node> and burnin-<node> --
+## and that is what lets them be queued at the same time. "Is anything of ours
+## out there" was one question when there was one list; with two it has to be
+## asked per list, or a burn-in sitting in the queue for three days would block
+## every benchmark retry behind it and the jobs' nice values would never get a
+## chance to matter. The names are also worth having in `squeue` on their own:
+## an operator can see which of the two a node is doing, and stop just the
+## burn-in with `scancel -n burnin-<node>`.
+mine_bench=$(squeue -h -n "$JOB_NAME_BENCH"  -o '%i %T %M' 2>/dev/null)
+mine_burnin=$(squeue -h -n "$JOB_NAME_BURNIN" -o '%i %T %M' 2>/dev/null)
+mine="$(printf '%s\n%s\n' "$mine_bench" "$mine_burnin" | grep -v '^$')"
 
-if [[ -n "$queued" ]]; then
-    ## Only a RUNNING job has an elapsed time worth measuring. A PENDING one
-    ## reads 0:00 for as long as it waits, so feeding it to the MAX_JOB_HOURS
-    ## check would compare 0 against the limit forever -- harmless, but it also
-    ## means a backlog behind a dead node must never be mistaken for a stuck
-    ## job and drained on that basis. The node is already unusable; draining it
-    ## for "timeout" would just bury the real reason.
-    running=$(awk '$2 == "RUNNING" { print; exit }' <<<"$queued")
-    depth=$(wc -l <<<"$queued")
+## Anything on the node that is not ours. Matched by name, because the node
+## query returns our own jobs too once the scheduler has placed one.
+foreign=$(squeue -h -w "$HOSTNAME" -o '%i %T %M %j' 2>/dev/null |
+          awk -v a="$JOB_NAME_BENCH" -v b="$JOB_NAME_BURNIN" '$4 != a && $4 != b')
 
+if [[ -n "$foreign" ]]; then
+    trace "EXIT: $(wc -l <<<"$foreign") job(s) not ours on $HOSTNAME -- leaving the node to them"
+    exit 0
+fi
+
+## Only a RUNNING job has an elapsed time worth measuring. A PENDING one reads
+## 0:00 for as long as it waits, so feeding it to the MAX_JOB_HOURS check would
+## compare 0 against the limit forever -- harmless, but it also means a backlog
+## behind a dead node must never be mistaken for a stuck job and drained on
+## that basis. The node is already unusable; draining it for "timeout" would
+## just bury the real reason.
+if [[ -n "$mine" ]]; then
+    running=$(awk '$2 == "RUNNING" { print; exit }' <<<"$mine")
     if [[ -n "$running" ]]; then
         elapsed=$(awk '{print $3}' <<<"$running")
 
@@ -308,14 +347,16 @@ if [[ -n "$queued" ]]; then
         fi
 
         if [[ "$elapsed_hours" -ge "$MAX_JOB_HOURS" ]]; then
-            drain_node "benchmark timeout after ${elapsed_hours}h (RUNNING)"
+            drain_node "job timeout after ${elapsed_hours}h (RUNNING)"
         fi
-        trace "EXIT: job already on node, RUNNING for ${elapsed} (limit ${MAX_JOB_HOURS}h), $depth queued for $HOSTNAME"
-    else
-        trace "EXIT: $depth job(s) queued for $HOSTNAME, none running yet"
     fi
-    exit 0
 fi
+
+## Per-list, not one gate for both: a queued burn-in must not stop a benchmark
+## being submitted, which is the whole point of giving them separate names.
+bench_busy=0;  [[ -n "$mine_bench"  ]] && bench_busy=1
+burnin_busy=0; [[ -n "$mine_burnin" ]] && burnin_busy=1
+trace "queue: bench=$(grep -c . <<<"$mine_bench") burnin=$(grep -c . <<<"$mine_burnin")${running:+ running=${elapsed}}"
 
 ## ── Survey what has and has not passed ────────────────────────────────────
 ## A job passes when verdict() returns DONE for every one of its runs. Anything
@@ -343,20 +384,22 @@ declare -A job_runs=()
 declare -A fail_reasons=()
 newest_result=0
 swept=1
-phase=benchmarks
-
-## Survey one phase's job list. The per-phase findings are reset on each call,
-## because everything downstream -- the drain reason, the hourly gate, the
-## submission loop -- acts on one phase at a time and must not see the other's
-## jobs. What is *not* reset is newest_result: the retry interval is a property
-## of the node, not of a phase, and a burn-in run that finished ten minutes ago
-## is exactly as good a reason to wait as a benchmark that did.
+## Survey one list. pending_jobs / failed_jobs / swept are per-list and reset
+## on each call; fail_reasons, job_runs and newest_result accumulate, because
+## they are keyed by job or are properties of the node rather than of a list.
+##
+## $2 is whether jobs from this list are currently in the queue. If they are,
+## the results on disk are being written right now, and a file with no end
+## marker yet is a job in progress rather than a job that died -- so the survey
+## still runs (quick-view has to say something about every job) but its
+## per-run failure lines are not traced, because "INCOMPLETE" logged once a
+## cycle for six hours reads as a node failing when it is a node working.
+## Nothing acts on a busy list either: see the submit and drain gates below.
 survey() {
-    local list="$1" job launch totalRuns passed attempted failed r file mtime
+    local list="$1" busy="${2:-0}" job launch totalRuns passed attempted failed r file mtime
 
     pending_jobs=()
     failed_jobs=()
-    fail_reasons=()
     swept=1
 
 for job in $list; do
@@ -392,9 +435,9 @@ for job in $list; do
         ## failed_jobs, so a node that reliably kills its jobs retried hourly
         ## and never drained. verdict() reports that case as INCOMPLETE.
         ##
-        ## No job is running on this node by the time we get here -- the squeue
-        ## check above exits early if one is -- so an unterminated file is a
-        ## dead job, not one still being written.
+        ## An unterminated file is a dead job only when nothing of this list is
+        ## in the queue -- which is what $busy answers, and why nothing acts on
+        ## a busy list.
         ## Not $(verdict ...) -- that would run it in a subshell and the reason
         ## would be set in a child and lost. See the note on verdict().
         verdict "$job" "$file"
@@ -405,7 +448,8 @@ for job in $list; do
             ## Why, not just that. This is the line that turns "allreduce-nonvlink
             ## FAIL" into something an operator can act on without opening the log.
             fail_reasons["$job"]="$VERDICT_REASON"
-            trace "$job run $r: $VERDICT_STATUS -- ${VERDICT_REASON}${VERDICT_DETAIL:+ [$VERDICT_DETAIL]}"
+            [[ "$busy" -eq 0 ]] &&
+                trace "$job run $r: $VERDICT_STATUS -- ${VERDICT_REASON}${VERDICT_DETAIL:+ [$VERDICT_DETAIL]}"
         fi
     done
 
@@ -423,88 +467,118 @@ done
     return 0
 }
 
-is_pending() {
-    local job="$1" p
-    for p in "${pending_jobs[@]}"; do
+in_list() {
+    local job="$1"; shift
+    local p
+    for p in "$@"; do
         [[ "$p" == "$job" ]] && return 0
     done
     return 1
 }
 
 ## quick-view.txt is the one file an operator reads per node, so it carries
-## both phases even though only one of them is ever being swept. A burn-in job
-## that is merely not due yet must not read as DONE next to the benchmarks that
-## are -- that would report a node as fully burned in on the strength of having
-## passed a fifteen-minute allreduce.
+## both lists. A burn-in nobody has run must not read as DONE next to the
+## benchmarks that are -- that would report a node as burned in on the strength
+## of having passed a fifteen-minute allreduce.
 write_quickview() {
     local job reason
     {
         for job in $BENCHMARKS; do
-            if is_pending "$job"; then
+            if ! in_list "$job" "${bench_pending[@]}"; then
+                echo "$job: DONE"
+            elif [[ "$bench_busy" -eq 1 ]]; then
+                echo "$job: IN QUEUE"
+            else
                 reason="${fail_reasons[$job]}"
                 echo "$job: QUEUED${reason:+  <- $reason}"
-            else
-                echo "$job: DONE"
             fi
         done
         for job in $BURNIN; do
             if ! setting_enabled "$RUN_BURNIN"; then
                 echo "$job: BURN-IN OFF  <- RUN_BURNIN=$RUN_BURNIN"
-            elif [[ "$phase" != burnin ]]; then
-                echo "$job: BURN-IN WAITING  <- benchmarks not all passing yet"
-            elif is_pending "$job"; then
+            elif ! in_list "$job" "${burn_pending[@]}"; then
+                echo "$job: DONE"
+            elif [[ "$burnin_busy" -eq 1 ]]; then
+                echo "$job: IN QUEUE"
+            else
                 reason="${fail_reasons[$job]}"
                 echo "$job: QUEUED${reason:+  <- $reason}"
-            else
-                echo "$job: DONE"
             fi
         done
     } > "$quickview"
 }
 
-## ── Phase 1: the benchmark sweep ──────────────────────────────────────────
-
-survey "$BENCHMARKS"
-trace "survey: pending=[${pending_jobs[*]}] failed=[${failed_jobs[*]}] swept=$swept"
-
-## ── Phase 2: burn-in, on top of a clean sweep ─────────────────────────────
+## ── Survey both lists ─────────────────────────────────────────────────────
 ##
-## Only reached once every benchmark passes. That ordering is the whole point
-## of a separate phase: burn-in holds the node for days, and spending days
-## proving a node stays up under load is wasted on a node that has not yet
-## shown it works at all. A benchmark that regresses later takes precedence
-## again -- the survey above runs first on every cycle, so a node drops back to
-## phase 1 the moment something stops passing, and its burn-in results stay on
-## disk to be resumed rather than restarted.
-if [[ "${#pending_jobs[@]}" -eq 0 ]]; then
-    if ! setting_enabled "$RUN_BURNIN"; then
-        write_quickview
-        resume_node
-        trace "EXIT: every benchmark passing (burn-in not run: RUN_BURNIN=$RUN_BURNIN)"
-        exit 0
-    fi
+## Both, every cycle, and independently. Burn-in used to be gated behind a
+## clean sweep, which made the ordering absolute but also made it rigid: a node
+## that failed one benchmark could never start burning in, and a node three
+## days into a burn-in could not pick up a benchmark retry until it finished.
+##
+## The ordering is now expressed as queue priority instead -- each job's own
+## `#SBATCH --nice` -- so both lists can be in the queue at once and Slurm runs
+## the important one next. What that does not do is preempt: a
+## burn-in run that has already started holds the node until it ends, because
+## every job here is --exclusive. The gain is that a benchmark goes ahead of
+## the *remaining* burn-in runs rather than behind all of them, which on the
+## shipped list is a wait of one run rather than of twelve.
+survey "$BENCHMARKS" "$bench_busy"
+bench_pending=("${pending_jobs[@]}")
+bench_failed=("${failed_jobs[@]}")
+bench_swept=$swept
+trace "survey: pending=[${bench_pending[*]}] failed=[${bench_failed[*]}] swept=$bench_swept busy=$bench_busy"
 
+burn_pending=()
+burn_failed=()
+burn_swept=1
+if setting_enabled "$RUN_BURNIN"; then
     ## An empty BURNIN with the switch on is a settings mistake worth naming:
     ## the operator asked for a phase that has no jobs in it, and without this
-    ## line the node reports "every benchmark passing" forever and looks like
-    ## it is burning in.
+    ## line the node quietly never burns in.
     if [[ -z "${BURNIN// /}" ]]; then
-        write_quickview
-        resume_node
-        trace "EXIT: every benchmark passing, but RUN_BURNIN=$RUN_BURNIN with BURNIN empty -- nothing to burn in"
-        exit 0
+        trace "RUN_BURNIN=$RUN_BURNIN but BURNIN is empty -- nothing to burn in"
+    else
+        survey "$BURNIN" "$burnin_busy"
+        burn_pending=("${pending_jobs[@]}")
+        burn_failed=("${failed_jobs[@]}")
+        burn_swept=$swept
+        trace "burn-in survey: pending=[${burn_pending[*]}] failed=[${burn_failed[*]}] swept=$burn_swept busy=$burnin_busy"
     fi
+fi
 
-    phase=burnin
-    survey "$BURNIN"
-    trace "burn-in survey: pending=[${pending_jobs[*]}] failed=[${failed_jobs[*]}] swept=$swept"
-
-    if [[ "${#pending_jobs[@]}" -eq 0 ]]; then
-        write_quickview
-        resume_node
+## Nothing to do at all -- everything that is meant to run has passed.
+if [[ "${#bench_pending[@]}" -eq 0 && "${#burn_pending[@]}" -eq 0 ]]; then
+    write_quickview
+    resume_node
+    if setting_enabled "$RUN_BURNIN"; then
         trace "EXIT: every benchmark and every burn-in job passing"
+    else
+        trace "EXIT: every benchmark passing (burn-in not run: RUN_BURNIN=$RUN_BURNIN)"
+    fi
+    exit 0
+fi
+
+## Everything left is waiting on jobs that are already out there. Nothing to
+## submit, nothing to judge -- say what is in flight and stop.
+if [[ "$bench_busy" -eq 1 || "$burnin_busy" -eq 1 ]]; then
+    if [[ ( "${#bench_pending[@]}" -eq 0 || "$bench_busy" -eq 1 ) && \
+          ( "${#burn_pending[@]}" -eq 0 || "$burnin_busy" -eq 1 ) ]]; then
+        write_quickview
+        trace "EXIT: waiting on our own queue${running:+ (RUNNING for $elapsed, limit ${MAX_JOB_HOURS}h)}"
         exit 0
     fi
+fi
+
+## Only failures from a list with nothing in the queue are actionable: a list
+## that is mid-run has results being written right now, and judging those would
+## drain a node for a job that has not finished.
+declare -a failed_jobs_actionable=()
+burnin_only=1
+if [[ "$bench_busy" -eq 0 && "$bench_swept" -eq 1 ]]; then
+    for j in "${bench_failed[@]}"; do failed_jobs_actionable+=("$j"); burnin_only=0; done
+fi
+if [[ "$burnin_busy" -eq 0 && "$burn_swept" -eq 1 ]]; then
+    for j in "${burn_failed[@]}"; do failed_jobs_actionable+=("$j"); done
 fi
 
 ## ── Drain once the full sweep has run and something is still failing ──────
@@ -522,17 +596,18 @@ age=-1
 ## Slurm reason is a single short field and there may be several failures, so
 ## only the first is named -- the rest, and the full text for every one, are in
 ## trigger.log and quick-view.txt next to the results.
-## The phase is named in the reason because the two mean different things to
-## whoever reads `sinfo -R`: a benchmark failure is a node that does not work,
-## and a burn-in failure is a node that worked for hours and then stopped --
-## which is the more interesting of the two and should not be reported as if
-## the node had failed a fifteen-minute collective.
-if [[ "$swept" -eq 1 && "${#failed_jobs[@]}" -gt 0 && \
+## The list is named in the reason when the failures are burn-in only, because
+## the two mean different things to whoever reads `sinfo -R`: a benchmark
+## failure is a node that does not work, and a burn-in failure is a node that
+## worked for hours and then stopped -- which is the more interesting of the
+## two and should not be reported as if it had failed a fifteen-minute
+## collective.
+if [[ "${#failed_jobs_actionable[@]}" -gt 0 && \
       "$age" -ge 0 && "$age" -lt $(( DRAIN_WINDOW_MINUTES * 60 )) ]]; then
-    first_reason="${fail_reasons[${failed_jobs[0]}]}"
+    first_reason="${fail_reasons[${failed_jobs_actionable[0]}]}"
     label=""
-    [[ "$phase" == burnin ]] && label="burn-in "
-    drain_node "${label}${failed_jobs[*]} FAIL${first_reason:+: $first_reason} ($DRAIN_MARKER)"
+    [[ "$burnin_only" -eq 1 ]] && label="burn-in "
+    drain_node "${label}${failed_jobs_actionable[*]} FAIL${first_reason:+: $first_reason} ($DRAIN_MARKER)"
 fi
 
 ## ── Hourly gate ───────────────────────────────────────────────────────────
@@ -543,7 +618,7 @@ if [[ "$age" -ge 0 && "$age" -lt $(( RETRY_INTERVAL_HOURS * 3600 )) ]]; then
 fi
 trace "hourly gate open (newest result age=${age}s, -1 means no results on disk)"
 
-## ── Queue every non-passing job in this phase, in listed order ────────────
+## ── Queue every non-passing job, in listed order ──────────────────────────
 
 ## A node drained by an operator stays untouched — queueing work behind their
 ## drain would dump the whole batch on the node the moment they resume it.
@@ -559,7 +634,17 @@ esac
 
 resume_node
 
-for job in "${pending_jobs[@]}"; do
+## Queue priority is NOT set here. Each job carries its own `#SBATCH --nice`,
+## alongside its time limit and its allocation, because that is where the rest
+## of a job's scheduling character already lives -- and because a job submitted
+## by hand should carry the same priority as one the sequencer submits. This
+## script only decides *what* to submit; the job file decides where it sits in
+## the queue. See docs/benchmarks.md.
+submit_list() {
+    local jname="$1"; shift
+    local job launch totalRuns r file submit out
+
+    for job in "$@"; do
     launch="$JOBS_DIR/$job.sbatch"
     totalRuns=${job_runs["$job"]}
 
@@ -591,19 +676,20 @@ for job in "${pending_jobs[@]}"; do
         ## keeps somebody else's job off the node mid-benchmark, which singleton
         ## never did: it only ever held back OUR jobs of the same name.
         ##
-        ## Ordering still follows the listed order of BENCHMARKS in practice:
-        ## these are submitted in that order, carry equal priority, and a
+        ## Ordering within a tier still follows the listed order in practice:
+        ## these are submitted in that order, carry the same nice, and a
         ## whole-node job leaves no backfill window for a later one to slip
         ## into. It is a scheduling consequence rather than a guarantee, so do
         ## not add a job here that depends on an earlier one having finished.
+        ## Ordering *between* tiers is each job's own `#SBATCH --nice`.
         ##
-        ## -J is still per-node and still load-bearing: it is what the
-        ## `squeue -n bringup-$HOSTNAME` query above matches on to see our own
-        ## queued-but-unplaced jobs. It has to be passed here rather than as an
-        ## #SBATCH line -- those are comments, not shell, and would not expand
-        ## $HOSTNAME.
+        ## -J is per-list and per-node, and load-bearing: it is what the queue
+        ## queries above match on to see our own queued-but-unplaced jobs, and
+        ## it is what tells a burn-in apart from a benchmark there. It has to be
+        ## passed here rather than as an #SBATCH line -- those are comments, not
+        ## shell, and would not expand $HOSTNAME.
         submit="source /etc/profile.d/modules.sh; module load slurm; \
-mkdir -p $logs && sbatch -w $HOSTNAME -J bringup-$HOSTNAME \
+mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
 --export=ALL,RESULT_FILE=$file --output=$file $launch"
 
         if [[ "$EXPLAIN" -eq 1 ]]; then
@@ -626,7 +712,18 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J bringup-$HOSTNAME \
             trace "SUBMIT FAILED $job run $r: ${out:-<no output>}"
         fi
     done
-done
+    done
+}
+
+## A list with jobs already in the queue is skipped rather than added to --
+## that is what keeps a cycle from submitting the same run twice while the
+## first copy waits behind a burn-in.
+if [[ "${#bench_pending[@]}" -gt 0 && "$bench_busy" -eq 0 ]]; then
+    submit_list "$JOB_NAME_BENCH" "${bench_pending[@]}"
+fi
+if [[ "${#burn_pending[@]}" -gt 0 && "$burnin_busy" -eq 0 ]]; then
+    submit_list "$JOB_NAME_BURNIN" "${burn_pending[@]}"
+fi
 
 ## Reflect the newly queued state for anyone reading quick-view directly.
 ## Queued lines carry the reason the previous attempt was rejected, so this file

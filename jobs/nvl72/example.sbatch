@@ -6,6 +6,10 @@
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
 #SBATCH -t 0:25:00
+#SBATCH --nice=20
+## --nice orders this job against everything else queued for the node: higher
+## is LATER, 0 is the front. 20 is the sweep's tier -- behind the dcgm gates at
+## 0, ahead of burn-in at 100000. See docs/benchmarks.md.
 
 ## Allocation. This is the template every other job is copied from, so the
 ## header shape matters as much as the parse block does.

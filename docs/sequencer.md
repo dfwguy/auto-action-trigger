@@ -38,22 +38,32 @@ The shared job name `bringup-<node>` stays, for a different reason: `squeue -n
 bringup-<node>` is how the sequencer sees its own jobs while they are still
 queued and unplaced, which `squeue -w <node>` cannot show.
 
-## Two phases
+## Two lists
 
-`BENCHMARKS` is phase 1 and is surveyed on every cycle. `BURNIN` is phase 2,
-reached only when every job in phase 1 passes *and* `RUN_BURNIN` is on. Only one
-phase is ever being swept: whatever the survey finds pending is what gets
-queued, drained on, and written to `quick-view.txt`.
+`BENCHMARKS` is the sweep and always runs. `BURNIN` runs when `RUN_BURNIN` is
+on. Both are surveyed every cycle and both can be in the queue at the same
+time, each under its own job name — `bringup-<node>` and `burnin-<node>`.
 
-The ordering does the work. Burn-in holds a node for days, so it must not start
-before the fast tests have reported — and if a benchmark regresses while a node
-is burning in, phase 1 wins again on the very next cycle, because it is
-surveyed first. Burn-in results are left on disk, so the node picks up at the
-run it had reached rather than starting the burn-in over.
+Those names are what make the two independent. "Is anything of ours already
+queued" is the question that stops the sequencer piling up duplicate
+submissions, and with two lists it has to be asked per list: otherwise a
+burn-in sitting in the queue for three days would block every benchmark retry
+behind it.
 
-With `RUN_BURNIN=no` — the default — a node that passes everything simply goes
-idle, exactly as before. `BURNIN` jobs still appear in `quick-view.txt`, marked
-`BURN-IN OFF` or `BURN-IN WAITING`, so a burn-in that has not run cannot be
+Ordering between them is Slurm priority — `#SBATCH --nice` in each job file,
+`0` for the dcgm gates, `20` for the rest of the sweep, `100000` for burn-in.
+See [benchmarks.md](benchmarks.md#queue-priority). Priority reorders what has
+not started; it does not preempt what has, because every job is `--exclusive`.
+So a benchmark queued during a burn-in waits out the run on the node (up to
+`MAX_JOB_HOURS`) and then goes ahead of the eleven still waiting.
+
+A list with jobs in the queue is not judged that cycle: its result files are
+being written right now, and a file with no end marker is a job in progress
+rather than one that died. Nothing from such a list is archived, requeued, or
+drained on until its queue is empty.
+
+With `RUN_BURNIN=no` — the default — nothing burns in, and `BURNIN` jobs appear
+in `quick-view.txt` as `BURN-IN OFF` so a burn-in that never ran cannot be
 misread as one that passed. See [settings.md](settings.md#burn-in).
 
 ## Retry and drain behaviour
@@ -97,14 +107,22 @@ against that limit — a batch queued behind a dead node reads `0:00` for as lon
 as it waits, and draining the node for "timeout" would only bury the real
 reason it is unusable.
 
-A sweep queues nothing while anything of ours is already in the queue for the
-node, pending included. The check asks `squeue` twice: once by node
-(`-w`, which catches another user's job occupying it) and once by the shared
-job name (`-n bringup-<node>`, which catches our own batch). The name query is
-the one that matters when a node is down — Slurm does not assign a node to a
-pending job, so a batch submitted with `-w` against an unavailable node is
-invisible to the node query, and the sweep used to read that as an idle node
-and submit the whole list again every hour.
+A list queues nothing while anything from *that list* is already in the queue
+for the node, pending included. The check asks `squeue` three ways: once per
+job name (`-n bringup-<node>` and `-n burnin-<node>`, which catch our own
+batches), and once by node (`-w`, which catches another user's job occupying
+it — anything there carrying neither of our names is theirs, and the sequencer
+leaves the node to them).
+
+The name queries are the ones that matter when a node is down. Slurm does not
+assign a node to a pending job, so a batch submitted with `-w` against an
+unavailable node is invisible to the node query, and the sweep used to read
+that as an idle node and submit the whole list again every hour.
+
+Per list rather than one gate for both, because burn-in is queued alongside the
+sweep now: a single "is anything of ours out there" check would let a three-day
+burn-in block every benchmark retry behind it, and the nice values would never
+get a chance to matter.
 
 ## Result-path ownership
 

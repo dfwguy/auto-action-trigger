@@ -136,39 +136,46 @@ RUN_BURNIN=no
 BURNIN="mnubergemm"
 ```
 
-A second phase, on top of the sweep. `BURNIN` is a list of jobs in exactly the
+A second list, on top of the sweep. `BURNIN` is a list of jobs in exactly the
 same format as `BENCHMARKS` — same directory, same `totalRuns`, same verdict
-rules — and the only thing that makes it different is when the sequencer looks
-at it:
+rules. Both are surveyed on every cycle and both can be in the queue at once.
 
-1. Every cycle, `BENCHMARKS` is surveyed first.
-2. Only once every job in it passes, and only if `RUN_BURNIN` is on, is
-   `BURNIN` surveyed and queued.
-3. If a benchmark later stops passing, the node drops back to phase 1 on the
-   next cycle. Burn-in results stay on disk, so it resumes at the run it had
-   reached rather than starting over.
-
-They are separate lists rather than a longer `BENCHMARKS` because they answer
+They are separate lists rather than one longer `BENCHMARKS` because they answer
 different questions on different timescales — *does this node work*, in
-minutes, and *does it keep working*, in days. Days of burn-in on a node that
-has not yet passed a fifteen-minute collective proves nothing, and burn-in that
-starts before the fast tests have reported hides which of the two actually
-failed.
+minutes, and *does it keep working*, in days — and because the queue has to be
+able to tell them apart. Each list is submitted under its own Slurm job name,
+`bringup-<node>` and `burnin-<node>`, which is what lets the sequencer see them
+separately: a burn-in sitting in the queue for three days must not block a
+benchmark retry behind it.
+
+What keeps them in order is priority, not a gate: `#SBATCH --nice` in each job
+file puts the dcgm gates at `0`, the rest of the sweep at `20`, and burn-in at
+`100000` — see [benchmarks.md](benchmarks.md#queue-priority). A benchmark
+queued while a burn-in is running goes ahead of the burn-in runs still waiting.
+It does **not** interrupt the run already on the node, because every job is
+`--exclusive`, so the wait is one ~6-hour run rather than all twelve.
 
 `RUN_BURNIN` ships **off**, and reads like every other switch here: `yes`,
 `true`, `1` and `on` enable it, everything else does not. An empty `BURNIN` is
-a real answer meaning "no burn-in phase", so it is not backfilled — but
+a real answer meaning "no burn-in", so it is not backfilled — but
 `RUN_BURNIN=yes` with an empty `BURNIN` is a mistake, and the sequencer traces
-it rather than reporting a node as burning in forever.
+it rather than quietly never burning in.
 
 What to expect once it is on: `mnubergemm` is 12 runs of a ~6-hour step,
-submitted one job at a time, so a node is held for about three days — the
-plan's 24–72 hour burn-in row. `status-check.sh` and `status-daily-report.sh`
-grow a column for each `BURNIN` job when the switch is on, and drop it again
-when it is off, so an unused phase does not leave a permanent `NOT_RUN` column
-that reads like work outstanding. A burn-in failure drains with `burn-in` in
-the reason, because a node that ran for hours and then stopped is a different
-finding from one that failed a collective in fifteen minutes.
+submitted one job at a time, so a node is under burn-in for about three days —
+the plan's 24–72 hour row. Each run is its own job and its own result file, so
+an interrupted burn-in resumes at the run it reached rather than starting over.
+`status-check.sh` and `status-daily-report.sh` grow a column for each `BURNIN`
+job when the switch is on, and drop it again when it is off, so an unused list
+does not leave a permanent `NOT_RUN` column that reads like work outstanding. A
+burn-in failure drains with `burn-in` in the reason, because a node that ran
+for hours and then stopped is a different finding from one that failed a
+collective in fifteen minutes.
+
+While jobs from a list are in the queue, that list is not judged — its result
+files are being written right now, and a file with no end marker yet is a job
+in progress rather than one that died. `quick-view.txt` shows those as
+`IN QUEUE`.
 
 The image has to be there **before** the switch is flipped — `mnubergemm` is in
 the default `CONTAINERS` for that reason even though its job does not run by
@@ -270,7 +277,7 @@ alone would leave hours of already-queued benchmarks running:
 |---|---|
 | Pending jobs (ours) | Cancelled. They have produced nothing, and the next unpaused sweep queues them again. |
 | Running job (ours) | Left to finish, with its job id traced. Killing it turns a part-written result into an `INCOMPLETE` that is indistinguishable from a crash. `scancel <id>` if you need the node back now. |
-| Anyone else's job | Untouched. Only jobs named `bringup-<node>` are ever cancelled. |
+| Anyone else's job | Untouched. Only jobs named `bringup-<node>` or `burnin-<node>` are ever cancelled. |
 
 `PAUSE_CONTAINER_COPY` likewise stops new copies and lets a detached `rsync`
 from an earlier cycle finish — it holds no node and blocks no job.

@@ -56,10 +56,11 @@ disk:
 | `RUNNING` | a benchmark is executing on the node right now; nothing to judge until it writes its end marker |
 
 Columns for `BURNIN` jobs appear only while `RUN_BURNIN` is on, so an unused
-burn-in phase does not leave a permanent `NOT_RUN` column that reads like work
-outstanding. Per node, `results/<node>/quick-view.txt` carries the phase state
-directly — `BURN-IN OFF` or `BURN-IN WAITING` for a burn-in that is not due
-yet, which is what keeps it from being misread as a burn-in that passed.
+burn-in list does not leave a permanent `NOT_RUN` column that reads like work
+outstanding. Per node, `results/<node>/quick-view.txt` carries the state
+directly: `BURN-IN OFF` when the switch is off — which is what keeps a burn-in
+that never ran from being misread as one that passed — and `IN QUEUE` for
+anything submitted and not yet judged.
 
 `RUNNING` is not written by `verdict.sh`, which sees only the result file and
 reports a marker-less one as `INCOMPLETE`. That is right for `launch_job.sh`,
@@ -67,8 +68,8 @@ which judges a node only after `squeue` says nothing is queued or running on
 it. This script has no such guard -- `sbatch --output` points at the result
 file, so a benchmark that is mid-run is a partial file with no marker. It
 resolves the ambiguity with one cluster-wide `squeue`, matching the
-`bringup-<node>` job name, and reclassifies the column that live job is
-writing. Without `squeue` on `PATH` it says so on stderr and both states report
+`bringup-<node>` and `burnin-<node>` job names, and reclassifies the column
+that live job is writing. Without `squeue` on `PATH` it says so on stderr and both states report
 as `INCOMPLETE`.
 
 `RETRY` and `NOT_RUN` used to be one status, which produced the contradictory
@@ -217,9 +218,10 @@ What that leaves running, in order of how long it takes to stop:
   that node's `trigger.log`. To empty the cluster immediately instead:
 
   ```bash
-  squeue -h -n bringup-$(hostname -s) -o '%i %T'   # what is left on one node
-  scancel -n bringup-<node>                        # or by node
-  scancel -u cmods                                 # every job the framework owns
+  squeue -h -n bringup-<node> -o '%i %T'   # the sweep, on one node
+  squeue -h -n burnin-<node>  -o '%i %T'   # its burn-in
+  scancel -n burnin-<node>                 # stop just the burn-in, keep testing
+  scancel -u cmods                         # every job the framework owns
   ```
 
   Each one killed leaves a part-written result file that the gate reads as

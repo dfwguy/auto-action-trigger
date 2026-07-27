@@ -150,14 +150,16 @@ BENCHMARKS="dcgm nvbandwidth allreduce alltoall allreduce-nonvlink \
 
 ### 6. Decide whether to burn in
 
-Burn-in is a second phase, queued only once every benchmark passes, and off until you ask for it:
+Burn-in is a second list, queued alongside the sweep, and off until you ask for it:
 
 ```bash
 RUN_BURNIN=no
 BURNIN="mnubergemm"
 ```
 
-`mnubergemm` is 12 runs of a ~6-hour step, one job at a time, so a node is held for about three days. `MAX_JOB_HOURS` ships at `7` to clear a single run — lower it and the sequencer drains healthy nodes mid-burn-in for a timeout. The image is downloaded by default even though the phase is off, so turning it on does not mean a fleet-wide failure while the image catches up. See [docs/settings.md](docs/settings.md#burn-in).
+`mnubergemm` is 12 runs of a ~6-hour step, one job at a time, so a node is under burn-in for about three days. It is not gated on the benchmarks passing — it is ordered behind them by `#SBATCH --nice` in the job files (dcgm at 0, the rest of the sweep at 20, burn-in at 100000), so a benchmark retry queued mid-burn-in goes ahead of the runs still waiting rather than behind all of them. It does not interrupt the run already on the node: every job is `--exclusive`.
+
+`MAX_JOB_HOURS` ships at `7` to clear a single burn-in run — lower it and the sequencer drains healthy nodes mid-run for a timeout. The image is downloaded by default even though the list is off, so turning it on does not mean a fleet-wide failure while the image catches up. See [docs/settings.md](docs/settings.md#burn-in).
 
 ### 7. Decide whether failures should drain
 

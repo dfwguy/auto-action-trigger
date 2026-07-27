@@ -6,6 +6,14 @@
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
 #SBATCH -t 6:41:00
+#SBATCH --nice=100000
+## --nice orders this job against everything else queued for the node: higher
+## is LATER, 0 is the front. Burn-in sits far back so that any benchmark queued
+## while it is running goes ahead of the runs still waiting -- it is the whole
+## reason burn-in no longer has to be gated behind a clean sweep. It does not
+## preempt: --exclusive means the run already on the node keeps it. The value is
+## deliberately large because on priority/basic a nice only outranks jobs within
+## that many job ids. See docs/benchmarks.md.
 
 ## Allocation. --exclusive is a JOB-level guarantee and a step inherits only
 ## what was explicitly requested, so --gres and --mem=0 are stated even though

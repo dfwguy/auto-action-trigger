@@ -19,11 +19,15 @@ BENCHMARKS="dcgm nvbandwidth allreduce alltoall allreduce-nonvlink \
             alltoall-nonvlink"
 
 ## ── Burn-in ───────────────────────────────────────────────────────────────
-## A second phase, queued only once every job in BENCHMARKS passes, and only
-## when RUN_BURNIN says so. Burn-in holds a node for days, so it is a decision
-## rather than a default: the sweep answers "does this node work", and burn-in
-## answers "does it keep working", which is a question worth asking after the
-## first one has been answered and not before.
+## A second list, queued alongside the sweep whenever RUN_BURNIN is on. It is
+## not gated on the benchmarks passing -- it is ordered behind them, so a node
+## can be burning in and still pick up a benchmark retry without waiting for
+## the burn-in to end.
+##
+## What does the ordering is `#SBATCH --nice` in each job file -- 0 for the
+## dcgm gates, 20 for the rest of the sweep, 100000 for mnubergemm -- and not a
+## setting here, because it belongs with the rest of a job's scheduling
+## character. See docs/benchmarks.md#queue-priority.
 RUN_BURNIN=no
 BURNIN="mnubergemm"
 

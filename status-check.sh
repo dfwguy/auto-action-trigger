@@ -178,15 +178,19 @@ fi
 # One squeue call for the cluster, not one per node: the per-node query is the
 # same table filtered N times, and on a full rack that is hundreds of forks to
 # answer a question a single listing already answers. Jobs are matched by the
-# `bringup-<node>` name launch_job.sh submits under, which is also how it finds
-# its own work. RUNNING only -- a queued job has not been given a node yet and
-# has written no file, so its columns are NOT_RUN or RETRY and never reach the
-# reclassification below.
+# names launch_job.sh submits under, which is also how it finds its own work --
+# `bringup-<node>` for the sweep and `burnin-<node>` for burn-in. Both count
+# here: either one is a live job writing a result file. RUNNING only -- a
+# queued job has not been given a node yet and has written no file, so its
+# columns are NOT_RUN or RETRY and never reach the reclassification below.
 declare -A node_running
 if command -v squeue >/dev/null 2>&1; then
     while IFS='|' read -r name state; do
-        [[ "$state" == "RUNNING" && "$name" == bringup-* ]] || continue
-        node_running["${name#bringup-}"]=1
+        [[ "$state" == "RUNNING" ]] || continue
+        case "$name" in
+            bringup-*) node_running["${name#bringup-}"]=1 ;;
+            burnin-*)  node_running["${name#burnin-}"]=1 ;;
+        esac
     done < <(squeue -h -o '%j|%T' 2>/dev/null)
 else
     # Same posture as compress(): the report still works off the files alone,
@@ -198,9 +202,9 @@ fi
 
 # The column a running batch is currently writing, or empty.
 #
-# squeue knows a job is running on the node but not which benchmark it is: all
-# of them share the one `bringup-<node>` name, which is how launch_job.sh finds
-# its own queued jobs. The file system knows. sbatch truncates its --output at
+# squeue knows a job is running on the node but not which benchmark it is: they
+# share a per-list name, `bringup-<node>` or `burnin-<node>`, which is how
+# launch_job.sh finds its own queued jobs. The file system knows. sbatch truncates its --output at
 # job start, and every benchmark is `#SBATCH --exclusive`, so no earlier one for
 # this node is still running -- the live job's file is therefore the most
 # recently touched result file on the node, newest even when it has not yet

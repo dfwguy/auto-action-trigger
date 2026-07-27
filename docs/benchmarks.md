@@ -92,6 +92,7 @@ So every job states:
 #SBATCH --gres=gpu:4            # GPU jobs only — do not rely on --exclusive
 #SBATCH --ntasks-per-node=4     # one task per GPU, or 1 for single-task jobs
 #SBATCH -t <walltime>
+#SBATCH --nice=<tier>           # queue priority — see below
 ```
 
 and no job sets `--cpus-per-task`. It is load-bearing and dangerous: setting it
@@ -103,6 +104,40 @@ stranded.
 
 The GPU count is a literal `4` in both the `--gres` line and the preflight
 below. On a platform with a different count, change both together.
+
+### Queue priority
+
+Every job states its own `#SBATCH --nice`. Slurm subtracts it from the job's
+priority, so **higher is later** and `0` is the front of the queue. Three tiers:
+
+| `--nice` | Jobs | Why |
+|---|---|---|
+| `0` | `dcgm`, `dcgm-r2`, `dcgm-r4` | fast, and they decide whether the rest of the sweep is worth running at all |
+| `20` | every other benchmark | the sweep's own tier |
+| `100000` | `mnubergemm` | burn-in, always last |
+
+This is what lets the burn-in list be queued at the same time as the sweep
+rather than gated behind it: a benchmark submitted while a burn-in is on the
+node goes ahead of the burn-in runs still waiting, so the wait is one run
+rather than twelve.
+
+It lives in the job file, not in `SETTINGS` and not in `launch_job.sh`, for the
+same reason `-t` and `--exclusive` do — it is part of how this job wants to be
+scheduled, and stating it here means a job submitted **by hand** carries the
+same priority as one the sequencer submits. `hpl` and `cublasmatmul` are
+remediation jobs run by hand, and they still queue at `20` behind a dcgm gate.
+
+Two limits worth knowing:
+
+- **Nice does not preempt.** Every job is `--exclusive`, so whatever is already
+  running keeps the node until it finishes. Priority only reorders what has not
+  started. Interrupting a running burn-in needs Slurm preemption
+  (`PreemptType`/`PreemptMode`, with the lists in different partitions or
+  QOSes), which is scheduler configuration.
+- **`100000` is deliberately large.** Under `priority/basic`, priority is
+  derived from the job id, so a nice value only outranks jobs submitted within
+  that many ids. A small number would work on a quiet cluster and silently stop
+  working on a busy one.
 
 ### Two time limits, and the order they fire in
 
