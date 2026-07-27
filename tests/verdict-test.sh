@@ -56,6 +56,22 @@ cases=(
   "dcgm__pass|DONE|"
   "dcgm__gpu-failure|FAIL|dcgmi fail/warn/error"
   "dcgm__no-output|FAIL|no dcgmi Pass row"
+  ## The real h01-13 run, and the reason _v_gate_nvbandwidth exists. Every peer
+  ## matrix in it carries N/A down the diagonal -- a GPU has no transfer with
+  ## itself -- and the rule this replaced was a flat `grep -iE "N/A"`, so this
+  ## healthy node was failed, as was every other node with more than one GPU.
+  ##
+  ## Only the end marker differs from what was captured: the sbatch wrote its
+  ## own FAIL there, which is the half of the bug that made it stick. A
+  ## self-reported FAIL is never re-judged, so those results cannot be rescued
+  ## by this fixture passing -- they have to be re-run. Keep this file; it is
+  ## the whole argument for checking N/A by position rather than as a string.
+  "nvbandwidth__good|DONE|"
+  ## Same capture, one off-diagonal cell blanked: GPU 1 cannot reach GPU 2.
+  ## That is the fault section 6.2 asks about, and it has to still be caught.
+  "nvbandwidth__missing-peer|FAIL|missing peer transfer -- N/A off the matrix diagonal"
+  "nvbandwidth__unstable|FAIL|bandwidth unstable -- coefficient of variation above 0.02"
+  "example__good|DONE|"
 )
 
 pass=0

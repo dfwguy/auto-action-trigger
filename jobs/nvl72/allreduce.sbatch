@@ -5,7 +5,7 @@
 #SBATCH --mem=0
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
-#SBATCH -t 1:00:00
+#SBATCH -t 0:25:00
 ##SBATCH -o /home/cmods/bringup/results/%N/allreduce.txt
 
 ## Allocation. --exclusive is a JOB-level guarantee, and a step inherits only
@@ -17,6 +17,13 @@
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=allreduce
+
+## Step time limit, handed to srun --time below: 2x the plan's < 5 min for
+## single-node NCCL, floored at 15 min.
+## Slurm cancels the STEP at this limit, which leaves the batch script alive to
+## write its marker. #SBATCH -t above is this plus a margin, so the step limit
+## is what fires -- see example.sbatch.
+STEP_TIMELIMIT=0:15:00
 totalRuns=1
 
 ## ------------- job info starts here ------------- ##
@@ -63,7 +70,7 @@ export NCCL_IB_DISABLE=0
 ## for 4 and srun asked for 1, which Slurm resolves by warning `can't honor
 ## --ntasks-per-node set to 1` and running 4 anyway. One rank per GPU, so `-g 1`
 ## pairs with 4 tasks to cover all 4 GPUs.
-srun --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none \
+srun --time="$STEP_TIMELIMIT" --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none \
                 --container-image="${CONT}" \
                 all_reduce_perf_mpi -b 8 -e 16G -f 2 -g 1
 rc=$?

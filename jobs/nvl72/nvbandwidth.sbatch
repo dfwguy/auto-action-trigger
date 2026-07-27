@@ -5,7 +5,7 @@
 #SBATCH --mem=0
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=1
-#SBATCH -t 0:45:00
+#SBATCH -t 0:40:00
 ##SBATCH -o /home/cmods/bringup/results/%N/nvbandwidth.txt
 
 ## Allocation. --exclusive is a JOB-level guarantee and a step inherits only
@@ -24,6 +24,13 @@
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=nvbandwidth
+
+## Step time limit, handed to srun --time below: 2x the plan's ~15 min for
+## nvbandwidth.
+## Slurm cancels the STEP at this limit, which leaves the batch script alive to
+## write its marker. #SBATCH -t above is this plus a margin, so the step limit
+## is what fires -- see example.sbatch.
+STEP_TIMELIMIT=0:30:00
 
 ## ------------- job info starts here ------------- ##
 
@@ -67,27 +74,23 @@ unset CUDA_VISIBLE_DEVICES
 ## device_to_device_bidirectional_memcpy_read_ce, host_to_device_memcpy_ce,
 ## device_to_host_memcpy_ce, and device_local_copy -- all included in the
 ## default suite. For triage, list with `nvbandwidth -l` and add -t <test>.
-srun --export=ALL --cpu-bind=none --mem-bind=none --ntasks-per-node=1 \
+srun --time="$STEP_TIMELIMIT" --export=ALL --cpu-bind=none --mem-bind=none --ntasks-per-node=1 \
                 --container-image="${CONT}" \
                 nvbandwidth
+rc=$?
 
 
 ## ------------- parse info starts here ----------- ##
-## MOP section 6.2 cross-cutting failure criteria -- platform-independent:
-##   - any COEFFICIENT_OF_VARIATION > 0.02 (run-to-run instability)
-##   - any N/A where a peer transfer was expected (missing GPU or P2P route)
-##   - tool error / non-zero exit
-## The per-test SUM thresholds in MOP section 6.1 are platform-specific (the
-## published table is the GB200 4-GPU baseline) -- add them here once the
-## baseline for this platform is established.
 
-sums=$(grep -cE "^SUM " "$RESULT_FILE")
-errors=$(grep -iE "error|not supported|waived|N/A|srun: error" "$RESULT_FILE")
-unstable=$(awk '/COEFFICIENT_OF_VARIATION/ {v=$NF+0; if (v > 0.02) print}' "$RESULT_FILE")
-
-if [[ -z "$errors" && -z "$unstable" && "$sums" -gt 0 ]];
-then
-	echo DONE
-else
-	echo FAIL
-fi
+## Only whether the job ran is decided here. Whether the result is any good is
+## decided by verdict.sh, which is read on every status check rather than
+## written once into this file. That is what lets a tightened gate re-judge
+## results that already exist -- see the header of verdict.sh.
+##
+## The MOP section 6.2 criteria this block used to apply -- the N/A check, the
+## coefficient-of-variation bar and the SUM count -- are in _v_gate_nvbandwidth
+## there. They had to move: the N/A rule matched the matrix diagonal, so the
+## job wrote FAIL on every healthy node, and a self-reported FAIL is the one
+## verdict that is never re-judged. Fixing it here would have left every
+## already-condemned result condemned.
+[[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

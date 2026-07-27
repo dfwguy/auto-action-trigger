@@ -5,7 +5,7 @@
 #SBATCH --mem=0
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=1
-#SBATCH -t 1:00:00
+#SBATCH -t 0:50:00
 ##SBATCH -o /home/cmods/bringup/results/%N/nvsm.txt
 
 ## Allocation. --exclusive is a JOB-level guarantee and a step inherits only
@@ -28,6 +28,16 @@
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=nvsm
+
+## Step time limits, handed to srun --time below. One per step rather than one
+## for the job: srun --time is per step, and the two steps here are not alike --
+## the stress test is the workload, the health summary is a report. 0:35 + 0:05
+## sits inside the 0:50 walltime above. 2x the plan's ~20 min, which
+## STRESS_SECONDS below matches.
+## Slurm cancels the STEP at these limits, which leaves the batch script alive
+## to write its marker -- see example.sbatch.
+STRESS_TIMELIMIT=0:35:00
+HEALTH_TIMELIMIT=0:05:00
 
 ## ------------- job info starts here ------------- ##
 
@@ -89,24 +99,27 @@ if [[ $rc -ne 0 ]]; then
 	exit 0
 fi
 
-srun --ntasks-per-node=1 "${NVSM[@]}" stress-test --force --duration="${STRESS_SECONDS}"
+## Two steps, two exit statuses. They are captured separately rather than
+## chained because the preflight above already spends the name `rc`, and
+## because either one failing means the job did not run to completion --
+## an nvsm that dies mid-stress still reaches the health summary.
+srun --time="$STRESS_TIMELIMIT" --ntasks-per-node=1 "${NVSM[@]}" stress-test --force --duration="${STRESS_SECONDS}"
+stress_rc=$?
 
 ## Follow-on health summary for the same node
-srun --ntasks-per-node=1 "${NVSM[@]}" show health
+srun --time="$HEALTH_TIMELIMIT" --ntasks-per-node=1 "${NVSM[@]}" show health
+health_rc=$?
 
 
 ## ------------- parse info starts here ----------- ##
-## `nvsm show health` ends in a health summary. Requiring it is what proves
-## both srun steps got far enough to report -- the sudo pre-check above only
-## covers a missing grant, not an nvsm that starts and then dies mid-stress.
-## The error grep alone would call that empty output a pass.
 
-summary=$(grep -icE "Health Summary|System Status" "$RESULT_FILE")
-status=$(grep -iE "fail|unhealthy|error|srun: error" "$RESULT_FILE")
-
-if [[ -n "$RESULT_FILE" && -z "$status" && "$summary" -gt 0 ]];
-then
-	echo DONE
-else
-	echo FAIL
-fi
+## Only whether the job ran is decided here. Whether the result is any good is
+## decided by verdict.sh, which is read on every status check rather than
+## written once into this file. That is what lets a tightened gate re-judge
+## results that already exist -- see the header of verdict.sh.
+##
+## The health-summary requirement and the fault sweep this block used to apply
+## are in _v_gate_nvsm there, which carries a warning worth reading before
+## trusting this job: that sweep greps the whole file for fail/error and has
+## never been checked against a captured healthy run.
+[[ "$stress_rc" -eq 0 && "$health_rc" -eq 0 ]] && echo PENDING || echo FAIL

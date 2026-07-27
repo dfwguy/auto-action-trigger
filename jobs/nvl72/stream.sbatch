@@ -4,7 +4,7 @@
 #SBATCH --exclusive
 #SBATCH --mem=0
 #SBATCH --ntasks-per-node=1
-#SBATCH -t 1:00:00
+#SBATCH -t 4:10:00
 ##SBATCH -o /home/cmods/bringup/results/%N/stream.txt
 
 ## Allocation. No --gres: this job never touches a GPU. --mem=0 is stated
@@ -21,6 +21,13 @@
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=stream
+
+## Step time limit, handed to srun --time below: 2x the plan's ~1-2 hr
+## STREAM + Memtester row, taking the upper end.
+## Slurm cancels the STEP at this limit, which leaves the batch script alive to
+## write its marker. #SBATCH -t above is this plus a margin, so the step limit
+## is what fires -- see example.sbatch.
+STEP_TIMELIMIT=4:00:00
 
 ## ------------- job info starts here ------------- ##
 
@@ -56,24 +63,19 @@ export OMP_NUM_THREADS=$(nproc)
 export OMP_PROC_BIND=spread
 export OMP_PLACES=cores
 
-## Minimum acceptable Triad bandwidth in MB/s -- set per platform
-TRIAD_MIN=400000
+## The Triad floor lives in verdict.sh as VERDICT_MIN_TRIAD_MBS, not here --
+## a floor applied at run time can never re-judge a result that passed an older,
+## lower one. See the header of verdict.sh.
 
-srun --ntasks-per-node=1 --cpu-bind=none \
+srun --time="$STEP_TIMELIMIT" --ntasks-per-node=1 --cpu-bind=none \
                 --container-image="${CONT}" \
                 ./stream-cpu-test.sh
+rc=$?
 
 
 ## ------------- parse info starts here ----------- ##
-## STREAM prints:  Triad:   <best rate MB/s>  <avg>  <min>  <max>
-## Solution validation failures print "Failed Validation".
 
-triad=$(awk '/^Triad:/ {print $2}' "$RESULT_FILE" | head -1)
-invalid=$(grep -iE "failed validation|error" "$RESULT_FILE")
-
-if [[ -z "$invalid" && -n "$triad" ]] && awk -v t="$triad" -v m="$TRIAD_MIN" 'BEGIN{exit !(t>=m)}';
-then
-	echo DONE
-else
-	echo FAIL
-fi
+## Only whether the job ran is decided here. Whether the result is any good is
+## decided by verdict.sh, which is read on every status check rather than
+## written once into this file.
+[[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

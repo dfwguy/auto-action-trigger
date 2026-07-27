@@ -5,7 +5,7 @@
 #SBATCH --mem=0
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=1
-#SBATCH -t 2:00:00
+#SBATCH -t 2:10:00
 ##SBATCH -o /home/cmods/bringup/results/%N/llm-pretrain.txt
 
 ## Allocation. --exclusive is a JOB-level guarantee and a step inherits only
@@ -32,6 +32,13 @@
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=llm-pretrain
+
+## Step time limit, handed to srun --time below: 2x the plan's ~30-60 min,
+## taking the upper end.
+## Slurm cancels the STEP at this limit, which leaves the batch script alive to
+## write its marker. #SBATCH -t above is this plus a margin, so the step limit
+## is what fires -- see example.sbatch.
+STEP_TIMELIMIT=2:00:00
 
 ## ------------- job info starts here ------------- ##
 
@@ -63,23 +70,19 @@ export SBATCH_PARTITION="${SLURM_JOB_PARTITION}"
 
 cd "${LLMB_INSTALL}" || exit 1
 
-srun --ntasks-per-node=1 --export=ALL \
+srun --time="$STEP_TIMELIMIT" --ntasks-per-node=1 --export=ALL \
     llmb-run single \
         -w "${LLMB_WORKLOAD}" \
         -s "${LLMB_MODEL_SIZE}" \
         --dtype "${LLMB_DTYPE}" \
         --scale "${LLMB_SCALE}"
+rc=$?
 
 
 ## ------------- parse info starts here ----------- ##
-## A healthy run reports per-step timings and no CUDA/NCCL aborts.
 
-timings=$(grep -icE "train_step_timing|reduced_train_loss" "$RESULT_FILE")
-errors=$(grep -iE "traceback|cuda error|nccl error|out of memory|srun: error" "$RESULT_FILE")
-
-if [[ -z "$errors" && "$timings" -gt 0 ]];
-then
-	echo DONE
-else
-	echo FAIL
-fi
+## Only whether the job ran is decided here. Whether the result is any good is
+## decided by verdict.sh, which is read on every status check rather than
+## written once into this file. That is what lets a tightened gate re-judge
+## results that already exist -- see the header of verdict.sh.
+[[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

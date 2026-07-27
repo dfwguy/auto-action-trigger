@@ -4,7 +4,7 @@
 #SBATCH --exclusive
 #SBATCH --mem=0
 #SBATCH --ntasks-per-node=1
-#SBATCH -t 2:00:00
+#SBATCH -t 4:10:00
 ##SBATCH -o /home/cmods/bringup/results/%N/memtester.txt
 
 ## Allocation. No --gres: this job never touches a GPU. --mem=0 is load-bearing
@@ -20,6 +20,13 @@
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=memtester
+
+## Step time limit, handed to srun --time below: 2x the plan's ~1-2 hr
+## STREAM + Memtester row, taking the upper end.
+## Slurm cancels the STEP at this limit, which leaves the batch script alive to
+## write its marker. #SBATCH -t above is this plus a margin, so the step limit
+## is what fires -- see example.sbatch.
+STEP_TIMELIMIT=4:00:00
 
 ## ------------- job info starts here ------------- ##
 
@@ -41,23 +48,14 @@ avail_kb=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
 TEST_MB=$(( avail_kb * 80 / 100 / 1024 ))
 LOOPS=1
 
-srun --ntasks-per-node=1 memtester "${TEST_MB}M" "${LOOPS}"
+srun --time="$STEP_TIMELIMIT" --ntasks-per-node=1 memtester "${TEST_MB}M" "${LOOPS}"
+rc=$?
 
 
 ## ------------- parse info starts here ----------- ##
-## memtester prints "<subtest> : ok" per subtest and "FAILURE" on any bad
-## address, then "Done." when every loop has finished. Requiring both the
-## subtest lines and the terminator means a run killed by the OOM killer or
-## the walltime reports FAIL -- with only the error grep, output that stops
-## partway through reads as a pass, as does a memtester that is not installed.
 
-subtests=$(grep -cE ":[[:space:]]*ok[[:space:]]*$" "$RESULT_FILE")
-done_marker=$(grep -cE "^Done\.?$" "$RESULT_FILE")
-status=$(grep -iE "failure|error|srun: error" "$RESULT_FILE")
-
-if [[ -n "$RESULT_FILE" && -z "$status" && "$subtests" -gt 0 && "$done_marker" -gt 0 ]];
-then
-	echo DONE
-else
-	echo FAIL
-fi
+## Only whether the job ran is decided here. Whether the result is any good is
+## decided by verdict.sh, which is read on every status check rather than
+## written once into this file. That is what lets a tightened gate re-judge
+## results that already exist -- see the header of verdict.sh.
+[[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

@@ -5,7 +5,7 @@
 #SBATCH --mem=0
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
-#SBATCH -t 1:00:00
+#SBATCH -t 1:10:00
 ##SBATCH -o /home/cmods/bringup/results/%N/nvloom.txt
 
 ## Allocation. --exclusive is a JOB-level guarantee and a step inherits only
@@ -36,6 +36,13 @@
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=nvloom
+
+## Step time limit, handed to srun --time below: 2x the plan's 30 min for
+## the Scope 1 health check.
+## Slurm cancels the STEP at this limit, which leaves the batch script alive to
+## write its marker. #SBATCH -t above is this plus a margin, so the step limit
+## is what fires -- see example.sbatch.
+STEP_TIMELIMIT=1:00:00
 
 ## ------------- job info starts here ------------- ##
 
@@ -70,11 +77,12 @@ BURN_IN_DURATION=3600      # seconds per testcase, burn-in variant only
 export NVIDIA_VISIBLE_DEVICES=all
 
 ## Scope 1 -- single-node basic health check (MOP section 4)
-srun \
+srun --time="$STEP_TIMELIMIT" \
   --container-image="${CONT}" \
   nvloom_cli \
     -s pairwise fabric-stress all-to-one multicast \
     --gpuToRackSamples ${RACK_SAMPLES}
+rc=$?
 
 ## Scope 2 -- single-node burn-in (MOP section 5). `pairwise` is omitted to
 ## keep sustained load on the fabric-stress and multicast paths. Raise the
@@ -87,18 +95,15 @@ srun \
 
 
 ## ------------- parse info starts here ----------- ##
-## MOP section 4 "What to Look For": no CUDA errors, assertion failures, or MPI
-## aborts, and all processes enumerating the same rackGuid. Bandwidth
-## uniformity (no link >3% below the matrix average, no multicast source >5%
-## below peers) needs the per-platform matrix and is left to review of the log.
-## Matched narrowly -- suite names like `fabric-stress` must not trip the grep.
 
-errors=$(grep -iE "cuda error|CUDA_ERROR|assertion|assert failed|MPI_Abort|srun: error|Segmentation fault" "$RESULT_FILE")
-rackguids=$(grep -oE "rackGuid[: ]+[0-9a-fA-Fx]+" "$RESULT_FILE" | awk '{print $NF}' | sort -u | wc -l)
-
-if [[ -z "$errors" && "$rackguids" -eq 1 ]];
-then
-	echo DONE
-else
-	echo FAIL
-fi
+## Only whether the job ran is decided here. Whether the result is any good is
+## decided by verdict.sh, which is read on every status check rather than
+## written once into this file. That is what lets a tightened gate re-judge
+## results that already exist -- see the header of verdict.sh.
+##
+## The MOP section 4 criteria this block used to apply -- no CUDA errors,
+## assertion failures or MPI aborts, and every process enumerating the same
+## rackGuid -- are in _v_gate_nvloom there. Bandwidth uniformity (no link >3%
+## below the matrix average, no multicast source >5% below peers) needs the
+## per-platform matrix and is still left to review of the log.
+[[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

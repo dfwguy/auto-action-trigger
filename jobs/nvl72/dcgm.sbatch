@@ -2,6 +2,7 @@
 #SBATCH -N 1
 #SBATCH --exclusive
 #SBATCH --mem=0
+#SBATCH -t 0:50:00
 ## `unset CUDA_VISIBLE_DEVICES` below hands dcgmi every GPU on the node, so the
 ## allocation has to claim them. --exclusive is not enough on its own: it grants
 ## the GPUs to the JOB, but a step inherits only what was explicitly requested,
@@ -17,6 +18,21 @@
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=dcgm
+
+## Deadline: 2x ~20 min, the plan's estimate for dcgmi -r 3.
+##
+## Applied with `timeout` rather than with `srun --time` as every other job
+## does, because dcgmi runs in the batch script body rather than in an srun
+## step -- deliberately, so it sees the job's GPUs without restating --gres --
+## and there is no step for --time to bound. `timeout` is the equivalent for a
+## command that is not a step: it bounds the workload while leaving the batch
+## script alive to write its marker, which is the property that matters.
+## #SBATCH -t above is this plus a margin, so this fires first.
+##
+## Without it, an overrunning dcgmi is SIGKILLed by the job walltime with no
+## marker written, which verdict.sh reads as INCOMPLETE -- a node that gets
+## re-queued every sweep and never converges. See example.sbatch.
+JOB_TIMEOUT=40m
 
 ## ------------- job info starts here ------------- ##
 
@@ -37,8 +53,18 @@ unset CUDA_VISIBLE_DEVICES
 #export CUDA_VISIBLE_DEVICES=0,1,2,3
 
 #module load cuda-dcgm
-dcgmi diag -r 3
+##
+## TERM first so dcgmi can tear down its host engine connection; KILL 60s later
+## for one that will not go. `timeout` reports 124 when the command took the
+## TERM and exited, but 137 when it ignored it and the KILL had to fire -- and
+## an ignored TERM is exactly what a wedged diagnostic does, so both count.
+timeout --signal=TERM --kill-after=60 "$JOB_TIMEOUT" dcgmi diag -r 3
 rc=$?
+
+## In a fixed wording verdict.sh matches. A job killed on the clock that writes
+## nothing about it leaves the reader guessing whether the node died or the
+## time ran out -- the silence docs/architecture.md warns about.
+[[ "$rc" -eq 124 || "$rc" -eq 137 ]] && echo "timeout: killed after ${JOB_TIMEOUT}"
 
 
 ## ------------- parse info starts here ----------- ##

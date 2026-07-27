@@ -4,7 +4,7 @@
 #SBATCH --exclusive
 #SBATCH --mem=0
 #SBATCH --ntasks-per-node=1
-#SBATCH -t 5:00:00
+#SBATCH -t 4:10:00
 ##SBATCH -o /home/cmods/bringup/results/%N/stressapptest.txt
 
 ## Allocation. No --gres: this job never touches a GPU. --mem=0 is load-bearing
@@ -20,6 +20,13 @@
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=stressapptest
+
+## Step time limit, handed to srun --time below: 2x RUN_SECONDS below; the
+## plan's row is 2-4 hr.
+## Slurm cancels the STEP at this limit, which leaves the batch script alive to
+## write its marker. #SBATCH -t above is this plus a margin, so the step limit
+## is what fires -- see example.sbatch.
+STEP_TIMELIMIT=4:00:00
 
 ## ------------- job info starts here ------------- ##
 
@@ -46,24 +53,20 @@ TEST_MB=$(( avail_kb * 80 / 100 / 1024 ))
 ## Worker threads -- one memory copy thread per core
 THREADS=$(nproc)
 
-srun --ntasks-per-node=1 --cpu-bind=none \
+srun --time="$STEP_TIMELIMIT" --ntasks-per-node=1 --cpu-bind=none \
     stressapptest \
         -s "${RUN_SECONDS}" \
         -M "${TEST_MB}" \
         -m "${THREADS}" \
         -W \
         -C 4
+rc=$?
 
 
 ## ------------- parse info starts here ----------- ##
-## stressapptest ends with "Status: PASS" or "Status: FAIL".
 
-status=$(grep -iE "^Status: PASS" "$RESULT_FILE")
-errors=$(grep -iE "hardware error|miscompare|Status: FAIL" "$RESULT_FILE")
-
-if [[ -n "$status" && -z "$errors" ]];
-then
-	echo DONE
-else
-	echo FAIL
-fi
+## Only whether the job ran is decided here. Whether the result is any good is
+## decided by verdict.sh, which is read on every status check rather than
+## written once into this file. That is what lets a tightened gate re-judge
+## results that already exist -- see the header of verdict.sh.
+[[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

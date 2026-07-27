@@ -1,0 +1,405 @@
+preflight: ink50-dh01-h01-13 gpus=4 cores=144/144
+nvbandwidth Version: v0.9
+Built from Git version: 4a49bda
+
+CUDA Runtime Version: 13010
+CUDA Driver Version: 13010
+Driver Version: 580.126.20
+
+ink50-dh01-h01-13
+Device 0: NVIDIA GB300 (00000008:06:00)
+Device 1: NVIDIA GB300 (00000009:06:00)
+Device 2: NVIDIA GB300 (00000018:06:00)
+Device 3: NVIDIA GB300 (00000019:06:00)
+
+Running host_to_device_memcpy_ce.
+memcpy CE CPU(row) -> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    211.57    211.50    211.43    211.37
+
+SUM host_to_device_memcpy_ce 845.87
+COEFFICIENT_OF_VARIATION host_to_device_memcpy_ce 0.00
+
+Running device_to_host_memcpy_ce.
+memcpy CE CPU(row) <- GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    193.50    193.50    193.49    193.49
+
+SUM device_to_host_memcpy_ce 773.98
+COEFFICIENT_OF_VARIATION device_to_host_memcpy_ce 0.00
+
+Running host_to_device_bidirectional_memcpy_ce.
+memcpy CE CPU(row) <-> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    172.04    171.93    172.26    172.13
+
+SUM host_to_device_bidirectional_memcpy_ce 688.35
+COEFFICIENT_OF_VARIATION host_to_device_bidirectional_memcpy_ce 0.00
+
+Running device_to_host_bidirectional_memcpy_ce.
+memcpy CE CPU(row) <-> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    171.12    171.10    171.09    171.11
+
+SUM device_to_host_bidirectional_memcpy_ce 684.42
+COEFFICIENT_OF_VARIATION device_to_host_bidirectional_memcpy_ce 0.00
+
+Running device_to_device_memcpy_read_ce.
+memcpy CE GPU(row) -> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A    767.64    770.54    770.26
+ 1    766.14       N/A    769.91    769.91
+ 2    767.30    767.23       N/A    769.85
+ 3    767.16    767.30    770.67       N/A
+
+SUM device_to_device_memcpy_read_ce 9223.92
+COEFFICIENT_OF_VARIATION device_to_device_memcpy_read_ce 0.14
+
+Running device_to_device_memcpy_write_ce.
+memcpy CE GPU(row) <- GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A    775.83    775.61    775.75
+ 1    775.75       N/A    775.68    775.83
+ 2    775.68    775.75       N/A    775.75
+ 3    775.75    775.83    775.83       N/A
+
+SUM device_to_device_memcpy_write_ce 9309.06
+COEFFICIENT_OF_VARIATION device_to_device_memcpy_write_ce 0.00
+
+Running device_to_device_bidirectional_memcpy_read_ce.
+memcpy CE GPU(row) <-> GPU(column) Read1 bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A    763.14    764.98    765.45
+ 1    762.06       N/A    765.05    765.05
+ 2    763.01    762.87       N/A    765.39
+ 3    762.26    762.94    765.45       N/A
+
+SUM device_to_device_bidirectional_memcpy_read_ce_read1 9167.65
+COEFFICIENT_OF_VARIATION device_to_device_bidirectional_memcpy_read_ce_read1 0.00
+
+memcpy CE GPU(row) <-> GPU(column) Read2 bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A    761.65    762.53    761.65
+ 1    762.13       N/A    762.67    762.67
+ 2    765.73    765.18       N/A    765.45
+ 3    765.39    765.39    765.05       N/A
+
+SUM device_to_device_bidirectional_memcpy_read_ce_read2 9165.49
+COEFFICIENT_OF_VARIATION device_to_device_bidirectional_memcpy_read_ce_read2 0.00
+
+memcpy CE GPU(row) <-> GPU(column) Total bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A   1524.80   1527.51   1527.11
+ 1   1524.19       N/A   1527.71   1527.71
+ 2   1528.73   1528.05       N/A   1530.84
+ 3   1527.65   1528.33   1530.50       N/A
+
+SUM device_to_device_bidirectional_memcpy_read_ce_total 18333.14
+COEFFICIENT_OF_VARIATION device_to_device_bidirectional_memcpy_read_ce_total 0.00
+
+Running device_to_device_bidirectional_memcpy_write_ce.
+memcpy CE GPU(row) <-> GPU(column) Write1 bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A    771.57    771.37    771.64
+ 1    771.71       N/A    771.64    771.57
+ 2    771.57    771.64       N/A    771.64
+ 3    771.71    771.78    771.57       N/A
+
+SUM device_to_device_bidirectional_memcpy_write_ce_write1 9259.44
+COEFFICIENT_OF_VARIATION device_to_device_bidirectional_memcpy_write_ce_write1 0.00
+
+memcpy CE GPU(row) <-> GPU(column) Write2 bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A    771.30    771.16    771.50
+ 1    771.16       N/A    771.23    771.23
+ 2    771.09    771.02       N/A    771.23
+ 3    771.23    771.23    771.37       N/A
+
+SUM device_to_device_bidirectional_memcpy_write_ce_write2 9254.73
+COEFFICIENT_OF_VARIATION device_to_device_bidirectional_memcpy_write_ce_write2 0.00
+
+memcpy CE GPU(row) <-> GPU(column) Total bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A   1542.87   1542.52   1543.15
+ 1   1542.87       N/A   1542.87   1542.80
+ 2   1542.66   1542.66       N/A   1542.87
+ 3   1542.94   1543.01   1542.94       N/A
+
+SUM device_to_device_bidirectional_memcpy_write_ce_total 18514.18
+COEFFICIENT_OF_VARIATION device_to_device_bidirectional_memcpy_write_ce_total 0.00
+
+Running all_to_host_memcpy_ce.
+memcpy CE CPU(row) <- GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    185.65    185.26    185.57    185.16
+
+SUM all_to_host_memcpy_ce 741.65
+COEFFICIENT_OF_VARIATION all_to_host_memcpy_ce 0.00
+
+Running all_to_host_bidirectional_memcpy_ce.
+memcpy CE CPU(row) <-> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0     92.33     92.16     92.45     92.36
+
+SUM all_to_host_bidirectional_memcpy_ce 369.30
+COEFFICIENT_OF_VARIATION all_to_host_bidirectional_memcpy_ce 0.00
+
+Running host_to_all_memcpy_ce.
+memcpy CE CPU(row) -> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    190.22    190.32    190.94    191.07
+
+SUM host_to_all_memcpy_ce 762.55
+COEFFICIENT_OF_VARIATION host_to_all_memcpy_ce 0.00
+
+Running host_to_all_bidirectional_memcpy_ce.
+memcpy CE CPU(row) <-> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0     92.78     92.60     92.94     92.80
+
+SUM host_to_all_bidirectional_memcpy_ce 371.11
+COEFFICIENT_OF_VARIATION host_to_all_bidirectional_memcpy_ce 0.00
+
+Running all_to_one_write_ce.
+memcpy CE GPU(row) <- GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    794.99    794.88    794.64    794.80
+
+SUM all_to_one_write_ce 3179.31
+COEFFICIENT_OF_VARIATION all_to_one_write_ce 0.00
+
+Running all_to_one_read_ce.
+memcpy CE GPU(row) -> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    657.84    658.11    660.53    660.62
+
+SUM all_to_one_read_ce 2637.09
+COEFFICIENT_OF_VARIATION all_to_one_read_ce 0.00
+
+Running one_to_all_write_ce.
+memcpy CE GPU(row) -> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    716.08    716.24    716.07    716.24
+
+SUM one_to_all_write_ce 2864.62
+COEFFICIENT_OF_VARIATION one_to_all_write_ce 0.00
+
+Running one_to_all_read_ce.
+memcpy CE GPU(row) <- GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    795.15    794.55    795.04    794.88
+
+SUM one_to_all_read_ce 3179.62
+COEFFICIENT_OF_VARIATION one_to_all_read_ce 0.00
+
+Running host_to_device_memcpy_sm.
+memcpy SM CPU(row) -> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    211.45    211.55    211.48    211.47
+
+SUM host_to_device_memcpy_sm 845.95
+COEFFICIENT_OF_VARIATION host_to_device_memcpy_sm 0.00
+
+Running device_to_host_memcpy_sm.
+memcpy SM CPU(row) <- GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    193.49    193.48    193.56    193.55
+
+SUM device_to_host_memcpy_sm 774.09
+COEFFICIENT_OF_VARIATION device_to_host_memcpy_sm 0.00
+
+Running host_to_device_bidirectional_memcpy_sm.
+memcpy SM CPU(row) <-> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    170.35    170.33    170.31    169.05
+
+SUM host_to_device_bidirectional_memcpy_sm 680.04
+COEFFICIENT_OF_VARIATION host_to_device_bidirectional_memcpy_sm 0.00
+
+Running device_to_host_bidirectional_memcpy_sm.
+memcpy SM CPU(row) <-> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    170.35    170.31    170.29    169.91
+
+SUM device_to_host_bidirectional_memcpy_sm 680.86
+COEFFICIENT_OF_VARIATION device_to_host_bidirectional_memcpy_sm 0.00
+
+Running device_to_device_memcpy_read_sm.
+memcpy SM GPU(row) -> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A    787.06    786.12    787.06
+ 1    784.54       N/A    784.54    784.11
+ 2    787.06    786.91       N/A    786.62
+ 3    785.69    785.40    785.98       N/A
+
+SUM device_to_device_memcpy_read_sm 9431.08
+COEFFICIENT_OF_VARIATION device_to_device_memcpy_read_sm 0.00
+
+Running device_to_device_memcpy_write_sm.
+memcpy SM GPU(row) <- GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A    717.36    717.12    717.24
+ 1    717.12       N/A    717.24    717.24
+ 2    717.36    717.24       N/A    717.42
+ 3    717.36    717.24    717.24       N/A
+
+SUM device_to_device_memcpy_write_sm 8607.17
+COEFFICIENT_OF_VARIATION device_to_device_memcpy_write_sm 0.00
+
+Running device_to_device_bidirectional_memcpy_read_sm.
+memcpy SM GPU(row) <-> GPU(column) Read1 bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A    674.64    674.21    674.11
+ 1    672.37       N/A    672.37    671.95
+ 2    674.00    674.11       N/A    673.90
+ 3    672.47    674.21    674.32       N/A
+
+SUM device_to_device_bidirectional_memcpy_read_sm_read1 8082.65
+COEFFICIENT_OF_VARIATION device_to_device_bidirectional_memcpy_read_sm_read1 0.00
+
+memcpy SM GPU(row) <-> GPU(column) Read2 bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A    672.42    673.84    674.53
+ 1    674.32       N/A    674.48    673.42
+ 2    674.11    672.05       N/A    673.95
+ 3    673.68    671.89    674.06       N/A
+
+SUM device_to_device_bidirectional_memcpy_read_sm_read2 8082.75
+COEFFICIENT_OF_VARIATION device_to_device_bidirectional_memcpy_read_sm_read2 0.00
+
+memcpy SM GPU(row) <-> GPU(column) Total bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A   1347.06   1348.06   1348.64
+ 1   1346.69       N/A   1346.84   1345.37
+ 2   1348.11   1346.16       N/A   1347.85
+ 3   1346.16   1346.11   1348.38       N/A
+
+SUM device_to_device_bidirectional_memcpy_read_sm_total 16165.40
+COEFFICIENT_OF_VARIATION device_to_device_bidirectional_memcpy_read_sm_total 0.00
+
+Running device_to_device_bidirectional_memcpy_write_sm.
+memcpy SM GPU(row) <-> GPU(column) Write1 bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A    706.67    706.09    706.38
+ 1    705.98       N/A    706.09    706.27
+ 2    706.27    705.86       N/A    706.56
+ 3    706.27    705.74    706.27       N/A
+
+SUM device_to_device_bidirectional_memcpy_write_sm_write1 8474.44
+COEFFICIENT_OF_VARIATION device_to_device_bidirectional_memcpy_write_sm_write1 0.00
+
+memcpy SM GPU(row) <-> GPU(column) Write2 bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A    706.32    706.56    705.74
+ 1    706.50       N/A    706.32    706.32
+ 2    706.15    706.15       N/A    705.92
+ 3    706.09    706.62    706.73       N/A
+
+SUM device_to_device_bidirectional_memcpy_write_sm_write2 8475.43
+COEFFICIENT_OF_VARIATION device_to_device_bidirectional_memcpy_write_sm_write2 0.00
+
+memcpy SM GPU(row) <-> GPU(column) Total bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A   1413.00   1412.65   1412.13
+ 1   1412.48       N/A   1412.42   1412.59
+ 2   1412.42   1412.01       N/A   1412.48
+ 3   1412.36   1412.36   1413.00       N/A
+
+SUM device_to_device_bidirectional_memcpy_write_sm_total 16949.88
+COEFFICIENT_OF_VARIATION device_to_device_bidirectional_memcpy_write_sm_total 0.00
+
+Running all_to_host_memcpy_sm.
+memcpy SM CPU(row) <- GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    177.70    177.44    177.48    177.19
+
+SUM all_to_host_memcpy_sm 709.80
+COEFFICIENT_OF_VARIATION all_to_host_memcpy_sm 0.00
+
+Running all_to_host_bidirectional_memcpy_sm.
+memcpy SM CPU(row) <-> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0     91.02     90.99     90.99     90.99
+
+SUM all_to_host_bidirectional_memcpy_sm 363.99
+COEFFICIENT_OF_VARIATION all_to_host_bidirectional_memcpy_sm 0.00
+
+Running host_to_all_memcpy_sm.
+memcpy SM CPU(row) -> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    185.42    185.28    185.78    185.42
+
+SUM host_to_all_memcpy_sm 741.91
+COEFFICIENT_OF_VARIATION host_to_all_memcpy_sm 0.00
+
+Running host_to_all_bidirectional_memcpy_sm.
+memcpy SM CPU(row) <-> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0     91.17     90.92     90.25     90.60
+
+SUM host_to_all_bidirectional_memcpy_sm 362.94
+COEFFICIENT_OF_VARIATION host_to_all_bidirectional_memcpy_sm 0.00
+
+Running all_to_one_write_sm.
+memcpy SM GPU(row) <- GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    718.46    718.32    718.37    718.45
+
+SUM all_to_one_write_sm 2873.60
+COEFFICIENT_OF_VARIATION all_to_one_write_sm 0.00
+
+Running all_to_one_read_sm.
+memcpy SM GPU(row) -> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    710.51    711.98    711.73    710.48
+
+SUM all_to_one_read_sm 2844.71
+COEFFICIENT_OF_VARIATION all_to_one_read_sm 0.00
+
+Running one_to_all_write_sm.
+memcpy SM GPU(row) -> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    731.34    730.32    731.34    731.26
+
+SUM one_to_all_write_sm 2924.26
+COEFFICIENT_OF_VARIATION one_to_all_write_sm 0.00
+
+Running one_to_all_read_sm.
+memcpy SM GPU(row) <- GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0    718.44    718.50    718.37    718.43
+
+SUM one_to_all_read_sm 2873.74
+COEFFICIENT_OF_VARIATION one_to_all_read_sm 0.00
+
+Running host_device_latency_sm.
+memory latency SM CPU(row) <-> GPU(column) (ns)
+           0         1         2         3
+ 0    579.77    576.79    579.84    572.23
+
+SUM host_device_latency_sm 2308.62
+COEFFICIENT_OF_VARIATION host_device_latency_sm 0.01
+
+Running device_to_device_latency_sm.
+Device to Device Latency SM GPU(row) <-> GPU(column) (ns)
+           0         1         2         3
+ 0       N/A   1704.76   1735.12   1698.86
+ 1   1705.19       N/A   1726.89   1700.72
+ 2   1735.01   1726.17       N/A   1731.07
+ 3   1703.55   1704.88   1735.73       N/A
+
+SUM device_to_device_latency_sm 20607.94
+COEFFICIENT_OF_VARIATION device_to_device_latency_sm 0.01
+
+Running device_local_copy.
+memcpy local GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0   3314.02   3314.02   3263.65   3266.13
+
+SUM device_local_copy 13157.82
+COEFFICIENT_OF_VARIATION device_local_copy 0.01
+
+NOTE: The reported results may not reflect the full capabilities of the platform.
+Performance can vary with software drivers, hardware clocks, and system topology.
+
+PENDING

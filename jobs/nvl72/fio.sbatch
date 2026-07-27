@@ -4,7 +4,7 @@
 #SBATCH --exclusive
 #SBATCH --mem=0
 #SBATCH --ntasks-per-node=1
-#SBATCH -t 2:00:00
+#SBATCH -t 2:10:00
 ##SBATCH -o /home/cmods/bringup/results/%N/fio.txt
 
 ## Allocation. No --gres: this job never touches a GPU. --exclusive is what
@@ -20,6 +20,14 @@
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=fio
+
+## Per-pass step time limit, handed to srun --time below -- one limit per pass
+## rather than one for the job, because that is the granularity srun --time
+## works at. Four passes at 30 min sit inside the 2:10 walltime above with
+## room to spare. 2x the plan's ~1 hr for fio, divided over the four passes.
+## Slurm cancels the STEP at this limit, which leaves the batch script alive to
+## write its marker -- see example.sbatch.
+PASS_TIMELIMIT=0:30:00
 
 ## ------------- job info starts here ------------- ##
 
@@ -44,6 +52,15 @@ RUNTIME=120
 
 mkdir -p "${FIO_DIR}" || exit 1
 
+## One status for four passes: any pass failing means the job did not run to
+## completion, and the loop must not let a later success overwrite an earlier
+## failure. Set once here, only ever raised inside the loop.
+rc=0
+
+## Each pass is RUNTIME seconds of I/O plus laying out a FILE_SIZE file per job,
+## and it is the layout that dominates on a cold filesystem -- which is what
+## PASS_TIMELIMIT above is really covering.
+
 for rw in read write randread randwrite; do
     case "$rw" in
         read|write)         bs=1M; iodepth=32 ;;
@@ -51,7 +68,7 @@ for rw in read write randread randwrite; do
     esac
 
     echo "===== fio ${rw} bs=${bs} iodepth=${iodepth} ====="
-    srun --ntasks-per-node=1 \
+    srun --time="$PASS_TIMELIMIT" --ntasks-per-node=1 \
         fio --name="${rw}" \
             --directory="${FIO_DIR}" \
             --rw="${rw}" \
@@ -64,20 +81,20 @@ for rw in read write randread randwrite; do
             --direct=1 \
             --ioengine=libaio \
             --group_reporting
+    pass_rc=$?
+    [[ "$pass_rc" -eq 0 ]] || rc=1
 done
 
 rm -rf "${FIO_DIR}"
 
 
 ## ------------- parse info starts here ----------- ##
-## Each fio pass prints a "  read: IOPS=..." / "  write: IOPS=..." summary.
 
-runs=$(grep -cE "IOPS=" "$RESULT_FILE")
-errors=$(grep -iE "fio: |error=|No such file or directory" "$RESULT_FILE")
-
-if [[ -z "$errors" && "$runs" -ge 4 ]];
-then
-	echo DONE
-else
-	echo FAIL
-fi
+## Only whether the job ran is decided here. Whether the result is any good is
+## decided by verdict.sh, which is read on every status check rather than
+## written once into this file. That is what lets a tightened gate re-judge
+## results that already exist -- see the header of verdict.sh.
+##
+## _v_gate_fio there requires one IOPS summary per pass, which is what catches
+## a pass that was skipped rather than one that failed.
+[[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

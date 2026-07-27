@@ -5,7 +5,7 @@
 #SBATCH --mem=0
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
-#SBATCH -t 6:00:00
+#SBATCH -t 12:05:00
 
 ## Allocation. --exclusive is a JOB-level guarantee and a step inherits only
 ## what was explicitly requested, so --gres and --mem=0 are stated even though
@@ -22,6 +22,13 @@
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=mnubergemm
+
+## Step time limit, handed to srun --time below: 2x --time_to_run below, not
+## the plan's 24-72 hr burn-in row.
+## Slurm cancels the STEP at this limit, which leaves the batch script alive to
+## write its marker. #SBATCH -t above is this plus a margin, so the step limit
+## is what fires -- see example.sbatch.
+STEP_TIMELIMIT=11:54:00
 totalRuns=12
 
 
@@ -67,7 +74,7 @@ export NCCL_NVLS_ENABLE=1
 export UCX_TLS=tcp
 
 
-srun \
+srun --time="$STEP_TIMELIMIT" \
   --mpi=pmix \
   --cpu-bind=none \
   --container-image="${CONT}" \
@@ -89,22 +96,15 @@ srun \
 rc=$?
 
 ## ------------- parse info starts here ----------- ##
-## mnubergemm is an internal tool with no documented success banner to grep
-## for, so the gate is srun's own exit status plus the failure modes a burn-in
-## actually dies from. That is strictly stronger than the old `grep "code 1"`,
-## which was negative-only and matched neither `exit code 3` nor a rank abort.
-## Add a positive output marker here once the tool's clean-run format is known.
 
-## Without a success banner to match, `-s` is the only thing standing between
-## a silent no-op and a DONE: a container that starts and exits 0 having run
-## nothing produces an empty file and a zero status.
-
-errors=$(grep -iE "srun: error|cuda error|CUDA_ERROR|assertion|assert failed|MPI_Abort|Segmentation fault|CANCELLED AT" "$RESULT_FILE")
-
-if [[ -s "$RESULT_FILE" && "$rc" -eq 0 && -z "$errors" ]];
-then
-        echo DONE
-else
-        echo FAIL
-fi
+## Only whether the job ran is decided here. Whether the result is any good is
+## decided by verdict.sh, which is read on every status check rather than
+## written once into this file. That is what lets a tightened gate re-judge
+## results that already exist -- see the header of verdict.sh.
+##
+## mnubergemm has no documented success banner, so _v_gate_mnubergemm there has
+## no positive marker to require beyond a non-empty file -- a container that
+## starts, runs nothing and exits 0 produces an empty file and a zero status.
+## Add a real marker there once the tool's clean-run format is known.
+[[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL
 

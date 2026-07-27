@@ -4,7 +4,7 @@
 #SBATCH --exclusive
 #SBATCH --mem=0
 #SBATCH --ntasks-per-node=1
-#SBATCH -t 1:00:00
+#SBATCH -t 1:10:00
 ##SBATCH -o /home/cmods/bringup/results/%N/ethr.txt
 
 ## Allocation. No --gres: this job never touches a GPU. --exclusive is what
@@ -20,6 +20,15 @@
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=ethr
+
+## Per-pass step time limit, handed to srun --time below -- one limit per pass
+## rather than one for the job, because that is the granularity srun --time
+## works at. Two passes per interface in IFACES; at 30 min each, one interface
+## sits inside the 1:10 walltime above. Raise #SBATCH -t before adding a second
+## interface, or the passes will outlast the job. 2x the plan's ~30 min for ethr.
+## Slurm cancels the STEP at this limit, which leaves the batch script alive to
+## write its marker -- see example.sbatch.
+PASS_TIMELIMIT=0:30:00
 
 ## ------------- job info starts here ------------- ##
 
@@ -47,6 +56,17 @@ DURATION=30s
 ## Interfaces under test -- management and storage NICs, not the compute fabric
 IFACES="enP22p3s0f0np0"
 
+## One status for every pass over every interface: any of them failing means
+## the job did not run to completion, and a later success must not overwrite an
+## earlier failure. An interface with no address is NOT counted here -- nothing
+## ran, so there is no exit status to report; _v_gate_ethr catches it from the
+## message below, which is why that message's wording is fixed.
+rc=0
+
+## Each pass is DURATION of traffic; the rest of PASS_TIMELIMIT above is the
+## allowance for an ethr that cannot reach the server and sits in connection
+## retries, which is the failure that limit is actually for.
+
 for iface in $IFACES; do
     src_ip=$(ip -4 -o addr show dev "$iface" 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
     if [[ -z "$src_ip" ]]; then
@@ -55,23 +75,23 @@ for iface in $IFACES; do
     fi
 
     echo "===== ethr bandwidth ${iface} (${src_ip}) -> ${ETHR_SERVER} ====="
-    srun --ntasks-per-node=1 \
+    srun --time="$PASS_TIMELIMIT" --ntasks-per-node=1 \
         "${ETHR_BIN}" -c "${ETHR_SERVER}" -t b -p tcp -d "${DURATION}" -n 8
+    pass_rc=$?
+    [[ "$pass_rc" -eq 0 ]] || rc=1
 
     echo "===== ethr latency ${iface} (${src_ip}) -> ${ETHR_SERVER} ====="
-    srun --ntasks-per-node=1 \
+    srun --time="$PASS_TIMELIMIT" --ntasks-per-node=1 \
         "${ETHR_BIN}" -c "${ETHR_SERVER}" -t l -p tcp -d "${DURATION}"
+    pass_rc=$?
+    [[ "$pass_rc" -eq 0 ]] || rc=1
 done
 
 
 ## ------------- parse info starts here ----------- ##
 
-results=$(grep -cE "Bandwidth|Latency" "$RESULT_FILE")
-errors=$(grep -iE "unable to|connection refused|no route to host|error|no IPv4" "$RESULT_FILE")
-
-if [[ -z "$errors" && "$results" -gt 0 ]];
-then
-	echo DONE
-else
-	echo FAIL
-fi
+## Only whether the job ran is decided here. Whether the result is any good is
+## decided by verdict.sh, which is read on every status check rather than
+## written once into this file. That is what lets a tightened gate re-judge
+## results that already exist -- see the header of verdict.sh.
+[[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

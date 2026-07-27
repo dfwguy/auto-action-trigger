@@ -5,7 +5,7 @@
 #SBATCH --mem=0
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=1
-#SBATCH -t 1:00:00
+#SBATCH -t 0:30:00
 ##SBATCH -o /home/cmods/bringup/results/%N/cublasmatmul.txt
 
 ## Allocation. --exclusive is a JOB-level guarantee and a step inherits only
@@ -24,6 +24,13 @@
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=cublasmatmul
+
+## Step time limit, handed to srun --time below: 2x DURATION below; the plan
+## gives no estimate for the remediation GEMM.
+## Slurm cancels the STEP at this limit, which leaves the batch script alive to
+## write its marker. #SBATCH -t above is this plus a margin, so the step limit
+## is what fires -- see example.sbatch.
+STEP_TIMELIMIT=0:20:00
 
 ## ------------- job info starts here ------------- ##
 
@@ -58,35 +65,24 @@ DURATION=600
 
 unset CUDA_VISIBLE_DEVICES
 
-srun --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none --ntasks-per-node=1 \
+srun --time="$STEP_TIMELIMIT" --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none --ntasks-per-node=1 \
                 --container-image="${CONT}" \
                 cublasmatmul \
                     --n "${MATRIX_N}" \
                     --duration "${DURATION}"
+rc=$?
 
 
 ## ------------- parse info starts here ----------- ##
-## Compare per-GPU TFLOPS against the platform floor and flag any GPU that
-## reports an error. Set GEMM_MIN_TFLOPS per platform before use.
+
+## Only whether the job ran is decided here. Whether the result is any good is
+## decided by verdict.sh, which is read on every status check rather than
+## written once into this file. That is what lets a tightened gate re-judge
+## results that already exist -- see the header of verdict.sh.
 ##
-## GEMM_MIN_TFLOPS is 0 until the floor for this platform is established, which
-## makes the `low` check a no-op -- so the run has to be gated on there being
-## TFLOPS readings at all. One per GPU is expected; requiring at least one
-## keeps a job that never produced a number from reporting DONE.
-
-GEMM_MIN_TFLOPS=0
-GEMM_MIN_READINGS=1
-
-readings=$(grep -oiE "[0-9]+(\.[0-9]+)?[[:space:]]*TFLOPS" "$RESULT_FILE" \
-        | grep -oE "^[0-9]+(\.[0-9]+)?")
-count=$(printf '%s\n' "$readings" | grep -c .)
-
-errors=$(grep -iE "error|fail|mismatch|srun: error" "$RESULT_FILE")
-low=$(printf '%s\n' "$readings" | awk -v min="$GEMM_MIN_TFLOPS" 'NF && $1 < min')
-
-if [[ -n "$RESULT_FILE" && -z "$errors" && -z "$low" && "$count" -ge "$GEMM_MIN_READINGS" ]];
-then
-	echo DONE
-else
-	echo FAIL
-fi
+## The TFLOPS floor this block used to apply is VERDICT_MIN_TFLOPS_GEMM there.
+## It is still 0 -- unset for this platform -- and it belongs there precisely
+## because of that: setting it in verdict.sh re-judges every result already on
+## disk, where setting it here would only have applied to runs made after the
+## change.
+[[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

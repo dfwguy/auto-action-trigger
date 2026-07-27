@@ -45,9 +45,11 @@ Everything else needs one of three things first:
   upstream image — see [containers.md](containers.md) for how to build or
   obtain each one.
 - **Site values.** Jobs outside the default list ship with placeholders —
-  interface names, the `ethr` server host, the `fio` scratch directory, and the
-  pass thresholds in `stream.sbatch` and `cublasmatmul.sbatch`. Set these per
-  platform before adding the job to the list.
+  interface names, the `ethr` server host, and the `fio` scratch directory. Set
+  these per platform before adding the job to the list. The pass thresholds are
+  *not* among them: they live in `parsers/$PARSERS/verdict.sh`
+  (`VERDICT_MIN_TRIAD_MBS`, `VERDICT_MIN_TFLOPS_GEMM`, …), because a threshold
+  set in the sbatch only ever applies to runs made after it was set.
 - **A supported platform.** `nvsm` is **DGX only** — it ships with DGX OS and
   only carries platform definition files for DGX platforms, so on anything else
   it fails on every node and drains the cluster for a tool that was never going
@@ -94,6 +96,54 @@ stranded.
 The GPU count is a literal `4` in both the `--gres` line and the preflight
 below. On a platform with a different count, change both together.
 
+### Two time limits, and the order they fire in
+
+Every job bounds its work twice, and `#SBATCH -t` is deliberately the larger:
+
+| | Bounds | Set to |
+|---|---|---|
+| `srun --time="$STEP_TIMELIMIT"` | the step | 2× the [testing plan](https://gitlab-master.nvidia.com/nvis-npi/validation-mops/-/blob/main/ai_factory_testing_plan.md) estimate for that row, floored at 15 min |
+| `#SBATCH -t` | the job | the step limit(s) + ~10 min |
+
+The margin exists so the step limit is what fires, because the two kills do not
+leave the same result file behind:
+
+- **The job walltime** kills the batch script itself. Nothing runs after it, so
+  no marker is written, and `verdict.sh` reads a result file with no end marker
+  as `INCOMPLETE` — "the job died before finishing", indistinguishable from a
+  node that crashed. The node is retried next sweep, overruns again, and never
+  converges.
+- **The step time limit** cancels the step and logs
+  `*** STEP <id> ON <node> CANCELLED AT <time> DUE TO TIME LIMIT ***` into the
+  result file. The batch script survives, `srun` returns non-zero, and the parse
+  block writes `FAIL`. `VERDICT_RUN_ERRORS` already matches that line, so every
+  gate reports an overrun the same way, with the reason Slurm wrote.
+
+An overrun is usually a real finding — a node running its work several times
+slower than its peers — and belongs in the log as one rather than as a node that
+mysteriously stopped.
+
+Where the estimate is small the floor binds instead of the doubling: container
+start and a multi-gigabyte image read over NFS do not scale with a two-minute
+test, and doubling `~2 min` to four would cancel healthy `dcgm -r 2` steps.
+Where a job configures its own run duration — `stressapptest`'s `RUN_SECONDS`,
+`mnubergemm`'s `--time_to_run` — that is the estimate to double, not the plan's
+figure for the row. Where a job runs several steps (`fio` and `ethr` per pass,
+`nvsm`'s stress and health steps), each carries its own limit and they have to
+**sum** to less than the walltime — `ethr` in particular sizes its walltime for
+one interface, so adding a second to `IFACES` means raising `#SBATCH -t` too.
+
+The three `dcgm` jobs bound their work with `timeout` instead of `srun --time`.
+`dcgmi diag` runs in the batch script body rather than in a step — deliberately,
+so it sees the job's GPUs without restating `--gres` — so there is no step for
+`--time` to bound. `JOB_TIMEOUT` there is a `timeout(1)` duration (`40m`, not
+`0:40:00`), and the job writes `timeout: killed after <n>` on 124 *or* 137,
+which `VERDICT_RUN_ERRORS` matches the same way it matches Slurm's
+`CANCELLED AT`. Both mechanisms buy the same property — the batch script
+survives to write a marker — but prefer `--time` wherever there is a step: it is
+Slurm's own accounting, and does not depend on a signal reaching the right
+process.
+
 ### Preflight
 
 Every job opens with a one-line `srun` that reports what the *step* holds:
@@ -132,18 +182,21 @@ written not to depend on any of them.
    [the allocation header](#the-allocation-header).
 2. Set `job_name=<name>` and optionally `totalRuns=N`.
 3. Add your workload between the job and parse sections.
-4. The parse section must `echo PENDING` if the workload ran and `echo FAIL` if
+4. Set `STEP_TIMELIMIT` and `#SBATCH -t` per
+   [the two time limits](#two-time-limits-and-the-order-they-fire-in), and pass
+   the former to the workload's `srun --time`.
+5. The parse section must `echo PENDING` if the workload ran and `echo FAIL` if
    it could not, as the last line — capture the exit status immediately after
    the workload with `rc=$?` and end the file with:
 
    ```bash
    [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL
    ```
-5. Add a gate for `<name>` to the `case` in `parsers/$PARSERS/verdict.sh`. Without one it falls
+6. Add a gate for `<name>` to the `case` in `parsers/$PARSERS/verdict.sh`. Without one it falls
    through to `_v_gate_generic`, which only checks for common crash signatures
    and cannot know what your job's output is supposed to look like.
-6. Add a fixture under `tests/fixtures/` and a line to `tests/verdict-test.sh`.
-7. Add `<name>` to the `BENCHMARKS` in `SETTINGS`.
+7. Add a fixture under `tests/fixtures/` and a line to `tests/verdict-test.sh`.
+8. Add `<name>` to the `BENCHMARKS` in `SETTINGS`.
 
 ## Where a pass is decided
 
@@ -170,6 +223,46 @@ A gate should require positive evidence of a completed run, not just the absence
 of the word `error`. Every job here greps for something the tool only prints
 when it actually ran — a results table, a health summary, a bandwidth figure —
 because an empty output file otherwise reports a pass.
+
+### Judge what the tool means, not what it says
+
+The mirror image of that rule, and the more expensive one. A failure string
+matched without regard to *where* it appears will match the tool's own healthy
+output, and then the job cannot pass anywhere.
+
+`nvbandwidth` did exactly this. MOP section 6.2 asks it to fail on "any `N/A`
+where a peer transfer was expected", which the parse block implemented as
+`grep -iE "N/A"` over the whole file. But every peer matrix prints `N/A` down
+the diagonal, where a GPU would be talking to itself:
+
+```
+memcpy CE GPU(row) -> GPU(column) bandwidth (GB/s)
+           0         1         2         3
+ 0       N/A    767.64    770.54    770.26
+```
+
+So the job failed every node with more than one GPU, on results that were
+perfect. The fix is positional — `N/A` is expected on the diagonal of a
+`GPU(row)` × `GPU(column)` matrix and nowhere else — and it lives in
+`_v_gate_nvbandwidth`.
+
+Two things made this worse than an ordinary wrong rule, and both are reasons the
+gate belongs in `verdict.sh`:
+
+- **A self-reported `FAIL` is never re-judged.** `DONE` is re-derived on every
+  read, but `FAIL` is taken at its word, because it means "the job could not
+  run" — the log is the diagnosis. Fixing the rule in the sbatch would have left
+  every already-condemned result condemned. Those have to be re-run.
+- **It failed closed and looked like a hardware finding.** A node reporting
+  `nvbandwidth: FAIL` reads as a bad node, not as a bad grep.
+
+Prefer the narrowest match that can only mean a fault: the string the tool
+prints for the failure, matched case-sensitively where it is a fixed word, and
+anchored where position carries the meaning. `_v_gate_nvsm` is currently the
+loosest gate here — a case-insensitive sweep for `fail`/`error` over the whole
+file — and it carries a comment saying so, because no healthy `nvsm show health`
+output has been captured to narrow it against. That is the shape of an unpaid
+debt in this file, not a pattern to copy.
 
 Where the point of a job is *how* the work ran rather than that it ran, gate on
 that too. `allreduce-nonvlink` and `alltoall-nonvlink` exist to exercise the
@@ -255,7 +348,18 @@ across every message size and roughly half the largest-size figure that
 
 Run `tests/verdict-test.sh` after changing a gate. It checks
 `parsers/nvl72/verdict.sh` against captured result files, including a real
-socket run, and asserts the reason as well as the verdict.
+socket run and a real healthy `nvbandwidth` run, and asserts the reason as well
+as the verdict.
+
+Coverage is uneven and worth knowing before you trust a gate. `allreduce`,
+`alltoall`, their `-nonvlink` pair, `dcgm`, `nvbandwidth` and `example` have
+fixtures. The rest — `nvloom`, `cublasmatmul`, `stream`, `stressapptest`,
+`memtester`, `stress-ng`, `fio`, `ethr`, `hpl`, `llm-pretrain`, `mnubergemm`
+and `nvsm` — do not, because no result file from this platform has been captured
+for them; their rules were carried over from the parse blocks that used to live
+in each sbatch and have never been run against real output. When one of those
+jobs is first enabled at a site, capture its result file as a fixture before
+trusting the verdict.
 `tests/health-runner-test.sh` is the equivalent for the health side: it runs
 the check loop out of `node_health.sh` against a synthetic check set and
 asserts which mismatches reach the drain reason.

@@ -32,6 +32,13 @@ HPLDATPATH=/home/cmods/bringup/jobs/nvl72/hpl/
 ## Job name is used in the status line. Edit grep for failures you're looking for
 job_name=hpl
 
+## Step time limit, handed to srun --time below. The plan gives no estimate for
+## the remediation GEMM, so this is a bound rather than a doubling of one.
+## Slurm cancels the STEP at this limit, which leaves the batch script alive to
+## write its marker. #SBATCH -t above is this plus a margin, so the step limit
+## is what fires -- see example.sbatch.
+STEP_TIMELIMIT=1:50:00
+
 ## ------------- job info starts here ------------- ##
 
 ## Preflight -- what the STEP actually holds, asked from inside a step. The
@@ -64,29 +71,31 @@ srun --ntasks=1 bash -c '
 #srun --container-image="{CONT}" --container-mounts="${HPLDATPATH}:/hpldat" hostname
 #srun --container-image="{CONT}" hostname
 
-srun --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none --ntasks-per-node=1 \
+srun --time="$STEP_TIMELIMIT" --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none --ntasks-per-node=1 \
                 --container-image="${CONT}" --container-mounts="${HPLDATPATH}:/hpldat" \
                 /workspace/hpl.sh \
-                --dat /hpldat/hpl${SLURM_NNODES}N.dat 
+                --dat /hpldat/hpl${SLURM_NNODES}N.dat
 #                --mem-affinity 0:0:1:1 \
 #                --cpu-affinity 0-35:36-71:72-107:108-143 \
 #                --gpu-affinity 0:1:2:3
 #		--ucx-affinity roce_r0:roce_r1:roce_r2:roce_r3
+## After the commented continuations, not before them: comments do not touch
+## $?, and a `rc=$?` sitting between the srun and those lines would break the
+## line continuation the moment somebody uncommented one.
+rc=$?
 
 #srun --ntasks-per-node=1 nvidia-smi -pl 2500 -sc 1
 #srun --ntasks-per-node=1 ./set-cpufreq.sh 3400000
 
 ## ------------- parse info starts here ----------- ##
 
-
-status=$(grep "PASSED" "$RESULT_FILE")
-
-if [[ ! -z "$status" ]];
-then
-	echo DONE
-else
-	echo FAIL
-fi
+## Only whether the job ran is decided here. Whether the result is any good is
+## decided by verdict.sh, which is read on every status check rather than
+## written once into this file. That is what lets a tightened gate re-judge
+## results that already exist -- see the header of verdict.sh.
+##
+## The `PASSED` residual check this block used to apply is in _v_gate_hpl there.
+[[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL
 
 
 
