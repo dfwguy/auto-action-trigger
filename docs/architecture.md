@@ -84,12 +84,15 @@ across the cluster and names the broken link.
 ├── docs/                          # This directory
 ├── build_containers.sh            # Build job container images into containers/
 ├── set-valid-default.sh           # Capture a validated node as the health baseline
+├── health-check.sh                # Cluster-wide health summary: who is drained and why
 ├── node-health-refresh.sh         # Trigger a re-health-check on one or more nodes
+├── ib-visibility.sh               # Compare HCAs the host sees vs the container sees
 ├── single-node-purge.sh           # Clear benchmark results for a node
 ├── status-check.sh                # Live per-node benchmark status (all nodes)
 ├── status-daily-report.sh         # Generate dated CSV report with performance metrics
 ├── sync-check.sh                  # Diff a drained node's health output vs baseline
 ├── trigger-debug.sh               # Walk the BCM → sbatch chain and name the broken link
+├── trigger-log.sh                 # Read what the chain wrote: trigger.log across the cluster
 └── watch-rack.sh                  # Watch a nodelist for DOWN/drained nodes
 ```
 
@@ -101,6 +104,14 @@ because BCM invokes them with no working directory to infer one from; every
 other script resolves its own location. Deploying elsewhere means editing
 `home=` in `actions/node_health.sh` and `actions/launch_job.sh`, and
 `BRINGUP_HOME` in `SETTINGS`.
+
+`pre-post/create-action-trigger.sh` is the exception to "resolves its own
+location": it reads `BRINGUP_HOME` and registers *that* path with BCM, not the
+path it was run from. Registering its own location would be wrong — run from a
+git checkout it would point every node at a directory that exists only on the
+head node, and the actions would fail on every node at once with no local
+symptom. Because of that indirection it also preflights the deployed scripts,
+not the checked-out ones.
 
 | Path | Purpose |
 |------|---------|
