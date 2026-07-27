@@ -34,9 +34,10 @@
 #   srun -N1 ./build_containers.sh -B        # ARM node: compile what was fetched
 #
 # With no image named, the list comes from CONTAINERS in SETTINGS -- the images
-# this site's BENCHMARKS actually need. It ships as hpc-benchmarks alone,
-# matching the default benchmark list. Naming images on the command line
-# overrides it; -A selects everything regardless.
+# this site's BENCHMARKS actually need. It ships as hpc-benchmarks, nvbandwidth
+# and mnubergemm, matching the default benchmark list; the last two need -L
+# first. Naming images on the command line overrides it; -A selects everything
+# regardless.
 #
 set -u
 
@@ -617,12 +618,14 @@ fi
 ## command line, -A, then CONTAINERS.
 ##
 ## CONTAINERS is the site's answer to "which images do the benchmarks we run
-## actually need", and it defaults to hpc-benchmarks because the default
-## BENCHMARKS list needs nothing else. That is also why a bare run no longer
-## attempts all four: mnubergemm comes from a private NGC org, so including it
-## by default meant every plain invocation ended in "did not build: mnubergemm"
-## and a non-zero exit on any site without credentials for that org -- sites
-## that were never going to run it. -A is still there for the old behaviour.
+## actually need", and it tracks the default BENCHMARKS list: hpc-benchmarks,
+## nvbandwidth and mnubergemm. Two of those are in a private NGC org, so a bare
+## run without credentials builds one image, fails two, and exits non-zero --
+## which is the correct signal now that their jobs are in the default sweep,
+## and is what -L exists to prevent. It is not the same as the old default of
+## attempting all four, which failed that way for sites that were never going
+## to run mnubergemm at all. -A is still every image, and still implies -S
+## because nvloom is in it and cannot be downloaded.
 images=("$@")
 if [[ "${#images[@]}" -eq 0 ]]; then
     if [[ "$ALL" -eq 1 ]]; then

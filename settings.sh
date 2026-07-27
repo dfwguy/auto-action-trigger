@@ -43,13 +43,13 @@ fi
 : "${JOBS:=nvl72}"
 : "${HEALTHCHECKS:=nvl72}"
 : "${PARSERS:=nvl72}"
-: "${BENCHMARKS:=dcgm allreduce alltoall allreduce-nonvlink alltoall-nonvlink}"
+: "${BENCHMARKS:=dcgm nvbandwidth allreduce alltoall allreduce-nonvlink alltoall-nonvlink mnubergemm}"
 ## `=` rather than `:=`, unlike everything else here: an explicitly empty
 ## CONTAINERS is a real answer -- a site whose images are already in place, or
 ## which obtains them some other way, builds nothing. Backfilling that to
 ## hpc-benchmarks would quietly overrule it. Empty is only defaulted when the
 ## key is absent altogether.
-: "${CONTAINERS=hpc-benchmarks}"
+: "${CONTAINERS=hpc-benchmarks nvbandwidth mnubergemm}"
 ## Pause switches. Default `no` for the same reason the drain switches default
 ## off: a settings file written before these existed leaves them empty, and an
 ## empty value must mean "carry on as before" rather than "stop the fleet".
@@ -59,7 +59,7 @@ fi
 : "${DRAIN_AFTER_FAILED_HEALTH_CHECK:=no}"
 : "${DRAIN_AFTER_FAILED_BENCHMARK:=no}"
 : "${RETRY_INTERVAL_HOURS:=1}"
-: "${MAX_JOB_HOURS:=6}"
+: "${MAX_JOB_HOURS:=13}"
 : "${DRAIN_WINDOW_MINUTES:=15}"
 : "${DRAIN_MARKER:=auto-retry}"
 : "${JOB_USER:=cmods}"

@@ -13,10 +13,18 @@ HEALTHCHECKS=nvl72
 PARSERS=nvl72
 
 ## ── Benchmark list ────────────────────────────────────────────────────────
-BENCHMARKS="dcgm allreduce alltoall allreduce-nonvlink alltoall-nonvlink"
+## Order matters: nvbandwidth reports a fabric problem in half an hour, before
+## the collectives spend longer rediscovering it, and mnubergemm is last
+## because it is burn-in and holds the node for days once it starts.
+BENCHMARKS="dcgm nvbandwidth allreduce alltoall allreduce-nonvlink \
+            alltoall-nonvlink mnubergemm"
 
 ## ── Container images ──────────────────────────────────────────────────────
-CONTAINERS="hpc-benchmarks"
+## nvbandwidth and mnubergemm come from a private NGC org -- run
+## `./build_containers.sh -L` once on the head node, or the images do not
+## arrive and the two jobs that need them fail on every node. See
+## docs/containers.md.
+CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm"
 
 ## ── Pause switches ────────────────────────────────────────────────────────
 ## Stop the framework doing anything, without unregistering it from BCM. The
@@ -32,7 +40,10 @@ DRAIN_AFTER_FAILED_BENCHMARK=no
 
 ## ── Retry and drain policy ────────────────────────────────────────────────
 RETRY_INTERVAL_HOURS=1
-MAX_JOB_HOURS=6
+## Above the longest single run in BENCHMARKS, which is mnubergemm's 11:54:00
+## step -- a job still RUNNING past this drains the node for timeout, so a
+## value below it drains every node mid-burn-in for finishing on schedule.
+MAX_JOB_HOURS=13
 DRAIN_WINDOW_MINUTES=15
 DRAIN_MARKER="auto-retry"
 

@@ -89,12 +89,34 @@ from the public catalog. Jobs whose image has to be built or obtained
 
 **Default — ships as written:**
 ```bash
+BENCHMARKS="dcgm nvbandwidth allreduce alltoall allreduce-nonvlink \
+            alltoall-nonvlink mnubergemm"
+```
+
+Two things this default assumes, both covered in
+[containers.md](containers.md):
+
+- **An NGC login.** `nvbandwidth` and `mnubergemm` are pulled from a private
+  NGC org, so `./build_containers.sh -L` has to have been run on the head node.
+  Without it neither image arrives, and a job whose image is missing fails on
+  every node — the same fleet-wide false failure the `nvsm` note below warns
+  about. `./build_containers.sh -l` says which images are actually present.
+- **A long `MAX_JOB_HOURS`.** `mnubergemm` is burn-in: 12 runs of a 11:54:00
+  step, so a node is under it for days and each individual run sits close to
+  twelve hours. `MAX_JOB_HOURS` ships at `13` for that reason. Dropping it back
+  to the old `6` while `mnubergemm` is in the list drains every node mid-run
+  for a timeout it did not have.
+
+Drop both names for a shorter sweep with no credentials needed:
+
+```bash
 BENCHMARKS="dcgm allreduce alltoall allreduce-nonvlink alltoall-nonvlink"
+CONTAINERS="hpc-benchmarks"
 ```
 
 **Everything that needs no image beyond `hpc-benchmarks` and no DGX** — the
 same list minus `nvsm`, `nvbandwidth`, `nvloom`, `mnubergemm` and the two
-remediation GEMMs. This one runs as shipped on any site:
+remediation GEMMs. This one runs as shipped on any site, credentials or not:
 ```bash
 BENCHMARKS="dcgm-r2 dcgm dcgm-r4 allreduce alltoall allreduce-nonvlink \
             alltoall-nonvlink stream memtester stress-ng stressapptest \
@@ -103,13 +125,11 @@ BENCHMARKS="dcgm-r2 dcgm dcgm-r4 allreduce alltoall allreduce-nonvlink \
 
 **Everything** — the Exhaustive tier plus the optional jobs. Nothing stops you
 running this, but read the notes above first: `nvsm` drains a non-DGX cluster
-on every node, and `nvbandwidth`, `nvloom`, and `mnubergemm` each need an image
-that does not exist until CONTAINERS builds it. Both `hpl` and `cublasmatmul`
-are remediation tools meant to be submitted by hand against one suspect node,
-not swept across a fleet. A sweep of this list takes many hours per node, and
-every job holds the whole node while it runs. `mnubergemm` always fails in the
-CONTAINERS build — it has no source and no registry to pull from — so the
-build exits non-zero even when the others built cleanly:
+on every node, and `nvloom` has no published image at all — it only exists once
+`build_containers.sh -S` compiles it. Both `hpl` and `cublasmatmul` are
+remediation tools meant to be submitted by hand against one suspect node, not
+swept across a fleet. A sweep of this list takes days per node, and every job
+holds the whole node while it runs:
 ```bash
 BENCHMARKS="dcgm-r2 dcgm dcgm-r4 nvbandwidth allreduce alltoall nvsm \
             allreduce-nonvlink alltoall-nonvlink stream memtester \
@@ -140,9 +160,21 @@ See [nvsm.md](nvsm.md) for both requirements.
 ## Container images
 
 `CONTAINERS` is the list `build_containers.sh` builds when no image is named on
-the command line. It ships as `hpc-benchmarks`, which is what the default
-`BENCHMARKS` list needs and nothing more; add an image here at the same time as
-you add the job that uses it.
+the command line. It ships as exactly what the default `BENCHMARKS` list needs
+and nothing more; add an image here at the same time as you add the job that
+uses it.
+
+Two of the three shipped images live in a private NGC org, so a plain
+`./build_containers.sh` on a head node with no credentials builds
+`hpc-benchmarks`, fails the other two, and exits non-zero. That is the intended
+signal rather than a surprise — the jobs are in the default list, so the images
+being absent is a real problem — but it is why `-L` comes first:
+
+```bash
+./build_containers.sh -L      # store an nvcr.io key, once per head node
+./build_containers.sh         # then build the CONTAINERS list
+./build_containers.sh -l      # what is actually present
+```
 
 | Image | Jobs that use it | Source |
 |-------|-----------------|--------|
@@ -154,8 +186,8 @@ you add the job that uses it.
 `dcgm` and `nvsm` are not in this table — they run host binaries and need no image.
 
 ```bash
-CONTAINERS="hpc-benchmarks"            # default — what the default BENCHMARKS needs
-CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm"   # everything downloadable, given an NGC login
+CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm"   # default — needs an NGC login
+CONTAINERS="hpc-benchmarks"            # no credentials; drop nvbandwidth and mnubergemm from BENCHMARKS too
 CONTAINERS="hpc-benchmarks nvbandwidth nvloom"       # adds the source build — run with -S
 CONTAINERS=""                          # build nothing — images already in containers/ or obtained another way
 ```
@@ -239,7 +271,7 @@ and which one to turn on first — is in
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | `RETRY_INTERVAL_HOURS` | `1` | Hours between sweeps, measured from the newest result file on the node |
-| `MAX_JOB_HOURS` | `6` | A benchmark `RUNNING` longer than this drains the node |
+| `MAX_JOB_HOURS` | `13` | A benchmark `RUNNING` longer than this drains the node |
 | `DRAIN_WINDOW_MINUTES` | `15` | Only failures newer than this drain |
 | `DRAIN_MARKER` | `auto-retry` | Written into every drain reason this framework issues; only drains carrying it are ever cleared automatically |
 
@@ -248,6 +280,17 @@ drain is missed entirely, and well below `RETRY_INTERVAL_HOURS`. Its purpose is
 that without it, `launch_job.sh` would re-drain from stale result files on every
 monitoring cycle — a node an operator had just resumed would be pulled straight
 back out of service.
+
+`MAX_JOB_HOURS` has to clear the longest single run in `BENCHMARKS`, not the
+longest sweep — each run is submitted as its own job, so what it is compared
+against is one job's elapsed time. The binding constraint in the default list is
+`mnubergemm`, whose step is capped at `11:54:00`; hence `13`. Set it below the
+longest `STEP_TIMELIMIT` and the sequencer drains healthy nodes for a timeout
+while the job is still doing exactly what it was asked to do:
+
+```bash
+grep -H STEP_TIMELIMIT jobs/$JOBS/*.sbatch | sort -t= -k2   # longest run in the set
+```
 
 `DRAIN_MARKER` is what makes an operator drain survive. `launch_job.sh` will not
 queue work behind a drain that does not carry it, and will not clear one.

@@ -35,15 +35,19 @@ rather than as a submitted job.
 
 ## Before enabling a job
 
-The default `BENCHMARKS` list holds only jobs whose dependencies are always
+Most of the default `BENCHMARKS` list has dependencies that are always
 available: `dcgm` uses a host binary, and the NCCL jobs use the
 `hpc-benchmarks` image that `build_containers.sh` pulls from the public catalog.
+The two exceptions are `nvbandwidth` and `mnubergemm`, which are in the default
+list and are pulled from a private NGC org — so a head node that has not run
+`./build_containers.sh -L` has no image for either, and both fail on every node.
+`./build_containers.sh -l` is the check.
 
 Everything else needs one of three things first:
 
-- **An image.** `nvbandwidth`, `nvloom`, and `mnubergemm` have no public
-  upstream image — see [containers.md](containers.md) for how to build or
-  obtain each one.
+- **An image.** `nvloom` has no published image anywhere and exists only once
+  `build_containers.sh -S` compiles it; `nvbandwidth` and `mnubergemm` are
+  downloadable given [an NGC login](containers.md#logging-in-to-ngc).
 - **Site values.** Jobs outside the default list ship with placeholders —
   interface names, the `ethr` server host, and the `fio` scratch directory. Set
   these per platform before adding the job to the list. The pass thresholds are

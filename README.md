@@ -112,9 +112,11 @@ bash pre-post/delete-action-trigger.sh
 ./build_containers.sh
 ```
 
-Run on the headnode, once per CPU architecture in the cluster. Which images it downloads is `CONTAINERS` in `SETTINGS`, which ships as `hpc-benchmarks` alone — that is all the default `BENCHMARKS` list needs. Add an image there when you add the job that uses it; `-A` covers everything the script knows about.
+Run on the headnode, once per CPU architecture in the cluster. Which images it downloads is `CONTAINERS` in `SETTINGS`, which ships as `hpc-benchmarks nvbandwidth mnubergemm` — exactly what the default `BENCHMARKS` list needs. Add an image there when you add the job that uses it; `-A` adds `nvloom`, the one image no registry publishes.
 
-Downloading is the default and, without `-S`, the only path: an image that cannot be pulled reports why rather than starting a source build. `-L` writes `~/.config/enroot/.credentials`, which is what an `hpc-benchmarks`-only site can skip. See [docs/containers.md](docs/containers.md).
+`-L` is not optional for the shipped list: `nvbandwidth` and `mnubergemm` come from a private NGC org, and without credentials they fail to download and their two jobs then fail on every node. `./build_containers.sh -l` says which images are actually present. A site that would rather not need an NGC key drops both names from `CONTAINERS` *and* `BENCHMARKS`.
+
+Downloading is the default and, without `-S`, the only path: an image that cannot be pulled reports why rather than starting a source build. `-L` writes `~/.config/enroot/.credentials`. See [docs/containers.md](docs/containers.md).
 
 ### 3. Establish a valid-config baseline
 
@@ -139,7 +141,14 @@ Editing `SETTINGS.default` in place works until the next tarball drop replaces i
 
 ### 5. Choose the benchmark list
 
-The active list is `BENCHMARKS` in `SETTINGS`. The default holds only jobs whose dependencies are always available; which subset a site should run depends on its delivery methodology. See [docs/benchmarks.md](docs/benchmarks.md).
+The active list is `BENCHMARKS` in `SETTINGS`; which subset a site should run depends on its delivery methodology. See [docs/benchmarks.md](docs/benchmarks.md).
+
+```bash
+BENCHMARKS="dcgm nvbandwidth allreduce alltoall allreduce-nonvlink \
+            alltoall-nonvlink mnubergemm"
+```
+
+`mnubergemm` is burn-in and holds a node for days — 12 runs of a 11:54:00 step, one job at a time. That is why `MAX_JOB_HOURS` ships at `13`: it has to clear a single run, or the sequencer drains healthy nodes mid-burn-in for a timeout. Drop `mnubergemm` from the list for a sweep that finishes in hours.
 
 ### 6. Decide whether failures should drain
 

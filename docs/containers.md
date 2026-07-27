@@ -22,12 +22,18 @@ source is a fallback that happens only when `-S` asks for it. See
 ## Which images get built
 
 `CONTAINERS` in `SETTINGS` is the list a bare run uses — the images this site's
-`BENCHMARKS` actually need. It ships as `hpc-benchmarks` alone, which is what
-the default benchmark list needs and nothing more.
+`BENCHMARKS` actually need, and it ships as exactly that and nothing more.
 
 ```bash
-CONTAINERS="hpc-benchmarks"           # SETTINGS
+CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm"    # SETTINGS
 ```
+
+Two of those three are in a private NGC org, so [`-L`](#logging-in-to-ngc) is a
+prerequisite of the shipped configuration rather than an optional extra: with no
+credentials the run builds `hpc-benchmarks`, fails the other two, and exits
+non-zero. A site that does not want that dependency drops `nvbandwidth` and
+`mnubergemm` from **both** `CONTAINERS` and `BENCHMARKS` — dropping them from
+one alone is the failure this section is about.
 
 | Image | Needed by |
 |-------|-----------|
@@ -50,12 +56,10 @@ Two ways to override the setting for one run:
 ./build_containers.sh -A       # every image the script knows about
 ```
 
-`-A` is the old default. It stopped being the default because `mnubergemm`
-comes from a private NGC org, so every plain run on a site without credentials
-for that org ended in `did not build: mnubergemm` and a non-zero exit — on
-sites that were never going to run it. It still needs a
-[login](#logging-in-to-ngc) for the two private-org images, and it implies `-S`
-because `nvloom` is in the list and cannot be downloaded.
+`-A` differs from the shipped `CONTAINERS` by one image, `nvloom`, which no
+registry publishes at all — so `-A` implies `-S` and compiles it, which is a
+much longer run than the three downloads. It needs the same
+[login](#logging-in-to-ngc) for the two private-org images.
 
 An explicitly empty `CONTAINERS=""` means "build nothing", and is respected as
 written rather than defaulted back: a site whose images are already in place,
@@ -439,10 +443,11 @@ and only ARM is published today — an x86 build will fail the import rather tha
 silently produce the wrong image. Update `IMG` in `jobs/nvl72/mnubergemm.sbatch`
 if the version or architecture suffix differs.
 
-Burn-in runs 24–72 hours per the plan, so it is not a candidate for the default
-sequence — `MAX_JOB_HOURS` in `actions/launch_job.sh` defaults to 6 and will
-drain the node with a timeout reason well before a real burn-in finishes. Raise
-it before enabling.
+Burn-in runs 24–72 hours per the plan, and `mnubergemm` *is* in the default
+`BENCHMARKS` list, so budget for a node being held by it for days: 12 runs of an
+11:54:00 step, submitted one at a time. `MAX_JOB_HOURS` ships at `13` to clear a
+single one of those runs. Lowering it — the old default was `6` — drains every
+node mid-burn-in with a timeout reason, for a job that is on schedule.
 
 ---
 

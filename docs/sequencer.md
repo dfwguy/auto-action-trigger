@@ -70,7 +70,9 @@ sweep runs → some fail           → drain "<jobs> FAIL (auto-retry)"
              fails again         → drain again, repeat indefinitely
 ```
 
-If a job has been running longer than `MAX_JOB_HOURS` (default: 6), the node is
+If a job has been running longer than `MAX_JOB_HOURS` (default: 13, sized to
+clear `mnubergemm`'s 11:54:00 step — see
+[settings.md](settings.md#retry-and-drain-policy)), the node is
 drained with a timeout reason. That reason carries no marker, so a stuck job
 stops the retry loop and waits for a human. Only a `RUNNING` job is measured
 against that limit — a batch queued behind a dead node reads `0:00` for as long
