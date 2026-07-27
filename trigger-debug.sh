@@ -33,6 +33,12 @@
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 results_dir="$home/results"
 
+## Sourced for JOBS_DIR / HEALTHCHECKS_DIR / PARSERS_DIR / BENCHMARKS, checked
+## in section 0. Missing settings.sh is reported there rather than here so the
+## whole answer arrives in one place; the defaults it would have supplied are
+## not worth faking, because a tree without settings.sh cannot run anyway.
+[[ -f "$home/settings.sh" ]] && source "$home/settings.sh"
+
 pattern="$1"
 if [[ -z "$pattern" ]]; then
     pattern='*'
@@ -47,6 +53,55 @@ problems=0
 note()  { printf '  %s\n' "$*"; }
 bad()   { printf '  ** %s\n' "$*"; problems=$((problems + 1)); }
 hdr()   { printf '\n=== %s ===\n' "$*"; }
+
+##############################################################################
+hdr "0. Deployed layout"
+##############################################################################
+
+## Upstream of every link below: the tree on disk has to be the tree the
+## scripts expect. Since the job set, check set and parser set became
+## directories chosen by SETTINGS, "the deployment is stale" stopped being
+## visible as a missing file and became a missing *directory* one level down --
+## and a stale tree passes links 1-7 without complaint, because BCM is
+## registered correctly, the scripts exist, and the trigger fires. It just runs
+## the old code, or exits early looking for a path that moved.
+##
+## The tell for a pre-settings tree is verdict.sh sitting at the top level: it
+## lives in parsers/$PARSERS/ now, and launch_job.sh hard-exits without it.
+if [[ -z "$SETTINGS_FILE" && ! -f "$home/settings.sh" ]]; then
+    bad "settings.sh is missing from $home -- this tree predates the settings split"
+    note "  the whole deployment is stale; nothing below is worth reading until it is replaced"
+else
+    note "settings from ${SETTINGS_FILE:-<neither SETTINGS nor SETTINGS.default found>}"
+    [[ -f "$home/verdict.sh" ]] && bad "verdict.sh is at the top level -- stale tree, it belongs in parsers/\$PARSERS/"
+
+    for spec in "JOBS:$JOBS:$JOBS_DIR" "HEALTHCHECKS:$HEALTHCHECKS:$HEALTHCHECKS_DIR" "PARSERS:$PARSERS:$PARSERS_DIR"; do
+        var="${spec%%:*}"; rest="${spec#*:}"; set_name="${rest%%:*}"; dir="${rest#*:}"
+        if [[ ! -d "$dir" ]]; then
+            bad "$var=$set_name but $dir does not exist"
+        elif [[ -z "$(ls -A "$dir" 2>/dev/null)" ]]; then
+            bad "$dir is empty"
+        else
+            note "$var=$set_name -> $dir"
+        fi
+    done
+
+    ## launch_job.sh sources this and exits if it is absent, which shows up in
+    ## trigger.log as an exit rather than as a submission. Named separately
+    ## because it is the one file whose absence stops every node at once.
+    [[ -d "$PARSERS_DIR" && ! -f "$PARSERS_DIR/verdict.sh" ]] &&
+        bad "$PARSERS_DIR/verdict.sh is missing -- launch_job.sh exits before submitting anything"
+
+    ## A benchmark named in BENCHMARKS with no .sbatch behind it is skipped per
+    ## node, per cycle, silently. After a job-set rename that is the whole sweep.
+    if [[ -d "$JOBS_DIR" ]]; then
+        missing=""
+        for b in $BENCHMARKS; do
+            [[ -f "$JOBS_DIR/$b.sbatch" ]] || missing="$missing $b"
+        done
+        [[ -n "$missing" ]] && bad "BENCHMARKS names jobs with no .sbatch in $JOBS_DIR:$missing"
+    fi
+fi
 
 ##############################################################################
 hdr "1-3. BCM actions and triggers"
@@ -74,9 +129,13 @@ else
             bad "trigger $t is NOT registered -- run pre-post/create-action-trigger.sh"
             continue
         fi
-        show=$(cmsh -c "monitoring trigger; use $t; show" 2>&1)
-        disabled=$(awk -F'  +' '/^Disabled/ {print $NF}' <<<"$show" | tr -d '[:space:]')
-        during=$(awk -F'  +' '/^During actions/ {print $NF}' <<<"$show")
+        ## `get <property>` and not `show` + awk. The show table pads the value
+        ## column with a variable number of spaces and renames properties
+        ## between BCM releases, so parsing it silently yields an empty string
+        ## -- which reads as "disabled, nothing bound" and sends you chasing a
+        ## registration that is in fact fine. get returns the bare value.
+        disabled=$(cmsh -c "monitoring trigger; use $t; get disabled" 2>&1 | tr -d '[:space:]')
+        during=$(cmsh -c "monitoring trigger; use $t; get duringactions" 2>&1 | tr -d '\r')
         note "trigger $t: disabled=${disabled:-?} duringactions=${during:-<none>}"
         [[ "$disabled" == "no" ]] || bad "  $t is disabled -- it will never fire"
         ## The failure create-action-trigger.sh calls out by name: the trigger
