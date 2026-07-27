@@ -6,6 +6,11 @@
 # sbatch, in order, and stopping to say which link is broken. Run on the head
 # node. Read-only -- it submits nothing, drains nothing, changes nothing.
 #
+# This checks the configuration that should be producing work. trigger-log.sh
+# reads the record it actually produced, and is the one to run first: if the
+# traces are fresh, every link below is intact by definition and the reason
+# nothing is running is a gate the sequencer already wrote down.
+#
 #   pattern  optional node filter, same rules as status-check.sh: a bare
 #            string matches by prefix, globs are honored as written. Only
 #            affects the per-node sections.

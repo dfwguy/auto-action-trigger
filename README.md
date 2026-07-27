@@ -78,6 +78,7 @@ The following scripts are run manually by an operator from the headnode and do n
 | `node-health-refresh.sh` | write access to `logs/<node>/` |
 | `sync-check.sh` | read access to `logs/` and `valid-config/` |
 | `trigger-debug.sh` | `cmsh`, `sinfo`, read access to `results/` |
+| `trigger-log.sh` | read access to `results/` and `logs/` |
 | `watch-rack.sh` | `sinfo` |
 | `single-node-purge.sh` | write access to `results/` |
 | `set-valid-default.sh` | write access to `valid-config/` |
@@ -162,9 +163,16 @@ bash watch-rack.sh "rack01-node[1-32]"    # live view of DOWN/drained nodes
 A node that has stopped testing:
 
 ```bash
+bash trigger-log.sh                       # read the traces: is it firing, and what did it decide
+bash trigger-log.sh ink50-dh01-h20-11     # one node, with its raw trace
 bash trigger-debug.sh ink50-dh01-h20      # walk BCM → sbatch, name the broken link
-tail results/<node>/trigger.log           # that node's own per-cycle decisions
 ```
+
+Start with `trigger-log.sh` — it reads what the sequencer already wrote down and
+separates the two cases that look identical from the outside: logs stale means
+nothing is running the script (a trigger problem, go to `trigger-debug.sh`), logs
+fresh with nothing submitted means the script is running and a gate is closed
+(the reason is already in the trace).
 
 A node that has been drained:
 

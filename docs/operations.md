@@ -227,7 +227,43 @@ off drains the entire cluster on the first cycle. Bring it up only once
 These replace the old `NODRAIN` file, which is gone. A `NODRAIN` left over from
 an earlier deployment now does nothing; delete it.
 
-## Debugging the trigger chain
+## Debugging "nothing is running"
+
+Two scripts, and the order matters. `trigger-log.sh` reads the record the
+sequencer already wrote; `trigger-debug.sh` inspects the configuration that
+should be producing it. Read the record first — it tells you which of the two
+failures you have, and they are indistinguishable from the outside:
+
+```bash
+bash trigger-log.sh                       # whole cluster
+bash trigger-log.sh ink50-dh01-h20        # one rack
+bash trigger-log.sh ink50-dh01-h20-11     # one node — adds its raw trace
+bash trigger-log.sh -w 2                  # only events from the last 2 hours
+bash trigger-log.sh -s 30                 # a log is stale after 30m, not 15m
+```
+
+It prints five sections:
+
+1. **Is the trigger firing?** — `results/<node>/trigger.log` write times. Every
+   log stale means the sequencer is not being run anywhere, which is a BCM
+   problem; nothing below it can be trusted, because the decisions on screen
+   are whatever was true when it stopped.
+2. **What each node last decided** — the last traced line per node, grouped by
+   reason with node names and numbers normalized out, so a fleet collapses to a
+   handful of distinct reasons instead of one line per node.
+3. **Did anything get submitted?** — the question section 2 cannot answer alone.
+   `every benchmark passing` and `next sweep in Ns` both look healthy and both
+   mean no work went out.
+4. **Failures and warnings** — `SUBMIT FAILED`, `WARNING`, `DRAIN`, missing
+   `verdict.sh`, Slurm not on `PATH`, grouped the same way.
+5. **Health-check side** — nodes with a `results/<node>` but no `logs/<node>`.
+   `node_health.sh` never ran there, so the node never left DOWN and no
+   benchmark could be scheduled onto it — a stuck bringup with a perfectly
+   healthy sequencer, because the sequencer is not the thing that is stuck.
+
+Read-only, and `-w`/`-s` only widen or narrow what it reports.
+
+### Debugging the trigger chain
 
 ```bash
 bash trigger-debug.sh                 # whole cluster
