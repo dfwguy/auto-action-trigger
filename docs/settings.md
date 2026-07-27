@@ -147,16 +147,16 @@ you add the job that uses it.
 | Image | Jobs that use it | Source |
 |-------|-----------------|--------|
 | `hpc-benchmarks` | `allreduce`, `alltoall`, both `-nonvlink` variants, `hpl`, `cublasmatmul`, `stream` | Public NGC image |
-| `nvbandwidth` | `nvbandwidth` | Private NGC org; falls back to two-pass source build |
-| `nvloom` | `nvloom` | No published image; always a two-pass source build |
-| `mnubergemm` | `mnubergemm` | NVIDIA-internal; must be imported by hand — listing it here only produces an explanatory failure |
+| `nvbandwidth` | `nvbandwidth` | Private NGC org (needs a login); source build only with `-S` |
+| `nvloom` | `nvloom` | No published image; two-pass source build, and only with `-S` |
+| `mnubergemm` | `mnubergemm` | Private NGC org (needs a login); NVIDIA-internal, no source build exists |
 
 `dcgm` and `nvsm` are not in this table — they run host binaries and need no image.
 
 ```bash
 CONTAINERS="hpc-benchmarks"            # default — what the default BENCHMARKS needs
-CONTAINERS="hpc-benchmarks nvbandwidth nvloom"   # everything that can actually be built
-CONTAINERS="hpc-benchmarks nvbandwidth nvloom mnubergemm"  # everything (mnubergemm always fails)
+CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm"   # everything downloadable, given an NGC login
+CONTAINERS="hpc-benchmarks nvbandwidth nvloom"       # adds the source build — run with -S
 CONTAINERS=""                          # build nothing — images already in containers/ or obtained another way
 ```
 

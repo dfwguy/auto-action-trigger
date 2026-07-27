@@ -6,11 +6,18 @@ rsyncs that directory to `/tmp/containers/` on each node, and every job prefers
 the node-local copy. Nothing is pulled from a registry at job start.
 
 ```bash
-./build_containers.sh          # build the CONTAINERS list, whatever is missing
-./build_containers.sh -l       # what is present, what is not
+./build_containers.sh -L       # log in to nvcr.io, once per machine
+./build_containers.sh          # download the CONTAINERS list, whatever is missing
+./build_containers.sh -l       # what is present, what is not, and the login state
 ```
 
 Run it on the headnode, once per CPU architecture in the cluster.
+
+Downloading is the normal path and, by default, the only one. Everything the
+script knows about except `nvloom` is published on `nvcr.io`; compiling from
+source is a fallback that happens only when `-S` asks for it. See
+[Logging in to NGC](#logging-in-to-ngc) and
+[Downloading vs building from source](#downloading-vs-building-from-source).
 
 ## Which images get built
 
@@ -46,11 +53,103 @@ Two ways to override the setting for one run:
 `-A` is the old default. It stopped being the default because `mnubergemm`
 comes from a private NGC org, so every plain run on a site without credentials
 for that org ended in `did not build: mnubergemm` and a non-zero exit — on
-sites that were never going to run it.
+sites that were never going to run it. It still needs a
+[login](#logging-in-to-ngc) for the two private-org images, and it implies `-S`
+because `nvloom` is in the list and cannot be downloaded.
 
 An explicitly empty `CONTAINERS=""` means "build nothing", and is respected as
 written rather than defaulted back: a site whose images are already in place,
 or which obtains them another way, does not need this script.
+
+---
+
+## Logging in to NGC
+
+`hpc-benchmarks` and the CUDA base images are public. `nvbandwidth` and
+`mnubergemm` live in private NGC org `0948245400141054`, and an import of
+either without credentials fails with a `401`/`403` that enroot reports as a
+plain import failure.
+
+enroot has no `login` subcommand. It reads a netrc-style file before every
+import and sends the matching entry as the registry's basic auth, so logging in
+means writing one line into `~/.config/enroot/.credentials`:
+
+```bash
+./build_containers.sh -L                        # prompts, input hidden
+NGC_API_KEY=nvapi-... ./build_containers.sh -L  # unattended
+```
+
+Either way the result is:
+
+```
+machine nvcr.io login $oauthtoken password <NGC_API_KEY>
+```
+
+`$oauthtoken` is the literal username NGC expects, not a shell variable — this
+is why the file has to be written with a quoted heredoc if you do it by hand:
+
+```bash
+mkdir -p ~/.config/enroot
+cat > ~/.config/enroot/.credentials <<'EOF'
+machine nvcr.io login $oauthtoken password <NGC_API_KEY>
+EOF
+chmod 600 ~/.config/enroot/.credentials
+```
+
+Get the key from [ngc.nvidia.com](https://ngc.nvidia.com) → *Setup* → *Generate
+API Key*, and check that your account can read org `0948245400141054`; a valid
+key for the wrong org fails exactly like no key at all.
+
+Notes on what `-L` does beyond the heredoc above:
+
+- It replaces only the `nvcr.io` entry and keeps any others, so a site with a
+  private mirror in the same file does not lose it.
+- It writes through a `umask 077` temp file, so the key is never briefly world
+  readable. `read -rs` keeps it out of terminal scrollback, and passing it in
+  `NGC_API_KEY` keeps it out of shell history.
+- It does **not** verify the key — nothing short of an import can. The next
+  import is the check, which is why it suggests one.
+
+`ENROOT_CONFIG_PATH` (or `XDG_CONFIG_HOME`) moves the file; the script follows
+both. Only the machine doing the import needs it: images reach the nodes as
+`.sqsh` files over NFS, so no credential is ever distributed to a compute node.
+
+`-l` and `-h` both print whether an `nvcr.io` entry is present, and every
+private-org failure prints the login state along with the fix.
+
+## Downloading vs building from source
+
+A bare run downloads and nothing else. If an image cannot be downloaded, the
+script says why and stops rather than starting a compile:
+
+```bash
+./build_containers.sh nvbandwidth        # download only; fails with the login hint
+./build_containers.sh -S nvbandwidth     # download, and compile from source if that fails
+```
+
+`-S` is what enables the fallback. `-F` and `-B` are the two passes *of* a
+source build, so each implies `-S`. So does `-A`: it means "every image the
+script knows about", and one of those cannot be downloaded at all, so asking
+for it is asking for the build.
+
+| Image | Without `-S` | With `-S` |
+|-------|--------------|-----------|
+| `hpc-benchmarks` | public pull | same — nothing to build |
+| `nvbandwidth` | private-org pull, else fail | private-org pull, else compile v0.9 from public source |
+| `nvloom` | fails: nothing is published to pull | compile from the upstream sample Dockerfile |
+| `mnubergemm` | private-org pull, else fail | same — no public source exists |
+
+The default changed because the fallback was too expensive to trigger by
+accident. A source build is minutes to tens of minutes, and on an x86 headnode
+with ARM nodes it stops half way through and waits for a second pass on a
+compute node — a lot to set in motion because a registry returned `401` when
+the real answer was `./build_containers.sh -L`. `nvloom` waits for `-S` for the
+same reason even though it has no download path at all: it names what it wants
+instead of committing you to a build.
+
+One side effect worth knowing: a download-only run no longer needs write access
+to the staging directory (`STAGE_DIR`, default
+`/home/cmods/bringup/container-src`). Only `-S`/`-F` create it.
 
 ---
 
@@ -117,7 +216,7 @@ and every monitoring cycle re-transfers the whole directory.
 | Image | File | Source | Used by |
 |-------|------|--------|---------|
 | hpc-benchmarks | `nvidia+hpc-benchmarks+26.02-<arch>.sqsh` | public NGC pull | `allreduce`, `alltoall`, both `-nonvlink`, `hpl`, `cublasmatmul`, `stream` |
-| nvbandwidth | `nvbandwidth-v0.9-<arch>.sqsh` | private NGC org, else built from source | `nvbandwidth` |
+| nvbandwidth | `nvbandwidth-v0.9-<arch>.sqsh` | private NGC org pull; source build with `-S` | `nvbandwidth` |
 | nvloom | `nvloom-v2.0.0-<arch>.sqsh` | built from the upstream sample Dockerfile | `nvloom` |
 | mnubergemm | `mnubergemm-26.03-v1.17-<arch>.sqsh` | private NGC org, ARM only | `mnubergemm` |
 
@@ -155,6 +254,9 @@ internet. So the fetch happens where the network is and the compile happens
 where the right CPU is. No emulation and no docker anywhere.
 
 ## The two-pass source build
+
+Only reached when `-S` (or `-F`/`-B`, which imply it) asks for a source build —
+see [Downloading vs building from source](#downloading-vs-building-from-source).
 
 ```
 ./build_containers.sh -a arm -F nvloom      # headnode: fetch, compile nothing
@@ -226,20 +328,23 @@ architecture does not matter.
 - `squashfs-tools` for `unsquashfs` on the headnode — optional, see above.
 - Write access to `/home/cmods/bringup/containers/` and `container-src/`.
 - No docker, anywhere.
-- An NGC API key if pulling from the private org, in `ENROOT_CREDENTIALS`
-  (`~/.config/enroot/.credentials`):
-  `machine nvcr.io login $oauthtoken password <API_KEY>`.
+- An NGC API key if pulling from the private org, written to
+  `~/.config/enroot/.credentials` by `./build_containers.sh -L` — see
+  [Logging in to NGC](#logging-in-to-ngc). Needed on the machine doing the
+  import only, never on a compute node.
 
 ## Options
 
 ```
--A            every image the script knows about, ignoring CONTAINERS
+-L            write the nvcr.io entry in ~/.config/enroot/.credentials, then exit
+-S            allow the source-build fallback when a download fails
+-A            every image the script knows about, ignoring CONTAINERS (implies -S)
 -f            rebuild even if the .sqsh is already there
 -l            list images and whether they are present, build nothing
 -d DIR        write somewhere other than /home/cmods/bringup/containers
 -a ARCH       build for arm or x86 rather than this machine
--F            fetch pass only (headnode); compile nothing
--B            build pass only (compute node); fetch nothing
+-F            fetch pass only (headnode); compile nothing   (implies -S)
+-B            build pass only (compute node); fetch nothing (implies -S)
 ```
 
 Options must come before image names — `getopts` stops at the first
@@ -271,8 +376,10 @@ Upstream: [github.com/NVIDIA/nvbandwidth](https://github.com/NVIDIA/nvbandwidth)
 
 The script first tries the prebuilt image in NGC org `0948245400141054`, which
 `incubation/nvbandwidth-single-node-mop.md` in the validation-mops repo
-references. A `401`/`403` there means no org access, and it falls back to
-building v0.9 from the public source — a small CMake project, a few minutes.
+references. A `401`/`403` there means no org access, or no credentials at all —
+check [the login](#logging-in-to-ngc) first, since that is the usual cause. With
+`-S` it then falls back to building v0.9 from the public source, a small CMake
+project and a few minutes; without it the run stops there and says so.
 The generated Dockerfile bases on `nvcr.io/nvidia/cuda:13.0.1-devel-ubuntu24.04`;
 edit `NVBANDWIDTH_CUDA` in the script if the driver on the nodes is older, since
 a CUDA base newer than the driver fails at run time, not at build time.
@@ -302,7 +409,8 @@ The node-side prerequisite is IMEX, not fabricmanager:
 healthy. On NVL72 the NVLink domain is managed by NMX-C on the switch trays and
 the hosts run `nvidia-imex`; `node_health.sh` already covers those checks.
 
-To enable, add `nvloom` to `BENCHMARKS` in `SETTINGS`. Scope 1
+To enable, add `nvloom` to `BENCHMARKS` in `SETTINGS`, and build the image with
+`-S` — it is the one image with nothing to download. Scope 1
 (basic health, ~10 min) is what runs by default; the Scope 2 burn-in `srun` is
 present but commented, and needs `#SBATCH -t` raised above `BURN_IN_DURATION`
 before use. nvloom is flagged *optional / exploratory* in the AI Factory Testing
@@ -313,7 +421,8 @@ Plan — Exhaustive only, not a required gate in any variant.
 NVIDIA-internal and not buildable from anything we have, but it is published in
 the same private NGC org as nvbandwidth, so `./build_containers.sh mnubergemm`
 imports it like any other registry image — given credentials that can read org
-`0948245400141054`.
+`0948245400141054`, which is what `./build_containers.sh -L` sets up. `-S` does
+not help here; there is no source to build.
 
 Without those, the script prints the command and exits non-zero; obtain the
 image through the internal channel for your platform and run it by hand:

@@ -105,13 +105,16 @@ To remove them:
 bash pre-post/delete-action-trigger.sh
 ```
 
-### 2. Build the container images
+### 2. Download the container images
 
 ```bash
+./build_containers.sh -L     # log in to nvcr.io — once per machine, needed for the private-org images
 ./build_containers.sh
 ```
 
-Run on the headnode, once per CPU architecture in the cluster. Which images it builds is `CONTAINERS` in `SETTINGS`, which ships as `hpc-benchmarks` alone — that is all the default `BENCHMARKS` list needs. Add an image there when you add the job that uses it; `-A` builds everything the script knows about. See [docs/containers.md](docs/containers.md).
+Run on the headnode, once per CPU architecture in the cluster. Which images it downloads is `CONTAINERS` in `SETTINGS`, which ships as `hpc-benchmarks` alone — that is all the default `BENCHMARKS` list needs. Add an image there when you add the job that uses it; `-A` covers everything the script knows about.
+
+Downloading is the default and, without `-S`, the only path: an image that cannot be pulled reports why rather than starting a source build. `-L` writes `~/.config/enroot/.credentials`, which is what an `hpc-benchmarks`-only site can skip. See [docs/containers.md](docs/containers.md).
 
 ### 3. Establish a valid-config baseline
 

@@ -12,17 +12,25 @@
 # node, and every job prefers that node-local copy over the NFS one. See
 # docs/containers.md.
 #
-# Two of the images have no published build and are compiled from source. Only
-# the headnode has internet and only the compute nodes are ARM, so those two
-# are done in two passes: -F fetches everything on the headnode, -B compiles it
-# natively on a node. Registry pulls need only the -F pass.
+# Downloading is the normal path, and by default it is the only path: every
+# image this script knows about except nvloom is published somewhere on
+# nvcr.io. Two of them are in a private NGC org, so log in first:
+#
+#   ./build_containers.sh -L                 # write ~/.config/enroot/.credentials
+#   NGC_API_KEY=nvapi-... ./build_containers.sh -L    # same, unattended
+#
+# Compiling from source is the fallback for the two images with no usable
+# published build, and it only happens when -S asks for it. Only the headnode
+# has internet and only the compute nodes are ARM, so a source build is two
+# passes: -F fetches everything on the headnode, -B compiles it natively on a
+# node. Downloads need neither.
 #
 #   ./build_containers.sh                    # the CONTAINERS list, whatever is missing
 #   ./build_containers.sh hpc-benchmarks     # just one image, ignoring CONTAINERS
 #   ./build_containers.sh -A                 # every image this script knows about
 #   ./build_containers.sh -f nvloom          # rebuild even if the .sqsh exists
-#   ./build_containers.sh -l                 # list images and their status
-#   ./build_containers.sh -a arm -F          # headnode: fetch ARM sources
+#   ./build_containers.sh -l                 # list images, login state, status
+#   ./build_containers.sh -a arm -S -F       # headnode: fetch ARM sources
 #   srun -N1 ./build_containers.sh -B        # ARM node: compile what was fetched
 #
 # With no image named, the list comes from CONTAINERS in SETTINGS -- the images
@@ -39,7 +47,15 @@ DEST=${CONTAINER_DIR:-/home/cmods/bringup/containers}
 STAGE=${STAGE_DIR:-/home/cmods/bringup/container-src}
 FORCE=0
 LIST=0
+LOGIN=0
 MODE=all
+
+## Whether an image that fails to download may be compiled from source instead.
+## Off by default: a source build is minutes to tens of minutes and, on a
+## cross-architecture cluster, needs a second pass on a compute node -- not
+## something to start on its own because a registry returned 401. -S, -F and -B
+## each turn it on.
+SOURCE_OK=0
 
 ## Architecture suffix. This is a CPU split, not a GPU-generation one: Grace
 ## and Vera are ARM, Intel and AMD hosts are x86.
@@ -98,6 +114,7 @@ usage() {
     echo "Images:     $ALL_IMAGES"
     echo "CONTAINERS: ${CONTAINERS:-<empty>}  (${SETTINGS_FILE:-no settings file})"
     echo "Arch:       arm x86 (default: this machine; \$ARCH also works)"
+    echo "nvcr.io:    $(have_ngc_login && echo "logged in ($CREDS_FILE)" || echo "not logged in -- $0 -L")"
     exit "${1:-0}"
 }
 
@@ -118,6 +135,75 @@ image_file() {
 }
 
 have() { command -v "$1" >/dev/null 2>&1; }
+
+## ── nvcr.io login ─────────────────────────────────────────────────────────
+## enroot has no `login` subcommand. It reads a netrc-style file at
+## $ENROOT_CONFIG_PATH/.credentials before every import and sends the matching
+## entry as the registry's basic auth, so "logging in" is writing one line.
+##
+## The username is the literal string $oauthtoken -- NGC's own convention, not
+## a variable to expand -- and the password is the API key from
+## ngc.nvidia.com > Setup > Generate API Key. Quote the heredoc if you write
+## this file by hand, or the shell eats the username.
+CREDS_FILE=${ENROOT_CONFIG_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/enroot}/.credentials
+
+## Present means "there is an nvcr.io entry", not "the key is valid" -- nothing
+## short of an import can tell us that, so a wrong key still surfaces as a
+## failed import, just with the login already ruled out.
+have_ngc_login() {
+    [[ -f "$CREDS_FILE" ]] &&
+        grep -Eqs '^[[:space:]]*machine[[:space:]]+nvcr\.io([[:space:]]|$)' "$CREDS_FILE"
+}
+
+## Printed wherever a private-org image fails, so the fix is in front of
+## whoever hit it rather than in the docs.
+login_hint() {
+    warn "    nvcr.io login: $(have_ngc_login && echo "present in $CREDS_FILE" || echo "no entry in $CREDS_FILE")"
+    warn "    get an API key from ngc.nvidia.com > Setup > Generate API Key, then:"
+    warn "        $0 -L                     # prompts for the key"
+    warn "        NGC_API_KEY=nvapi-... $0 -L   # unattended"
+}
+
+## Write (or replace) the nvcr.io entry. Other machines' entries are kept --
+## a site may already have a private mirror in here, and clobbering it would
+## break imports this script never touches.
+ngc_login() {
+    local key=${NGC_API_KEY:-} dir tmp
+    dir=$(dirname "$CREDS_FILE")
+
+    if [[ -z "$key" ]]; then
+        if [[ ! -t 0 ]]; then
+            die "no NGC_API_KEY set and stdin is not a terminal -- pass the key in the environment"
+        fi
+        ## Silent read: this ends up in shell history and terminal scrollback
+        ## otherwise, and an NGC key is a credential for the whole org.
+        read -rsp "NGC API key for nvcr.io (input hidden): " key
+        echo
+    fi
+    [[ -n "$key" ]] || die "no key given, leaving $CREDS_FILE alone"
+
+    case "$key" in
+        '$oauthtoken'|oauthtoken) die "that is the username, not the key -- paste the API key itself" ;;
+    esac
+
+    mkdir -p "$dir" || die "cannot create $dir"
+    chmod 700 "$dir" 2>/dev/null
+
+    ## Rewrite through a 600 temp file so the key is never on disk world
+    ## readable, not even between the write and the chmod.
+    tmp="$dir/.credentials.$$"
+    ( umask 077; : > "$tmp" ) || die "cannot write $tmp"
+    if [[ -f "$CREDS_FILE" ]]; then
+        grep -Ev '^[[:space:]]*machine[[:space:]]+nvcr\.io([[:space:]]|$)' "$CREDS_FILE" >> "$tmp"
+    fi
+    printf 'machine nvcr.io login $oauthtoken password %s\n' "$key" >> "$tmp"
+    mv -f "$tmp" "$CREDS_FILE" || { rm -f "$tmp"; die "cannot write $CREDS_FILE"; }
+    chmod 600 "$CREDS_FILE"
+
+    echo "wrote the nvcr.io entry to $CREDS_FILE"
+    echo "The key is not checked here -- the next import is what proves it. Try:"
+    echo "    $0 -a $arch mnubergemm"
+}
 
 ## Two different spellings of the same thing, and they are not interchangeable.
 ##
@@ -423,8 +509,15 @@ build_nvbandwidth() {
 
     if [[ "$MODE" != build ]]; then
         log "nvbandwidth: trying the NGC org image"
+        have_ngc_login || warn "nvbandwidth: no nvcr.io entry in $CREDS_FILE -- the org image needs one"
         if import "$out" "$uri"; then
             return 0
+        fi
+        if [[ "$SOURCE_OK" -eq 0 ]]; then
+            warn "nvbandwidth: NGC org import failed (no access to org ${NGC_ORG}?)"
+            login_hint
+            warn "    or compile ${NVBANDWIDTH_VERSION} from public source instead: $0 -S nvbandwidth"
+            return 1
         fi
         warn "nvbandwidth: NGC org import failed (no access to org ${NGC_ORG}?) -- staging a source build"
         fetch_source_image nvbandwidth || return 1
@@ -439,6 +532,18 @@ build_nvbandwidth() {
 ## when bumping the version.
 build_nvloom() {
     local out="$1"
+    ## The one image with nothing to download: upstream publishes a sample
+    ## Dockerfile and no image, so there is no registry path to prefer here.
+    ## It still waits for -S rather than compiling on sight, so that a bare run
+    ## with nvloom in CONTAINERS says what it wants instead of quietly starting
+    ## a build and, on ARM, stopping half way for a second pass.
+    if [[ "$SOURCE_OK" -eq 0 ]]; then
+        warn "nvloom: no image is published anywhere -- it can only be built from source"
+        warn "    ./build_containers.sh -S nvloom          # same-architecture, one pass"
+        warn "    ./build_containers.sh -a arm -S -F nvloom && \\"
+        warn "        srun -N1 ./build_containers.sh -B nvloom   # ARM nodes, x86 headnode"
+        return 1
+    fi
     [[ "$MODE" == build ]] || fetch_source_image nvloom || return 1
     [[ "$MODE" == fetch ]] && return 0
     build_from_stage nvloom "$out"
@@ -457,27 +562,36 @@ build_mnubergemm() {
     local out="$1" uri="docker://nvcr.io#${NGC_ORG}/mnubergemm:tensorrt-${MNUBERGEMM_VERSION}-${arch}"
 
     [[ "$MODE" == build ]] && return 0
+    have_ngc_login || warn "mnubergemm: no nvcr.io entry in $CREDS_FILE -- this image needs one"
     log "mnubergemm: importing ${uri#docker://} ($arch)"
     import "$out" "$uri" && return 0
 
     warn "mnubergemm: import failed (no access to org ${NGC_ORG}, or no ${arch} build of ${MNUBERGEMM_VERSION}?)"
-    warn "It is NVIDIA-internal and has no public source to build from. Obtain the"
-    warn "image through the internal channel for your platform and import it by hand:"
+    login_hint
+    warn "It is NVIDIA-internal and has no public source to build from, so -S does not"
+    warn "help. If the org is genuinely out of reach, obtain the image through the"
+    warn "internal channel for your platform and import it by hand:"
     warn "    enroot import -o $out $uri"
     warn "The version and -arch suffix must match the nodes under test."
     return 1
 }
 
 ALL=0
-while getopts ':fld:a:AFBh' opt; do
+while getopts ':fld:a:AFBSLh' opt; do
     case "$opt" in
         f) FORCE=1 ;;
         l) LIST=1 ;;
         d) DEST="$OPTARG" ;;
         a) arch="$OPTARG" ;;
-        A) ALL=1 ;;
-        F) MODE=fetch ;;
-        B) MODE=build ;;
+        ## -A is "everything the script knows about", and nvloom cannot be
+        ## downloaded at all -- so asking for it is asking for the build.
+        A) ALL=1; SOURCE_OK=1 ;;
+        ## Both source passes are a request to build from source, so neither
+        ## needs -S spelled out as well.
+        F) MODE=fetch; SOURCE_OK=1 ;;
+        B) MODE=build; SOURCE_OK=1 ;;
+        S) SOURCE_OK=1 ;;
+        L) LOGIN=1 ;;
         h) usage 0 ;;
         *) usage 1 ;;
     esac
@@ -485,6 +599,13 @@ done
 shift $((OPTIND - 1))
 
 [[ -n "$(enroot_arch "$arch")" ]] || die "unknown architecture: $arch (want arm or x86)"
+
+## Login is a standalone errand -- it writes one file and builds nothing, so it
+## runs before the image list and the enroot checks below.
+if [[ "$LOGIN" -eq 1 ]]; then
+    ngc_login
+    exit 0
+fi
 
 ## Three sources for the image list, most specific first: what was named on the
 ## command line, -A, then CONTAINERS.
@@ -545,6 +666,8 @@ if [[ "$LIST" -eq 1 ]]; then
         fi
         printf '%-16s %-52s %-24s %s\n' "$img" "$f" "$status" "$staged"
     done
+    echo
+    echo "nvcr.io: $(have_ngc_login && echo "logged in ($CREDS_FILE)" || echo "not logged in -- run '$0 -L'")"
     exit 0
 fi
 
@@ -552,7 +675,12 @@ have enroot || die "enroot is not installed"
 mkdir -p "$DEST" "$WORKDIR" "$ENROOT_CACHE_PATH" "$ENROOT_TEMP_PATH" \
          "$ENROOT_DATA_PATH" "$ENROOT_RUNTIME_PATH" ||
     die "cannot create $DEST -- check write access"
-[[ "$MODE" == build ]] || mkdir -p "$STAGE" || die "cannot create $STAGE -- check write access"
+## Only a source build touches the staging tree, and only the fetch pass
+## creates it. A plain download run must not need write access to it -- that
+## turned "no NGC credentials" into "cannot create /home/cmods/bringup".
+if [[ "$SOURCE_OK" -eq 1 && "$MODE" != build ]]; then
+    mkdir -p "$STAGE" || die "cannot create $STAGE -- check write access"
+fi
 
 failed=()
 for img in "${images[@]}"; do
