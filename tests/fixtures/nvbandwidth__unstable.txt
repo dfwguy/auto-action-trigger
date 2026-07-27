@@ -402,4 +402,5 @@ COEFFICIENT_OF_VARIATION device_local_copy 0.01
 NOTE: The reported results may not reflect the full capabilities of the platform.
 Performance can vary with software drivers, hardware clocks, and system topology.
 
+exit status: 0
 PENDING

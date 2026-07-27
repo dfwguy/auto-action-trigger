@@ -6,4 +6,5 @@ Successfully ran diagnostic for group.
 | Diagnostic                | Pass                                           |
 | Targeted Stress           | Pass                                           |
 +---------------------------+------------------------------------------------+
+exit status: 0
 PENDING

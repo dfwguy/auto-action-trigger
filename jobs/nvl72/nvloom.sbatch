@@ -110,4 +110,10 @@ rc=$?
 ## rackGuid -- are in _v_gate_nvloom there. Bandwidth uniformity (no link >3%
 ## below the matrix average, no multicast source >5% below peers) needs the
 ## per-platform matrix and is still left to review of the log.
+
+## The workload's exit status, written into the log rather than left only in
+## the marker below. A FAIL with a non-zero here is the job's own -- srun
+## returned it. A FAIL with `exit status: 0` came from the gate in verdict.sh,
+## which is read at status-check time and leaves no trace in this file.
+echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

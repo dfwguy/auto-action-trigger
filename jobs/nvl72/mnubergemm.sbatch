@@ -134,5 +134,11 @@ rc=$?
 ## no positive marker to require beyond a non-empty file -- a container that
 ## starts, runs nothing and exits 0 produces an empty file and a zero status.
 ## Add a real marker there once the tool's clean-run format is known.
+
+## The workload's exit status, written into the log rather than left only in
+## the marker below. A FAIL with a non-zero here is the job's own -- srun
+## returned it. A FAIL with `exit status: 0` came from the gate in verdict.sh,
+## which is read at status-check time and leaves no trace in this file.
+echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL
 

@@ -159,8 +159,38 @@ rc=$?
 ## could reach the results it was written for.
 ##
 ## Capture the workload's exit status immediately after it, before anything
-## else runs, and end the file with this line. Then write the gate:
+## else runs, and end the file with these two lines. Then write the gate:
 ## docs/benchmarks.md, "Adding a new benchmark", steps 4-7.
+##
+## ── Why the status is printed as well as acted on ─────────────────────────
+## The marker alone says FAIL without saying who decided it, and there are two
+## deciders. This line separates them, from the result file alone:
+##
+##   exit status: <non-zero>   the job's own verdict -- srun returned it, and
+##                             the reason is in the log above: a cancelled
+##                             step, a container that would not start, a rank
+##                             that died on the way out.
+##   exit status: 0            the workload ran and exited clean, so a FAIL in
+##                             the status check came from this job's gate in
+##                             verdict.sh instead. Read the reason it printed
+##                             rather than hunting the log for a crash that is
+##                             not there.
+##
+## Without it the two are indistinguishable in the file, because the gate runs
+## at status-check time and writes nothing back here -- that is the whole point
+## of deriving verdicts, and this line is what keeps it debuggable.
+##
+## The wording is load-bearing in the same way the preflight line's is. Every
+## gate in verdict.sh reads this file, several of them sweeping it
+## case-insensitively for fail/warn/error, so the line must not contain any of
+## those words; and it must not begin with a digit, or the nccl-tests per-size
+## parser reads it as a data row. `exit status: <n>` satisfies both. Keep the
+## prefix identical across jobs so one grep finds it everywhere.
+##
+## It goes BEFORE the marker, never after: verdict.sh reads the last line of
+## the file, and anything printed after it is read as "no end marker -- job
+## died before finishing".
+echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL
 
 

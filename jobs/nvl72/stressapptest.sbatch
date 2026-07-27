@@ -73,4 +73,10 @@ rc=$?
 ## decided by verdict.sh, which is read on every status check rather than
 ## written once into this file. That is what lets a tightened gate re-judge
 ## results that already exist -- see the header of verdict.sh.
+
+## The workload's exit status, written into the log rather than left only in
+## the marker below. A FAIL with a non-zero here is the job's own -- srun
+## returned it. A FAIL with `exit status: 0` came from the gate in verdict.sh,
+## which is read at status-check time and leaves no trace in this file.
+echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

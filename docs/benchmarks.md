@@ -233,8 +233,20 @@ written not to depend on any of them.
    the workload with `rc=$?` and end the file with:
 
    ```bash
+   echo "exit status: $rc"
    [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL
    ```
+
+   The `exit status:` line is what says *who* decided a `FAIL`. A non-zero
+   there is the job's own verdict, with the cause somewhere in the log above;
+   `exit status: 0` under a `FAIL` means the workload ran clean and the gate in
+   `verdict.sh` rejected the output, so the reason is in the status check
+   rather than in the file. The gate runs at status-check time and writes
+   nothing back into the result, so without this line the two are
+   indistinguishable in the file. Keep the prefix identical across jobs, keep
+   it before the marker — `verdict.sh` reads the last line — and keep the words
+   fail, warn and error out of it, since several gates sweep the whole file for
+   those case-insensitively.
 6. Add a gate for `<name>` to the `case` in `parsers/$PARSERS/verdict.sh`. Without one it falls
    through to `_v_gate_generic`, which only checks for common crash signatures
    and cannot know what your job's output is supposed to look like.

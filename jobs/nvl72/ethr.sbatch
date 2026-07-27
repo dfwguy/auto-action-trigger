@@ -98,4 +98,10 @@ done
 ## decided by verdict.sh, which is read on every status check rather than
 ## written once into this file. That is what lets a tightened gate re-judge
 ## results that already exist -- see the header of verdict.sh.
+
+## The aggregate exit status over every pass -- 0 if all of them returned 0, 1
+## if any did not. Written into the log rather than left only in the marker
+## below: a FAIL with a non-zero here is the job's own, a FAIL with
+## `exit status: 0` came from the gate in verdict.sh at status-check time.
+echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

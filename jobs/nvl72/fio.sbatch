@@ -101,4 +101,10 @@ rm -rf "${FIO_DIR}"
 ##
 ## _v_gate_fio there requires one IOPS summary per pass, which is what catches
 ## a pass that was skipped rather than one that failed.
+
+## The aggregate exit status over every pass -- 0 if all of them returned 0, 1
+## if any did not. Written into the log rather than left only in the marker
+## below: a FAIL with a non-zero here is the job's own, a FAIL with
+## `exit status: 0` came from the gate in verdict.sh at status-check time.
+echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

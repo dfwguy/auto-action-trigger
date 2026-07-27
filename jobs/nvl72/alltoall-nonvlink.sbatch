@@ -151,4 +151,10 @@ rc=$?
 ## srun's exit status is the one thing that cannot be recovered from the log
 ## afterwards: a run can print a complete, valid summary and still have a rank
 ## die on the way out.
+
+## The workload's exit status, written into the log rather than left only in
+## the marker below. A FAIL with a non-zero here is the job's own -- srun
+## returned it. A FAIL with `exit status: 0` came from the gate in verdict.sh,
+## which is read at status-check time and leaves no trace in this file.
+echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

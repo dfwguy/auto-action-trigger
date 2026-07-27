@@ -1,4 +1,5 @@
 preflight: ink50-dh01-h01-13 gpus=4 cores=144/144
 ink50-dh01-h01-13
 Test job!
+exit status: 0
 PENDING

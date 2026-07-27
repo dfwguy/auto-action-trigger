@@ -126,4 +126,10 @@ health_rc=$?
 ## are in _v_gate_nvsm there, which carries a warning worth reading before
 ## trusting this job: that sweep greps the whole file for fail/error and has
 ## never been checked against a captured healthy run.
+## Both steps' exit statuses, written into the log rather than left only in the
+## marker below -- and both, because either one alone explains a FAIL here. A
+## FAIL with a non-zero in this line is the job's own; a FAIL with both at 0
+## came from the gate in verdict.sh, which is read at status-check time and
+## leaves no trace in this file.
+echo "exit status: stress-test=$stress_rc show-health=$health_rc"
 [[ "$stress_rc" -eq 0 && "$health_rc" -eq 0 ]] && echo PENDING || echo FAIL

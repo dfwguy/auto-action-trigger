@@ -72,6 +72,12 @@ cases=(
   "nvbandwidth__missing-peer|FAIL|missing peer transfer -- N/A off the matrix diagonal"
   "nvbandwidth__unstable|FAIL|bandwidth unstable -- coefficient of variation above 0.02"
   "example__good|DONE|"
+  ## The other half of the `exit status:` line every job now prints before its
+  ## marker. Here it is non-zero, and the FAIL is the job's own: the step hit
+  ## its --time limit and srun returned 143. `example__good` carries the same
+  ## line at 0 and still passes its gate -- between them they hold the line to
+  ## a wording no gate reacts to, which is the thing that could silently break.
+  "example__step-cancelled|FAIL|job reported FAIL"
 )
 
 pass=0

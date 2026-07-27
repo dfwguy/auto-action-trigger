@@ -101,6 +101,12 @@ rc=$?
 ## to stay on NVLink and never reach the network at all. Making the HCAs
 ## reachable would let a run that has lost NVLink quietly succeed over IB
 ## instead of being caught.
+
+## The workload's exit status, written into the log rather than left only in
+## the marker below. A FAIL with a non-zero here is the job's own -- srun
+## returned it. A FAIL with `exit status: 0` came from the gate in verdict.sh,
+## which is read at status-check time and leaves no trace in this file.
+echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL
 
 
