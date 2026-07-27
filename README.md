@@ -73,7 +73,7 @@ The following scripts are run manually by an operator from the headnode and do n
 | Script | Requires |
 |--------|---------|
 | `status-check.sh` | `sinfo`, `dshbak`, read access to `results/` |
-| `status-daily-report.sh` | read access to `results/`, write access to `reports/` |
+| `daily-report.sh` | `sinfo`, read access to `results/`; write access to wherever `-o` points |
 | `health-check.sh` | `sinfo`, `scontrol`, read access to `logs/` and `valid-config/` |
 | `node-health-refresh.sh` | write access to `logs/<node>/` |
 | `sync-check.sh` | read access to `logs/` and `valid-config/` |
@@ -179,7 +179,8 @@ bash status-check.sh                      # per-node benchmark status, all nodes
 bash status-check.sh ink50-dh01-h20        # one rack (bare prefix)
 bash status-check.sh -t allreduce          # one benchmark (repeatable, globs OK)
 bash status-check.sh -s                    # node lists per status, no reasons
-bash status-daily-report.sh               # CSV to reports/, with performance metrics
+bash daily-report.sh                      # TSV table: slurm state + status + metrics
+bash daily-report.sh -c -o reports/r.csv  # same rows as CSV, and keep a copy
 bash watch-rack.sh "rack01-node[1-32]"    # live view of DOWN/drained nodes
 ```
 

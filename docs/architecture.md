@@ -89,7 +89,7 @@ across the cluster and names the broken link.
 ├── ib-visibility.sh               # Compare HCAs the host sees vs the container sees
 ├── single-node-purge.sh           # Clear benchmark results for a node
 ├── status-check.sh                # Live per-node benchmark status (all nodes)
-├── status-daily-report.sh         # Generate dated CSV report with performance metrics
+├── daily-report.sh                # Per-node table: slurm state, status, performance metrics
 ├── sync-check.sh                  # Diff a drained node's health output vs baseline
 ├── trigger-debug.sh               # Walk the BCM → sbatch chain and name the broken link
 ├── trigger-log.sh                 # Read what the chain wrote: trigger.log across the cluster
@@ -120,6 +120,6 @@ not the checked-out ones.
 | `/home/cmods/bringup/results/<node>/` | Per-node benchmark result files |
 | `/home/cmods/bringup/results/<node>/trigger.log` | Per-cycle decision trace from `launch_job.sh` |
 | `/home/cmods/bringup/results/<node>/quick-view.txt` | One line per benchmark: `DONE` / `QUEUED` |
-| `/home/cmods/bringup/reports/` | CSV reports from `status-daily-report.sh` |
+| `/home/cmods/bringup/reports/` | Where `daily-report.sh -o` reports are kept by convention |
 | `/home/cmods/bringup/containers/` | Container images built by `build_containers.sh` |
 | `/tmp/containers/` (on each node) | Node-local cache of the above, rsync'd by `file_copy.sh` |

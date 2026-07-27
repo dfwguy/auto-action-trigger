@@ -165,7 +165,7 @@ What to expect once it is on: `mnubergemm` is 12 runs of a ~6-hour step,
 submitted one job at a time, so a node is under burn-in for about three days —
 the plan's 24–72 hour row. Each run is its own job and its own result file, so
 an interrupted burn-in resumes at the run it reached rather than starting over.
-`status-check.sh` and `status-daily-report.sh` grow a column for each `BURNIN`
+`status-check.sh` and `daily-report.sh` grow a column for each `BURNIN`
 job when the switch is on, and drop it again when it is off, so an unused list
 does not leave a permanent `NOT_RUN` column that reads like work outstanding. A
 burn-in failure drains with `burn-in` in the reason, because a node that ran

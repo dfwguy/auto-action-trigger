@@ -258,7 +258,7 @@ written not to depend on any of them.
 An sbatch does **not** decide whether its own result is good. It reports only
 whether it ran (`PENDING`) or could not (`FAIL`). `DONE` is derived by
 `verdict.sh`, which is read by `launch_job.sh`, `status-check.sh` and
-`status-daily-report.sh` every time they look at a result — it is never written
+`daily-report.sh` every time they look at a result — it is never written
 to disk.
 
 That split exists because the alternative failed in a way nothing could
@@ -399,7 +399,7 @@ transport that is obviously wrong, not to assert the fabric performs to spec.
 Raise them once a known-good run on the platform establishes what good looks
 like. They read the `# Avg bus bandwidth` summary line, which is an average
 across every message size and roughly half the largest-size figure that
-`status-daily-report.sh` reports as the metric; do not compare the two.
+`daily-report.sh` reports as the metric; do not compare the two.
 
 Run `tests/verdict-test.sh` after changing a gate. It checks
 `parsers/nvl72/verdict.sh` against captured result files, including a real

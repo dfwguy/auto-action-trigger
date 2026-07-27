@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Shared pass/fail rule for a benchmark result file. Sourced by
-# actions/launch_job.sh, status-check.sh and status-daily-report.sh.
+# actions/launch_job.sh, status-check.sh and daily-report.sh.
 #
 # This exists for the same reason reason-map.sh does. The rule used to live
 # inside each jobs/*.sbatch -- four near-identical copies for the NCCL jobs
@@ -38,7 +38,7 @@
 ##
 ## Read `# Avg bus bandwidth`, which is an average across every message size,
 ## not the largest-size row. The two differ by roughly 2x on the same run
-## (1.17 vs 2.23 on the h01-14 socket run), and status-daily-report.sh's
+## (1.17 vs 2.23 on the h01-14 socket run), and daily-report.sh's
 ## extract_metric reports the largest-size row. Same file, two numbers -- do
 ## not compare a floor set here against a figure from that report.
 VERDICT_MIN_BW_NVLINK=10
@@ -46,7 +46,7 @@ VERDICT_MIN_BW_NONVLINK=10
 
 ## Floors on the LARGEST-MESSAGE-SIZE out-of-place busbw, GB/s -- a different
 ## number from the ones above, read from a different place in the same file.
-## These are the figures status-daily-report.sh prints in its allreduce and
+## These are the figures daily-report.sh prints in its allreduce and
 ## alltoall columns (see extract_metric there), so a value in the report can be
 ## compared against the floor here directly. The `# Avg bus bandwidth` floors
 ## above cannot be compared that way: they average every message size and come
@@ -172,7 +172,7 @@ _v_min_bw() {
 
 ## Floor on the largest message size actually run, out-of-place busbw (column 8
 ## of the data rows). The extraction here is deliberately the same as
-## status-daily-report.sh's extract_metric: pick the numeric-first-field rows,
+## daily-report.sh's extract_metric: pick the numeric-first-field rows,
 ## sort by size, take the last. If one of the two is ever changed the other must
 ## change with it, or the report will print a number that the gate did not judge.
 ##

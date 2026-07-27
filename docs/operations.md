@@ -77,12 +77,26 @@ line `NOT_RUN (fails: 1)` -- never ran, failed once. They are split because a
 column with archives is a different thing from one with no history at all.
 
 ```bash
-bash status-daily-report.sh
+bash daily-report.sh
+bash daily-report.sh -c -o reports/report-$(date '+%F').csv
 ```
 
-Writes `reports/report-YYYY-MM-DD_HH-MM-SS.csv` with one row per node. Completed
+One row per node, tab separated on stdout. The first column after the node name
+is its Slurm state from `sinfo`, so a column of `NOT_RUN` can be read against
+whether the node was drained the whole time rather than guessed at. Completed
 jobs show extracted performance metrics (Gflops for HPL, busbw GB/s for
 allreduce/alltoall) instead of a status string.
+
+Nothing is written to disk unless `-o` names a file, and `-c` switches the
+separator to commas. Run at a terminal the table is column-aligned; redirected
+or piped it is the raw separated rows, so `cut -f2` and a spreadsheet both get
+what they expect.
+
+Under the table, on stderr, a `Summary:` block counts the nodes in each Slurm
+state and the cells holding each status, then gives `min`/`median`/`mean`/`max`
+per job over the cells that hold a number. The statistics are per job rather
+than pooled — Gflops, GB/s and MB/s share a table but not a scale. It stays on
+stderr so neither `-o` nor a redirect ever gets prose mixed into the data.
 
 ```bash
 bash watch-rack.sh "rack01-node[1-32]"
@@ -267,7 +281,7 @@ DRAIN_AFTER_FAILED_BENCHMARK=no      # launch_job.sh: failed sweep, and MAX_JOB_
 Nothing else changes with either off — checks and benchmarks still run, results
 are still recorded, and failures still re-queue hourly. The node is simply never
 taken out of service, so failures show up in `status-check.sh`, `sync-check.sh`
-and the CSV report rather than in `sinfo`.
+and `daily-report.sh` rather than in `sinfo`.
 
 That is the state to be in during early bringup, when you want the full picture
 across a rack before nodes start dropping out, and while debugging a benchmark
