@@ -377,6 +377,16 @@ archive_result() {
     local file="$1" kind="${2:-fail}" base n
     [[ -f "$file" ]] || return 0
     base=$(basename "$file" .txt)
+    ## The serial has to be the count of archives of exactly this shape, and only
+    ## a regex says that -- a glob cannot spell "one or more digits", so
+    ## <base>.fail[0-9]*.txt would also swallow a hand-renamed <base>.fail2-bad.txt
+    ## and push the serial past it. Undercount and the mv below destroys an
+    ## earlier attempt; overcount and status-check.sh reports rejections that
+    ## never happened. Every name in here was written by result_file() out of a
+    ## BENCHMARKS entry and a fixed suffix, so the odd filenames SC2010 guards
+    ## against cannot arise. A missing or empty $logs lists nothing and leaves
+    ## n=0, which is the right answer for a first archive.
+    # shellcheck disable=SC2010
     n=$(ls "$logs" 2>/dev/null | grep -cE "^${base}\.${kind}[0-9]+\.txt$")
     mv "$file" "$logs/${base}.${kind}$((n + 1)).txt"
 }
@@ -732,6 +742,15 @@ for job in $list; do
     ## Archived attempts still count as having run — a job whose output was
     ## rotated aside is mid-retry, not untested. Either suffix: .prev<N> is a
     ## pass that --all moved aside, which is even less "untested".
+    ##
+    ## Same reasoning as archive_result(): the shape asked about here -- an
+    ## optional -run<N>, then a .fail<N> or a .prev<N> -- needs alternation and a
+    ## one-or-more digit run, neither of which a glob expresses. A looser match
+    ## marks a job that has never run as attempted, and that job then drops out
+    ## of the swept-clean gate below without anything being written down. A
+    ## missing or empty $logs lists nothing and the test is false -- untested,
+    ## which is correct.
+    # shellcheck disable=SC2010
     if [[ "$attempted" -eq 0 ]] &&
        ls "$logs" 2>/dev/null | grep -qE "^${job}(-run[0-9]+)?\.(fail|prev)[0-9]+\.txt$"; then
         attempted=1

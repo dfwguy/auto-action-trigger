@@ -221,6 +221,11 @@ hdr "5. What the script decided, per node"
 ## explaining what it did or why it stopped. No log at all means the script is
 ## not being run on that node -- which points back at links 1-4, not at slurm.
 shopt -s nullglob
+## $pattern is a glob by construction -- it is either '*' or the caller's node
+## filter with a trailing '*' appended above -- so it has to stay unquoted:
+## quoting it would look for one directory literally named '*'. This is
+## pathname expansion, not word splitting, so mapfile/read -a do not apply.
+# shellcheck disable=SC2206
 nodes=("$results_dir"/$pattern/)
 if [[ "${#nodes[@]}" -eq 0 ]]; then
     bad "no node directories under $results_dir match '${1:-*}'"
