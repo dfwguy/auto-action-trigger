@@ -116,6 +116,25 @@ else
         fi
     done
 
+    ## JOB_ENV reaches the jobs through sbatch --export, so a malformed entry
+    ## is dropped at submit time and the sweep runs without it -- visible in
+    ## trigger.log, but only on a cycle that submitted something. Report the
+    ## effective list here, where the configuration is being read anyway, and
+    ## apply the same test launch_job.sh applies rather than a looser one.
+    if [[ -n "${JOB_ENV// /}" ]]; then
+        bad_env=""; good_env=""
+        # shellcheck disable=SC2086  # list-in-a-string, as BENCHMARKS is
+        for e in $JOB_ENV; do
+            if [[ "$e" =~ ^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_.:/+@%-]*$ ]]; then
+                good_env="$good_env $e"
+            else
+                bad_env="$bad_env '$e'"
+            fi
+        done
+        [[ -n "$good_env" ]] && note "JOB_ENV -> every benchmark and burn-in job runs with:$good_env"
+        [[ -n "$bad_env" ]] && bad "JOB_ENV entries are not NAME=VALUE with a value of [A-Za-z0-9_.:/+@%-] and will be dropped:$bad_env"
+    fi
+
     ## launch_job.sh sources this and exits if it is absent, which shows up in
     ## trigger.log as an exit rather than as a submission. Named separately
     ## because it is the one file whose absence stops every node at once.

@@ -231,6 +231,43 @@ fi
 force_note=""
 [[ "$FORCE" -eq 1 ]] && force_note=" --force does not override that."
 
+## ── Extra environment for the jobs ────────────────────────────────────────
+##
+## JOB_ENV is a space-separated NAME=VALUE list from SETTINGS, appended to the
+## sbatch --export below so a site can set something like NCCL_DMABUF_ENABLE=0
+## across the whole sweep without editing every jobs/*.sbatch.
+##
+## It is validated rather than pasted, because the submission is built as a
+## string and run through `su - $JOB_USER -c`. Everything in a hand-edited
+## SETTINGS is shell that root has arranged to have run, so the value is an
+## allowlist -- letters, digits, and `_.:/+@%-` -- rather than a list of
+## characters to exclude. A blocklist here has to be right about every
+## metacharacter at once; `NCCL_X=0;id` is a plausible typo and would be a
+## rejected-benchmark-shaped hole that runs as root on 200+ nodes. The
+## allowlist also settles globbing: no `*` or `?` survives to be expanded.
+##
+## Commas are excluded for a second, duller reason -- --export is itself a
+## comma-separated list, so a value carrying one silently becomes two entries.
+##
+## Anything that does not match is dropped with its own trace line: the sweep
+## still runs, and the reason it ran without your variable is written down next
+## to it rather than being nothing at all. A value that genuinely needs a comma
+## or a space belongs in the .sbatch, which is a file and not a list.
+JOB_ENV_ARGS=""
+JOB_ENV_NAMES=()
+## Unquoted on purpose -- this is the list-in-a-string convention BENCHMARKS
+## and CONTAINERS already use, and word splitting is how it is read.
+# shellcheck disable=SC2086
+for _pair in $JOB_ENV; do
+    if [[ ! "$_pair" =~ ^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_.:/+@%-]*$ ]]; then
+        trace "WARNING: JOB_ENV entry '$_pair' is not NAME=VALUE with a value of [A-Za-z0-9_.:/+@%-] -- dropped, and the jobs will run without it."
+        continue
+    fi
+    JOB_ENV_ARGS+=",$_pair"
+    JOB_ENV_NAMES+=("${_pair%%=*}")
+done
+unset _pair
+
 ## A forced run is a human decision, and the trace has to say so: without this
 ## line, an hour of results appearing off-cadence -- or a passing job suddenly
 ## re-running -- reads as the sequencer misbehaving.
@@ -977,11 +1014,25 @@ resume_node
 ## the queue. See docs/benchmarks.md.
 submit_list() {
     local jname="$1"; shift
-    local job launch totalRuns r file submit out kind
+    local job launch totalRuns r file submit out kind name
 
     for job in "$@"; do
     launch="$JOBS_DIR/$job.sbatch"
     totalRuns=${job_runs["$job"]}
+
+    ## Say so when JOB_ENV and the job file name the same variable. The job
+    ## file wins -- its `export` runs after the environment sbatch handed it --
+    ## and that is the right way round: allreduce-nonvlink.sbatch has to have
+    ## NCCL_P2P_DISABLE=1 or it stops being the non-NVLink test and quietly
+    ## becomes a second NVLink one that passes. What is wrong is only that the
+    ## override is invisible, so a SETTINGS line that does nothing looks
+    ## exactly like one that works. Now it has a trace line.
+    if [[ -f "$launch" ]]; then
+        for name in "${JOB_ENV_NAMES[@]}"; do
+            grep -qE "^[[:space:]]*export[[:space:]]+$name=" "$launch" &&
+                trace "NOTE: JOB_ENV sets $name, but $job.sbatch exports its own -- the job file's value is what runs."
+        done
+    fi
 
     for ((r = 1; r <= totalRuns; r++)); do
         file=$(result_file "$job" "$r" "$totalRuns")
@@ -1033,7 +1084,7 @@ submit_list() {
         ## shell, and would not expand $HOSTNAME.
         submit="source /etc/profile.d/modules.sh; module load slurm; \
 mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
---export=ALL,RESULT_FILE=$file --output=$file $launch"
+--export=ALL,RESULT_FILE=$file$JOB_ENV_ARGS --output=$file $launch"
 
         if [[ "$EXPLAIN" -eq 1 ]]; then
             trace "WOULD SUBMIT $job run $r$([[ -f "$file" ]] && printf ' (existing %s result kept as .%s<N>.txt)' "$VERDICT_STATUS" "$kind"): $([[ "$EUID" -eq 0 ]] && printf 'su - %s -c ' "$JOB_USER")\"$submit\""
@@ -1063,7 +1114,11 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
             continue
         fi
         if [[ "$out" == *"Submitted batch job"* ]]; then
-            trace "submitted $job run $r: ${out##*$'\n'}"
+            ## The environment goes in the trace, not just the job id. When a
+            ## result is questioned weeks later, "what was this run given" has
+            ## to be answerable from what was written down at the time --
+            ## SETTINGS by then says whatever it says now.
+            trace "submitted $job run $r: ${out##*$'\n'}${JOB_ENV_ARGS:+ (JOB_ENV:${JOB_ENV_ARGS//,/ })}"
         else
             trace "SUBMIT FAILED $job run $r: ${out:-<no output>}"
         fi

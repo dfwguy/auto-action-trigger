@@ -83,6 +83,12 @@ fi
 : "${MAX_JOB_HOURS:=7}"
 : "${DRAIN_WINDOW_MINUTES:=15}"
 : "${DRAIN_MARKER:=auto-retry}"
+## `=` rather than `:=`, like CONTAINERS and BURNIN: empty is the shipped
+## answer and a real one. Deliberately not exported here -- this file is
+## sourced by every health check runner, status check and container build in
+## the tree, and exporting would put a site's NCCL tuning into all of them.
+## launch_job.sh is the only reader, and it hands these to sbatch --export.
+: "${JOB_ENV=}"
 : "${JOB_USER:=cmods}"
 : "${BRINGUP_HOME:=/home/cmods/bringup}"
 

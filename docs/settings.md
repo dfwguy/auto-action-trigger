@@ -457,6 +457,71 @@ grep -H STEP_TIMELIMIT jobs/$JOBS/*.sbatch | sort -t= -k2   # longest run in the
 `DRAIN_MARKER` is what makes an operator drain survive. `launch_job.sh` will not
 queue work behind a drain that does not carry it, and will not clear one.
 
+## Extra environment for every job
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `JOB_ENV` | empty | Space-separated `NAME=VALUE`, added to the environment of every `BENCHMARKS` and `BURNIN` job |
+
+For tuning that belongs to the site rather than to any one benchmark, so it does
+not have to be pasted into a dozen `.sbatch` files and kept in step:
+
+```sh
+JOB_ENV="NCCL_DMABUF_ENABLE=0"
+```
+
+`launch_job.sh` appends these to the `sbatch --export` it already uses for
+`RESULT_FILE`, and each job's `srun --export=ALL` carries them on into the
+container. Nothing else in the tree reads `JOB_ENV`: not the health checks, not
+`build_containers.sh`, not the parsers. `settings.sh` is sourced by all of them,
+so a variable exported there would land in all of them too — which is why this
+is one named list handed to one command rather than a general "export whatever
+is in `SETTINGS`" mechanism.
+
+### The job file wins
+
+A variable that the job's own `.sbatch` exports is **not** overridden by
+`JOB_ENV`. The `export` in the job file runs after `sbatch` has handed over the
+environment, so it is last to write.
+
+That is the right way round. `allreduce-nonvlink.sbatch` has to run with
+`NCCL_P2P_DISABLE=1`; a site-wide setting that could flip it would turn the
+non-NVLink benchmark into a second NVLink benchmark, which passes and tests
+nothing. Per-job values are the test definition, and `JOB_ENV` is the
+environment around it.
+
+What was wrong with this before it was written down is that the override was
+silent — a `SETTINGS` line that did nothing looked exactly like one that
+worked. `launch_job.sh` now traces the collision when it submits:
+
+```
+NOTE: JOB_ENV sets NCCL_P2P_LEVEL, but allreduce.sbatch exports its own -- the job file's value is what runs.
+```
+
+To change one of those, edit the job file. To change something no job names,
+use `JOB_ENV`. `grep -n '^export' jobs/$JOBS/*.sbatch` lists which is which.
+
+### What is rejected
+
+Each entry must be `NAME=VALUE`, where the name is a normal shell identifier and
+the value contains only `A-Za-z0-9` and `_.:/+@%-`. Anything else is dropped,
+with a line in `trigger.log` saying so, and the sweep runs without it.
+
+The submission is built as a string and run through `su - $JOB_USER -c`, so
+everything in `JOB_ENV` is shell that root has arranged to have executed on
+every node. Hence an allowlist rather than a list of forbidden characters:
+`NCCL_X=0;id` is a plausible typo, and a blocklist has to be right about every
+metacharacter at once. It also settles globbing — no `*` or `?` survives to be
+expanded. Commas are excluded for a second reason: `--export` is itself
+comma-separated, so a value carrying one would silently split into two entries.
+
+A value that genuinely needs a comma or a space belongs in the `.sbatch`, which
+is a file rather than a list.
+
+`trigger-debug.sh` section 0 reports the effective list and names any entry that
+will be dropped, so a bad line is visible without waiting for a cycle that
+happens to submit something.
+
 ## Accounts and paths
 
 | Setting | Default | Meaning |
