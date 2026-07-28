@@ -27,6 +27,7 @@
 ## GB300 MOP 7.5.2.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
+# shellcheck disable=SC2034
 job_name=cublasmatmul
 
 ## Step time limit, handed to srun --time below: 2x DURATION below; the plan

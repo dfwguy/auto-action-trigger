@@ -34,6 +34,7 @@ CONT=/tmp/containers/$IMG
 HPLDATPATH=/home/cmods/bringup/jobs/nvl72/hpl/
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
+# shellcheck disable=SC2034
 job_name=hpl
 
 ## Step time limit, handed to srun --time below. The plan gives no estimate for

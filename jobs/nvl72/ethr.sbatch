@@ -23,6 +23,7 @@
 ## Distinct from perftest/NCCL, which target east-west RDMA traffic.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
+# shellcheck disable=SC2034
 job_name=ethr
 
 ## Per-pass step time limit, handed to srun --time below -- one limit per pass

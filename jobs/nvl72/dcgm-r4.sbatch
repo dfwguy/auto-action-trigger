@@ -23,6 +23,7 @@
 ## (dcgm-r2.sbatch), `-r 3` is the Hybrid gate (dcgm.sbatch).
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
+# shellcheck disable=SC2034
 job_name=dcgm-r4
 
 ## Deadline: 2x ~45-90 min, taking the upper end, the plan's estimate for dcgmi -r 4.

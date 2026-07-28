@@ -25,6 +25,7 @@
 ## NVLink-scope counterpart: alltoall.sbatch
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
+# shellcheck disable=SC2034
 job_name=alltoall-nonvlink
 
 ## Step time limit, handed to srun --time below: 2x the plan's < 5 min for
@@ -33,6 +34,8 @@ job_name=alltoall-nonvlink
 ## write its marker. #SBATCH -t above is this plus a margin, so the step limit
 ## is what fires -- see example.sbatch.
 STEP_TIMELIMIT=0:15:00
+## Read out of this file's text by grep, never sourced -- see example.sbatch.
+# shellcheck disable=SC2034
 totalRuns=1
 
 ## ------------- job info starts here ------------- ##
@@ -94,6 +97,7 @@ if [[ ! -f "$HCA_LIB" ]]; then
 	echo FAIL
 	exit 1
 fi
+# shellcheck source=/dev/null
 source "$HCA_LIB"
 
 ## Better to say so here than to let NCCL_IB_HCA="" mean "any HCA, including

@@ -33,7 +33,14 @@
 ## enforced by the scheduler on resources rather than by a shared job name.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
+# shellcheck disable=SC2034
 job_name=example
+## totalRuns is read out of this file's TEXT, not from a shell that sourced it:
+## launch_job.sh greps the .sbatch for the name and awk -F= pulls the value, and
+## daily-report.sh does the same to size its per-job columns. So the assignment
+## has to stay a plain, greppable `totalRuns=<n>` on one line -- no export, no
+## arithmetic, no quoting -- and it looks unused to any static check.
+# shellcheck disable=SC2034
 totalRuns=1
 
 ## ── The two time limits ───────────────────────────────────────────────────
