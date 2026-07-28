@@ -12,9 +12,11 @@
 #                     because someone asked for one.
 #
 # The table goes to stdout, and a summary follows on stderr -- how many nodes
-# are in each slurm state, how many cells hold each status, and
-# min/median/mean/max per job for the cells that hold a number. The summary is
-# on stderr and not in the rows on purpose: the file written by -o and a
+# are in each slurm state, how many cells hold each status, min/median/mean/max
+# per job for the cells that hold a number, and last a pass/fail count per job,
+# which is the only summary a job like dcgm gets: it has no number to take a
+# median of, and pooled status counts do not say which job failed. The summary
+# is on stderr and not in the rows on purpose: the file written by -o and a
 # redirect of stdout both have to stay machine-readable.
 #
 # The two halves are laid out the same way, always. One rule decides it for the
@@ -52,7 +54,7 @@ while [[ $# -gt 0 ]]; do
             [[ -n "$2" ]] || { echo "ERROR: $1 needs a file to write" >&2; exit 1; }
             report_file="$2"; shift 2 ;;
         -h|--help)
-            sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+            sed -n '2,39p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         *)  echo "ERROR: unknown argument $1" >&2; exit 1 ;;
     esac
 done
@@ -212,7 +214,7 @@ rows+=("$header")
 
 ## Tallied as the table is built, from the same values that land in the cells,
 ## so the summary can never describe a table other than the one printed.
-declare -A slurm_count cell_count job_values
+declare -A slurm_count cell_count job_values job_status_count status_seen
 node_count=0
 
 for node in $nodes; do
@@ -242,6 +244,14 @@ for node in $nodes; do
                 cell="$status"
             fi
             row+=$'\t'"$cell"
+
+            ## Counted from the status and not from the cell, which is the
+            ## whole point of this tally: on a job with a metric the cell holds
+            ## a number and says nothing about pass or fail, and on a job
+            ## without one the pooled status block says nothing about which job
+            ## the failures belong to.
+            (( job_status_count["$job,$status"]++ ))
+            status_seen["$status"]=1
 
             ## A cell is either a number to take statistics over or a word to
             ## count. Tested rather than inferred from the status, because a
@@ -299,7 +309,7 @@ stats_row() {
 ## the report has its content inside a column. A free-form line like
 ## "254 nodes, 4 jobs" sitting above the rows puts words at offsets no column
 ## boundary passes through, and that is what a fixed-width import cuts in half.
-declare -a total_rows slurm_rows status_rows metric_rows
+declare -a total_rows slurm_rows status_rows metric_rows passfail_rows
 
 total_rows=("summary"$'\t'"count"
             "nodes"$'\t'"$node_count"
@@ -334,6 +344,46 @@ if [[ ${#job_values[@]} -gt 0 ]]; then
         metric_rows=("job (metric)"$'\t'"n"$'\t'"min"$'\t'"median"$'\t'"mean"$'\t'"max"
                      "${metric_rows[@]}")
     fi
+fi
+
+## Pass/fail per job. Every job gets a row, including the ones the metric block
+## has nothing to say about -- dcgm, stressapptest, memtester and the rest judge
+## a node without producing a figure, so this is the only place their result is
+## broken out at all.
+##
+## Columns are the statuses actually seen rather than a fixed four, so a status
+## verdict() grows later appears here on its own instead of being dropped into a
+## count no column carries. DONE and FAIL lead because they are the question
+## being asked; the rest follow in a fixed order so two runs of the same cluster
+## line up, with any unrecognised status sorted in after them rather than
+## discarded.
+if [[ ${#job_status_count[@]} -gt 0 ]]; then
+    declare -a status_cols
+    for st in DONE FAIL INCOMPLETE NOT_RUN; do
+        [[ -n "${status_seen[$st]}" ]] && { status_cols+=("$st"); unset "status_seen[$st]"; }
+    done
+    if [[ ${#status_seen[@]} -gt 0 ]]; then
+        mapfile -t -O ${#status_cols[@]} status_cols < <(printf '%s\n' "${!status_seen[@]}" | sort)
+    fi
+
+    header="job (pass/fail)"$'\t'"cells"
+    for st in "${status_cols[@]}"; do header+=$'\t'"$st"; done
+    passfail_rows=("$header")
+
+    for job in "${job_order[@]}"; do
+        cells=0
+        row=""
+        for st in "${status_cols[@]}"; do
+            n=${job_status_count["$job,$st"]:-0}
+            (( cells += n ))
+            row+=$'\t'"$n"
+        done
+        ## Every job gets its row even when every cell is NOT_RUN. A job
+        ## configured in BENCHMARKS that has produced nothing anywhere is a
+        ## thing worth seeing stated, and dropping the row would leave it
+        ## looking like a job nobody asked for.
+        passfail_rows+=("$job"$'\t'"$cells$row")
+    done
 fi
 
 # ── The grid ──────────────────────────────────────────────────────────────────
@@ -385,7 +435,7 @@ print_row() {
 }
 
 for row in "${rows[@]}" "${total_rows[@]}" "${slurm_rows[@]}" \
-           "${status_rows[@]}" "${metric_rows[@]}"; do
+           "${status_rows[@]}" "${metric_rows[@]}" "${passfail_rows[@]}"; do
     measure_row "$row"
 done
 
@@ -441,6 +491,11 @@ emit_rows "$aligned" "${rows[@]}"
     if [[ ${#metric_rows[@]} -gt 0 ]]; then
         echo
         emit_rows "$aligned" "${metric_rows[@]}"
+    fi
+
+    if [[ ${#passfail_rows[@]} -gt 0 ]]; then
+        echo
+        emit_rows "$aligned" "${passfail_rows[@]}"
     fi
 
     ## Last, not between the table and the summary: everything between the first

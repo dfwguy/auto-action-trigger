@@ -96,6 +96,14 @@ over the cells that hold a number. The statistics are per job rather than
 pooled — Gflops, GB/s and MB/s share a table but not a scale. It stays on
 stderr so neither `-o` nor a redirect ever gets prose mixed into the data.
 
+The last block is `job (pass/fail)`: one row per job, counting its cells by
+status. It is the only summary a pass/fail job gets — `dcgm`, `stressapptest`
+and `memtester` judge a node without producing a figure, so the metric block
+has no row for them at all, and the pooled status counts above say how many
+cells failed but not which job they belong to. It is counted from the status
+rather than from the cell, so a job with a metric is broken out here too: its
+cells hold a number that says nothing about whether the gate accepted it.
+
 Both halves are laid out the same way, always, under one rule: **TSV at a
 terminal** is column-aligned for reading, and **anything else** — a pipe, a
 redirect, `-o`, or `-c` — is the raw separated rows.
