@@ -24,6 +24,7 @@
 ## before GPU workloads. Paired with memtester.sbatch for DRAM integrity.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
+# shellcheck disable=SC2034  # read by grepping this file, from actions/launch_job.sh
 job_name=stream
 
 ## Step time limit, handed to srun --time below: 2x the plan's ~1-2 hr
@@ -63,7 +64,8 @@ CONT=/tmp/containers/$IMG
 #CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
 
 ## One OpenMP thread per core, threads pinned across all NUMA nodes
-export OMP_NUM_THREADS=$(nproc)
+OMP_NUM_THREADS=$(nproc)
+export OMP_NUM_THREADS
 export OMP_PROC_BIND=spread
 export OMP_PLACES=cores
 

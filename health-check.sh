@@ -221,6 +221,9 @@ while IFS='|' read -r node state reason; do
     [[ -n "${seen_node[$node]}" ]] && continue
     seen_node["$node"]=1
 
+    # shellcheck disable=SC2053  # $pattern is the caller's node glob, unquoted
+    # so it still globs; quoting it would only ever match a literal node named
+    # '*'.
     [[ "$node" == $pattern ]] || continue
     ((total++))
 

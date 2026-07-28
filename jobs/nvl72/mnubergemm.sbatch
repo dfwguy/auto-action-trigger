@@ -29,6 +29,7 @@
 ## See docs/benchmarks.md.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
+# shellcheck disable=SC2034  # read by grepping this file, from actions/launch_job.sh
 job_name=mnubergemm
 
 ## Step time limit, handed to srun --time below. The workload itself is capped
@@ -57,6 +58,7 @@ STEP_TIMELIMIT=6:30:00
 ## for about three days -- the plan's 24-72 hour row. Each run is its own job
 ## and its own result file, so an interrupted burn-in resumes at the run it got
 ## to rather than starting over.
+# shellcheck disable=SC2034  # read by grepping this file, from actions/launch_job.sh
 totalRuns=12
 
 

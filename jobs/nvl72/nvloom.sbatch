@@ -39,6 +39,7 @@
 ## imex-readiness, imex-status).
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
+# shellcheck disable=SC2034  # read by grepping this file, from actions/launch_job.sh
 job_name=nvloom
 
 ## Step time limit, handed to srun --time below: 2x the plan's 30 min for
@@ -73,6 +74,7 @@ IMG=nvloom-v2.0.0-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
 [[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
 RACK_SAMPLES=5
+# shellcheck disable=SC2034  # read only by the commented-out scope 2 srun below
 BURN_IN_DURATION=3600      # seconds per testcase, burn-in variant only
 
 ## Pyxis/Enroot needs this so the NVIDIA container hook bind-mounts the GPUs.

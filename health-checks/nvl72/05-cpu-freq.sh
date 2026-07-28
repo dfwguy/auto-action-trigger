@@ -30,7 +30,13 @@ if [ "$(uname -m)" == aarch64 ]; then
     m=scaling_cur_freq
   fi
   if [ -n "${m}" ]; then
-    for i in $(ls -1 /sys/devices/system/node | grep node | sed -e 's:node::g'); do
+    # On a machine with no NUMA sysfs the glob stays unexpanded, so guard on
+    # the directory rather than cat'ing a literal "node*" path. Names here are
+    # kernel-generated as node<decimal>, so the glob yields the same set in the
+    # same order as a sorted listing would, in any locale.
+    for d in /sys/devices/system/node/node*/; do
+      [ -d "$d" ] || continue
+      i=${d%/}; i=${i##*/}; i=${i#node}
       cat /sys/devices/system/node/node${i}/cpu*/cpufreq/$m 2>/dev/null \
       | awk -v node=$i 'BEGIN{sum=0}{
           sum+=$1

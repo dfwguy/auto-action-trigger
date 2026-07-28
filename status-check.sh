@@ -86,6 +86,14 @@ select_test() {
     local job="$1" col="$2" pat
     [[ ${#tests[@]} -eq 0 ]] && return 0
     for pat in "${tests[@]}"; do
+        ## Unquoted on purpose -- the glob is the feature. The header promises
+        ## that `-t 'allreduce*'` picks up allreduce-nonvlink and `-t '*nonvlink'`
+        ## picks up the nonvlink pair, and a quoted right-hand side is a plain
+        ## string compare that matches neither. What stays literal is the
+        ## *implicit* wildcard: unlike the node pattern above, nothing is
+        ## appended here, so a `-t` without a glob character still matches only
+        ## the name as written.
+        # shellcheck disable=SC2053
         [[ "$job" == $pat || "$col" == $pat ]] && return 0
     done
     return 1
@@ -135,6 +143,15 @@ source "$PARSERS_DIR/verdict.sh"
 # A column with archives and no current file is queued for its next retry.
 fail_count() {
     local node="$1" col="$2"
+    ## The same shape, and the same regex, as archive_result() in launch_job.sh:
+    ## the serial it hands the next archive and the count printed here have to be
+    ## the same number, or `(fails: N)` disagrees with the files on disk. A glob
+    ## cannot spell "one or more digits", so <col>.fail[0-9]*.txt would also
+    ## count a hand-renamed <col>.fail2-bad.txt and report a rejection that never
+    ## happened -- and this count is displayed, not just tested. A missing or
+    ## empty results directory lists nothing and grep -c prints 0, which is the
+    ## right answer for a column that has never been archived.
+    # shellcheck disable=SC2010
     ls "$results_dir/$node" 2>/dev/null | grep -cE "^${col}\.fail[0-9]+\.txt$"
 }
 
@@ -226,6 +243,15 @@ fi
 # when it re-runs a job that had already passed.
 live_column() {
     local node="$1" f
+    ## `ls -t` is the whole point of the line, and it is the one thing a glob
+    ## cannot do: bash expands *.txt in collating order, so newest-first would
+    ## have to be rebuilt from a stat per file. The exclusion has to run after
+    ## that ordering, which leaves a pipe. Every name here was written by
+    ## launch_job.sh out of a BENCHMARKS entry and a fixed suffix, so the odd
+    ## filenames SC2010 guards against cannot arise. A node with no result files
+    ## expands to nothing, ls says nothing, and the caller returns empty --
+    ## reported as no live column, which is correct.
+    # shellcheck disable=SC2010
     f=$(ls -t "$results_dir/$node"/*.txt 2>/dev/null | grep -vE '\.(fail|prev)[0-9]+\.txt$' | head -1)
     [[ -n "$f" ]] || return
     f="${f##*/}"

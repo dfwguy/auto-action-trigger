@@ -88,6 +88,13 @@ hdr()  { printf '\n=== %s ===\n' "$*"; }
 ##############################################################################
 
 shopt -s nullglob
+## $pattern is unquoted because it is a glob, not a value: it is expanded
+## against results/ to find the matching node directories, which is the whole
+## job of this line. Quoting it, or splitting it with read -a, would leave a
+## one-element array holding the literal pattern -- every loop below would then
+## run once against a directory that does not exist and report the fleet as
+## empty. The trailing / and nullglob keep it to directories that are there.
+# shellcheck disable=SC2206
 node_dirs=("$results_dir"/$pattern/)
 
 if [[ "${#node_dirs[@]}" -eq 0 ]]; then

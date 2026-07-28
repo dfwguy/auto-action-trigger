@@ -362,6 +362,10 @@ slurm_recover_node() {
 
     recover_record "$now" "$class" "$state" "$setter" "$reason"
     recover_log "RECOVER: $node was $state '${reason:-<empty>}' ($class${setter:+, set by $setter}${when:+ at $when}) -- resumed, attempt $((attempts + 1))/$RECOVER_MAX_ATTEMPTS in ${RECOVER_WINDOW_HOURS}h"
+    ## Nothing in this file reads the success value back, so it looks dead
+    ## here; it is the outcome the sourcing caller branches on, and
+    ## tests/recover-test.sh asserts on it for every case.
+    # shellcheck disable=SC2034
     RECOVER_RESULT="resumed"
     return 0
 }

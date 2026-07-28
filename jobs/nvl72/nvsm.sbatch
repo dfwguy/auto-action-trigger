@@ -31,6 +31,7 @@
 ## it also needs a passwordless sudoers grant. See docs/nvsm.md.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
+# shellcheck disable=SC2034  # read by grepping this file, from actions/launch_job.sh
 job_name=nvsm
 
 ## Step time limits, handed to srun --time below. One per step rather than one

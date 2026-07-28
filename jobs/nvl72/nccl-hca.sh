@@ -58,6 +58,7 @@ nccl_hca_report_host() {
 ## The last line is a fixed format on purpose: verdict.sh gates on it, so a
 ## container with no visible HCA is a FAIL with a named reason instead of a
 ## socket run that has to be spotted by its bandwidth.
+# shellcheck disable=SC2034  # read by the -nonvlink sbatch files that source this
 read -r -d '' NCCL_HCA_PROBE <<'PROBE' || true
 echo "INFO: container NCCL_IB_HCA: ${NCCL_IB_HCA:-(unset)}"
 echo "INFO: container /dev/infiniband: $(ls /dev/infiniband 2>/dev/null | paste -sd' ')"

@@ -50,6 +50,49 @@ workflow:
 # printed nothing cannot be told from one whose loop matched no files -- the
 # same silent-success failure the framework itself is designed against.
 
+shellcheck:
+  extends: .base
+  stage: lint
+  # Blocking from the first run, because the tree is clean as of the commit that
+  # added this. A lint job that starts out red is one everybody learns to scroll
+  # past, and then it is a gate that cannot fail.
+  #
+  # severity=warning is the gate, not the ceiling. Below it sit ~80 info/style
+  # findings that are mostly deliberate here -- single-quoted cmsh strings and
+  # intentional word splitting -- and folding them in would bury the warnings
+  # that matter. Tightening to `info` later is a separate change with its own
+  # triage.
+  #
+  # The version is deliberately Debian's rather than the newest: bookworm is
+  # frozen at 0.9.0, so the check set cannot grow under us and turn the pipeline
+  # red with no commit behind it. Every finding this tree carries a disable for
+  # was triaged against exactly this version.
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq --no-install-recommends shellcheck
+    - shellcheck --version
+  script:
+    - |
+      # jobs/nvl72/hpl/*.dat are HPL config, not shell -- the glob excludes them
+      # by extension rather than by a skip list that would drift.
+      files=$(git ls-files '*.sh' '*.sbatch')
+      if [ -z "$files" ]; then
+        echo "no scripts found -- the glob is wrong, not the tree"
+        exit 1
+      fi
+      echo "$(echo "$files" | wc -l) files"
+      # -f gcc so a failure names file:line:col in the job log without anyone
+      # opening an artifact. The status is checked explicitly rather than left
+      # to the runner's set -e: the first draft of this job let shellcheck's
+      # exit status fall on the floor, printed its findings, and still went
+      # green -- a gate that reports and does not stop is worse than no gate.
+      if shellcheck -f gcc -S warning $files; then
+        echo "no findings at severity>=warning"
+      else
+        echo "shellcheck rejected the tree -- see the findings above"
+        exit 1
+      fi
+
 syntax:
   extends: .base
   stage: lint

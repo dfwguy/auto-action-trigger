@@ -96,7 +96,12 @@ NGC_ORG=0948245400141054
 ## Ubuntu release the CUDA base images are built on, and the mirrors the
 ## packages come from. Ubuntu serves ARM from a different host than x86.
 UBUNTU_SUITE=noble
+## Read indirectly in fetch_debs, which builds the name from the dpkg
+## architecture rather than branching -- so nothing mentions either of these by
+## name and shellcheck cannot see the use.
+# shellcheck disable=SC2034
 UBUNTU_MIRROR_amd64=http://archive.ubuntu.com/ubuntu
+# shellcheck disable=SC2034
 UBUNTU_MIRROR_arm64=http://ports.ubuntu.com/ubuntu-ports
 
 ## Native-architecture throwaway image used on the headnode to run apt. It is
@@ -436,7 +441,8 @@ EOF
 }
 
 fetch_source_image() {
-    local img="$1" st="$STAGE/$img"
+    local img="$1"
+    local st="$STAGE/$img"
     spec "$img" || return 1
     mkdir -p "$st" || return 1
 
@@ -452,7 +458,8 @@ fetch_source_image() {
 ## ── build pass (compute node) ─────────────────────────────────────────────
 
 build_from_stage() {
-    local img="$1" out="$2" st="$STAGE/$img" name="build-$img-$$" tmp rc=0
+    local img="$1" out="$2"
+    local st="$STAGE/$img" name="build-$img-$$" tmp rc=0
 
     ## Both of these fail just this image rather than the whole run, so a
     ## plain invocation still gets through the registry pulls.

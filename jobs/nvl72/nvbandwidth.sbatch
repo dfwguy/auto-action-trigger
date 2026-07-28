@@ -27,6 +27,7 @@
 ## GB200, typically 8 for HGX H100/H200/B200).
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
+# shellcheck disable=SC2034  # read by grepping this file, from actions/launch_job.sh
 job_name=nvbandwidth
 
 ## Step time limit, handed to srun --time below: 2x the plan's ~15 min for

@@ -23,6 +23,7 @@
 ## signal-integrity faults that lighter tests miss.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
+# shellcheck disable=SC2034  # read by grepping this file, from actions/launch_job.sh
 job_name=stressapptest
 
 ## Step time limit, handed to srun --time below: 2x RUN_SECONDS below; the

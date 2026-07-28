@@ -20,6 +20,7 @@
 ## header section of docs/benchmarks.md.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
+# shellcheck disable=SC2034
 job_name=allreduce
 
 ## Step time limit, handed to srun --time below: 2x the plan's < 5 min for
@@ -28,6 +29,8 @@ job_name=allreduce
 ## write its marker. #SBATCH -t above is this plus a margin, so the step limit
 ## is what fires -- see example.sbatch.
 STEP_TIMELIMIT=0:15:00
+## Read out of this file's text by grep, never sourced -- see example.sbatch.
+# shellcheck disable=SC2034
 totalRuns=1
 
 ## ------------- job info starts here ------------- ##

@@ -35,6 +35,7 @@
 ## 8 GPUs, FP8/NVFP4) with Qwen3 30B (BF16) as the ungated fallback.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
+# shellcheck disable=SC2034
 job_name=llm-pretrain
 
 ## Step time limit, handed to srun --time below: 2x the plan's ~30-60 min,

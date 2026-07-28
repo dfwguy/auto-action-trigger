@@ -20,6 +20,7 @@
 ## `-r 4` is the Exhaustive gate (dcgm-r4.sbatch).
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
+# shellcheck disable=SC2034
 job_name=dcgm-r2
 
 ## Deadline: 2x ~2 min, floored at 15 min, the plan's estimate for dcgmi -r 2.

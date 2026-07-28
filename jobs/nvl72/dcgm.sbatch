@@ -22,6 +22,7 @@
 ## would shrink the step to that core count. See docs/benchmarks.md.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
+# shellcheck disable=SC2034
 job_name=dcgm
 
 ## Deadline: 2x ~20 min, the plan's estimate for dcgmi -r 3.
