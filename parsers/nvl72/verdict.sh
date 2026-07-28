@@ -622,6 +622,13 @@ _v_gate_generic() {
 ## $(...). Command substitution runs in a subshell, so the reason would be set
 ## in a child and lost -- leaving every failure reported with an empty
 ## explanation, which is the entire thing this file was written to provide.
+##
+## The disable below is for those three variables. Setting them IS this
+## function's return value, but every read of them happens in a caller that
+## sources this file, so shellcheck -- which sees one file at a time -- reads
+## the assignments as dead stores. Scoped to the function rather than the file
+## so that a genuinely unused variable added elsewhere here still gets caught.
+# shellcheck disable=SC2034
 verdict() {
     local job="$1" file="$2" last
     VERDICT_STATUS=""

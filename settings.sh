@@ -35,6 +35,7 @@ elif [[ -f "$_settings_home/SETTINGS.default" ]]; then
     SETTINGS_FILE="$_settings_home/SETTINGS.default"
 fi
 
+# shellcheck source=/dev/null
 [[ -n "$SETTINGS_FILE" ]] && source "$SETTINGS_FILE"
 
 ## Defaults for anything the settings file did not set. These are the same
@@ -88,8 +89,15 @@ fi
 ## Derived paths, so no caller has to remember which variable indexes which
 ## directory. Set here rather than in the settings file: they are a consequence
 ## of the choices above, not another thing to choose.
+##
+## Nothing here reads them: they are handed to the scripts that source this
+## file, which shellcheck cannot see from inside it. The directive is repeated
+## because it only covers the one assignment that follows it.
+# shellcheck disable=SC2034
 JOBS_DIR="$_settings_home/jobs/$JOBS"
+# shellcheck disable=SC2034
 HEALTHCHECKS_DIR="$_settings_home/health-checks/$HEALTHCHECKS"
+# shellcheck disable=SC2034
 PARSERS_DIR="$_settings_home/parsers/$PARSERS"
 
 ## Read a yes/no setting. Anything not affirmative is off, including a typo and
