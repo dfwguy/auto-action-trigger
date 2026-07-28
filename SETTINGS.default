@@ -47,11 +47,6 @@ DRAIN_WINDOW_MINUTES=15
 DRAIN_MARKER="auto-retry"
 
 ## ── Extra environment for every benchmark job ─────────────────────────────
-## Space-separated NAME=VALUE, handed to sbatch --export for the BENCHMARKS
-## and BURNIN jobs. Nothing else sees it -- not the health checks, not the
-## container builds. A variable the job's own .sbatch exports wins over what
-## is set here, and launch_job.sh traces when that happens.
-##
 ##   JOB_ENV="NCCL_DMABUF_ENABLE=0 NCCL_CUMEM_ENABLE=1"
 JOB_ENV=""
 
