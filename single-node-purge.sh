@@ -18,9 +18,14 @@ fi
 
 for arg in "$@"; do
     while IFS= read -r node; do
-        if [[ -d "$loc/$node" ]]; then
+        # An empty argument survives the usage check and makes the scontrol
+        # fallback echo a blank line, which would collapse to "$loc/" and take
+        # every node's results with it.
+        if [[ -z "${node//[[:space:]]/}" ]]; then
+            echo "Skipping empty node name in '$arg'"
+        elif [[ -d "$loc/$node" ]]; then
             echo "Purging $loc/$node"
-            rm -rf "$loc/$node"
+            rm -rf "$loc/${node:?}"
         else
             echo "No results found for $node in $loc"
         fi
