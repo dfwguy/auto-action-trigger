@@ -311,6 +311,111 @@ The full operational picture — what changes when they are off, what does not,
 and which one to turn on first — is in
 [operations.md](operations.md#disabling-drains).
 
+## Recovering drains Slurm set itself
+
+```bash
+RECOVER_SLURM_DRAINS=yes
+RECOVER_REASONS="prolog|epilog|rogue ?process|batch job complete failure|Kill task failed|node unexpectedly rebooted"
+RECOVER_EMPTY_REASON=yes
+RECOVER_SETTERS="slurm root"
+RECOVER_MAX_ATTEMPTS=3
+RECOVER_WINDOW_HOURS=24
+RECOVER_RESTART_SLURMD=no
+```
+
+Slurm drains nodes for things that are not faults of the node: a prolog that
+returned non-zero once, a process the previous job left behind, an epilog that
+lost a race, a batch launch that failed while `slurmd` was restarting. Some
+drains carry no reason at all. None of these is a broken node, and until this
+existed none of them was ever cleared — the only automatic resume in the
+framework is the one for drains carrying `DRAIN_MARKER`. Nodes accumulated in
+`drained`, the sequencer traced *"node is drain for a reason that is not ours"*
+on every cycle, and somebody had to run `scontrol update ... state=RESUME` by
+hand, per node, indefinitely.
+
+`slurm-recovery.sh` is what clears them, and both actions use it:
+`launch_job.sh` on every monitoring cycle, `node_health.sh` after a clean check
+run.
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `RECOVER_SLURM_DRAINS` | `yes` | The switch. `no` leaves every drain exactly where it is |
+| `RECOVER_REASONS` | see above | Case-insensitive ERE. A drain reason matching it is machine-generated |
+| `RECOVER_EMPTY_REASON` | `yes` | Treat a drain with no reason recorded as machine-generated |
+| `RECOVER_SETTERS` | `slurm root` | Only drains set by these accounts are ever cleared |
+| `RECOVER_MAX_ATTEMPTS` | `3` | Recoveries allowed per node inside the window |
+| `RECOVER_WINDOW_HOURS` | `24` | The window, counted from `results/<node>/recover.log` |
+| `RECOVER_RESTART_SLURMD` | `no` | Restart a dead `slurmd` before resuming a `down*` node |
+
+Unlike the two drain switches above, this one ships **on**. Those take nodes out
+of service, so an unreadable value has to mean "don't"; this one puts them back,
+and the cost of it being off is the silence the rest of the framework is built
+to prevent — a node drained for a failed prolog, testing nothing, forever.
+
+### How an operator's drain is protected
+
+Every reason falls into one of four classes, and only two are ever recoverable:
+
+| Class | What wrote it | Who may clear it |
+|-------|---------------|------------------|
+| `marker` | this framework's benchmark drain, carrying `DRAIN_MARKER` | `launch_job.sh`, once the benchmarks pass |
+| `health` | `node_health.sh` — the reason is a list of check names | `node_health.sh`, on a clean run |
+| `machine` | Slurm itself: matches `RECOVER_REASONS`, or is empty | either action |
+| `operator` | everything else | nobody |
+
+Three discriminators have to agree before a `machine` drain is cleared:
+
+1. **The reason matches `RECOVER_REASONS`.** An operator's reason is prose —
+   `waiting on RMA`, `bad NVLink, do not use` — and does not match.
+2. **The account that set it is in `RECOVER_SETTERS`.** A drain set from a named
+   admin account is never cleared, whatever its text says.
+3. **The state is one we can reason about.** `maint`, `reserved`, `planned` and
+   `fail` are left alone; all four are somebody's deliberate arrangement.
+
+The limit, stated rather than papered over: an admin who drains **as root** with
+a reason that happens to match `RECOVER_REASONS` is indistinguishable from Slurm
+doing it, because Slurm's own drains land under `root` on a BCM cluster.
+Discriminator 1 carries that weight, which is why the shipped pattern list is
+narrow and is a setting rather than "anything that is not ours". A site that
+drains as root with free-text reasons loses nothing; a site that types the word
+`prolog` into a drain reason by hand should add its own convention to
+`RECOVER_SETTERS`, or turn `RECOVER_EMPTY_REASON` off if bare drains are how
+operators take nodes out there.
+
+### Why a resume is not enough on its own
+
+A node put back while still broken is re-drained within the minute, and a script
+that does that in a loop is worse than one that does nothing. So a recovery also
+has to show the condition cleared:
+
+- `slurmd` is active on the node — resuming a node whose `slurmd` is dead only
+  puts it straight back into `down*`. This is the one condition that can be
+  repaired here, and only when `RECOVER_RESTART_SLURMD=yes`; it ships off
+  because BCM owns that unit.
+- No compute processes hold the GPUs. This is the direct test for the
+  rogue-process drain. Only GPU processes are looked at — a general "no
+  processes owned by `$JOB_USER`" test reads a login shell as a rogue process
+  and the node never comes back.
+- No jobs are still assigned to the node.
+
+And it is rate-limited: at most `RECOVER_MAX_ATTEMPTS` recoveries inside
+`RECOVER_WINDOW_HOURS`, counted from `results/<node>/recover.log`, which is the
+only state any of this keeps between runs. Past the cap the drain is left
+**exactly as Slurm set it** — deliberately not re-drained under `DRAIN_MARKER`,
+which would hand the node to the sequencer's own resume path and start the
+flapping again by another route. The node stays out of service with Slurm's
+reason on it, and the count is in the trace and in `recover.log`.
+
+### Reading what it did
+
+```bash
+grep RECOVER results/*/trigger.log | tail            # what came back, and why
+cat results/<node>/recover.log                       # one line per recovery
+./trigger-log.sh                                     # recoveries appear as events
+```
+
+`launch_job.sh --explain` classifies and reports without resuming anything.
+
 ## Retry and drain policy
 
 | Setting | Default | Meaning |

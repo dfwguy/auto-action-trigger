@@ -6,11 +6,23 @@ Each check is one file: `health-checks/<set>/NN-<check>.sh`. `HEALTHCHECKS` in
 `node_health.sh` is the runner. It executes each check in numeric order, writes
 its output to `logs/<node>/<check>`, and diffs that against the baseline in
 `valid-config/default/`. Any mismatch appends the check name to a `reason`
-string. After all checks, it either sets the node `IDLE` (no failures) or `DOWN`
-with the accumulated reason — but only when `DRAIN_AFTER_FAILED_HEALTH_CHECK`
-is on. With it off, which is how it ships, the run is identical up to that
-point and Slurm is simply left alone; see
+string. After all checks, it either resumes the node (no failures) or sets it
+`DOWN` with the accumulated reason — but only when
+`DRAIN_AFTER_FAILED_HEALTH_CHECK` is on. With it off, which is how it ships, the
+run is identical up to that point and Slurm is simply left alone; see
 [operations.md](operations.md#disabling-drains).
+
+A clean run resumes the node **only if the drain is one it may clear**. It used
+to be an unconditional `State=IDLE`, which released whatever had drained the
+node — an operator's drain, a benchmark failure `launch_job.sh` had just
+recorded, a reservation. Passing the health checks says none of those things; it
+says the checks that drained this node no longer fail. So the decision goes
+through `slurm-recovery.sh`, which accepts two classes here: the reasons this
+script writes itself (recognised by their being check names), and drains Slurm
+set itself — a node that failed a prolog and then passes every check is worth
+putting back. Everything else, the framework's own `auto-retry` benchmark drain
+included, is left alone. See
+[settings.md](settings.md#recovering-drains-slurm-set-itself).
 
 A `refresh` sentinel file in `logs/<node>/` must exist for the health script to
 run — this is what prevents redundant re-checks on every monitoring cycle. Use

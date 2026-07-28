@@ -90,6 +90,21 @@ else
     done
     [[ -f "$home/verdict.sh" ]] && bad "verdict.sh is at the top level -- stale tree, it belongs in parsers/\$PARSERS/"
 
+    ## Both actions source this and both carry on without it -- deliberately,
+    ## since its absence must not stop a node testing. What it does mean is
+    ## that nothing clears a drain Slurm set itself, so nodes accumulate in
+    ## `drained` for failed prologs and rogue processes and the sequencer
+    ## reports each one as somebody else's drain. A tree from before the file
+    ## existed looks entirely healthy in every other section.
+    if [[ ! -f "$home/slurm-recovery.sh" ]]; then
+        bad "slurm-recovery.sh is missing from $home -- this tree predates it"
+        note "  nodes drained by Slurm itself (prolog, rogue process, no reason) will never be resumed"
+    elif setting_enabled "$RECOVER_SLURM_DRAINS"; then
+        note "RECOVER_SLURM_DRAINS=$RECOVER_SLURM_DRAINS -> clears drains matching '$RECOVER_REASONS' set by [$RECOVER_SETTERS], max $RECOVER_MAX_ATTEMPTS per ${RECOVER_WINDOW_HOURS}h"
+    else
+        note "RECOVER_SLURM_DRAINS=$RECOVER_SLURM_DRAINS -- drains set by Slurm itself are left in place"
+    fi
+
     for spec in "JOBS:$JOBS:$JOBS_DIR" "HEALTHCHECKS:$HEALTHCHECKS:$HEALTHCHECKS_DIR" "PARSERS:$PARSERS:$PARSERS_DIR"; do
         var="${spec%%:*}"; rest="${spec#*:}"; set_name="${rest%%:*}"; dir="${rest#*:}"
         if [[ ! -d "$dir" ]]; then

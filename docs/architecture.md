@@ -43,6 +43,7 @@ across the cluster and names the broken link.
 ├── SETTINGS.default               # Shipped configuration; copy to SETTINGS to change anything
 ├── settings.sh                    # Loads SETTINGS, else SETTINGS.default; backfills unset keys
 ├── reason-map.sh                  # Slurm drain reason → check names (health-check.sh, sync-check.sh)
+├── slurm-recovery.sh              # Clears drains Slurm set itself, never an operator's (both actions)
 │
 ├── health-checks/                 # One directory per platform; HEALTHCHECKS picks one
 │   └── nvl72/                     # One file per check, NN-<check>.sh, run in numeric order

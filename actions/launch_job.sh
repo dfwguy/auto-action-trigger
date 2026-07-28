@@ -422,6 +422,44 @@ if [[ -z "$state" ]]; then
 fi
 trace "state=$(printf '%s' "$state" | tr '\n' ',') explain=$EXPLAIN"
 
+## ── Drains Slurm set itself ───────────────────────────────────────────────
+##
+## Before anything else looks at the node state: a node drained for a failed
+## prolog, a rogue process left by the previous job, or nothing written down at
+## all is a node with nothing wrong with it, and every gate below would
+## otherwise read it as unusable and stop -- correctly, and permanently, since
+## nothing in this script ever cleared a drain it did not set.
+##
+## Only the `machine` class is accepted here. A health-check drain belongs to
+## node_health.sh, which is the only thing that knows whether the check passes
+## now; our own $DRAIN_MARKER drain belongs to resume_node() below, which
+## clears it when the benchmarks pass; an operator drain belongs to the
+## operator. slurm-recovery.sh has the full argument.
+##
+## Placed after the PAUSE_JOBS gate on purpose: a pause means this script
+## touches Slurm in neither direction, and a resume is touching Slurm.
+##
+## The state is re-read on success rather than assumed, so the rest of the
+## cycle -- the drain gate, the submit gate, quick-view -- proceeds against
+## what the scheduler actually holds now.
+if [[ -f "$home/slurm-recovery.sh" ]]; then
+    recover_log() { trace "$@"; }
+    RECOVER_ACCEPT="machine"
+    RECOVER_LOG="$logs/recover.log"
+    RECOVER_DRY_RUN="$EXPLAIN"
+    source "$home/slurm-recovery.sh"
+    if slurm_recover_node "$HOSTNAME"; then
+        [[ "$EXPLAIN" -eq 1 ]] || state=$(sinfo -N -n "$HOSTNAME" -h -o '%T')
+        ensure_file_owned "$RECOVER_LOG"
+        trace "state after recovery=$(printf '%s' "$state" | tr '\n' ',')"
+    fi
+else
+    ## Named rather than skipped quietly: this is the tell for a deployment
+    ## that predates the file, and its absence is invisible from the outside --
+    ## nodes simply stay drained, exactly as they did before it existed.
+    trace "WARNING: $home/slurm-recovery.sh is missing -- drains set by Slurm itself (prolog, rogue process, no reason) will not be cleared. Stale deployment?"
+fi
+
 ## If a job of ours is anywhere in the queue for this node -- running or still
 ## pending -- wait. The queue is asked two ways, and both are load-bearing.
 ##

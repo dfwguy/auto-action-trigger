@@ -62,6 +62,22 @@ fi
 : "${PAUSE_CONTAINER_COPY:=no}"
 : "${DRAIN_AFTER_FAILED_HEALTH_CHECK:=no}"
 : "${DRAIN_AFTER_FAILED_BENCHMARK:=no}"
+## Recovery of drains Slurm set itself. `yes` by default, unlike the two drain
+## switches above: those take nodes *out* of service and default off because an
+## unreadable value must not do that, while this one puts them back and the
+## cost of it being off is the silence the whole framework is built to avoid --
+## a node drained for a failed prolog, testing nothing, forever.
+##
+## RECOVER_REASONS is an ERE, matched case-insensitively against the Slurm
+## reason. Keep it narrow: it is the discriminator that has to hold when an
+## admin drains as root, because Slurm's own drains land under root too.
+: "${RECOVER_SLURM_DRAINS:=yes}"
+: "${RECOVER_REASONS:=prolog|epilog|rogue ?process|batch job complete failure|Kill task failed|node unexpectedly rebooted}"
+: "${RECOVER_EMPTY_REASON:=yes}"
+: "${RECOVER_SETTERS:=slurm root}"
+: "${RECOVER_MAX_ATTEMPTS:=3}"
+: "${RECOVER_WINDOW_HOURS:=24}"
+: "${RECOVER_RESTART_SLURMD:=no}"
 : "${RETRY_INTERVAL_HOURS:=1}"
 : "${MAX_JOB_HOURS:=7}"
 : "${DRAIN_WINDOW_MINUTES:=15}"

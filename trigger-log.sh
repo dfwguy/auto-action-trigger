@@ -166,7 +166,8 @@ for node_dir in "${node_dirs[@]}"; do
             if (msg != "") last = msg
             if (ts < cut) next
             if (msg ~ /^submitted /)                      { n++; next }
-            if (msg ~ /^(SUBMIT FAILED|WARNING|DRAIN)/ ||
+            if (msg ~ /^(SUBMIT FAILED|WARNING|DRAIN|RECOVER)/ ||
+                msg ~ /recover skipped: .* recovered /  ||
                 msg ~ /verdict\.sh is missing/ ||
                 msg ~ /not on PATH/ ||
                 msg ~ /not known to slurm/)               { print "ev\t" msg }

@@ -418,3 +418,9 @@ trusting the verdict.
 `tests/health-runner-test.sh` is the equivalent for the health side: it runs
 the check loop out of `node_health.sh` against a synthetic check set and
 asserts which mismatches reach the drain reason.
+
+`tests/recover-test.sh` covers `slurm-recovery.sh` — the drain classification
+and every gate in front of a resume — against stubbed `sinfo`, `scontrol`,
+`squeue`, `systemctl` and `nvidia-smi`. Its operator cases matter most: a
+mistake there resumes a node somebody took out of service, and that is
+invisible from every direction afterwards.

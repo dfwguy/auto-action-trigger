@@ -186,6 +186,28 @@ sweep now: a single "is anything of ours out there" check would let a three-day
 burn-in block every benchmark retry behind it, and the nice values would never
 get a chance to matter.
 
+### Drains Slurm set itself
+
+Before any of the gates above look at the node state, a drain that is Slurm
+talking to itself — a failed prolog, a rogue process left by the previous job,
+an empty reason — is cleared and the state re-read, so the rest of the cycle
+runs against a node that is back in service. Without it every gate below reads
+such a node as unusable and stops, correctly and permanently, since nothing
+here ever cleared a drain it did not set.
+
+The sequencer accepts only the `machine` class. A health-check drain belongs to
+`node_health.sh`, which is the only thing that knows whether the check passes
+now; the framework's own `auto-retry` drain is cleared by the sweep when the
+benchmarks pass; an operator's drain belongs to the operator. The classification,
+the three discriminators that protect an operator drain, the readiness checks
+and the rate limit are in
+[settings.md](settings.md#recovering-drains-slurm-set-itself); the argument for
+each is in the header of `slurm-recovery.sh`.
+
+The recovery runs **after** the `PAUSE_JOBS` gate: a pause means this script
+touches Slurm in neither direction, and a resume is touching Slurm. Under
+`--explain` it classifies and reports and issues nothing.
+
 ### Jobs the scheduler has given up on
 
 A failed launch — slurmd not answering at the moment the scheduler tried to

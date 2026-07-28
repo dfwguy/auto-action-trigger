@@ -200,7 +200,33 @@ fi
 
 if command -v /cm/local/apps/slurm/current/bin/scontrol >/dev/null 2>&1; then
   if [ -z "${reason}" ]; then
-    scontrol update NodeName="${node_name}" State=IDLE
+    ## A clean run used to be an unconditional `State=IDLE`, which resumed the
+    ## node whatever had drained it -- an operator's drain, a benchmark failure
+    ## launch_job.sh had just recorded, a reservation. Passing the health
+    ## checks says none of those things; it says the checks that drained this
+    ## node no longer fail.
+    ##
+    ## So the same classification the sequencer uses decides it here, with one
+    ## more class accepted: `health`, the reasons this script writes itself,
+    ## because a clean run is precisely the evidence that they cleared. It is
+    ## the only caller that has that evidence, which is why launch_job.sh does
+    ## not accept the class and this does.
+    ##
+    ## `machine` is accepted too -- a node drained for a failed prolog that
+    ## then passes every check is a node worth putting back, and the health
+    ## trigger reaches nodes on a different cadence to the job trigger.
+    ## Everything else, including our own benchmark drain, is left alone.
+    if [[ -f "$home/slurm-recovery.sh" ]]; then
+      recover_log() { printf '########INFO: %s\n' "$*"; }
+      RECOVER_ACCEPT="machine health"
+      RECOVER_LOG="$home/results/${node_name}/recover.log"
+      source "$home/slurm-recovery.sh"
+      slurm_recover_node "${node_name}"
+      [[ -f "$RECOVER_LOG" ]] && chown "$JOB_USER:$JOB_USER" "$RECOVER_LOG" 2>/dev/null
+    else
+      echo "########WARN: $home/slurm-recovery.sh is missing -- ${node_name} passed" \
+           "every check but no drain was cleared. Stale deployment?"
+    fi
   else
     # Flatten newlines to spaces for the Slurm reason field
     scontrol update NodeName="${node_name}" State=DOWN \
