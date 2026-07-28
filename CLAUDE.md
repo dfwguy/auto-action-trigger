@@ -87,7 +87,18 @@ padding and property names drift between BCM releases.
 ./tests/health-runner-test.sh  # the health check runner loop
 ./tests/recover-test.sh        # drain classification in slurm-recovery.sh
 bash -n <changed script>       # these scripts run as root on 200+ nodes
+shellcheck -S warning <changed script>   # CI gates on this; see below
 ```
+
+The tree is clean at `severity=warning` and CI keeps it that way. A good deal of
+what shellcheck flags here is deliberate, so the existing `# shellcheck disable`
+directives each carry a reason — several of them describe a "fix" that would
+silently break the cluster, like quoting the `grep -v` argument list in the IB
+checks. Read the reason before acting on a warning next to one. When a warning
+is wrong, add a scoped directive that says why; when the current code is right
+but a rewrite is not provably equivalent, the directive *is* the correct
+outcome, not a cop-out. `export` is never the way to silence SC2034 in this
+tree — it changes the environment every sourcing script and Slurm job runs in.
 
 Keep the tree listing in `docs/architecture.md` in step with the files — it has
 drifted twice by adding a top-level script and not listing it.
