@@ -1,0 +1,170 @@
+# Pipeline for the checks in "Before committing" (CLAUDE.md).
+#
+# These scripts run as root on 200+ nodes and are deployed by unpacking a
+# tarball by hand, so the pipeline is the last gate that runs before a change
+# reaches a cluster -- there is no staging deployment to catch it after.
+#
+# Nothing here talks to Slurm, BCM or a GPU. The test suites stub sinfo,
+# scontrol, squeue, systemctl and nvidia-smi on PATH and source the real
+# libraries, so a plain Debian image with bash is the whole environment. Do not
+# add a job that needs cluster access -- it would be skipped or faked, and a
+# gate that cannot fail is worse than no gate.
+
+stages:
+  - lint
+  - test
+
+# Without this, a push to a branch that has an open merge request runs the
+# whole pipeline twice -- once for the branch and once for the MR.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
+# One place for the image and the runner tags, so a change to either does not
+# have to be made six times and half-applied.
+#
+# buildpack-deps:*-scm rather than debian:*-slim: it is the same Debian
+# bookworm userland the tests need, with git already in it. The slim image
+# needs an apt-get before the runner can even clone, which makes every job
+# depend on a package mirror being reachable at the moment it runs.
+#
+# `bookworm` is a frozen Debian release, so the userland underneath does not
+# move the way a `latest` tag would. The tag itself is still rebuilt for
+# security updates -- if this pipeline ever starts failing with no commit
+# behind it, suspect the base image before the scripts.
+.base:
+  image: buildpack-deps:bookworm-scm
+  # Required -- the runners here are tagged, and an untagged job does not fail,
+  # it sits pending forever. Exactly the silent stall the framework is written
+  # against, so it is worth knowing that this line is load-bearing.
+  tags:
+    - size/medium
+  # Superseded pipelines are wasted work; nothing here has a side effect that
+  # would make a half-finished run worse than no run.
+  interruptible: true
+
+# Every job names what it checked, passing or failing. A green pipeline that
+# printed nothing cannot be told from one whose loop matched no files -- the
+# same silent-success failure the framework itself is designed against.
+
+syntax:
+  extends: .base
+  stage: lint
+  script:
+    - |
+      status=0
+      count=0
+      for f in $(git ls-files '*.sh' '*.sbatch'); do
+        if bash -n "$f"; then
+          count=$((count + 1))
+        else
+          echo "syntax error: $f"
+          status=1
+        fi
+      done
+      if [ "$count" -eq 0 ]; then
+        echo "no scripts found -- the glob is wrong, not the tree"
+        exit 1
+      fi
+      echo "$count scripts parsed"
+      exit $status
+
+permissions:
+  extends: .base
+  stage: lint
+  # The exec-bit split is load-bearing and asymmetric, which is what makes it
+  # easy to break: a 644 action registers with BCM fine and silently runs
+  # nothing, and a 755 example.sbatch propagates into every job cp'd from it.
+  # Both survive a tarball drop and neither shows up at runtime.
+  script:
+    - |
+      status=0
+
+      check() {
+        want=$1; file=$2
+        got=$(git ls-files -s -- "$file" | awk '{print $1}')
+        [ -z "$got" ] && return 0            # not tracked; nothing to say
+        if [ "$got" != "$want" ]; then
+          echo "mode $got, want $want: $file"
+          status=1
+        fi
+      }
+
+      # Sourced libraries -- never executed, so 755 would only invite running
+      # them directly, which does nothing useful.
+      for f in settings.sh reason-map.sh slurm-recovery.sh \
+               $(git ls-files 'parsers/*/verdict.sh') \
+               $(git ls-files 'jobs/*/nccl-hca.sh'); do
+        check 100644 "$f"
+      done
+
+      # node_health.sh runs each check as `bash "$check_file"` deliberately, so
+      # one check's `exit 1` cannot truncate the set.
+      for f in $(git ls-files 'health-checks/*/[0-9][0-9]-*.sh'); do
+        check 100644 "$f"
+      done
+
+      # sbatch reads these; it does not exec them.
+      for f in $(git ls-files 'jobs/*/*.sbatch'); do
+        check 100644 "$f"
+      done
+
+      # Entry points -- anything a human or BCM invokes by path.
+      for f in $(git ls-files 'actions/*.sh' 'pre-post/*.sh' 'tests/*.sh'); do
+        check 100755 "$f"
+      done
+
+      # Top-level scripts are entry points except for the three sourced
+      # libraries handled above.
+      for f in $(git ls-files -- '*.sh' | grep -v '/'); do
+        case "$f" in
+          settings.sh|reason-map.sh|slurm-recovery.sh) continue ;;
+        esac
+        check 100755 "$f"
+      done
+
+      [ "$status" -eq 0 ] && echo "modes match the table in CLAUDE.md"
+      exit $status
+
+architecture-doc:
+  extends: .base
+  stage: lint
+  # The tree listing in docs/architecture.md has drifted twice by someone
+  # adding a top-level script and not listing it. Scoped to the top level on
+  # purpose: the doc lists health-checks/ and jobs/ as directories rather than
+  # naming their contents, and it should stay free to.
+  script:
+    - |
+      status=0
+      for f in $(git ls-files -- '*.sh' | grep -v '/'); do
+        if ! grep -qF "$f" docs/architecture.md; then
+          echo "not listed in docs/architecture.md: $f"
+          status=1
+        fi
+      done
+      [ "$status" -eq 0 ] && echo "every top-level script is listed"
+      exit $status
+
+# One job per suite rather than a loop, so a failure names the gate that broke
+# in the pipeline view without anyone opening a log.
+
+verdict:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/verdict-test.sh
+
+health-runner:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/health-runner-test.sh
+
+recover:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/recover-test.sh

@@ -83,6 +83,8 @@ across the cluster and names the broken link.
 │           └── hpl2N.dat              # HPL config for 2-node runs
 │
 ├── docs/                          # This directory
+├── tests/                         # Offline suites; stub Slurm, need no cluster
+├── .gitlab-ci.yml                 # CI: the tests, plus the conventions in CLAUDE.md
 ├── build_containers.sh            # Build job container images into containers/
 ├── set-valid-default.sh           # Capture a validated node as the health baseline
 ├── health-check.sh                # Cluster-wide health summary: who is drained and why
