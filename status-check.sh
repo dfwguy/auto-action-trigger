@@ -139,22 +139,9 @@ if [[ ! -f "$PARSERS_DIR/verdict.sh" ]]; then
 fi
 source "$PARSERS_DIR/verdict.sh"
 
-# Prior failed attempts archived by launch_job.sh as <col>.fail<N>.txt.
+# Prior failed attempts are archived by launch_job.sh as <col>.fail<N>.txt.
 # A column with archives and no current file is queued for its next retry.
-fail_count() {
-    local node="$1" col="$2"
-    ## The same shape, and the same regex, as archive_result() in launch_job.sh:
-    ## the serial it hands the next archive and the count printed here have to be
-    ## the same number, or `(fails: N)` disagrees with the files on disk. A glob
-    ## cannot spell "one or more digits", so <col>.fail[0-9]*.txt would also
-    ## count a hand-renamed <col>.fail2-bad.txt and report a rejection that never
-    ## happened -- and this count is displayed, not just tested. A missing or
-    ## empty results directory lists nothing and grep -c prints 0, which is the
-    ## right answer for a column that has never been archived.
-    # shellcheck disable=SC2010
-    ls "$results_dir/$node" 2>/dev/null | grep -cE "^${col}\.fail[0-9]+\.txt$"
-}
-
+#
 # Newest archive for a column, by the numeric suffix rather than by mtime --
 # the suffix is what launch_job.sh increments, and an rsync or a restore can
 # reorder mtimes without changing which attempt was last.
@@ -299,22 +286,21 @@ for node_dir in "$results_dir"/$pattern/; do
         verdict "$(verdict_job_name "$col")" "$file"
         status="$VERDICT_STATUS"
         reason="$VERDICT_REASON"
-        fails=$(fail_count "$node" "$col")
 
         ## NOT_RUN means "no result file", which covers two states that are
         ## nothing alike: never attempted, and attempted-failed-archived-and
         ## resubmitted. launch_job.sh moves a rejected result to <col>.failN.txt
         ## BEFORE submitting the retry, so between the archive and the new job
         ## writing its first byte the column has no file at all -- and the node
-        ## reported `NOT_RUN (fails: 1)`, which reads as a contradiction: it
-        ## says the job never ran and that it failed once.
+        ## reported NOT_RUN, which reads as never attempted when an attempt had
+        ## just been rejected.
         ##
         ## Judge the newest archive instead. That turns the line into RETRY plus
         ## the reason the last attempt was rejected, which is the question
         ## anyone reading this actually has. NOT_RUN then keeps a single
         ## meaning: no attempt has ever been made.
-        if [[ "$status" == "NOT_RUN" && "$fails" -gt 0 ]]; then
-            prev=$(last_fail_file "$node" "$col")
+        if [[ "$status" == "NOT_RUN" ]] &&
+             prev=$(last_fail_file "$node" "$col") && [[ -n "$prev" ]]; then
             verdict "$(verdict_job_name "$col")" "$prev"
             status=RETRY
             ## DONE here is not a contradiction either: the archive was rejected
@@ -346,25 +332,6 @@ for node_dir in "$results_dir"/$pattern/; do
             reason="job is on the node now, no verdict until it finishes"
         fi
 
-        # A passing column is done -- how many tries it took is history, not
-        # status, and annotating it splits DONE nodes into dshbak groups that
-        # all mean the same thing. The archives stay on disk either way, and
-        # the daily CSV still carries the per-job counts.
-        [[ "$status" == "DONE" ]] && fails=0
-
-        ## fail_count() counts *archives*, and the result that made this column
-        ## FAIL has not been archived yet -- launch_job.sh rotates it aside on
-        ## the next sweep, just before it resubmits. So a first failure counted
-        ## 0 and printed no annotation at all, and a second one printed
-        ## `(fails: 1)` beside a FAIL that was itself the second. Count the
-        ## current result too, so FAIL always carries a count and the count is
-        ## the number of failed attempts.
-        ##
-        ## Only FAIL. RETRY is the archives-only case by construction -- it is
-        ## reached when there is no current file -- so its count is already
-        ## right, and INCOMPLETE has a result that no gate has rejected.
-        [[ "$status" == "FAIL" ]] && fails=$((fails + 1))
-
         if [[ "$summary" -eq 1 ]]; then
             prior="${worst[$node]:-}"
             if [[ -z "$prior" || "${rank[$status]}" -gt "${rank[$prior]}" ]]; then
@@ -377,9 +344,15 @@ for node_dir in "$results_dir"/$pattern/; do
         # lines, so nodes failing the same way collapse into one block and a
         # single node failing differently stands out -- the same reason
         # health-check.sh groups by failure signature rather than by check.
+        #
+        # An attempt count is deliberately not on the line: it is per node, so
+        # it differs between nodes that are in exactly the same state, and it
+        # would split one dshbak block into a block per count. How many tries a
+        # column took is history and stays on disk as the .fail<N>.txt archives;
+        # this report answers what the column is now. The daily CSV still
+        # carries the per-job pass/fail counts.
         line="$node: $col: $status"
         [[ "$status" != "DONE" && "$status" != "NOT_RUN" && -n "$reason" ]] && line+=" -- $reason"
-        [[ "$fails" -gt 0 ]] && line+=" (fails: $fails)"
         echo "$line"
     done
 done

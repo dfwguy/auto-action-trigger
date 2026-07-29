@@ -72,9 +72,15 @@ resolves the ambiguity with one cluster-wide `squeue`, matching the
 that live job is writing. Without `squeue` on `PATH` it says so on stderr and both states report
 as `INCOMPLETE`.
 
-`RETRY` and `NOT_RUN` used to be one status, which produced the contradictory
-line `NOT_RUN (fails: 1)` -- never ran, failed once. They are split because a
-column with archives is a different thing from one with no history at all.
+`RETRY` and `NOT_RUN` used to be one status, which reported a column whose
+attempt had just been archived as one that had never been attempted. They are
+split because a column with archives is a different thing from one with no
+history at all.
+
+The line carries no attempt count. It is per node, so two nodes in the same
+state print different lines and `dshbak` splits one block into a block per
+count; the `.fail<N>.txt` archives on disk are the record of how many tries a
+column took.
 
 ```bash
 bash daily-report.sh
