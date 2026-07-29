@@ -3,6 +3,9 @@
 INFO: forcing collectives over HCAs: mlx5_0
 node:100:100 [0] NCCL INFO Using network IBext_v11
 node:100:100 [0] NCCL INFO Channel 00/1 : 0[0] -> 1[1] [send] via NET/IBext_v11/0/Shared
+#       size         count      type   redop    root     time   algbw   busbw  #wrong     time   algbw   busbw  #wrong
+  2147483648     536870912     float    none      -1   712004     3.02    5.86       0   711002     3.02    5.87    N/A
+ 17179869184    1073741824     float    none      -1  6120774     2.81    5.44       0  6118221     2.81    5.45    N/A
 # Out of bounds values : 0 OK
 # Avg bus bandwidth    : 4.20311
 #

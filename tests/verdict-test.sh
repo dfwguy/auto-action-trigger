@@ -38,12 +38,25 @@ cases=(
   ## reported instead -- not the TCP fallback further down, which is the
   ## consequence rather than the reason.
   "alltoall-nonvlink__socket-legacy-done|FAIL|no IB device visible to NCCL"
-  "alltoall-nonvlink__good-ib|DONE|"
+  ## Was `good-ib`, and passed until the -nonvlink floor went to 43. Every IB
+  ## transport check clears on this capture -- container sees its HCAs, NCCL
+  ## chose IB, no channel on Socket -- and it is the bandwidth alone that
+  ## rejects it, which is what the reason below asserts. That makes it the case
+  ## proving the transport checks pass something, even with no DONE case left
+  ## for these two jobs: no captured -nonvlink run reaches 43 GB/s. Replace this
+  ## with a real passing capture when one exists rather than editing the numbers
+  ## in this file.
+  "alltoall-nonvlink__ib-below-floor-32|FAIL|peak busbw below floor 43 GB/s"
   ## Host list complete and correct, container sees nothing. Reported against
   ## the probe rather than the socket fallback further down the log, because
   ## that is the cause and the rest is consequence.
   "alltoall-nonvlink__container-blind|FAIL|no HCA visible inside the container"
-  "allreduce-nonvlink__ib-below-floor|FAIL|avg bus bandwidth below floor 10 GB/s"
+  ## IB scope, transport correct, fabric slow: 5.44 GB/s at the largest message
+  ## size against a 43 floor. The largest-size row is judged and the
+  ## `# Avg bus bandwidth` line is not, so the reason has to name the figure the
+  ## daily report prints -- 5.44 here, not the 4.20311 average sitting two lines
+  ## below it in the same file.
+  "allreduce-nonvlink__ib-below-floor|FAIL|peak busbw below floor 43 GB/s"
   "alltoall__truncated|INCOMPLETE|no end marker -- job died before finishing"
   "allreduce__fell-to-socket|FAIL|collective left NVLink for the network"
   ## The real h20-36 run: 32 channels of via P2P/MNNVL at 220.837 GB/s, and it

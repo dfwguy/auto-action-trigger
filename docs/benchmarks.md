@@ -393,13 +393,25 @@ first would report the whole cluster as `collective carried over TCP`, which is
 true, and would send someone to look at the fabric instead of at a missing bind
 mount. Keep new checks in causal order.
 
-Bandwidth floors live in `VERDICT_MIN_BW_NVLINK` and `VERDICT_MIN_BW_NONVLINK`
-at the top of `parsers/nvl72/verdict.sh`. They are set low deliberately — enough to catch a
-transport that is obviously wrong, not to assert the fabric performs to spec.
-Raise them once a known-good run on the platform establishes what good looks
-like. They read the `# Avg bus bandwidth` summary line, which is an average
-across every message size and roughly half the largest-size figure that
-`daily-report.sh` reports as the metric; do not compare the two.
+Bandwidth floors live in `VERDICT_MIN_PEAK_BW_*` at the top of
+`parsers/nvl72/verdict.sh` — 683 and 623 GB/s for the NVLink-scope `allreduce`
+and `alltoall`, 43 GB/s for each of the `-nonvlink` pair. All four read the
+same number: out-of-place busbw at the largest message size actually run. That
+is also the figure `daily-report.sh` prints in those columns, so a value in the
+report can be compared against the floor directly.
+
+The `# Avg bus bandwidth` summary line is required to be present, as evidence
+the run finished, but is not judged. It averages every message size and comes
+out roughly half the largest-size figure on the same run, so a floor stated
+against it could not be checked against anything an operator is looking at.
+
+The three NVLink-scope floors were set from known-good runs on this platform.
+The `-nonvlink` 43 was not: it is what the compute-plane HCAs are expected to
+sustain, and it sits above every IB-scope result captured so far — the fixture
+that used to be `alltoall-nonvlink__good-ib` measures 32.35 and is now a
+below-floor case. Read a full `daily-report.sh` before acting on drains from
+these two jobs. A handful of nodes under the floor is a fabric problem; every
+node landing in the thirties is the floor being wrong.
 
 Run `tests/verdict-test.sh` after changing a gate. It checks
 `parsers/nvl72/verdict.sh` against captured result files, including a real
