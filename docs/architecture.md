@@ -176,13 +176,9 @@ the info- and style-level findings below it are largely deliberate here. The
 broke without anyone opening a log.
 
 `scan-cache` is there for the same reason `help-text` is: a coupling that fails
-without saying so. The reports cache verdicts under `results/.result_cache.*`,
-and the thing that makes that legitimate is that the key covers the gate as well
-as each result file's size and mtime — edit a floor and the fleet is re-judged.
-Break that and every report still prints, still looks right, and is wrong about
-nodes whose answer has changed. The suite asserts the invalidations one at a
-time, including the two that no file change can signal: a node with a job on it
-now, and a node whose job has just ended.
+without saying so. Break the cache key and every report still prints, still
+looks right, and is wrong about nodes whose answer has changed. See
+[operations.md#the-verdict-cache](operations.md#the-verdict-cache).
 
 `help-text` is there for a coupling the rest of the tree does not have.
 `status-check.sh`, `health-check.sh`, `daily-report.sh`, `sync-check.sh` and

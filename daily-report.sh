@@ -11,13 +11,10 @@
 #                     written to disk -- a report is only ever produced
 #                     because someone asked for one.
 #   --no-cache        judge every node from its files, ignoring
-#                     results/.result_cache.*. The cache is keyed on the
-#                     pass/fail rule as well as on the size and mtime of every
-#                     result file, so an edited floor re-judges the fleet and a
-#                     changed result re-judges its node; a cached report is the
-#                     report you would have got anyway. This is for suspecting
-#                     that mechanism itself. Deleting the cache files does the
-#                     same, and they are safe to remove at any time.
+#                     results/.result_cache.*. A cached report is the report you
+#                     would have got anyway; reach for this when you suspect the
+#                     cache rather than the gate.
+#                     See docs/operations.md#the-verdict-cache.
 #
 # The table goes to stdout, and a summary follows on stderr -- how many nodes
 # are in each slurm state, how many cells hold each status, min/median/mean/max
@@ -65,7 +62,7 @@ while [[ $# -gt 0 ]]; do
         --no-cache)
             export SCAN_CACHE=0; shift ;;
         -h|--help)
-            sed -n '2,47p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+            sed -n '2,44p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         *)  echo "ERROR: unknown argument $1" >&2; exit 1 ;;
     esac
 done
@@ -153,8 +150,8 @@ if [[ ! -f "$PARSERS_DIR/verdict.sh" ]]; then
 fi
 source "$PARSERS_DIR/verdict.sh"
 
-# The scan itself: judging every cell, in parallel, across worker processes, and
-# extracting the metric while the file is open. See verdict-scan.sh.
+# Judges every cell in parallel workers, extracting the metric while the file is
+# open. See docs/operations.md#how-a-report-is-produced.
 # shellcheck source=/dev/null
 source "$home/verdict-scan.sh"
 
@@ -164,10 +161,8 @@ source "$home/verdict-scan.sh"
 
 declare -a rows
 
-## The column list and the header are built together, so a column can never be
-## judged in one order and printed in another. Note the two spellings: the
-## header says `job_runN` and the result file is `job-runN`, which is the name
-## the scan is given.
+## Built together so a column cannot be judged in one order and printed in
+## another. Two spellings: the header says `job_runN`, the file is `job-runN`.
 declare -a columns
 header="node"$'\t'"slurm"
 for job in "${job_order[@]}"; do
@@ -184,16 +179,14 @@ for job in "${job_order[@]}"; do
 done
 rows+=("$header")
 
-## Once per job, not once per node per job, which is what it used to be -- the
-## answer is the same for every node and cost a subshell each time.
+## Once per job, not per node per job: the answer never varies by node.
 declare -A mlabel_of
 for job in "${job_order[@]}"; do
     mlabel_of["$job"]=$(metric_label "$job")
 done
 
-# What the workers need. This report has no RUNNING and no RETRY: it reads sinfo
-# rather than squeue, so it cannot tell a live job from a dead one, and a column
-# whose result has been archived for a retry reads NOT_RUN here.
+# No RUNNING and no RETRY here: this report reads sinfo, not squeue, so it
+# cannot tell a live job from a dead one, and an archived column reads NOT_RUN.
 export SCAN_RESULTS_DIR="$results_dir"
 export SCAN_COLUMNS="${columns[*]}"
 export SCAN_RUNNING_FILE=""
@@ -206,12 +199,9 @@ declare -A slurm_count cell_count job_values job_status_count status_seen
 declare -A cells       # "<node>,<column>" -> what that cell prints
 node_count=0
 
-## The scan returns rows in whatever order the workers finished, so the cells
-## are collected first and laid out in node order below. The tallies are done
-## here, in the one pass, and are order-independent: they are counters, and
-## job_values is sorted by stats_row before anything is read off it.
-## SCAN_FS, never a tab: see the note on it in verdict-scan.sh. `read` would
-## collapse an empty reason into the metric field and silently blank the number.
+## Rows arrive in worker-completion order, so cells are collected here and laid
+## out in node order below; the tallies are order-independent.
+## SCAN_FS, never a tab -- a tab would blank the metric. See verdict-scan.sh.
 while IFS="$SCAN_FS" read -r node col status _reason metric; do
     job="${col%-run[0-9]*}"
     ## A number whenever the run produced one, FAIL included; the status word is
@@ -244,9 +234,8 @@ for node in "${nodes[@]}"; do
     (( node_count++ ))
     row="$node"$'\t'"$state"
     for col in "${columns[@]}"; do
-        ## A cell with no scan row is a worker that died, not a node that passed.
-        ## Named, and counted with the rest, so it shows up in the status block
-        ## rather than as a blank in a machine-readable export.
+        ## No scan row means a worker died, not a node that passed. Named, so
+        ## it shows up in the status block rather than as a blank in an export.
         if [[ -v "cells[$node,$col]" ]]; then
             row+=$'\t'"${cells[$node,$col]}"
         else

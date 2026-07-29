@@ -43,18 +43,10 @@
 #
 #   --no-cache
 #            judge every node from its files, ignoring results/.result_cache.*.
-#
-#            The cache holds a verdict only for as long as nothing that produced
-#            it has moved: its key covers the pass/fail rule itself, so editing a
-#            floor re-judges the whole fleet, and each node is keyed on the size
-#            and mtime of every result file under it, so a new, changed or
-#            deleted result re-judges that node. A cached report is the report
-#            you would have got anyway.
-#
-#            This is for when you suspect THAT mechanism rather than the gate --
-#            a restore that reset mtimes, a clock that went backwards. Deleting
-#            the cache files does the same thing; they are rebuilt on the next
-#            run and are safe to remove at any time.
+#            A cached report is the report you would have got anyway; reach for
+#            this when you suspect the cache rather than the gate. Deleting the
+#            cache files does the same, and they are safe to remove at any time.
+#            See docs/operations.md#the-verdict-cache.
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -72,7 +64,7 @@ while (($#)); do
             tests+=("$2"); shift 2 ;;
         -s|--summary) summary=1; shift ;;
         --no-cache) export SCAN_CACHE=0; shift ;;
-        -h|--help) sed -n '2,57p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        -h|--help) sed -n '2,49p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         *)         args+=("$1"); shift ;;
     esac
 done
@@ -144,8 +136,8 @@ if [[ ! -f "$PARSERS_DIR/verdict.sh" ]]; then
 fi
 source "$PARSERS_DIR/verdict.sh"
 
-# The scan itself: judging every cell, in parallel, across worker processes.
-# See verdict-scan.sh for why the walk is not done in this shell.
+# Judges every cell, in parallel worker processes.
+# See docs/operations.md#how-a-report-is-produced.
 # shellcheck source=/dev/null
 source "$home/verdict-scan.sh"
 
@@ -163,9 +155,8 @@ fi
 # One squeue call for the cluster, not one per node. RUNNING only -- a queued
 # job has written no file, so its columns are NOT_RUN or RETRY anyway.
 #
-# Written to a file because the scan happens in worker processes: a list of
-# every running node on a large fleet is not something to push through exec
-# once per worker. Removed on the way out, including on an interrupted report.
+# A file, not a variable: the scan runs in workers, and a large fleet's running
+# list should not go through exec once per worker.
 running_file=$(mktemp) || exit 1
 trap 'rm -f "$running_file"' EXIT
 if command -v squeue >/dev/null 2>&1; then
@@ -186,7 +177,7 @@ declare -a nodes
 for node_dir in "$results_dir"/$pattern/; do
     [[ -d "$node_dir" ]] || continue
     node_dir="${node_dir%/}"
-    ## Not basename: one fork per node, for something parameter expansion does.
+    ## Not basename: that is a fork per node for what expansion does free.
     nodes+=("${node_dir##*/}")
 done
 if [[ ${#nodes[@]} -eq 0 ]]; then
@@ -195,8 +186,8 @@ if [[ ${#nodes[@]} -eq 0 ]]; then
     exit 1
 fi
 
-# What the workers need. Exported rather than passed, so the node names are the
-# only thing on the command line and xargs is free to chunk them.
+# Exported, not passed, so node names are all that is on the command line and
+# xargs can chunk them. See docs/operations.md#how-a-report-is-produced.
 export SCAN_RESULTS_DIR="$results_dir"
 export SCAN_COLUMNS="${columns[*]}"
 export SCAN_RUNNING_FILE="$running_file"
@@ -209,14 +200,10 @@ export SCAN_METRICS=0      # no numbers in this report, only statuses
 # See docs/operations.md#status-and-reporting.
 RANKS='FAIL 6 INCOMPLETE 5 RETRY 4 NOT_RUN 3 RUNNING 2 DONE 1'
 
-# The scan's rows turned into report lines. The reason is on the line so dshbak
-# collapses nodes failing the same way. No attempt count: it is per node and
-# would split one block into a block per count.
+# Scan rows to report lines. The reason is on the line so dshbak collapses
+# nodes failing the same way; no attempt count, which would split one block into
+# one per count. In awk because this is tens of thousands of rows and no state.
 # See docs/operations.md#status-and-reporting.
-#
-# In awk rather than a `while read` loop: the scan emits one row per node per
-# column, which is tens of thousands of rows on a large fleet, and this is a
-# straight per-row rewrite with no state to keep.
 report_lines() {
     awk -F"$SCAN_FS" '{
         line = $1 ": " $2 ": " $3
@@ -225,9 +212,8 @@ report_lines() {
     }'
 }
 
-# The worst status each node holds, one row per node, for the summary buckets.
-# Folded in awk for the same reason, and because `worst` cannot be built from a
-# pipeline in this shell -- see scan_fleet().
+# Worst status per node, for the summary buckets. In awk because the scan runs
+# in children and cannot build state here.
 worst_per_node() {
     awk -F"$SCAN_FS" -v ranks="$RANKS" -v ofs="$SCAN_FS" '
         BEGIN { n = split(ranks, a, " "); for (i = 1; i < n; i += 2) rank[a[i]] = a[i + 1] }
@@ -266,11 +252,8 @@ compress() {
 
 plural() { [[ "$1" -eq 1 ]] && printf 'node' || printf 'nodes'; }
 
-# One pass over the roll-up, already sorted, appending each node to its bucket.
-# Sorted here rather than per bucket: the fallback path in compress() prints the
-# list as it was built, so the order has to be the node order and not the order
-# six separate passes happened to visit in. Six passes over the fleet is also
-# five more than this needs.
+# One sorted pass, not one per bucket: compress()'s fallback prints the list as
+# built, so the order has to be node order.
 declare -A bucket_nodes bucket_count
 while IFS="$SCAN_FS" read -r node status; do
     bucket_nodes["$status"]+="${bucket_nodes[$status]:+,}$node"

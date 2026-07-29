@@ -537,17 +537,10 @@ identical reports.
 ### The verdict cache
 
 Both reports keep judged verdicts in `results/.result_cache.<mode>`, which turns
-a repeat run from minutes into about a second on a large fleet. It is not a
-setting because there is nothing to tune: it is either telling the truth or it
-is a bug, and `tests/scan-cache-test.sh` is what holds it to that.
-
-An entry survives only while everything that produced it is unchanged. The key
-covers the pass/fail rule itself — `verdict.sh` and `verdict-scan.sh` are hashed
-into it — so **lowering a floor re-judges the whole cluster**, which is the
-behaviour `docs/benchmarks.md#where-a-pass-is-decided` promises. Per node, it
-covers the name, size and mtime of every result file, archives included, so a
-new result, a changed one, or a deleted one re-judges that node and only that
-node. Nodes running a job are never cached at all.
+a repeat run from minutes into about a second on a large fleet. There is no
+setting for it: it either tells the truth or it is a bug. How the key works, and
+why that makes it safe, is in
+[operations.md#the-verdict-cache](operations.md#the-verdict-cache).
 
 The files are derived and disposable:
 

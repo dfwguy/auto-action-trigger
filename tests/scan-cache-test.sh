@@ -2,24 +2,17 @@
 #
 # Usage: tests/scan-cache-test.sh
 #
-# Checks that the verdict cache under results/.result_cache.* can only ever
-# return the answer a full scan would have returned.
+# Checks that the verdict cache can only return the answer a full scan would
+# have. Every other suite here checks something that fails loudly; this one
+# exists because a stale cache hit is SILENT -- it prints a clean report for a
+# cluster that is not clean, and nothing contradicts it.
 #
-# Every other suite here checks something that fails loudly. This one exists
-# because a cache fails QUIETLY: a stale hit prints DONE for a node that would
-# now fail, in a report that looks exactly like a correct one, and nothing on
-# the cluster contradicts it. The framework's central rule is that a verdict is
-# derived and never stored -- see docs/benchmarks.md#where-a-pass-is-decided --
-# and a cache is the one thing in the tree that comes close to storing one. What
-# makes it legitimate is that its key covers everything a verdict depends on.
-# These cases are that claim, written down.
+# The case that matters most is `gate edit re-judges`: floors move as the
+# platform is learned, and a cache that survived that would keep every node's
+# old answer. See docs/operations.md#the-verdict-cache.
 #
-# The one that matters most is `gate edit re-judges`: the repo lowers benchmark
-# floors as it learns the platform, and if a floor change did not invalidate the
-# cache, every node already judged would keep its old answer silently.
-#
-# Builds its own results tree in a temp directory from tests/fixtures/ and needs
-# no cluster, no slurm and no network.
+# Builds its own results tree from tests/fixtures/ in a temp directory. No
+# cluster, no slurm, no network.
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -31,14 +24,13 @@ bad() { printf 'FAIL     %-42s %s\n' "$1" "$2"; fail=$((fail + 1)); }
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
-## A copy of the tree, so a case can edit a floor without touching the checkout.
+## A copy of the tree: a case edits a floor, and must not touch the checkout.
 cp -a "$home" "$tmp/tree" || exit 1
 tree="$tmp/tree"
 rm -rf "$tree/results"
 mkdir -p "$tree/results"
 
-## Four nodes is enough: the cases are about which nodes get re-judged, and one
-## node changing while three do not is the whole shape.
+## Four is enough: one node changing while three do not is the whole shape.
 F="$home/tests/fixtures"
 for n in node01 node02 node03 node04; do
     d="$tree/results/$n"
@@ -52,9 +44,8 @@ for n in node01 node02 node03 node04; do
     cp "$F/alltoall-nonvlink__container-blind.txt" "$d/alltoall-nonvlink.txt"
 done
 
-## mtime has to move for a rewrite to be seen, and these cases rewrite files
-## within the same second. Real results are minutes apart at best; the cache
-## uses nanosecond mtime, but the fixtures are copied faster than that.
+## mtime must move for a rewrite to be seen, and these cases rewrite within the
+## same nanosecond. Real results are minutes apart at best.
 rewrite() {
     cp "$1" "$2"
     touch -d "$(date -d '+1 hour')" "$2"
@@ -63,8 +54,7 @@ rewrite() {
 run()  { ( cd "$tree" && ./status-check.sh "$@" 2>/dev/null ); }
 
 cached_run_count() {
-    ## How many nodes a run actually judged, read from the cache's own records
-    ## rather than inferred from timing.
+    ## From the cache's own records, not inferred from timing.
     grep -c "^N" "$tree/results/.result_cache.10" 2>/dev/null || echo 0
 }
 
@@ -91,8 +81,7 @@ else
     bad "cache file is written under results/" "no cache file after two runs"
 fi
 
-# ── The key covers the gate ───────────────────────────────────────────────────
-# The case this suite exists for.
+# ── The key covers the gate: the case this suite exists for ──────────────────
 
 before=$(grep -c 'allreduce: DONE' <<<"$warm")
 sed -i 's/^VERDICT_MIN_PEAK_BW_ALLREDUCE=683/VERDICT_MIN_PEAK_BW_ALLREDUCE=700/' \
@@ -131,12 +120,10 @@ else
     bad "one node changing leaves the rest alone" "unrelated nodes moved"
 fi
 
-## A rewrite of EXACTLY the same length, on a node nothing else has touched:
-## the busbw at the largest message size goes 694.24 -> 094.24, six characters
-## for six, which takes it under the 683 floor. Size cannot see this, so it is
-## the case that says mtime has to be in the key as well. Done on node04
-## deliberately -- on a node an earlier case has already resized, the size check
-## would catch it and this would prove nothing.
+## Exactly the same length: busbw 694.24 -> 094.24, six characters for six,
+## under the 683 floor. Size cannot see this, so it is what says mtime must be
+## in the key too. node04 deliberately -- on a node an earlier case resized, the
+## size check would catch it and this would prove nothing.
 sed 's/ 694\.24 / 094.24 /' "$F/allreduce__good-nvlink.txt" > "$tmp/samesize.txt"
 if [[ "$(stat -c %s "$tmp/samesize.txt")" != "$(stat -c %s "$F/allreduce__good-nvlink.txt")" ]]; then
     bad "same-size rewrite re-judges" "the fixture edit changed the length; the case cannot run"
@@ -149,8 +136,8 @@ else
     fi
 fi
 
-## Deletion. The per-file check only sees files that exist, so this is the case
-## that needs the count to be part of the comparison.
+## Deletion: the per-file check only sees files that exist, so the count has to
+## be compared too.
 rm "$tree/results/node03/nvbandwidth.txt"
 if grep -q '^node03: nvbandwidth: NOT_RUN' <<<"$(run)"; then
     ok "deleted result re-judges its node" "node03 nvbandwidth now NOT_RUN"
@@ -158,8 +145,7 @@ else
     bad "deleted result re-judges its node" "a removed file was served from the cache"
 fi
 
-## An archive appearing changes a cell without changing any file the cell was
-## previously read from -- NOT_RUN becomes RETRY.
+## An archive changes a cell without touching any file it was read from.
 cp "$F/allreduce__fell-to-socket.txt" "$tree/results/node03/nvbandwidth.fail1.txt"
 if grep -q '^node03: nvbandwidth: RETRY' <<<"$(run)"; then
     ok "new archive re-judges its node" "node03 nvbandwidth now RETRY"
@@ -174,10 +160,8 @@ else
 fi
 
 # ── Live state is never cached ────────────────────────────────────────────────
-# RUNNING comes from squeue, not from disk, so a node with a job on it has to be
-# re-read every time -- its answer can change with NO file changing at all. This
-# is the one case the file-based key cannot see, which is why running nodes are
-# forced past the cache rather than checked by it.
+# The one case a file-based key cannot see: RUNNING comes from squeue, so the
+# answer changes with no file changing at all.
 
 ## A partial result and no job: INCOMPLETE. This is what gets cached.
 cp "$F/alltoall__truncated.txt" "$tree/results/node01/alltoall.txt"
@@ -188,9 +172,8 @@ else
     bad "partial result with no job reads INCOMPLETE" "setup for the running case failed"
 fi
 
-## Now the same node, same files, byte for byte -- but slurm says a job is on
-## it. Nothing on disk moved, so a cache that only watched files would replay
-## INCOMPLETE and report a live job as one that died.
+## Same node, same files byte for byte, but slurm says a job is on it. A cache
+## that only watched files would report a live job as one that died.
 mkdir -p "$tmp/bin"
 cat > "$tmp/bin/squeue" <<'EOF'
 #!/bin/bash
@@ -206,8 +189,7 @@ else
         "$(grep '^node01: alltoall:' <<<"$running") -- a live job reported from stale cache"
 fi
 
-## And back: the job ends, no file has changed, and it is INCOMPLETE again
-## rather than stuck on the RUNNING that was true a moment ago.
+## And back: the job ends, no file changed, so RUNNING must not have been kept.
 if grep -q '^node01: alltoall: INCOMPLETE' <<<"$(run)"; then
     ok "the node returns to INCOMPLETE once the job is gone" "RUNNING was not cached either"
 else
@@ -215,8 +197,7 @@ else
 fi
 
 # ── A damaged cache is never trusted ──────────────────────────────────────────
-# Truncation, a half-written file, a key from another tree: none of it may
-# change the report. The cache has no authority -- it can only agree.
+# The cache has no authority. It can only agree.
 
 expected=$(run)
 
@@ -242,9 +223,8 @@ else
     bad "missing cache rebuilds" "the report depends on the cache existing"
 fi
 
-## The cache lives under results/, which both reports also scan for node
-## directories. A dotfile is skipped by the globs; if that ever stops being
-## true, the cache becomes a node.
+## Both reports scan results/ for node directories. A dotfile is skipped by the
+## globs; if that stops being true, the cache becomes a node.
 if ! grep -q 'result_cache' <<<"$(run)"; then
     ok "cache file is not mistaken for a node" "no result_cache rows in the report"
 else

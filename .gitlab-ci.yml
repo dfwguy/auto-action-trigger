@@ -100,9 +100,8 @@ permissions:
         fi
       }
 
-      # Sourced libraries -- never executed. verdict-scan.sh is also RUN, but
-      # as `bash verdict-scan.sh` from xargs, the same arrangement as the
-      # health checks below; it is not on anyone's PATH as a command.
+      # Sourced libraries. verdict-scan.sh is also run, but as
+      # `bash verdict-scan.sh` from xargs, like the health checks below.
       for f in settings.sh reason-map.sh slurm-recovery.sh verdict-scan.sh \
                $(git ls-files 'parsers/*/verdict.sh') \
                $(git ls-files 'jobs/*/nccl-hca.sh'); do
@@ -173,8 +172,8 @@ recover:
   script:
     - ./tests/recover-test.sh
 
-# The reports cache verdicts under results/. Every other gate here fails loudly;
-# a stale cache hit is silent, and prints a clean report for a fleet that is not.
+# A stale cache hit is silent: a clean report for a fleet that is not clean.
+# See docs/operations.md#the-verdict-cache.
 scan-cache:
   extends: .base
   stage: test

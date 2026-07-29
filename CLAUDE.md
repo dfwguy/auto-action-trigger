@@ -16,6 +16,32 @@ changes.
 must not overwrite one cluster's node list and drain switches with another's.
 `SETTINGS.default` is the shipped copy and *is* tracked.
 
+## Comments point at the docs; they do not contain them
+
+One or two lines and a reference. The reasoning goes in `docs/`, where it can be
+read in order, linked to, and found by someone who is not already staring at
+that line.
+
+```bash
+## Not a tab: `read` collapses runs of IFS whitespace and eats empty fields.
+## See docs/operations.md#how-a-report-is-produced.
+```
+
+not eight lines restating it above the function. A comment that has grown into
+prose is a sign the explanation has no home yet — give it one in `docs/` and
+link to it from the code.
+
+Three things are exempt, and only these:
+
+- `# shellcheck disable` directives, which carry their reason inline. That is
+  what they are for, and the reason has to sit with the warning it suppresses.
+- The five `--help` header blocks, which *are* the help text — see below.
+- `.sbatch` files and `health-checks/*/NN-*.sh`, which are read on their own by
+  people who will not have the docs open.
+
+This is not licence to delete reasoning. Moving an explanation into `docs/` and
+dropping it look identical in a diff and are not the same thing.
+
 ## Executable bits are load-bearing, and not uniform
 
 The split is deliberate. Before changing a mode, work out which of these a file
@@ -24,7 +50,7 @@ is:
 | Mode | What | Why |
 |------|------|-----|
 | `755` | Entry points — anything a human or BCM invokes directly | Must be `exec`able. BCM registers an action against a path and runs it; a `644` action registers fine and silently runs nothing |
-| `644` | Sourced libraries: `settings.sh`, `reason-map.sh`, `slurm-recovery.sh`, `verdict-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is the one that is also *run* — as `bash verdict-scan.sh` from its own `xargs`, exactly as `node_health.sh` runs a health check — and `644` is what says it is not a command anyone invokes |
+| `644` | Sourced libraries: `settings.sh`, `reason-map.sh`, `slurm-recovery.sh`, `verdict-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is also *run*, but as `bash verdict-scan.sh` from its own `xargs`, like the health checks below |
 | `644` | `health-checks/*/NN-*.sh` | `node_health.sh` runs each as `bash "$check_file"` — deliberately, so one check's `exit 1` cannot truncate the set of 38 |
 | `644` | `jobs/*/*.sbatch`, including `example.sbatch` | `sbatch` reads them; it does not exec them. `example.sbatch` is a template that gets `cp`'d, so a stray `755` propagates into every new job |
 
@@ -71,27 +97,14 @@ padding and property names drift between BCM releases.
 
 ## A verdict is derived, and the cache does not change that
 
-`status-check.sh` and `daily-report.sh` cache verdicts in
-`results/.result_cache.*`, which is the only thing in the tree that comes near
-storing a judgement. It is legitimate only because of what is in the key:
+The reports cache verdicts in `results/.result_cache.*`, keyed on the gate as
+well as on each result file, so editing a floor re-judges the fleet. Anything
+added to a verdict that is not a pure function of the result file and the gate
+must not be cached. `./tests/scan-cache-test.sh` holds this, and a stale hit is
+silent, so that suite is the only thing between a wrong key and a clean-looking
+report of a broken cluster.
 
-- **the gate** — `parsers/*/verdict.sh` and `verdict-scan.sh` are hashed in, so
-  editing a floor invalidates every entry at once. This repo lowers floors as it
-  learns the platform; without this, those commits would change nothing and no
-  output would say so.
-- **each result file's size and mtime**, per node — a new, changed or deleted
-  result re-judges that node. Size alone is not enough: a rewrite of equal
-  length is a real case, and mtime is what catches it.
-
-Two things can change an answer with no file changing, so they are kept out of
-the cache entirely rather than checked by it: a node with a job on it now
-(`RUNNING` comes from squeue) is always re-judged, and its rows are never
-written down, because once the job ends nothing on disk would invalidate them.
-
-If you add anything to a verdict that is not a pure function of the result file
-and the gate, it does not belong in a cached row. `./tests/scan-cache-test.sh`
-holds all of this; a stale hit is silent, so that suite is the only thing
-standing between a wrong key and a clean-looking report of a broken cluster.
+Read `docs/operations.md#the-verdict-cache` before touching any of it.
 
 ## Before committing
 

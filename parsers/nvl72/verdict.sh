@@ -97,13 +97,11 @@ _v_forbid_i() {
     return 1
 }
 
-## Floor on the largest message size actually run, out-of-place busbw (column 8).
-## Extraction must stay identical to verdict-scan.sh's extract_metric, or the
-## report prints a number the gate did not judge. The largest size is tracked in
-## the one awk pass rather than piped through `sort | tail | awk`, because
-## nccl-tests does not guarantee the largest size is printed last and three of
-## those four processes were bought only to find a maximum. Comparison in awk
-## because bash arithmetic is integer-only and these are floats.
+## Floor on the largest message size run, out-of-place busbw (column 8). Must
+## stay identical to verdict-scan.sh's extract_metric, or the report prints a
+## number the gate did not judge. Max tracked in the pass because nccl-tests
+## does not guarantee the largest size is last; compared in awk, these are
+## floats.
 _v_min_peak_bw() {
     local file="$1" min="$2" val
     val=$(awk '$1 ~ /^[0-9]+$/ && $1 + 0 >= big { big = $1 + 0; v = $8 }
@@ -508,21 +506,11 @@ _v_gate_generic() {
 
 ## ── Entry point ───────────────────────────────────────────────────────────
 
-## The end marker is the last line, and reading it is the one thing EVERY call
-## pays for, so it is done without forking: `tail -1` costs a process, and this
-## runs once per node per benchmark -- tens of thousands of times on a report
-## over a large fleet.
-##
-## Capped rather than reading the file whole: `mapfile` with no limit is the
-## fastest form on a normal result file and the slowest on a runaway log, where
-## it builds an array of every line in order to look at one. The cap is far
-## above any real result file, so `tail` is what a pathological log gets, not
-## the common path. Hitting the cap means the read stopped short of the end and
-## the last line held is not the file's -- ask `tail` then.
-##
-## Sets _V_LAST rather than printing, for the same reason verdict() sets
-## VERDICT_STATUS: `last=$(_v_last_line ...)` would fork the subshell this
-## function exists to avoid, leaving the saving at zero.
+## The last line, without forking -- every call pays for this one, tens of
+## thousands of times per report. Capped because an unbounded mapfile is fastest
+## on a real result file and slowest on a runaway log; hitting the cap means the
+## read stopped short of the end, so ask `tail` then. Sets _V_LAST rather than
+## printing, or the command substitution would reinstate the fork.
 _VERDICT_TAIL_CAP=2000
 _V_LAST=""
 

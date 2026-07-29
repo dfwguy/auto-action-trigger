@@ -144,6 +144,82 @@ first cell of their own header row rather than by a title line above them, since
 a free-form line like `254 nodes, 4 jobs` puts words at offsets no column
 boundary passes through.
 
+### How a report is produced
+
+Both reports get their cells from `verdict-scan.sh`, which judges every
+`(node, column)` pair and writes one row per cell. `status-check.sh` ignores the
+metric field, `daily-report.sh` ignores the reason; neither walks the fleet
+itself.
+
+A verdict is derived on every read and never stored — see
+[benchmarks.md#where-a-pass-is-decided](benchmarks.md#where-a-pass-is-decided) —
+so a report is tens of thousands of independent judgements, and each one used to
+fork a handful of `grep`s. Reading every result file on a large cluster takes
+under a second; the cost was the process churn and the fact that one shell did
+all of it in sequence. So the walk is chunked across `SCAN_JOBS` workers, and
+the per-cell path forks as little as it can, any saving there being multiplied
+by every cell on the cluster.
+
+`verdict-scan.sh` is 644 and both sourced *and* run — sourced by the reports for
+`scan_fleet()`, run by its own `xargs` as the worker, the same arrangement as
+`node_health.sh` running each health check with `bash "$check_file"`. It is not
+a command anyone invokes.
+
+Two details in that file are easy to "fix" into a bug:
+
+- **Rows are separated by ASCII US (`0x1f`), not a tab.** `read` splits on IFS
+  but also collapses runs of it when IFS holds whitespace, so with a tab a row
+  with an empty reason and a metric — every passing cell that produced a number
+  — delivers the metric into the reason's variable and blanks the metric. The
+  report then prints `DONE` in a column that has a figure for it, which reads
+  like a broken gate and is one line of the reader.
+- **Each row is written with a single `printf`.** Workers share one stdout, and
+  on Linux a write under `PIPE_BUF` is atomic while a field-at-a-time `printf`
+  is not.
+
+The scan runs in child processes, so nothing it does can build state in the
+calling shell. A caller wanting a per-node roll-up folds the rows itself.
+
+### The verdict cache
+
+Judged verdicts are kept in `results/.result_cache.<mode>`, one file per mode
+because the two reports ask different questions of the same files.
+[A repeat run goes from minutes to about a second](settings.md#the-verdict-cache)
+on a large fleet.
+
+This is the only thing in the tree that comes near storing a judgement, and what
+makes it legitimate is what is in the key:
+
+- **The gate.** `verdict.sh` and `verdict-scan.sh` are hashed in, so editing a
+  floor invalidates every entry at once and the fleet is re-judged. Floors move
+  here as the platform is learned; without this, those commits would change
+  nothing and no output would say so.
+- **Every result file under the node** — name, size and mtime, archives
+  included. A new, changed or deleted result re-judges that node and no other.
+  Size alone would miss a rewrite of equal length, so mtime is in there too.
+
+Validity is per file, which is what makes the check one `find` for the fleet
+rather than a read of every byte. Replay is per node, which keeps the rules
+about which file feeds which cell — the archive fallback especially — in
+`_scan_node()` rather than restated in awk where the two could drift.
+
+Two things change an answer with no file changing, and both are kept out of the
+cache rather than checked by it:
+
+- A node with a job on it now. `RUNNING` comes from `squeue`, which is live
+  state, and its files are being written as the report runs.
+- **That same node's rows are never written down either.** Once the job ends,
+  nothing on disk would invalidate a cached `RUNNING`, and the report would call
+  a finished job live.
+
+Anything added to a verdict that is not a pure function of the result file and
+the gate does not belong in a cached row. `tests/scan-cache-test.sh` holds all
+of this; a stale hit is silent, so that suite is what stands between a wrong key
+and a clean-looking report of a broken cluster.
+
+To clear it or bypass it, see
+[settings.md#the-verdict-cache](settings.md#the-verdict-cache).
+
 ```bash
 bash watch-rack.sh "rack01-node[1-32]"
 ```
