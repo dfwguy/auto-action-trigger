@@ -49,20 +49,16 @@
 ## 30-something rather than a handful, that is this floor being wrong and not
 ## the fabric -- check a report before acting on the drains.
 VERDICT_MIN_PEAK_BW_ALLREDUCE=683
-## allreduce-nosharp is the same collective on the same fabric with the NVSwitch
-## reduction (NVLS/SHARP) disabled, so it is held slightly under the 683 above:
-## that figure includes the offload this job removes.
-##
-## 670 is an estimate, not a figure read off a known-good no-SHARP run -- there
-## is no captured one on this platform yet. Treat a fleet-wide failure at this
-## gate the way the -nonvlink note below says to: if every node comes back just
-## under it rather than a handful, that is this number being wrong and not the
-## fabric. Check a report before acting on the drains, then replace this with a
-## measured figure and say in the commit which node it came from.
-VERDICT_MIN_PEAK_BW_ALLREDUCE_NOSHARP=670
 VERDICT_MIN_PEAK_BW_ALLTOALL=623
 VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK=43
 VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK=43
+## allreduce-forcesharp has no floor of its own on purpose. It is the same
+## collective on the same fabric as allreduce, with NCCL_ALGO=NVLS removing the
+## fallback -- so when it runs at all, it ran the way allreduce is meant to and
+## the 683 above is the figure it should meet. A second number here would be a
+## second thing to keep in step for no gain. The question that job asks is
+## answered before the bandwidth is: a node without working NVLS fails in
+## ncclCommInitRank and never reaches a summary line to be judged.
 
 ## Floors for the non-NCCL jobs. These used to live in the sbatch that ran the
 ## workload, which meant they were applied once, at run time, and a result that
@@ -671,8 +667,9 @@ _v_dispatch_gate() {
     case "$job" in
         allreduce)
             _v_gate_nccl "$file" nvlink "$VERDICT_MIN_PEAK_BW_ALLREDUCE" ;;
-        allreduce-nosharp)
-            _v_gate_nccl "$file" nvlink "$VERDICT_MIN_PEAK_BW_ALLREDUCE_NOSHARP" ;;
+        allreduce-forcesharp)
+            ## Deliberately the same floor as allreduce -- see the note by it.
+            _v_gate_nccl "$file" nvlink "$VERDICT_MIN_PEAK_BW_ALLREDUCE" ;;
         alltoall)
             _v_gate_nccl "$file" nvlink "$VERDICT_MIN_PEAK_BW_ALLTOALL" ;;
         allreduce-nonvlink)

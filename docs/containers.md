@@ -38,7 +38,7 @@ leaving `RUN_BURNIN=no`.
 
 | Image | Needed by |
 |-------|-----------|
-| `hpc-benchmarks` | `allreduce`, `allreduce-nosharp`, `alltoall`, both `-nonvlink` variants, `hpl`, `cublasmatmul`, `stream` |
+| `hpc-benchmarks` | `allreduce`, `allreduce-forcesharp`, `alltoall`, both `-nonvlink` variants, `hpl`, `cublasmatmul`, `stream` |
 | `nvbandwidth` | `nvbandwidth` |
 | `nvloom` | `nvloom` |
 | `mnubergemm` | `mnubergemm` |
@@ -222,7 +222,7 @@ and every monitoring cycle re-transfers the whole directory.
 
 | Image | File | Source | Used by |
 |-------|------|--------|---------|
-| hpc-benchmarks | `nvidia+hpc-benchmarks+26.02-<arch>.sqsh` | public NGC pull | `allreduce`, `allreduce-nosharp`, `alltoall`, both `-nonvlink`, `hpl`, `cublasmatmul`, `stream` |
+| hpc-benchmarks | `nvidia+hpc-benchmarks+26.02-<arch>.sqsh` | public NGC pull | `allreduce`, `allreduce-forcesharp`, `alltoall`, both `-nonvlink`, `hpl`, `cublasmatmul`, `stream` |
 | nvbandwidth | `nvbandwidth-v0.9-<arch>.sqsh` | private NGC org pull; source build with `-S` | `nvbandwidth` |
 | nvloom | `nvloom-v2.0.0-<arch>.sqsh` | built from the upstream sample Dockerfile | `nvloom` |
 | mnubergemm | `mnubergemm-26.03-v1.17-<arch>.sqsh` | private NGC org, ARM only | `mnubergemm` |

@@ -44,7 +44,7 @@ fi
 : "${JOBS:=nvl72}"
 : "${HEALTHCHECKS:=nvl72}"
 : "${PARSERS:=nvl72}"
-: "${BENCHMARKS:=dcgm nvbandwidth allreduce allreduce-nosharp alltoall allreduce-nonvlink alltoall-nonvlink}"
+: "${BENCHMARKS:=dcgm nvbandwidth allreduce allreduce-forcesharp alltoall allreduce-nonvlink alltoall-nonvlink}"
 ## `=` rather than `:=`, for the same reason CONTAINERS uses it below: an
 ## explicitly empty BURNIN means "no burn-in phase" and is a real answer.
 : "${RUN_BURNIN:=no}"

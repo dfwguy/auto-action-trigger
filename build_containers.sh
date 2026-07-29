@@ -503,7 +503,7 @@ build_from_stage() {
 }
 
 ## ── hpc-benchmarks ────────────────────────────────────────────────────────
-## Public NGC image, no credentials needed. Covers allreduce, allreduce-nosharp,
+## Public NGC image, no credentials needed. Covers allreduce, forcesharp,
 ## alltoall, both -nonvlink variants, hpl, cublasmatmul, and stream -- most of
 ## the benchmark set, so
 ## this is the one with the most to gain from a local copy. Multi-arch on the

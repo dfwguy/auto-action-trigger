@@ -63,7 +63,7 @@ across the cluster and names the broken link.
 │       ├── dcgm-r4.sbatch             # DCGM diagnostics (level 4, Exhaustive gate)
 │       ├── nvbandwidth.sbatch         # HBM / PCIe / NVLink bandwidth
 │       ├── allreduce.sbatch           # NCCL all-reduce, NVLink scope
-│       ├── allreduce-nosharp.sbatch   # NCCL all-reduce, NVLink scope, NVLS/SHARP off
+│       ├── allreduce-forcesharp.sbatch # NCCL all-reduce, NVLS/SHARP required (NCCL_ALGO=NVLS)
 │       ├── alltoall.sbatch            # NCCL all-to-all, NVLink scope
 │       ├── allreduce-nonvlink.sbatch  # NCCL all-reduce over HCAs (NVLink excluded)
 │       ├── alltoall-nonvlink.sbatch   # NCCL all-to-all over HCAs (NVLink excluded)

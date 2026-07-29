@@ -10,7 +10,7 @@
 ## --nice orders this job against everything else queued for the node: higher
 ## is LATER, 0 is the front. 20 is the sweep's tier -- behind the dcgm gates at
 ## 0, ahead of burn-in at 100000. See docs/benchmarks.md.
-##SBATCH -o /home/cmods/bringup/results/%N/allreduce-nosharp.txt
+##SBATCH -o /home/cmods/bringup/results/%N/allreduce-forcesharp.txt
 
 ## Allocation. --exclusive is a JOB-level guarantee, and a step inherits only
 ## what was explicitly requested -- never what the job was implicitly granted.
@@ -19,17 +19,17 @@
 ## and would shrink every srun below to that core count. See the allocation
 ## header section of docs/benchmarks.md.
 
-## AI Factory Testing Plan: NCCL AllReduce -- Single Node, NVLink, no SHARP.
+## AI Factory Testing Plan: NCCL AllReduce -- Single Node, NVLink, SHARP forced.
 ## The same collective over the same fabric as allreduce.sbatch, with the
-## NVSwitch's in-network reduction (NVLS/SHARP) taken out, so the number
-## measured is what the GPUs and the NVLink fabric do on their own. Run as a
-## pair with allreduce.sbatch: that one passing and this one failing points at
-## the GPUs or the links, both failing together points at the switch offload.
-## SHARP-enabled counterpart: allreduce.sbatch
+## NVSwitch's in-network reduction (NVLS/SHARP) made mandatory rather than
+## merely permitted -- see NCCL_ALGO below. This job exists to answer "did SHARP
+## run", which allreduce.sbatch cannot: a node with no NVLS support runs it
+## quietly on the GPUs instead and reports a plausible number.
+## Permissive counterpart: allreduce.sbatch
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 # shellcheck disable=SC2034
-job_name=allreduce-nosharp
+job_name=allreduce-forcesharp
 
 ## Step time limit, handed to srun --time below: 2x the plan's < 5 min for
 ## single-node NCCL, floored at 15 min.
@@ -76,17 +76,27 @@ export NCCL_DEBUG=INFO
 export NCCL_P2P_LEVEL=NVL
 #export NCCL_P2P_LEVEL=NVL
 
-## The one line that separates this job from allreduce.sbatch. NVLS is the
-## NVSwitch's in-network reduction -- SHARP -- and 0 turns it off, leaving NCCL
-## to run the reduction on the GPUs and move the data over NVLink as ordinary
-## P2P. Everything else about the run is deliberately identical, so the two
-## results are comparable and the difference between them is the offload.
+## NVLS is the NVSwitch's in-network reduction -- SHARP. 1 is what
+## allreduce.sbatch sets and, on the 2.29 NCCL in this image, is identical to
+## the shipped default of 2: allocation failure is an error, but *absent
+## support* is a quiet fallback to a GPU-side algorithm. So a node with no
+## working NVLS passes allreduce.sbatch at whatever a Ring run happens to
+## measure, and nothing in the log says the offload never ran.
+export NCCL_NVLS_ENABLE=1
+
+## Which is why this line, and not the one above, is what makes this job
+## different. Pinning the algorithm removes the fallback: NVLS is the only
+## algorithm NCCL may pick, so a node that cannot use it fails in
+## ncclCommInitRank instead of quietly measuring something else. That turns
+## "was SHARP allowed" into "did SHARP run", which is the question being asked
+## before this scales past a handful of nodes.
 ##
-## Off is not the same as absent: NCCL still logs its algorithm choice, so a run
-## that came back at SHARP-like bandwidth is a sign this export did not reach
-## the ranks (JOB_ENV cannot cause that -- see docs/settings.md -- but an edit
-## that moves it below the srun would) rather than a very fast node.
-export NCCL_NVLS_ENABLE=0
+## A failure here is therefore a real answer and not a broken job -- expect the
+## init error, in full, in the result file. It is also the one line to remove
+## first if this job starts failing fleet-wide right after an image change:
+## NCCL_ALGO is a supported knob, but which algorithms exist behind it is a
+## property of the NCCL build, not of the fabric.
+export NCCL_ALGO=NVLS
 export NCCL_MNNVL_ENABLE=1
 export NCCL_IB_DISABLE=0
 
