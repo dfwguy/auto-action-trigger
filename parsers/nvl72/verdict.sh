@@ -37,7 +37,7 @@
 ## the run finished; it is just not the number judged.
 ##
 ## Set per job because alltoall and allreduce bus bandwidth are not comparable,
-## and because NVLink scope and IB scope are two different fabrics: 683/668/623
+## and because NVLink scope and IB scope are two different fabrics: 683/665/623
 ## are NVLink figures. The -nonvlink pair is gated at 43, which is the rate the
 ## compute-plane HCAs are expected to sustain on this platform.
 ##
@@ -54,14 +54,23 @@ VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK=43
 VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK=43
 ## allreduce-forcesharp is the same collective on the same fabric as allreduce,
 ## with NCCL_ALGO=NVLS removing the fallback, so it used to be judged against
-## the 683 above. It gets 668 of its own instead: pinning the algorithm costs a
+## the 683 above. It gets 665 of its own instead: pinning the algorithm costs a
 ## little bandwidth even on a node where NVLS is exactly what allreduce would
 ## have chosen, and a floor carried over from the unpinned run fails those
-## nodes for the difference. The question that job asks is still answered
-## before the bandwidth is -- a node without working NVLS fails in
-## ncclCommInitRank and never reaches a summary line to be judged -- so this
-## floor only catches a node that runs SHARP slowly, not one that lacks it.
-VERDICT_MIN_PEAK_BW_ALLREDUCE_FORCESHARP=668
+## nodes for the difference.
+##
+## The number comes off a fleet sweep on ink50: healthy nodes land between
+## 665.0 and 673.3, so an earlier 668 sat inside the band and failed a dozen
+## nodes on run-to-run noise -- a different dozen each cycle. 665 clears every
+## node measured, but only just, and this is the floor to suspect first if
+## isolated nodes start failing by a fraction of a GB/s. What it can still
+## catch is a node well under the band; it cannot resolve anything finer.
+##
+## The question that job asks is answered before the bandwidth is, either way
+## -- a node without working NVLS fails in ncclCommInitRank and never reaches
+## a summary line to be judged -- so this floor is a second check on a node
+## that runs SHARP slowly, not the thing that finds a node lacking it.
+VERDICT_MIN_PEAK_BW_ALLREDUCE_FORCESHARP=665
 
 ## Floors for the non-NCCL jobs. These used to live in the sbatch that ran the
 ## workload, which meant they were applied once, at run time, and a result that

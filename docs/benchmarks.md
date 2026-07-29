@@ -334,10 +334,13 @@ answers two different questions — `allreduce` asks whether the collective work
 Its own question is settled before any bandwidth is measured: when it produces
 a summary line at all, it ran the way `allreduce` is meant to. The floor is
 therefore a second check rather than the point of the job, and it is set at
-668 rather than the 683 `allreduce` uses — pinning the algorithm costs a little
+665 rather than the 683 `allreduce` uses — pinning the algorithm costs a little
 bandwidth even where NVLS is what NCCL would have picked anyway, and the
-unpinned floor fails healthy nodes for that difference. A failure here is a
-real answer, not a broken job — expect the NCCL
+unpinned floor fails healthy nodes for that difference. 665 is the bottom of
+the band a healthy fleet occupies (665.0–673.3 out-of-place on ink50), which
+leaves it very little room: a floor set anywhere inside that spread fails a
+different set of nodes every cycle, and this one only just clears it. A
+failure here is a real answer, not a broken job — expect the NCCL
 init error in full in the result file. `NCCL_ALGO` is also the first line to
 suspect if it starts failing fleet-wide right after an image change: which
 algorithms exist behind that name is a property of the NCCL build, not of the
@@ -418,7 +421,7 @@ true, and would send someone to look at the fabric instead of at a missing bind
 mount. Keep new checks in causal order.
 
 Bandwidth floors live in `VERDICT_MIN_PEAK_BW_*` at the top of
-`parsers/nvl72/verdict.sh` — 683, 668 and 623 GB/s for the NVLink-scope
+`parsers/nvl72/verdict.sh` — 683, 665 and 623 GB/s for the NVLink-scope
 `allreduce`, `allreduce-forcesharp` and `alltoall`, and 43 GB/s for each of the
 `-nonvlink` pair. They
 all read the same number: out-of-place busbw at the
