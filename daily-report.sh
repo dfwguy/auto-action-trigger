@@ -85,9 +85,10 @@ extract_metric() {
         allreduce|alltoall|allreduce-nonvlink|alltoall-nonvlink)
             # Find largest message size actually run, return out-of-place busbw.
             # verdict.sh's _v_min_peak_bw extracts this same number and holds the
-            # floor it is judged against (VERDICT_MIN_PEAK_BW_*). Change one and
-            # change the other, or this column prints a figure the gate did not
-            # look at.
+            # floor it is judged against (VERDICT_MIN_PEAK_BW_*) -- for all four
+            # jobs, which is why these columns can be read against those floors
+            # directly. Change one and change the other, or this column prints a
+            # figure the gate did not look at.
             awk '$1 ~ /^[0-9]+$/ {print}' "$file" 2>/dev/null | sort -k1,1n | tail -1 | awk '{print $8}'
             ;;
         nvbandwidth)
@@ -237,7 +238,22 @@ for node in $nodes; do
             # Not $(...) -- a subshell would lose the reason. See verdict().
             verdict "$job" "$file"
             status="$VERDICT_STATUS"
-            if [[ "$status" == "DONE" && -n "$mlabel" ]]; then
+            ## A number whenever the run produced one, whatever the verdict made
+            ## of it. A FAIL used to blank the cell out, which threw away the one
+            ## thing the row was for: a node failing the allreduce floor at 21
+            ## GB/s and a node failing it at 2.2 are a slow fabric and a socket
+            ## fallback, and both read `FAIL`. The word is now what a cell says
+            ## when there is no figure to say instead -- the job did not run
+            ## (NOT_RUN), did not finish (INCOMPLETE), or died before printing a
+            ## result. Which cells passed is in the per-job pass/fail block
+            ## below, counted from the status rather than from the cell.
+            ##
+            ## Restricted to DONE and FAIL because an INCOMPLETE log can still
+            ## carry parseable rows, and the metric for these jobs is "the
+            ## largest message size ACTUALLY RUN" -- on a truncated run that is
+            ## whichever size it got to, printed in a column that is read as the
+            ## largest size requested.
+            if [[ -n "$mlabel" && ( "$status" == "DONE" || "$status" == "FAIL" ) ]]; then
                 metric=$(extract_metric "$job" "$file")
                 cell="${metric:-$status}"
             else
@@ -333,6 +349,11 @@ fi
 
 ## Per job, not pooled: Gflops and GB/s and MB/s share a table but not a scale,
 ## and one mean across all of them would be a number with no meaning.
+##
+## Every cell holding a number is in here, including the ones whose verdict was
+## FAIL. That is deliberate: the min is then the worst node on the cluster rather
+## than the worst node that passed, and a distribution with the failures cut out
+## of it is the one that cannot be used to decide where the floor belongs.
 if [[ ${#job_values[@]} -gt 0 ]]; then
     for job in "${job_order[@]}"; do
         [[ -n "${job_values[$job]}" ]] || continue

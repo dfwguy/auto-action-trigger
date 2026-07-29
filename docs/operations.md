@@ -89,17 +89,26 @@ bash daily-report.sh -c -o reports/report-$(date '+%F').csv
 
 One row per node, tab separated on stdout. The first column after the node name
 is its Slurm state from `sinfo`, so a column of `NOT_RUN` can be read against
-whether the node was drained the whole time rather than guessed at. Completed
-jobs show extracted performance metrics (Gflops for HPL, busbw GB/s for
-allreduce/alltoall) instead of a status string.
+whether the node was drained the whole time rather than guessed at. A job that
+produced a number shows it — Gflops for HPL, largest-message-size busbw GB/s for
+allreduce/alltoall — whatever the verdict made of it. A status word in one of
+those columns means there was no figure to print instead: the job never ran
+(`NOT_RUN`), never finished (`INCOMPLETE`), or died before printing a result
+(`FAIL`). Which cells passed is the `job (pass/fail)` block below, not the cell.
+
+That matters for reading a slow node: a `-nonvlink` cell at 41 GB/s and one at
+2.2 both fail the 43 GB/s floor, and they are a slow fabric and a socket
+fallback. The floors are in `parsers/nvl72/verdict.sh` and are stated against
+the same number these columns print, so the two can be compared directly.
 
 Nothing is written to disk unless `-o` names a file, and `-c` switches the
 separator to commas.
 
 Under the table, on stderr, a summary counts the nodes in each Slurm state and
 the cells holding each status, then gives `min`/`median`/`mean`/`max` per job
-over the cells that hold a number. The statistics are per job rather than
-pooled — Gflops, GB/s and MB/s share a table but not a scale. It stays on
+over the cells that hold a number, failing runs included — the min is the worst
+node on the cluster, not the worst node that passed. The statistics are per job
+rather than pooled — Gflops, GB/s and MB/s share a table but not a scale. It stays on
 stderr so neither `-o` nor a redirect ever gets prose mixed into the data.
 
 The last block is `job (pass/fail)`: one row per job, counting its cells by
