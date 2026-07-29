@@ -6,22 +6,11 @@ describes what you have to keep true while editing them.
 
 ## The checkout is not the deployment
 
-The tree runs at `/home/cmods/bringup/` on the cluster head node, exported over
+The tree runs at `/home/cmods/bringup/` on cluster head nodes, exported over
 NFS to every compute node. A git checkout is a *source* of that tree, never the
-tree itself. Nothing in the repo updates the deployment — it is shipped as a
-tarball and unpacked by hand.
-
-Two consequences that have each cost a debugging session:
-
-- **A stale deployment passes every runtime check.** BCM is registered, the
-  scripts exist, the trigger fires; it just runs old code. `trigger-debug.sh`
-  section 0 exists to catch this. If you add or move a top-level file that the
-  actions depend on, add its fingerprint there.
-- **Exec bits do not survive every transport.** A tarball staged through a
-  Windows-mounted path (`/mnt/c`, `/mnt/downloads` under WSL) arrives with the
-  bits stripped. `git archive` or `tar` straight from ext4 preserves them. This
-  is why `pre-post/create-action-trigger.sh` preflights and restores the exec
-  bit rather than trusting it.
+tree itself. Nothing in the repo updates the deployment — the user manages
+getting it to the cluster. Push to `main`, and open a merge request for major
+changes.
 
 `SETTINGS` is gitignored on purpose: it is the site's file, and a tarball drop
 must not overwrite one cluster's node list and drain switches with another's.
