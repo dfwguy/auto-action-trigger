@@ -26,7 +26,7 @@
 
 ## Bandwidth floors, GB/s, on the LARGEST-MESSAGE-SIZE out-of-place busbw.
 ##
-## One number, read from one place, for all four NCCL jobs: the largest-size row
+## One number, read from one place, for every NCCL job: the largest-size row
 ## is also what daily-report.sh prints in these columns (see extract_metric
 ## there), so a figure in the report can be compared against the floor here
 ## directly. That is the whole point of stating them this way. The
@@ -49,6 +49,17 @@
 ## 30-something rather than a handful, that is this floor being wrong and not
 ## the fabric -- check a report before acting on the drains.
 VERDICT_MIN_PEAK_BW_ALLREDUCE=683
+## allreduce-nosharp is the same collective on the same fabric with the NVSwitch
+## reduction (NVLS/SHARP) disabled, so it is held slightly under the 683 above:
+## that figure includes the offload this job removes.
+##
+## 670 is an estimate, not a figure read off a known-good no-SHARP run -- there
+## is no captured one on this platform yet. Treat a fleet-wide failure at this
+## gate the way the -nonvlink note below says to: if every node comes back just
+## under it rather than a handful, that is this number being wrong and not the
+## fabric. Check a report before acting on the drains, then replace this with a
+## measured figure and say in the commit which node it came from.
+VERDICT_MIN_PEAK_BW_ALLREDUCE_NOSHARP=670
 VERDICT_MIN_PEAK_BW_ALLTOALL=623
 VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK=43
 VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK=43
@@ -660,6 +671,8 @@ _v_dispatch_gate() {
     case "$job" in
         allreduce)
             _v_gate_nccl "$file" nvlink "$VERDICT_MIN_PEAK_BW_ALLREDUCE" ;;
+        allreduce-nosharp)
+            _v_gate_nccl "$file" nvlink "$VERDICT_MIN_PEAK_BW_ALLREDUCE_NOSHARP" ;;
         alltoall)
             _v_gate_nccl "$file" nvlink "$VERDICT_MIN_PEAK_BW_ALLTOALL" ;;
         allreduce-nonvlink)

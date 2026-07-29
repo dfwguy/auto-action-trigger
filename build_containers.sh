@@ -503,8 +503,9 @@ build_from_stage() {
 }
 
 ## ── hpc-benchmarks ────────────────────────────────────────────────────────
-## Public NGC image, no credentials needed. Covers allreduce, alltoall, both
-## -nonvlink variants, hpl, cublasmatmul, and stream -- six of the jobs, so
+## Public NGC image, no credentials needed. Covers allreduce, allreduce-nosharp,
+## alltoall, both -nonvlink variants, hpl, cublasmatmul, and stream -- most of
+## the benchmark set, so
 ## this is the one with the most to gain from a local copy. Multi-arch on the
 ## registry, so the ARM build is a plain import with --arch.
 build_hpc_benchmarks() {

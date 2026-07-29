@@ -66,6 +66,7 @@ Jobs are organized by AI Factory Testing Plan (SNT) tier:
 | `dcgm-r4` | Exhaustive gate (`dcgmi diag -r 4`) | Exhaustive |
 | `nvbandwidth` | HBM / PCIe / NVLink bandwidth | Hybrid / Exhaustive |
 | `allreduce` `alltoall` | NCCL single-node, NVLink scope | Hybrid / Exhaustive |
+| `allreduce-nosharp` | NCCL all-reduce, NVLink scope, NVLS/SHARP disabled | Hybrid / Exhaustive |
 | `allreduce-nonvlink` `alltoall-nonvlink` | NCCL single-node, no NVLink (HCA loopback) | Hybrid / Exhaustive |
 | `nvsm` | NVSM stress — DGX only; see note below | Hybrid / Exhaustive |
 | `stream` `memtester` | CPU memory bandwidth + DRAM integrity | Exhaustive |
@@ -89,8 +90,8 @@ from the public catalog. Jobs whose image has to be built or obtained
 
 **Default — ships as written:**
 ```bash
-BENCHMARKS="dcgm nvbandwidth allreduce alltoall allreduce-nonvlink \
-            alltoall-nonvlink"
+BENCHMARKS="dcgm nvbandwidth allreduce allreduce-nosharp alltoall \
+            allreduce-nonvlink alltoall-nonvlink"
 ```
 
 This default assumes an NGC login: `nvbandwidth` is pulled from a private NGC
@@ -102,7 +103,8 @@ about. `./build_containers.sh -l` says which images are actually present.
 For a sweep with no credentials needed, drop `nvbandwidth` from both lists:
 
 ```bash
-BENCHMARKS="dcgm allreduce alltoall allreduce-nonvlink alltoall-nonvlink"
+BENCHMARKS="dcgm allreduce allreduce-nosharp alltoall allreduce-nonvlink \
+            alltoall-nonvlink"
 CONTAINERS="hpc-benchmarks"
 ```
 
@@ -110,9 +112,9 @@ CONTAINERS="hpc-benchmarks"
 same list minus `nvsm`, `nvbandwidth`, `nvloom`, `mnubergemm` and the two
 remediation GEMMs. This one runs as shipped on any site, credentials or not:
 ```bash
-BENCHMARKS="dcgm-r2 dcgm dcgm-r4 allreduce alltoall allreduce-nonvlink \
-            alltoall-nonvlink stream memtester stress-ng stressapptest \
-            fio ethr llm-pretrain"
+BENCHMARKS="dcgm-r2 dcgm dcgm-r4 allreduce allreduce-nosharp alltoall \
+            allreduce-nonvlink alltoall-nonvlink stream memtester \
+            stress-ng stressapptest fio ethr llm-pretrain"
 ```
 
 **Everything** — the Exhaustive tier plus the optional jobs. Nothing stops you
@@ -123,9 +125,9 @@ remediation tools meant to be submitted by hand against one suspect node, not
 swept across a fleet. A sweep of this list takes days per node, and every job
 holds the whole node while it runs:
 ```bash
-BENCHMARKS="dcgm-r2 dcgm dcgm-r4 nvbandwidth allreduce alltoall nvsm \
-            allreduce-nonvlink alltoall-nonvlink stream memtester \
-            stress-ng stressapptest fio ethr nvloom mnubergemm \
+BENCHMARKS="dcgm-r2 dcgm dcgm-r4 nvbandwidth allreduce allreduce-nosharp \
+            alltoall nvsm allreduce-nonvlink alltoall-nonvlink stream \
+            memtester stress-ng stressapptest fio ethr nvloom mnubergemm \
             llm-pretrain hpl cublasmatmul"
 ```
 
@@ -197,7 +199,8 @@ so a fabric problem does not push a GPU stress test to the back of the queue —
 `nvsm` has no fabric dependency and should report early:
 
 ```bash
-BENCHMARKS="dcgm allreduce alltoall nvsm allreduce-nonvlink alltoall-nonvlink"
+BENCHMARKS="dcgm allreduce allreduce-nosharp alltoall nvsm allreduce-nonvlink \
+            alltoall-nonvlink"
 ```
 
 See [nvsm.md](nvsm.md) for both requirements.
@@ -223,7 +226,7 @@ being absent is a real problem — but it is why `-L` comes first:
 
 | Image | Jobs that use it | Source |
 |-------|-----------------|--------|
-| `hpc-benchmarks` | `allreduce`, `alltoall`, both `-nonvlink` variants, `hpl`, `cublasmatmul`, `stream` | Public NGC image |
+| `hpc-benchmarks` | `allreduce`, `allreduce-nosharp`, `alltoall`, both `-nonvlink` variants, `hpl`, `cublasmatmul`, `stream` | Public NGC image |
 | `nvbandwidth` | `nvbandwidth` | Private NGC org (needs a login); source build only with `-S` |
 | `nvloom` | `nvloom` | No published image; two-pass source build, and only with `-S` |
 | `mnubergemm` | `mnubergemm` | Private NGC org (needs a login); NVIDIA-internal, no source build exists |

@@ -15,6 +15,7 @@ commented catalog above `BENCHMARKS` in `SETTINGS`.
 | DCGM Diagnostics `-r 2` / `-r 3` / `-r 4` | `dcgm-r2`, `dcgm`, `dcgm-r4` | TTM / Hybrid / Exhaustive |
 | nvbandwidth | `nvbandwidth` | all |
 | NCCL Single Node, NVLink | `allreduce`, `alltoall` | all |
+| NCCL Single Node, NVLink, no SHARP | `allreduce-nosharp` | all |
 | NCCL Single Node, No NVLink | `allreduce-nonvlink`, `alltoall-nonvlink` | all |
 | NVSM Stress Test | `nvsm` | Hybrid, Exhaustive — **DGX only** |
 | STREAM + Memtester | `stream`, `memtester` | Exhaustive |
@@ -319,6 +320,15 @@ file — and it carries a comment saying so, because no healthy `nvsm show healt
 output has been captured to narrow it against. That is the shape of an unpaid
 debt in this file, not a pattern to copy.
 
+The same reasoning runs the other way for `allreduce-nosharp`. It is
+`allreduce.sbatch` with `NCCL_NVLS_ENABLE=0` and nothing else changed, so the
+NVSwitch's in-network reduction is out and the GPUs do the arithmetic
+themselves over ordinary NVLink P2P. Read the two together: `allreduce` passing
+and `allreduce-nosharp` failing points at the GPUs or the links, both failing
+together points at the switch offload. It is gated on the NVLink scope, like
+its SHARP-enabled counterpart, so a run that reaches the network fails
+whichever way it got there.
+
 Where the point of a job is *how* the work ran rather than that it ran, gate on
 that too. `allreduce-nonvlink` and `alltoall-nonvlink` exist to exercise the
 HCAs, and NCCL will silently fall back to TCP over `bond0` when it finds no
@@ -395,18 +405,22 @@ mount. Keep new checks in causal order.
 
 Bandwidth floors live in `VERDICT_MIN_PEAK_BW_*` at the top of
 `parsers/nvl72/verdict.sh` — 683 and 623 GB/s for the NVLink-scope `allreduce`
-and `alltoall`, 43 GB/s for each of the `-nonvlink` pair. All four read the
-same number: out-of-place busbw at the largest message size actually run. That
-is also the figure `daily-report.sh` prints in those columns, so a value in the
-report can be compared against the floor directly.
+and `alltoall`, 670 for `allreduce-nosharp`, 43 GB/s for each of the
+`-nonvlink` pair. They all read the same number: out-of-place busbw at the
+largest message size actually run. That is also the figure `daily-report.sh`
+prints in those columns, so a value in the report can be compared against the
+floor directly.
 
 The `# Avg bus bandwidth` summary line is required to be present, as evidence
 the run finished, but is not judged. It averages every message size and comes
 out roughly half the largest-size figure on the same run, so a floor stated
 against it could not be checked against anything an operator is looking at.
 
-The three NVLink-scope floors were set from known-good runs on this platform.
-The `-nonvlink` 43 was not: it is what the compute-plane HCAs are expected to
+The `allreduce` and `alltoall` floors were set from known-good runs on this
+platform. Two were not. `allreduce-nosharp`'s 670 is an estimate — no no-SHARP
+run has been captured here, and it is a guess at how far below the
+SHARP-enabled 683 a healthy node lands; if it fails the whole fleet by a small
+margin it is the number that is wrong. The `-nonvlink` 43 likewise: it is what the compute-plane HCAs are expected to
 sustain, and it sits above every IB-scope result captured so far — the fixture
 that used to be `alltoall-nonvlink__good-ib` measures 32.35 and is now a
 below-floor case. Read a full `daily-report.sh` before acting on drains from
@@ -420,7 +434,7 @@ as the verdict.
 
 Coverage is uneven and worth knowing before you trust a gate. `allreduce`,
 `alltoall`, their `-nonvlink` pair, `dcgm`, `nvbandwidth` and `example` have
-fixtures. The rest — `nvloom`, `cublasmatmul`, `stream`, `stressapptest`,
+fixtures. The rest — `allreduce-nosharp`, `nvloom`, `cublasmatmul`, `stream`, `stressapptest`,
 `memtester`, `stress-ng`, `fio`, `ethr`, `hpl`, `llm-pretrain`, `mnubergemm`
 and `nvsm` — do not, because no result file from this platform has been captured
 for them; their rules were carried over from the parse blocks that used to live
