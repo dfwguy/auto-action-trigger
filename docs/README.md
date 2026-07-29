@@ -5,6 +5,8 @@ handful of commands a bringup needs day to day. Everything else lives here.
 
 | Page | Covers |
 |------|--------|
+| [runners_guide.md](runners_guide.md) | Start here at a new site — where results land on disk, and the four tools that read them |
+| [troubleshooting_the_system.md](troubleshooting_the_system.md) | Reading a failure back to the device that caused it — status words, verdict reasons and drain reasons, by component |
 | [architecture.md](architecture.md) | How the three BCM triggers fit together, directory layout, runtime paths |
 | [sequencer.md](sequencer.md) | `launch_job.sh` — sweep order, retry and drain rules, result-path ownership, Slurm permissions |
 | [settings.md](settings.md) | `SETTINGS` / `SETTINGS.default` — every setting, what selects which directory, and the two drain switches |
