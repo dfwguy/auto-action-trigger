@@ -46,6 +46,11 @@ MAX_JOB_HOURS=7
 DRAIN_WINDOW_MINUTES=15
 DRAIN_MARKER="auto-retry"
 
+## ── Reporting ─────────────────────────────────────────────────────────────
+## Worker processes status-check.sh and daily-report.sh judge the fleet with.
+## Empty or 0 means one per core. See docs/settings.md#reporting.
+SCAN_JOBS=
+
 ## ── Extra environment for every benchmark job ─────────────────────────────
 ##   JOB_ENV="NCCL_DMABUF_ENABLE=0 NCCL_CUMEM_ENABLE=1"
 JOB_ENV=""

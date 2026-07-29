@@ -100,8 +100,10 @@ permissions:
         fi
       }
 
-      # Sourced libraries -- never executed.
-      for f in settings.sh reason-map.sh slurm-recovery.sh \
+      # Sourced libraries -- never executed. verdict-scan.sh is also RUN, but
+      # as `bash verdict-scan.sh` from xargs, the same arrangement as the
+      # health checks below; it is not on anyone's PATH as a command.
+      for f in settings.sh reason-map.sh slurm-recovery.sh verdict-scan.sh \
                $(git ls-files 'parsers/*/verdict.sh') \
                $(git ls-files 'jobs/*/nccl-hca.sh'); do
         check 100644 "$f"
@@ -122,11 +124,11 @@ permissions:
         check 100755 "$f"
       done
 
-      # Top-level scripts are entry points except for the three sourced
+      # Top-level scripts are entry points except for the four sourced
       # libraries handled above.
       for f in $(git ls-files -- '*.sh' | grep -v '/'); do
         case "$f" in
-          settings.sh|reason-map.sh|slurm-recovery.sh) continue ;;
+          settings.sh|reason-map.sh|slurm-recovery.sh|verdict-scan.sh) continue ;;
         esac
         check 100755 "$f"
       done
@@ -170,6 +172,14 @@ recover:
   stage: test
   script:
     - ./tests/recover-test.sh
+
+# The reports cache verdicts under results/. Every other gate here fails loudly;
+# a stale cache hit is silent, and prints a clean report for a fleet that is not.
+scan-cache:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/scan-cache-test.sh
 
 # Five scripts print --help from their own header through a hardcoded line
 # range, so comment length is runtime behaviour there. This is the gate that

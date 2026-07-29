@@ -10,6 +10,14 @@
 #   -o, --output <f>  also write the rows to <f>. Without it nothing is
 #                     written to disk -- a report is only ever produced
 #                     because someone asked for one.
+#   --no-cache        judge every node from its files, ignoring
+#                     results/.result_cache.*. The cache is keyed on the
+#                     pass/fail rule as well as on the size and mtime of every
+#                     result file, so an edited floor re-judges the fleet and a
+#                     changed result re-judges its node; a cached report is the
+#                     report you would have got anyway. This is for suspecting
+#                     that mechanism itself. Deleting the cache files does the
+#                     same, and they are safe to remove at any time.
 #
 # The table goes to stdout, and a summary follows on stderr -- how many nodes
 # are in each slurm state, how many cells hold each status, min/median/mean/max
@@ -54,8 +62,10 @@ while [[ $# -gt 0 ]]; do
         -o|--output)
             [[ -n "$2" ]] || { echo "ERROR: $1 needs a file to write" >&2; exit 1; }
             report_file="$2"; shift 2 ;;
+        --no-cache)
+            export SCAN_CACHE=0; shift ;;
         -h|--help)
-            sed -n '2,39p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+            sed -n '2,47p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         *)  echo "ERROR: unknown argument $1" >&2; exit 1 ;;
     esac
 done
@@ -70,49 +80,6 @@ if ! command -v sinfo >/dev/null 2>&1 && [[ -r /etc/profile.d/modules.sh ]]; the
     source /etc/profile.d/modules.sh >/dev/null 2>&1
     command -v module >/dev/null 2>&1 && module load slurm >/dev/null 2>&1
 fi
-
-# ── Metric extraction ─────────────────────────────────────────────────────────
-# Returns a single numeric value (or empty) for a completed result file.
-
-extract_metric() {
-    local job="$1" file="$2"
-    case "$job" in
-        hpl)
-            # WC summary line: T/V N NB P Q Time Gflops (per_GPU)
-            grep -E '^WC' "$file" 2>/dev/null | awk '{print $7}' | head -1
-            ;;
-        allreduce|alltoall|allreduce-nonvlink|alltoall-nonvlink|allreduce-forcesharp)
-            # Out-of-place busbw at the largest message size actually run --
-            # the same number verdict.sh's _v_min_peak_bw judges against
-            # VERDICT_MIN_PEAK_BW_*, so this column can be read against those
-            # floors directly. Change one and change the other.
-            awk '$1 ~ /^[0-9]+$/ {print}' "$file" 2>/dev/null | sort -k1,1n | tail -1 | awk '{print $8}'
-            ;;
-        nvbandwidth)
-            # Lowest SUM across the requested test cases -- the weakest path
-            grep -E '^SUM ' "$file" 2>/dev/null | awk '{print $NF}' | sort -n | head -1
-            ;;
-        stream)
-            # Triad best rate, MB/s
-            awk '/^Triad:/ {print $2}' "$file" 2>/dev/null | head -1
-            ;;
-        fio)
-            # Highest aggregate bandwidth reported across the four passes
-            grep -oE 'bw=[0-9.]+[KMG]?i?B/s' "$file" 2>/dev/null | sed 's/bw=//' | sort -h | tail -1
-            ;;
-    esac
-}
-
-metric_label() {
-    case "$1" in
-        hpl)                echo "gflops"      ;;
-        allreduce|alltoall|allreduce-nonvlink|alltoall-nonvlink|allreduce-forcesharp)
-                            echo "busbw_GBs"   ;;
-        nvbandwidth)        echo "min_GBs"     ;;
-        stream)             echo "triad_MBs"   ;;
-        fio)                echo "bw"          ;;
-    esac
-}
 
 # ── Discover active jobs from the BENCHMARKS setting ──────────────────────────
 
@@ -137,8 +104,11 @@ done
 
 # ── Discover nodes ────────────────────────────────────────────────────────────
 
-nodes=$(ls -1 "$results_dir" 2>/dev/null | sort)
-if [[ -z "$nodes" ]]; then
+## An array, not a word-split string: the row order is the node order and the
+## scan is handed this list verbatim.
+declare -a nodes
+mapfile -t nodes < <(ls -1 "$results_dir" 2>/dev/null | sort)
+if [[ ${#nodes[@]} -eq 0 ]]; then
     echo "No results found in $results_dir"
     exit 0
 fi
@@ -183,77 +153,106 @@ if [[ ! -f "$PARSERS_DIR/verdict.sh" ]]; then
 fi
 source "$PARSERS_DIR/verdict.sh"
 
+# The scan itself: judging every cell, in parallel, across worker processes, and
+# extracting the metric while the file is open. See verdict-scan.sh.
+# shellcheck source=/dev/null
+source "$home/verdict-scan.sh"
+
 # ── Build the table ───────────────────────────────────────────────────────────
 # Assembled once, tab separated, separator swapped in at the end. Screen and
 # file come from this one array, so they cannot disagree.
 
 declare -a rows
 
+## The column list and the header are built together, so a column can never be
+## judged in one order and printed in another. Note the two spellings: the
+## header says `job_runN` and the result file is `job-runN`, which is the name
+## the scan is given.
+declare -a columns
 header="node"$'\t'"slurm"
 for job in "${job_order[@]}"; do
     runs=${job_total_runs[$job]}
     if [[ "$runs" -eq 1 ]]; then
         header+=$'\t'"${job}"
+        columns+=("$job")
     else
         for ((r=1; r<=runs; r++)); do
             header+=$'\t'"${job}_run${r}"
+            columns+=("${job}-run${r}")
         done
     fi
 done
 rows+=("$header")
 
+## Once per job, not once per node per job, which is what it used to be -- the
+## answer is the same for every node and cost a subshell each time.
+declare -A mlabel_of
+for job in "${job_order[@]}"; do
+    mlabel_of["$job"]=$(metric_label "$job")
+done
+
+# What the workers need. This report has no RUNNING and no RETRY: it reads sinfo
+# rather than squeue, so it cannot tell a live job from a dead one, and a column
+# whose result has been archived for a retry reads NOT_RUN here.
+export SCAN_RESULTS_DIR="$results_dir"
+export SCAN_COLUMNS="${columns[*]}"
+export SCAN_RUNNING_FILE=""
+export SCAN_ARCHIVES=0
+export SCAN_METRICS=1
+
 ## Tallied from the same values that land in the cells, so the summary can
 ## never describe a different table than the one printed.
 declare -A slurm_count cell_count job_values job_status_count status_seen
+declare -A cells       # "<node>,<column>" -> what that cell prints
 node_count=0
 
-for node in $nodes; do
+## The scan returns rows in whatever order the workers finished, so the cells
+## are collected first and laid out in node order below. The tallies are done
+## here, in the one pass, and are order-independent: they are counters, and
+## job_values is sorted by stats_row before anything is read off it.
+## SCAN_FS, never a tab: see the note on it in verdict-scan.sh. `read` would
+## collapse an empty reason into the metric field and silently blank the number.
+while IFS="$SCAN_FS" read -r node col status _reason metric; do
+    job="${col%-run[0-9]*}"
+    ## A number whenever the run produced one, FAIL included; the status word is
+    ## what a cell says when there is no figure. See
+    ## docs/operations.md#status-and-reporting.
+    if [[ -n "${mlabel_of[$job]}" && ( "$status" == "DONE" || "$status" == "FAIL" ) ]]; then
+        cell="${metric:-$status}"
+    else
+        cell="$status"
+    fi
+    cells["$node,$col"]="$cell"
+
+    ## From the status, not the cell: a cell holding a metric says nothing about
+    ## pass or fail.
+    (( job_status_count["$job,$status"]++ ))
+    status_seen["$status"]=1
+
+    ## Tested, not inferred from the status: a DONE whose metric did not parse
+    ## (fio's "1.2GiB/s") is a word, and averaging it would lie.
+    if [[ "$cell" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+        job_values["$job"]+="$cell"$'\n'
+    else
+        (( cell_count["$cell"]++ ))
+    fi
+done < <(scan_fleet "${nodes[@]}")
+
+for node in "${nodes[@]}"; do
     state="${slurm_state[$node]:-$slurm_default}"
     (( slurm_count["$state"]++ ))
     (( node_count++ ))
     row="$node"$'\t'"$state"
-    for job in "${job_order[@]}"; do
-        runs=${job_total_runs[$job]}
-        mlabel=$(metric_label "$job")
-        if [[ "$runs" -eq 1 ]]; then
-            files=("$results_dir/$node/$job.txt")
+    for col in "${columns[@]}"; do
+        ## A cell with no scan row is a worker that died, not a node that passed.
+        ## Named, and counted with the rest, so it shows up in the status block
+        ## rather than as a blank in a machine-readable export.
+        if [[ -v "cells[$node,$col]" ]]; then
+            row+=$'\t'"${cells[$node,$col]}"
         else
-            files=()
-            for ((r=1; r<=runs; r++)); do
-                files+=("$results_dir/$node/$job-run${r}.txt")
-            done
+            row+=$'\t'"NO_SCAN"
+            (( cell_count["NO_SCAN"]++ ))
         fi
-        for file in "${files[@]}"; do
-            # Not $(...) -- a subshell would lose the reason. See verdict().
-            verdict "$job" "$file"
-            status="$VERDICT_STATUS"
-            ## A number whenever the run produced one, FAIL included; the status
-            ## word is what a cell says when there is no figure. See
-            ## docs/operations.md#status-and-reporting.
-            ##
-            ## DONE and FAIL only: an INCOMPLETE log still carries parseable
-            ## rows, and its largest message size is whichever one it reached.
-            if [[ -n "$mlabel" && ( "$status" == "DONE" || "$status" == "FAIL" ) ]]; then
-                metric=$(extract_metric "$job" "$file")
-                cell="${metric:-$status}"
-            else
-                cell="$status"
-            fi
-            row+=$'\t'"$cell"
-
-            ## From the status, not the cell: a cell holding a metric says
-            ## nothing about pass or fail.
-            (( job_status_count["$job,$status"]++ ))
-            status_seen["$status"]=1
-
-            ## Tested, not inferred from the status: a DONE whose metric did not
-            ## parse (fio's "1.2GiB/s") is a word, and averaging it would lie.
-            if [[ "$cell" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
-                job_values["$job"]+="$cell"$'\n'
-            else
-                (( cell_count["$cell"]++ ))
-            fi
-        done
     done
     rows+=("$row")
 done

@@ -24,7 +24,7 @@ is:
 | Mode | What | Why |
 |------|------|-----|
 | `755` | Entry points — anything a human or BCM invokes directly | Must be `exec`able. BCM registers an action against a path and runs it; a `644` action registers fine and silently runs nothing |
-| `644` | Sourced libraries: `settings.sh`, `reason-map.sh`, `slurm-recovery.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful |
+| `644` | Sourced libraries: `settings.sh`, `reason-map.sh`, `slurm-recovery.sh`, `verdict-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is the one that is also *run* — as `bash verdict-scan.sh` from its own `xargs`, exactly as `node_health.sh` runs a health check — and `644` is what says it is not a command anyone invokes |
 | `644` | `health-checks/*/NN-*.sh` | `node_health.sh` runs each as `bash "$check_file"` — deliberately, so one check's `exit 1` cannot truncate the set of 38 |
 | `644` | `jobs/*/*.sbatch`, including `example.sbatch` | `sbatch` reads them; it does not exec them. `example.sbatch` is a template that gets `cp`'d, so a stray `755` propagates into every new job |
 
@@ -69,6 +69,30 @@ anyway. Never trust its exit status — inspect its output, as `cm_run` does.
 Read trigger state with `get <property>`, not by parsing `show`, whose column
 padding and property names drift between BCM releases.
 
+## A verdict is derived, and the cache does not change that
+
+`status-check.sh` and `daily-report.sh` cache verdicts in
+`results/.result_cache.*`, which is the only thing in the tree that comes near
+storing a judgement. It is legitimate only because of what is in the key:
+
+- **the gate** — `parsers/*/verdict.sh` and `verdict-scan.sh` are hashed in, so
+  editing a floor invalidates every entry at once. This repo lowers floors as it
+  learns the platform; without this, those commits would change nothing and no
+  output would say so.
+- **each result file's size and mtime**, per node — a new, changed or deleted
+  result re-judges that node. Size alone is not enough: a rewrite of equal
+  length is a real case, and mtime is what catches it.
+
+Two things can change an answer with no file changing, so they are kept out of
+the cache entirely rather than checked by it: a node with a job on it now
+(`RUNNING` comes from squeue) is always re-judged, and its rows are never
+written down, because once the job ends nothing on disk would invalidate them.
+
+If you add anything to a verdict that is not a pure function of the result file
+and the gate, it does not belong in a cached row. `./tests/scan-cache-test.sh`
+holds all of this; a stale hit is silent, so that suite is the only thing
+standing between a wrong key and a clean-looking report of a broken cluster.
+
 ## Before committing
 
 ```bash
@@ -76,6 +100,7 @@ padding and property names drift between BCM releases.
 ./tests/health-runner-test.sh  # the health check runner loop
 ./tests/recover-test.sh        # drain classification in slurm-recovery.sh
 ./tests/help-text-test.sh      # --help blocks, if you touched a header comment
+./tests/scan-cache-test.sh     # the report cache, if you touched a gate or verdict-scan.sh
 bash -n <changed script>       # these scripts run as root on 200+ nodes
 shellcheck -S warning <changed script>   # CI gates on this; see below
 ```
