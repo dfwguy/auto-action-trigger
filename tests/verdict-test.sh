@@ -54,8 +54,16 @@ cases=(
   ## the per-channel `via ...` lines and nothing else.
   "allreduce__good-nvlink|DONE|"
   "dcgm__pass|DONE|"
-  "dcgm__gpu-failure|FAIL|dcgmi fail/warn/error"
+  "dcgm__gpu-failure|FAIL|dcgmi subtest failed: Targeted Stress"
   "dcgm__no-output|FAIL|no dcgmi Pass row"
+  ## The real h03-16 run, and the reason a self-reported FAIL is now explained
+  ## rather than just repeated. `dcgmi diag` exits 226 on a failed subtest, so
+  ## the sbatch -- which decides only whether the job RAN -- writes FAIL, and
+  ## every one of the fifty nodes in this state reported `job reported FAIL`
+  ## with the cause sitting in the table three lines up. The verdict has to name
+  ## the subtest, and it has to name it without the per-GPU text, which differs
+  ## between nodes and would stop dshbak collapsing them.
+  "dcgm__targeted-power|FAIL|dcgmi subtest failed: targeted_power"
   ## The real h01-13 run, and the reason _v_gate_nvbandwidth exists. Every peer
   ## matrix in it carries N/A down the diagonal -- a GPU has no transfer with
   ## itself -- and the rule this replaced was a flat `grep -iE "N/A"`, so this
@@ -77,7 +85,11 @@ cases=(
   ## its --time limit and srun returned 143. `example__good` carries the same
   ## line at 0 and still passes its gate -- between them they hold the line to
   ## a wording no gate reacts to, which is the thing that could silently break.
-  "example__step-cancelled|FAIL|job reported FAIL"
+  ##
+  ## Reported as the run error the log carries, not as `job reported FAIL`: the
+  ## self-reported marker fixes the STATUS, and the reason is read out of the
+  ## log underneath it.
+  "example__step-cancelled|FAIL|run error"
 )
 
 pass=0

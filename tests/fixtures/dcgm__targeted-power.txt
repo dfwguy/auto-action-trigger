@@ -1,0 +1,69 @@
+preflight: ink50-dh01-h03-16 gpus=4 cores=144/144
+Successfully ran diagnostic for group.
++---------------------------+------------------------------------------------+
+| Diagnostic                | Result                                         |
++===========================+================================================+
+|-----  Metadata  ----------+------------------------------------------------|
+| DCGM Version              | 4.6.1                                          |
+| Driver Version Detected   | 580.126.20                                     |
+| GPU Device IDs Detected   | 31c2, 31c2, 31c2, 31c2                         |
+| Number of CPUs Detected   | 2                                              |
+|-----  Deployment  --------+------------------------------------------------|
+| software                  | Pass                                           |
+|                           | GPU0: Pass                                     |
+|                           | GPU1: Pass                                     |
+|                           | GPU2: Pass                                     |
+|                           | GPU3: Pass                                     |
++-----  Hardware  ----------+------------------------------------------------+
+| memory                    | Pass                                           |
+|                           | GPU0: Pass                                     |
+|                           | GPU1: Pass                                     |
+|                           | GPU2: Pass                                     |
+|                           | GPU3: Pass                                     |
+| diagnostic                | Pass                                           |
+|                           | GPU0: Pass                                     |
+|                           | GPU1: Pass                                     |
+|                           | GPU2: Pass                                     |
+|                           | GPU3: Pass                                     |
+| nvbandwidth               | Pass                                           |
+|                           | GPU0: Pass                                     |
+|                           | GPU1: Pass                                     |
+|                           | GPU2: Pass                                     |
+|                           | GPU3: Pass                                     |
++-----  Integration  -------+------------------------------------------------+
+| pcie                      | Pass                                           |
+|                           | GPU0: Pass                                     |
+|                           | GPU1: Pass                                     |
+|                           | GPU2: Pass                                     |
+|                           | GPU3: Pass                                     |
++-----  Stress  ------------+------------------------------------------------+
+| memory_bandwidth          | Pass                                           |
+|                           | GPU0: Pass                                     |
+|                           | GPU1: Pass                                     |
+|                           | GPU2: Pass                                     |
+|                           | GPU3: Pass                                     |
+| targeted_stress           | Pass                                           |
+|                           | GPU0: Pass                                     |
+|                           | GPU1: Pass                                     |
+|                           | GPU2: Pass                                     |
+|                           | GPU3: Pass                                     |
+| targeted_power            | Fail                                           |
+|                           | GPU0: Skip                                     |
+| Warning: GPU0             | Enforced power limit on GPU 0 set to 699.0, w  |
+|                           | hich is too low to attempt to achieve target   |
+|                           | power 1049.2 If this enforced power limit is   |
+|                           | necessary, then this test cannot be run. If i  |
+|                           | t is unnecessary, then raise the enforced pow  |
+|                           | er limit setting to be able to run this test.  |
+|                           | GPU1: Skip                                     |
+| Warning: GPU1             | Enforced power limit on GPU 1 set to 699.0, w  |
+|                           | hich is too low to attempt to achieve target   |
+|                           | power 1049.2 If this enforced power limit is   |
+|                           | necessary, then this test cannot be run. If i  |
+|                           | t is unnecessary, then raise the enforced pow  |
+|                           | er limit setting to be able to run this test.  |
+|                           | GPU2: Pass                                     |
+|                           | GPU3: Pass                                     |
++---------------------------+------------------------------------------------+
+exit status: 226
+FAIL

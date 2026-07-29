@@ -321,13 +321,91 @@ _v_gate_nccl() {
     return 0
 }
 
+## Which dcgmi subtests came back Fail, by name, in the order the table lists
+## them. The name is what makes the verdict actionable: `targeted_power` and
+## `diagnostic` are the same status and nothing like the same problem.
+##
+## The table is a two-column grid, and a failing test spreads over several rows:
+##
+##   | targeted_power            | Fail                                           |
+##   |                           | GPU0: Skip                                     |
+##   | Warning: GPU0             | Enforced power limit on GPU 0 set to 699.0, w  |
+##   |                           | GPU2: Pass                                     |
+##
+## so the name is carried forward from the last row that had one -- the per-GPU
+## rows underneath leave the first column empty and are reported against the
+## test above them. Rows whose first column is a rule (`-----`, `=====`) are not
+## names and must not be carried forward, or a Fail further down gets reported
+## against a section header.
+##
+## Names only, no measured values and no GPU indices: this becomes
+## VERDICT_REASON, which has to read identically on every node failing the same
+## way -- see the note on VERDICT_REASON above. The specifics go in the detail.
+_v_dcgm_failed_tests() {
+    awk -F'|' '
+        NF >= 3 {
+            name = $2; res = $3
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", name)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", res)
+            if (name != "" && name !~ /^[-=+]/ && name !~ /^Warning:/ && name !~ /^Error:/)
+                last = name
+            ## `Fail` on its own is the test verdict; `GPU3: Fail` is one GPU
+            ## under it. Either one fails the test named in $last.
+            if (res ~ /^(GPU[0-9]+:[[:space:]]*)?Fail$/ && last != "" && !(last in seen)) {
+                seen[last] = 1
+                order[++n] = last
+            }
+        }
+        ## Capped, because this string can end up in a Slurm drain reason, which
+        ## is one short field. The full table is in the result file.
+        END {
+            for (i = 1; i <= n && i <= 3; i++) printf "%s%s", (i > 1 ? ", " : ""), order[i]
+            if (n > 3) printf ", and %d more", n - 3
+        }' "$1" 2>/dev/null
+}
+
+## The line that explains a dcgmi failure, for VERDICT_DETAIL. dcgmi prints its
+## reasoning in a `Warning:`/`Error:` row under the failing test -- the enforced
+## power limit, the field that went out of range -- and that row, not the bare
+## `Fail`, is what tells an operator whether the node is broken or the profile
+## is wrong. Falls back to the Fail row itself for output that carries no
+## warning text.
+_v_dcgm_fail_detail() {
+    local file="$1" hit
+    hit=$(grep -nEm1 '^\|[[:space:]]*(Warning|Error)[^|]*\|' "$file" 2>/dev/null)
+    [[ -n "$hit" ]] ||
+        hit=$(grep -nEm1 '\|[[:space:]]*(GPU[0-9]+:[[:space:]]*)?Fail[[:space:]]*\|' "$file" 2>/dev/null)
+    [[ -n "$hit" ]] || return 0
+    ## The row is a table cell either side of a `|` padded out to the column
+    ## width, so the padding is squeezed out and the divider spelled -- read as
+    ## captured it is a header and forty spaces before the text that matters.
+    printf 'line %s: %s' "${hit%%:*}" \
+        "$(printf '%s' "${hit#*:}" \
+           | sed 's/^[[:space:]|]*//; s/[[:space:]|]*$//; s/[[:space:]]*|[[:space:]]*/ -- /g' \
+           | cut -c1-90)"
+}
+
 ## `dcgmi diag` prints a results table of `| <test> | Pass |` rows on a clean
 ## run. Requiring at least one distinguishes a passing diagnostic from one that
 ## never ran -- no dcgmi binary, nv-hostengine down, no GPUs visible. Without it
 ## the error grep alone reports a pass for empty output.
+##
+## The named-subtest check comes before the broad fail/warn/error sweep so that
+## the reason says WHICH test failed. The sweep stays underneath it as the
+## catch-all: it is what still catches a dcgmi that reported a problem outside
+## the results table, and dropping it would narrow this gate rather than sharpen
+## it.
 _v_gate_dcgm() {
-    local file="$1"
+    local file="$1" failed
     _v_require   "$file" "dcgmi Pass row"          '\|[[:space:]]*Pass[[:space:]]*\|' || return 1
+
+    failed=$(_v_dcgm_failed_tests "$file")
+    if [[ -n "$failed" ]]; then
+        VERDICT_REASON="dcgmi subtest failed: $failed"
+        VERDICT_DETAIL="$(_v_dcgm_fail_detail "$file")"
+        return 1
+    fi
+
     _v_forbid_i  "$file" "dcgmi fail/warn/error"   'fail|warn|error'                  || return 1
     return 0
 }
@@ -597,6 +675,53 @@ _v_gate_generic() {
 
 ## ── Entry point ───────────────────────────────────────────────────────────
 
+## Run the gate for a job. Split out of verdict() because it is needed twice:
+## once to judge a result that ran to completion, and once to explain a result
+## whose job condemned itself -- see the FAIL branch below.
+_v_dispatch_gate() {
+    local job="$1" file="$2"
+    case "$job" in
+        allreduce)
+            _v_gate_nccl "$file" nvlink "$VERDICT_MIN_BW_NVLINK" "$VERDICT_MIN_PEAK_BW_ALLREDUCE" ;;
+        alltoall)
+            _v_gate_nccl "$file" nvlink "$VERDICT_MIN_BW_NVLINK" "$VERDICT_MIN_PEAK_BW_ALLTOALL" ;;
+        allreduce-nonvlink|alltoall-nonvlink)
+            _v_gate_nccl "$file" ib "$VERDICT_MIN_BW_NONVLINK" "" ;;
+        dcgm|dcgm-r2|dcgm-r4)
+            _v_gate_dcgm "$file" ;;
+        nvbandwidth)
+            _v_gate_nvbandwidth "$file" ;;
+        nvloom)
+            _v_gate_nvloom "$file" ;;
+        cublasmatmul)
+            _v_gate_cublasmatmul "$file" ;;
+        stream)
+            _v_gate_stream "$file" ;;
+        stressapptest)
+            _v_gate_stressapptest "$file" ;;
+        memtester)
+            _v_gate_memtester "$file" ;;
+        stress-ng)
+            _v_gate_stress_ng "$file" ;;
+        fio)
+            _v_gate_fio "$file" ;;
+        ethr)
+            _v_gate_ethr "$file" ;;
+        hpl)
+            _v_gate_hpl "$file" ;;
+        llm-pretrain)
+            _v_gate_llm_pretrain "$file" ;;
+        mnubergemm)
+            _v_gate_mnubergemm "$file" ;;
+        nvsm)
+            _v_gate_nvsm "$file" ;;
+        example)
+            _v_gate_example "$file" ;;
+        *)
+            _v_gate_generic "$file" ;;
+    esac
+}
+
 ## verdict <job> <file>
 ##
 ## Sets VERDICT_STATUS to exactly one of:
@@ -644,11 +769,31 @@ verdict() {
     last=$(tail -1 "$file" 2>/dev/null)
     case "$last" in
         FAIL)
-            ## Self-reported: the job refused to run at all, or srun exited
-            ## non-zero. The log is the diagnosis, not the gate.
-            VERDICT_REASON="job reported FAIL"
-            VERDICT_DETAIL="$(grep -nEm1 "$VERDICT_RUN_ERRORS|^No compute-plane HCA" "$file" 2>/dev/null | cut -c1-100)"
+            ## Self-reported: the job refused to run at all, or the workload
+            ## exited non-zero.
+            ##
+            ## The STATUS is not re-judged -- a self-reported FAIL stays a FAIL
+            ## whatever the log says, which is the property the nvbandwidth note
+            ## above depends on. The REASON is, because "job reported FAIL" names
+            ## no cause: `dcgmi diag` exits 226 on a failed subtest and the
+            ## sbatch, which only decides whether the job RAN, turns that into a
+            ## bare FAIL. Fifty nodes then read `dcgm: FAIL -- job reported FAIL`
+            ## and every one of them had to be opened by hand to find the one
+            ## line that said which subtest.
+            ##
+            ## Asked in causal order, first answer wins: a run error explains the
+            ## non-zero exit on its own, and the gate is asked last because on a
+            ## job that died early its positive checks report the missing output
+            ## rather than the reason it is missing.
             VERDICT_STATUS=FAIL
+            _v_forbid "$file" "run error"                "$VERDICT_RUN_ERRORS"   &&
+            _v_forbid "$file" "no compute-plane HCA"     '^No compute-plane HCA' &&
+            _v_dispatch_gate "$job" "$file" && {
+                ## Nothing in the log accounts for it -- the exit status is all
+                ## there is. Same words as before, now meaning "and we looked".
+                VERDICT_REASON="job reported FAIL"
+                VERDICT_DETAIL=""
+            }
             return
             ;;
         PENDING|DONE)
@@ -663,46 +808,7 @@ verdict() {
             ;;
     esac
 
-    case "$job" in
-        allreduce)
-            _v_gate_nccl "$file" nvlink "$VERDICT_MIN_BW_NVLINK" "$VERDICT_MIN_PEAK_BW_ALLREDUCE" ;;
-        alltoall)
-            _v_gate_nccl "$file" nvlink "$VERDICT_MIN_BW_NVLINK" "$VERDICT_MIN_PEAK_BW_ALLTOALL" ;;
-        allreduce-nonvlink|alltoall-nonvlink)
-            _v_gate_nccl "$file" ib "$VERDICT_MIN_BW_NONVLINK" "" ;;
-        dcgm|dcgm-r2|dcgm-r4)
-            _v_gate_dcgm "$file" ;;
-        nvbandwidth)
-            _v_gate_nvbandwidth "$file" ;;
-        nvloom)
-            _v_gate_nvloom "$file" ;;
-        cublasmatmul)
-            _v_gate_cublasmatmul "$file" ;;
-        stream)
-            _v_gate_stream "$file" ;;
-        stressapptest)
-            _v_gate_stressapptest "$file" ;;
-        memtester)
-            _v_gate_memtester "$file" ;;
-        stress-ng)
-            _v_gate_stress_ng "$file" ;;
-        fio)
-            _v_gate_fio "$file" ;;
-        ethr)
-            _v_gate_ethr "$file" ;;
-        hpl)
-            _v_gate_hpl "$file" ;;
-        llm-pretrain)
-            _v_gate_llm_pretrain "$file" ;;
-        mnubergemm)
-            _v_gate_mnubergemm "$file" ;;
-        nvsm)
-            _v_gate_nvsm "$file" ;;
-        example)
-            _v_gate_example "$file" ;;
-        *)
-            _v_gate_generic "$file" ;;
-    esac && { VERDICT_STATUS=DONE; return; }
+    _v_dispatch_gate "$job" "$file" && { VERDICT_STATUS=DONE; return; }
 
     VERDICT_STATUS=FAIL
 }
