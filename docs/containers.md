@@ -174,7 +174,21 @@ Jobs could name a registry URI directly — `docker://nvcr.io#nvidia/hpc-benchma
   sample Dockerfile. mnubergemm can be pulled, but only from the private org.
 
 The registry URI is still in each job as a commented alternative, so a node can
-fall back by hand if an image is missing.
+fall back by hand if an image is missing. It sits directly under the two lines
+that pick the local copy:
+
+```bash
+CONT=/tmp/containers/$IMG
+[[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
+#CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
+```
+
+The `#` in that URI is enroot's separator between the registry host and the
+image path — not a comment marker, and not something to normalise into a `/`.
+Written `docker://nvcr.io/nvidia/hpc-benchmarks:26.02` the whole string is an
+image path on the default registry, and the pull fails against Docker Hub
+rather than against `nvcr.io`. It is the easiest part of the line to lose when
+copying it out to run something by hand.
 
 ## How the caching works
 
@@ -218,6 +232,47 @@ them as `cmods`.
 destination mtimes are the copy time, the size+mtime quick check never matches,
 and every monitoring cycle re-transfers the whole directory.
 
+## What the container gets from the host
+
+A containerised job does not inherit the node. Two things arrive only if
+something asks for them, and both have cost real runs here.
+
+**GPUs come in through the NVIDIA container hook, and the hook follows the
+allocation.** Pyxis starts the container through enroot, and the hook
+bind-mounts the GPU device nodes and driver libraries according to what the
+step actually holds. A step holding no GPUs gets a container with no GPUs, and
+`--exclusive` does not grant them — it is a job-level guarantee, and a step
+inherits only what was explicitly requested. So every job that touches a GPU
+states `--gres=gpu:N` in its `#SBATCH` header rather than leaving it implied;
+see [benchmarks.md](benchmarks.md#the-allocation-header) for the rest of that
+rule, including why `--cpus-per-task` is deliberately absent. `nvloom` needs
+`NVIDIA_VISIBLE_DEVICES=all` on top of the `--gres` and must *not* have
+`--gpus-per-task` — see [nvloom](#nvloom).
+
+**enroot gives the container a fresh `/dev`.** Whatever character devices the
+host has, the container starts without them unless they are mounted in. The
+host `/sys` does come along, so `/sys/class/infiniband` is populated inside the
+container even when nothing under `/dev` is — which makes this failure
+particularly good at looking like success:
+
+- `ibv_get_device_list` returns nothing inside the container, because the HCA
+  character devices are not there.
+- NCCL logs `NET/IB : No device found.` and falls back to sockets.
+- The run completes, writes a valid summary, and passes at roughly 1 GB/s.
+
+That is how `allreduce-nonvlink` ran entirely over `bond0` for weeks. Checking
+by hand over ssh cannot catch it, because ssh puts you on the host, where the
+HCA list is complete and correct the whole time. The `-nonvlink` jobs therefore
+do two things: mount the devices with
+`--container-mounts=/dev/infiniband:/dev/infiniband`, and ask the container
+itself what it can see with `NCCL_HCA_PROBE` from `jobs/nvl72/nccl-hca.sh`,
+whose last line `verdict.sh` gates on. Ask the container, not the node.
+
+The NVLink-scope jobs (`allreduce`, `alltoall`) deliberately do *not* mount
+`/dev/infiniband`. That collective is meant to stay on NVLink and never reach
+the network, so a node that has lost NVLink should fail rather than quietly
+succeed over IB.
+
 ## Images
 
 | Image | File | Source | Used by |
@@ -251,9 +306,15 @@ entry out of the image's manifest list, downloads those layers, untars them and
 runs `mksquashfs`. Nothing from inside the image is ever executed, so the host
 architecture is irrelevant. This covers `hpc-benchmarks` and `nvbandwidth`'s NGC
 path — six of the ten containerised jobs — and finishes on the headnode with no
-second pass. The script passes `--arch arm64`; enroot matches that verbatim
-against `.platform.architecture`, so an image published x86-only will fail here
-rather than silently hand back the wrong binaries.
+second pass.
+
+`enroot import -a` wants the *kernel's* spelling, `aarch64`, and runs it through
+its own `debarch()` before matching `.platform.architecture` in the manifest
+list. Handing it the Debian name, `arm64`, fails with "Unsupported
+architecture" — which is why `build_containers.sh` keeps `enroot_arch()` and
+`deb_arch()` as separate functions rather than one mapping. An image published
+x86-only fails the import here rather than silently handing back the wrong
+binaries.
 
 **Source builds are split in two.** `nvloom` and `nvbandwidth`'s fallback have
 to compile, and the only ARM machines are the compute nodes, which have no

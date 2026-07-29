@@ -6,42 +6,30 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH -t 1:10:00
 #SBATCH --nice=20
-## --nice orders this job against everything else queued for the node: higher
-## is LATER, 0 is the front. 20 is the sweep's tier -- behind the dcgm gates at
-## 0, ahead of burn-in at 100000. See docs/benchmarks.md.
+## 20 is the sweep's tier. See docs/benchmarks.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/ethr.txt
 
-## Allocation. No --gres: this job never touches a GPU. --exclusive is what
-## makes the numbers mean anything -- another job sharing the node shares the
-## NIC, and its traffic lands in these latency figures. --mem=0 is stated
-## because --exclusive does not imply it, and --cpus-per-task is deliberately
-## absent: it implies --exact. See docs/benchmarks.md.
+## No --gres: never touches a GPU. --exclusive is what makes the numbers mean
+## anything -- a job sharing the node shares the NIC. See
+## docs/benchmarks.md#the-allocation-header.
 
 ## AI Factory Testing Plan: ethr -- SNT2 (Exhaustive)
-## North-south throughput/latency on the in-band management and storage NICs
-## (ConnectX / BlueField). Characterizes paths NCCL does not exercise.
-## Distinct from perftest/NCCL, which target east-west RDMA traffic.
+## North-south throughput/latency on the in-band management and storage NICs,
+## the paths NCCL's east-west RDMA traffic does not exercise.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 # shellcheck disable=SC2034
 job_name=ethr
 
-## Per-pass step time limit, handed to srun --time below -- one limit per pass
-## rather than one for the job, because that is the granularity srun --time
-## works at. Two passes per interface in IFACES; at 30 min each, one interface
-## sits inside the 1:10 walltime above. Raise #SBATCH -t before adding a second
-## interface, or the passes will outlast the job. 2x the plan's ~30 min for ethr.
-## Slurm cancels the STEP at this limit, which leaves the batch script alive to
-## write its marker -- see example.sbatch.
+## Per-pass step limit. Two passes per interface, so adding an interface to
+## IFACES means raising #SBATCH -t too. See
+## docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
 PASS_TIMELIMIT=0:30:00
 
 ## ------------- job info starts here ------------- ##
 
-## Preflight -- what the STEP actually holds, asked from inside a step. The
-## job's AllocTRES cannot answer that: a step is a different cgroup, and
-## --exclusive grants the job resources a step does not inherit unless they
-## were named. The passing line's wording is fixed -- the parse block below and
-## verdict.sh grep this same file. See example.sbatch for the full reasoning.
+## Preflight -- what the STEP holds, which only a step can see. Wording is
+## fixed; verdict.sh greps it. See docs/benchmarks.md#preflight.
 srun --ntasks=1 bash -c '
     echo "preflight: $(hostname) cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
     [[ "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
@@ -50,27 +38,22 @@ srun --ntasks=1 bash -c '
     exit 0
 }
 
-## Host running `ethr -s` (headnode or a storage-network endpoint).
-## Start the server side once, outside this job:  ethr -s
+## Host running `ethr -s`. Start the server side once, outside this job.
 ETHR_SERVER=headnode
-## ethr is a single static Go binary -- install it on the host from
-## github.com/microsoft/ethr rather than containerizing it.
+## Host-installed static Go binary, not a container -- see docs/containers.md.
 ETHR_BIN=ethr
 DURATION=30s
 
 ## Interfaces under test -- management and storage NICs, not the compute fabric
 IFACES="enP22p3s0f0np0"
 
-## One status for every pass over every interface: any of them failing means
-## the job did not run to completion, and a later success must not overwrite an
-## earlier failure. An interface with no address is NOT counted here -- nothing
-## ran, so there is no exit status to report; _v_gate_ethr catches it from the
-## message below, which is why that message's wording is fixed.
+## Sticky across every pass: a later success must not overwrite an earlier
+## failure. An interface with no address is not counted here -- nothing ran, so
+## _v_gate_ethr catches it from the message below, whose wording is fixed.
 rc=0
 
-## Each pass is DURATION of traffic; the rest of PASS_TIMELIMIT above is the
-## allowance for an ethr that cannot reach the server and sits in connection
-## retries, which is the failure that limit is actually for.
+## Each pass is DURATION of traffic; the rest of PASS_TIMELIMIT is headroom for
+## an ethr sitting in connection retries against an unreachable server.
 
 for iface in $IFACES; do
     src_ip=$(ip -4 -o addr show dev "$iface" 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
@@ -95,14 +78,10 @@ done
 
 ## ------------- parse info starts here ----------- ##
 
-## Only whether the job ran is decided here. Whether the result is any good is
-## decided by verdict.sh, which is read on every status check rather than
-## written once into this file. That is what lets a tightened gate re-judge
-## results that already exist -- see the header of verdict.sh.
+## Only whether the job ran is decided here; whether the result is good is
+## verdict.sh's call. See docs/benchmarks.md#where-a-pass-is-decided.
 
-## The aggregate exit status over every pass -- 0 if all of them returned 0, 1
-## if any did not. Written into the log rather than left only in the marker
-## below: a FAIL with a non-zero here is the job's own, a FAIL with
-## `exit status: 0` came from the gate in verdict.sh at status-check time.
+## Logged, not just left in the marker: a FAIL with a non-zero here is the
+## job's own, a FAIL with `exit status: 0` came from the gate in verdict.sh.
 echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

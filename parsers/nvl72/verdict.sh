@@ -3,100 +3,44 @@
 # Shared pass/fail rule for a benchmark result file. Sourced by
 # actions/launch_job.sh, status-check.sh and daily-report.sh.
 #
-# This exists for the same reason reason-map.sh does. The rule used to live
-# inside each jobs/*.sbatch -- four near-identical copies for the NCCL jobs
-# alone -- and they drifted: ab9121d tightened the two -nonvlink jobs and left
-# allreduce.sbatch and alltoall.sbatch on the old rule.
-#
-# The property that matters here is that a verdict is DERIVED, never stored.
-# An sbatch writes only:
-#
-#   FAIL      it could not run at all, or srun exited non-zero
-#   PENDING   it ran to completion and srun exited 0
-#
-# DONE is computed here, from the contents of the log, on every read. Nothing
-# writes it to disk. That is the one thing the old design could not do: a
-# socket-speed run that wrote DONE before the gate existed was never re-judged,
-# because launch_job.sh skips any file ending in DONE. Twenty-five nodes sat
-# that way holding 1.17 GB/s results, and the fix written for them could not
-# reach them. Now tightening a gate re-judges every result already on disk.
-#
-# Files ending in DONE are legacy, from before this split. They are re-judged
-# here rather than trusted, which is what retires them without a purge script.
+# A verdict is DERIVED, never stored: an sbatch writes FAIL (could not run) or
+# PENDING (ran, srun exited 0), and DONE is computed here from the log on every
+# read, so tightening a gate re-judges every result already on disk. Files
+# ending in DONE are legacy and are re-judged here rather than trusted.
+# See docs/benchmarks.md#where-a-pass-is-decided.
 
-## Bandwidth floors, GB/s, on the LARGEST-MESSAGE-SIZE out-of-place busbw.
-##
-## One number, read from one place, for every NCCL job: the largest-size row
-## is also what daily-report.sh prints in these columns (see extract_metric
-## there), so a figure in the report can be compared against the floor here
-## directly. That is the whole point of stating them this way. The
-## `# Avg bus bandwidth` line is NOT gated -- it averages every message size and
-## comes out roughly 2x lower on the same run (1.17 vs 2.23 on the h01-14 socket
-## run), so a floor set against it could not be checked against anything an
-## operator is looking at. It is still required to be present below, as evidence
-## the run finished; it is just not the number judged.
-##
-## Set per job because alltoall and allreduce bus bandwidth are not comparable,
-## and because NVLink scope and IB scope are two different fabrics: 683/665/623
-## are NVLink figures. The -nonvlink pair is gated at 43, which is the rate the
-## compute-plane HCAs are expected to sustain on this platform.
-##
-## 43 is a spec figure, not one read off a known-good run, and it is the one
-## floor in this file set ABOVE every IB-scope result captured so far: the
-## fixture that used to be called good-ib measures 32.35 and is now a
-## below-floor case. So there is currently no captured -nonvlink run that
-## passes this gate. If a fleet-wide report comes back failing every node at
-## 30-something rather than a handful, that is this floor being wrong and not
-## the fabric -- check a report before acting on the drains.
+## Bandwidth floors, GB/s, on the LARGEST-MESSAGE-SIZE out-of-place busbw --
+## the same figure daily-report.sh prints, so report and floor compare directly.
+## The `# Avg bus bandwidth` line is required below as evidence the run finished
+## but is not judged. Per job because alltoall and allreduce are not comparable
+## and NVLink and IB are different fabrics: 683/665/623 are NVLink figures; 43
+## is the compute-plane HCA spec figure and sits above every IB-scope result
+## captured so far, so suspect it, not the fabric, if every node fails in the
+## thirties. See docs/benchmarks.md#host-hcas-are-not-container-hcas.
 VERDICT_MIN_PEAK_BW_ALLREDUCE=683
 VERDICT_MIN_PEAK_BW_ALLTOALL=623
 VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK=43
 VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK=43
-## allreduce-forcesharp is the same collective on the same fabric as allreduce,
-## with NCCL_ALGO=NVLS removing the fallback, so it used to be judged against
-## the 683 above. It gets 665 of its own instead: pinning the algorithm costs a
-## little bandwidth even on a node where NVLS is exactly what allreduce would
-## have chosen, and a floor carried over from the unpinned run fails those
-## nodes for the difference.
-##
-## The number comes off a fleet sweep on ink50: healthy nodes land between
-## 665.0 and 673.3, so an earlier 668 sat inside the band and failed a dozen
-## nodes on run-to-run noise -- a different dozen each cycle. 665 clears every
-## node measured, but only just, and this is the floor to suspect first if
-## isolated nodes start failing by a fraction of a GB/s. What it can still
-## catch is a node well under the band; it cannot resolve anything finer.
-##
-## The question that job asks is answered before the bandwidth is, either way
-## -- a node without working NVLS fails in ncclCommInitRank and never reaches
-## a summary line to be judged -- so this floor is a second check on a node
-## that runs SHARP slowly, not the thing that finds a node lacking it.
+## A second check on a node that runs SHARP slowly, not the thing that finds a
+## node lacking it -- without NVLS the job dies in ncclCommInitRank first. 665
+## rather than allreduce's 683 because pinning NCCL_ALGO costs a little
+## bandwidth; it is the bottom of the healthy band on ink50 (665.0-673.3) and
+## clears it only just, so suspect this floor first if isolated nodes fail by a
+## fraction of a GB/s. See docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says.
 VERDICT_MIN_PEAK_BW_ALLREDUCE_FORCESHARP=665
 
-## Floors for the non-NCCL jobs. These used to live in the sbatch that ran the
-## workload, which meant they were applied once, at run time, and a result that
-## passed a too-low floor could never be re-judged when the floor was raised.
-## They are here for the same reason the NCCL floors are -- see the header.
-##
-## A floor of 0 is a floor that has not been established for this platform yet.
-## The gate reads that as "skip this check" rather than as "everything passes",
-## and says so in a comment at the point of use, so that raising it later is a
-## one-line change that re-judges every result already on disk.
+## Floors for the non-NCCL jobs, here rather than in each sbatch for the same
+## reason the NCCL floors are -- see the header. A floor of 0 means one has not
+## been established for this platform yet; the gate skips that check rather than
+## passing everything, and says so at the point of use.
 VERDICT_MIN_TRIAD_MBS=400000        ## STREAM Triad, MB/s
 VERDICT_MIN_TFLOPS_GEMM=0           ## cublasmatmul per-GPU TFLOPS -- not set
 VERDICT_MIN_TFLOPS_READINGS=1       ## one TFLOPS figure per GPU is expected
 
-## nvbandwidth run-to-run instability, from MOP section 6.2. Read off the
-## COEFFICIENT_OF_VARIATION line each test prints after its matrix.
-##
-## Set above the MOP's 0.02. Several tests -- the one_to_all and host_to_all
-## families in particular -- routinely print 0.01-0.04 on healthy nodes, because
-## they measure a handful of links whose spread is real topology rather than
-## instability, and one of them tripping the gate failed nodes that were fine.
-##
-## 0.08 clears that band with room to spare while staying tight enough to be
-## worth acting on: what this gate is for is a link varying enough run to run to
-## drag down a benchmark, on a node that is a candidate for RMA. A looser bar
-## would let that through.
+## nvbandwidth run-to-run instability, from MOP section 6.2. Set above the MOP's
+## 0.02: the one_to_all and host_to_all families print 0.01-0.04 on healthy
+## nodes, where the spread is real topology rather than instability. 0.08 clears
+## that band and still catches a link varying enough to drag a benchmark down.
 VERDICT_MAX_COV_NVBANDWIDTH=0.08
 
 ## fio runs four passes (read, write, randread, randwrite) and each prints one
@@ -105,36 +49,17 @@ VERDICT_MIN_FIO_PASSES=4
 
 ## Failure signatures common to every job. A summary line can print in full and
 ## a rank still die on the way out, so this is checked independently of whether
-## the expected output is present.
-##
-## The last two are how a job that ran out of time arrives here, and there are
-## two of them because there are two ways to bound one:
-##
-##   CANCELLED AT   Slurm's own line for a step that hit the `--time` every job
-##                  passes to srun -- `*** STEP <id> ON <node> CANCELLED AT
-##                  <time> DUE TO TIME LIMIT ***`. The `JOB` form of the same
-##                  line is the job walltime, which the step limit exists to
-##                  pre-empt.
-##   timeout:       written by the dcgm jobs, which have no step to bound --
-##                  dcgmi runs in the batch body, so they wrap it in `timeout`
-##                  instead. Same meaning, different mechanism.
-##
-## Either way the overrun arrives already explained and is reported as a run
-## error, rather than as whatever output the job failed to produce before it
-## was cut off. See the deadline section of example.sbatch.
+## the expected output is present. The last two are the two ways an overrun
+## arrives -- Slurm's step cancellation and the dcgm jobs' `timeout` wrapper --
+## so it is reported as a run error rather than as missing output. See
+## docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
 VERDICT_RUN_ERRORS='NCCL WARN|Test NCCL failure|Test failure|srun: error|Segmentation fault|CANCELLED AT|error: unable to|slurmstepd: error|^timeout: killed after'
 
-## Both set by verdict() on every call, and split for a specific reason.
-##
-##   VERDICT_REASON   why, in words that are IDENTICAL on every node failing the
-##                    same way. No line numbers, no measured values, no node
-##                    names. status-check.sh pipes through dshbak, which groups
-##                    identical lines -- so a stable phrasing collapses forty
-##                    nodes with one fabric problem into one block, and makes
-##                    the one node failing differently impossible to miss.
-##   VERDICT_DETAIL   the specifics for that node: line number, matched text,
-##                    measured value. Never put this anywhere it would be
-##                    grouped on.
+## Set by verdict() on every call. REASON must read IDENTICALLY on every node
+## failing the same way -- status-check.sh groups through dshbak, so anything
+## per-node in it splits one block into forty. Per-node specifics (line number,
+## matched text, measured value) go in DETAIL and nowhere else.
+## See docs/operations.md#status-and-reporting.
 VERDICT_REASON=""
 VERDICT_DETAIL=""
 
@@ -149,8 +74,8 @@ _v_require() {
     return 1
 }
 
-## Pattern must be absent. The detail carries the line number and the matched
-## text, because "which line said so" is the first thing anyone asks.
+## Pattern must be absent. The detail carries the line number and matched text,
+## because "which line said so" is the first thing anyone asks.
 _v_forbid() {
     local file="$1" label="$2" re="$3" hit
     hit=$(grep -nEm1 "$re" "$file" 2>/dev/null)
@@ -160,11 +85,9 @@ _v_forbid() {
     return 1
 }
 
-## Case-insensitive _v_forbid. Only dcgm wants this: its rule is "the word fail,
-## warn or error appears anywhere", which is deliberately broad and has to catch
-## FAIL, Fail and fail alike. The NCCL patterns are matched case-sensitively on
-## purpose -- `NCCL WARN` and `CANCELLED AT` are fixed strings, and matching them
-## loosely would start catching ordinary prose in a log.
+## Case-insensitive _v_forbid, for rules that are deliberately broad. Fixed
+## strings like `NCCL WARN` stay case-sensitive so they cannot catch prose --
+## see docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says.
 _v_forbid_i() {
     local file="$1" label="$2" re="$3" hit
     hit=$(grep -niEm1 "$re" "$file" 2>/dev/null)
@@ -174,18 +97,11 @@ _v_forbid_i() {
     return 1
 }
 
-## Floor on the largest message size actually run, out-of-place busbw (column 8
-## of the data rows). The extraction here is deliberately the same as
-## daily-report.sh's extract_metric: pick the numeric-first-field rows,
-## sort by size, take the last. If one of the two is ever changed the other must
-## change with it, or the report will print a number that the gate did not judge.
-##
-## `sort -k1,1n` rather than "last row in the file" because nccl-tests does not
-## guarantee the largest size is printed last -- and taking the tail of the file
-## blind would read whatever the final row happens to be.
-##
-## Kept in awk because bash arithmetic is integer-only and every one of these
-## values is a float -- `[[ 2.23 -lt 23 ]]` is a syntax error, not a false.
+## Floor on the largest message size actually run, out-of-place busbw (column 8).
+## Extraction must stay identical to daily-report.sh's extract_metric, or the
+## report prints a number the gate did not judge. `sort -k1,1n` because
+## nccl-tests does not guarantee the largest size is printed last. Comparison in
+## awk because bash arithmetic is integer-only and these are floats.
 _v_min_peak_bw() {
     local file="$1" min="$2" val
     val=$(awk '$1 ~ /^[0-9]+$/ {print}' "$file" 2>/dev/null \
@@ -201,9 +117,8 @@ _v_min_peak_bw() {
     return 1
 }
 
-## Pattern must appear at least $min times. The count matters where one line
-## per pass is the evidence that every pass ran: four fio passes, one TFLOPS
-## figure per GPU. `_v_require` alone would accept the first of four.
+## Pattern must appear at least $min times, where one line per pass is the
+## evidence every pass ran. `_v_require` alone would accept the first of four.
 _v_require_count() {
     local file="$1" label="$2" re="$3" min="$4" n
     n=$(grep -cE "$re" "$file" 2>/dev/null)
@@ -213,12 +128,9 @@ _v_require_count() {
     return 1
 }
 
-## Floor on a single value extracted by an awk program. Same reason as
-## _v_min_bw for the awk comparison: every one of these is a float.
-##
-## $5 is the unit, and is part of the REASON rather than the detail -- "below
-## floor 400000 MB/s" is identical on every node failing that way, which is
-## what keeps dshbak collapsing them into one block.
+## Floor on a single value extracted by an awk program. $5 is the unit, and
+## belongs in the REASON rather than the detail: "below floor 400000 MB/s" reads
+## the same on every node failing that way, so dshbak keeps them in one block.
 _v_min_value() {
     local file="$1" label="$2" prog="$3" min="$4" unit="$5" val
     val=$(awk "$prog" "$file" 2>/dev/null | head -1)
@@ -236,51 +148,29 @@ _v_min_value() {
 ## ── Per-job gates ─────────────────────────────────────────────────────────
 
 ## nccl-tests. $2 is the transport this job is scoped to: `ib` for the
-## -nonvlink pair, which forces traffic out to the HCAs, or `nvlink`.
+## -nonvlink pair, which forces traffic out to the HCAs, or `nvlink`. $3 is the
+## largest-size busbw floor, optional -- empty means none has been established
+## and the run is judged on transport alone.
 ##
-## ONLY the per-channel `via ...` lines are evidence of where data went:
-##
-##   Channel 01/1 : 2[2] -> 3[3] [receive] via NET/Socket/0/Shared   <- TCP
-##   Channel 00/0 : 0[0] -> 1[1] via P2P/MNNVL                       <- NVLink
-##
-## `Using network Socket`, `NET/Socket : Using` and `Using network IB` are NOT.
-## They name the net plugin NCCL registered, which it does whether or not the
-## net is ever used. A perfectly healthy single-node NVLink run initialises a
-## net plugin for potential inter-node use, finds no IB, falls back to Socket
-## for that role, logs all three of those lines, and then moves every byte over
-## NVLink at 220 GB/s.
-##
-## Forbidding those strings failed exactly such a run -- 32 channels of
-## via P2P/MNNVL, avg bus bandwidth 220.837 -- as "collective carried over TCP".
-## The rule is: judge the channels, never the plugin registration.
-## $3 is the largest-size busbw floor, and is optional -- empty means no floor
-## has been established for this job yet and it is judged on transport alone.
+## Only the per-channel `via ...` lines are evidence of where data went; `Using
+## network IB`/`Socket` name the plugin NCCL registered and prove nothing. See
+## docs/benchmarks.md#judge-the-channels-never-the-plugin-registration.
 _v_gate_nccl() {
     local file="$1" transport="$2" peak_min="$3"
 
-    ## nccl-tests prints both of these only after every message size has run and
-    ## validated, so requiring them is a positive check. A run that dies in
-    ## ncclCommInitRank prints neither.
+    ## Printed only after every message size ran and validated, so requiring them
+    ## is a positive check. A run that dies in ncclCommInitRank prints neither.
     _v_require "$file" "out-of-bounds validation"  '^# Out of bounds values *: *0 OK' || return 1
     _v_require "$file" "bus-bandwidth summary"     '^# Avg bus bandwidth *:'          || return 1
     _v_forbid  "$file" "run error"                 "$VERDICT_RUN_ERRORS"              || return 1
 
-    ## Order matters from here down, and it is ordered by causation rather than
-    ## by severity: the first check to fire is the one whose reason gets
-    ## reported, so the earliest link in the chain has to be checked first.
-    ##
-    ## The chain runs: enroot builds a fresh /dev -> the container cannot see the
-    ## HCAs -> ibv_get_device_list returns nothing -> `NET/IB : No device found.`
-    ## -> the IB plugin fails to load -> NCCL falls back to Socket -> every
-    ## channel goes over bond0. Checking the last of those first would report 40
-    ## nodes as "collective carried over TCP", which is true, and would send
-    ## someone to look at the fabric instead of at a missing bind mount.
+    ## Ordered by causation, not severity -- the first check to fire is the one
+    ## whose reason gets reported, so keep new checks in the chain's order. See
+    ## docs/benchmarks.md#host-hcas-are-not-container-hcas.
     if [[ "$transport" == "ib" ]]; then
-        ## jobs/nvl72/nccl-hca.sh probes libibverbs from inside the container -- the
-        ## same call NCCL makes -- and prints a fixed last line. `(none)` there
-        ## is the root cause, stated plainly and without anyone needing to know
-        ## what `NET/IB : No device found.` implies about enroot. A result from
-        ## before that probe existed has no such line and falls through.
+        ## jobs/nvl72/nccl-hca.sh makes the same libibverbs call NCCL does from
+        ## inside the container; `(none)` here is the root cause stated plainly.
+        ## A result from before that probe existed has no such line.
         _v_forbid  "$file" "no HCA visible inside the container" \
             'container sees HCAs [^:]*: \(none\)' || return 1
 
@@ -288,55 +178,33 @@ _v_gate_nccl() {
         _v_forbid  "$file" "IB plugin failed to load"      'Failed to initialize NET plugin IB' || return 1
         _v_require "$file" "IB named as chosen network"    'Using network IB'           || return 1
 
-        ## Last of the transport checks, not first: by this point everything
-        ## that explains WHY it fell back has already been ruled out, so a hit
-        ## here means the fallback happened for a reason not yet accounted for.
+        ## Last, not first: everything explaining WHY it fell back is ruled out
+        ## by here, so a hit means a reason not yet accounted for.
         _v_forbid "$file" "collective carried over TCP" 'via NET/Socket' || return 1
     else
-        ## NVLink scope. The collective is meant to stay on NVLink and never
-        ## reach the network at all, so ANY channel on the net is a failure --
-        ## whether it landed on Socket or on IB. Stated as a forbid rather than
-        ## as "require via P2P" on purpose: this was checked against a healthy
-        ## run, which has no `via NET/` line anywhere, and a forbid cannot
-        ## false-fail a legitimate path that happens to be named something the
-        ## one log inspected did not contain.
+        ## NVLink scope: any channel on the net fails, Socket or IB. A forbid
+        ## rather than "require via P2P" so it cannot false-fail a legitimate
+        ## path the one healthy log inspected did not happen to name.
         _v_forbid "$file" "collective left NVLink for the network" 'via NET/' || return 1
     fi
 
-    ## Deliberately not forbidding `via SHM` yet. On the NVLink scope it is a
-    ## real degradation and should fail, but no known-good log from this
-    ## platform has been read to confirm NCCL never uses it on a healthy run --
-    ## and a forbid pattern that is wrong drains the whole cluster at once. The
-    ## bandwidth floor below catches the gross case meanwhile. Add it here once
-    ## a passing run has been looked at.
+    ## Deliberately not forbidding `via SHM` yet: it is a real degradation on the
+    ## NVLink scope, but no known-good log from this platform has been read to
+    ## confirm NCCL never uses it, and a wrong forbid drains the whole cluster at
+    ## once. The bandwidth floor catches the gross case meanwhile.
 
     ## Bandwidth last, and only the largest-size figure -- see the floors at the
-    ## top of this file for why the `# Avg bus bandwidth` line is required above
-    ## but not judged here.
+    ## top of this file.
     [[ -n "$peak_min" ]] && { _v_min_peak_bw "$file" "$peak_min" || return 1; }
     return 0
 }
 
-## Which dcgmi subtests came back Fail, by name, in the order the table lists
-## them. The name is what makes the verdict actionable: `targeted_power` and
-## `diagnostic` are the same status and nothing like the same problem.
-##
-## The table is a two-column grid, and a failing test spreads over several rows:
-##
-##   | targeted_power            | Fail                                           |
-##   |                           | GPU0: Skip                                     |
-##   | Warning: GPU0             | Enforced power limit on GPU 0 set to 699.0, w  |
-##   |                           | GPU2: Pass                                     |
-##
-## so the name is carried forward from the last row that had one -- the per-GPU
-## rows underneath leave the first column empty and are reported against the
-## test above them. Rows whose first column is a rule (`-----`, `=====`) are not
-## names and must not be carried forward, or a Fail further down gets reported
-## against a section header.
-##
-## Names only, no measured values and no GPU indices: this becomes
-## VERDICT_REASON, which has to read identically on every node failing the same
-## way -- see the note on VERDICT_REASON above. The specifics go in the detail.
+## Which dcgmi subtests came back Fail, by name, in table order -- the name is
+## what makes the verdict actionable. A failing test spreads over several rows
+## whose first column is empty, so the name is carried forward from the last row
+## that had one; rules (`-----`, `=====`) are not names and must not be carried,
+## or a Fail gets reported against a section header. Names only, no values or GPU
+## indices: this becomes VERDICT_REASON -- see the note on it above.
 _v_dcgm_failed_tests() {
     awk -F'|' '
         NF >= 3 {
@@ -360,37 +228,29 @@ _v_dcgm_failed_tests() {
         }' "$1" 2>/dev/null
 }
 
-## The line that explains a dcgmi failure, for VERDICT_DETAIL. dcgmi prints its
-## reasoning in a `Warning:`/`Error:` row under the failing test -- the enforced
-## power limit, the field that went out of range -- and that row, not the bare
-## `Fail`, is what tells an operator whether the node is broken or the profile
-## is wrong. Falls back to the Fail row itself for output that carries no
-## warning text.
+## The line that explains a dcgmi failure, for VERDICT_DETAIL. dcgmi's
+## `Warning:`/`Error:` row under the failing test, not the bare `Fail`, is what
+## tells an operator whether the node is broken or the profile is wrong. Falls
+## back to the Fail row for output that carries no warning text.
 _v_dcgm_fail_detail() {
     local file="$1" hit
     hit=$(grep -nEm1 '^\|[[:space:]]*(Warning|Error)[^|]*\|' "$file" 2>/dev/null)
     [[ -n "$hit" ]] ||
         hit=$(grep -nEm1 '\|[[:space:]]*(GPU[0-9]+:[[:space:]]*)?Fail[[:space:]]*\|' "$file" 2>/dev/null)
     [[ -n "$hit" ]] || return 0
-    ## The row is a table cell either side of a `|` padded out to the column
-    ## width, so the padding is squeezed out and the divider spelled -- read as
-    ## captured it is a header and forty spaces before the text that matters.
+    ## Padding squeezed out and the divider spelled: read as captured the row is
+    ## a header and forty spaces before the text that matters.
     printf 'line %s: %s' "${hit%%:*}" \
         "$(printf '%s' "${hit#*:}" \
            | sed 's/^[[:space:]|]*//; s/[[:space:]|]*$//; s/[[:space:]]*|[[:space:]]*/ -- /g' \
            | cut -c1-90)"
 }
 
-## `dcgmi diag` prints a results table of `| <test> | Pass |` rows on a clean
-## run. Requiring at least one distinguishes a passing diagnostic from one that
-## never ran -- no dcgmi binary, nv-hostengine down, no GPUs visible. Without it
-## the error grep alone reports a pass for empty output.
-##
-## The named-subtest check comes before the broad fail/warn/error sweep so that
-## the reason says WHICH test failed. The sweep stays underneath it as the
-## catch-all: it is what still catches a dcgmi that reported a problem outside
-## the results table, and dropping it would narrow this gate rather than sharpen
-## it.
+## Requiring one `| <test> | Pass |` row distinguishes a passing diagnostic from
+## one that never ran -- no dcgmi binary, nv-hostengine down, no GPUs visible.
+## The named-subtest check comes before the broad fail/warn/error sweep so the
+## reason says WHICH test failed; the sweep stays as the catch-all for a problem
+## reported outside the results table.
 _v_gate_dcgm() {
     local file="$1" failed
     _v_require   "$file" "dcgmi Pass row"          '\|[[:space:]]*Pass[[:space:]]*\|' || return 1
@@ -406,37 +266,21 @@ _v_gate_dcgm() {
     return 0
 }
 
-## nvbandwidth, per MOP section 6.2's cross-cutting criteria. The per-test SUM
-## thresholds in section 6.1 are the GB200 4-GPU baseline and do not transfer
-## to this platform, so no SUM floor is applied -- add one here once a baseline
-## has been measured, and it will re-judge every result already on disk.
+## nvbandwidth, per MOP section 6.2. Section 6.1's per-test SUM thresholds are
+## the GB200 4-GPU baseline and do not transfer to this platform, so no SUM floor
+## is applied -- adding one here later re-judges every result on disk.
 ##
-## The N/A rule is the whole reason this gate exists. It used to be a flat
-## `grep -iE "N/A"` over the file, which matched the matrix diagonal -- the
-## cell where a GPU would be talking to itself, printed N/A on every healthy
-## run of every peer test:
-##
-##   memcpy CE GPU(row) -> GPU(column) bandwidth (GB/s)
-##              0         1         2         3
-##    0       N/A    767.64    770.54    770.26
-##
-## So the job could not pass on any node with more than one GPU. It failed
-## closed and it failed silently: the sbatch wrote its own FAIL as the last
-## line, and a self-reported FAIL is the one verdict this file does not
-## re-judge, so no amount of tightening or loosening the rule afterwards could
-## reach the results it had already condemned. They had to be re-run.
-##
-## What section 6.2 actually asks for is an N/A "where a peer transfer was
-## expected", which is a claim about POSITION, not about the string. Checked
-## positionally below: in a GPU(row) x GPU(column) matrix, N/A is expected on
-## the diagonal and nowhere else; in the CPU(row) matrices every cell is a real
-## transfer and N/A anywhere is a fault.
+## Section 6.2's N/A rule is about POSITION, not the string: on a GPU(row) x
+## GPU(column) matrix N/A is expected on the diagonal and nowhere else, and in
+## the CPU(row) matrices every cell is a real transfer. Matching the string flat
+## is what made this gate necessary -- see
+## docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says.
 _v_nvb_missing_peer() {
     local file="$1" hit
     hit=$(awk '
-        ## Reset at each test rather than only on seeing a CPU(row) header:
-        ## `device_local_copy` prints `GPU(column)` with no row axis at all, and
-        ## would otherwise inherit the exemption from the previous test.
+        ## Reset at each test, not just on a CPU(row) header: device_local_copy
+        ## prints GPU(column) with no row axis and would otherwise inherit the
+        ## diagonal exemption from the previous test.
         /^Running /             { peer = 0 }
         /GPU\(row\)/            { peer = 1; next }
         /CPU\(row\)/            { peer = 0; next }
@@ -451,8 +295,8 @@ _v_nvb_missing_peer() {
     return 1
 }
 
-## Run-to-run instability. Each test prints its own coefficient of variation
-## after its matrix; any one of them over the bar fails the run.
+## Each test prints its own coefficient of variation after its matrix; any one
+## over the bar fails the run.
 _v_nvb_unstable() {
     local file="$1" max="$2" hit
     hit=$(awk -v max="$max" \
@@ -467,17 +311,14 @@ _v_nvb_unstable() {
 _v_gate_nvbandwidth() {
     local file="$1"
 
-    ## nvbandwidth prints one SUM line per test it completed, so this is the
-    ## positive check: a tool that never started, or a container that came up
-    ## without GPUs, prints none.
+    ## One SUM line per completed test, so this is the positive check: a tool
+    ## that never started, or a container without GPUs, prints none.
     _v_require "$file" "per-test SUM lines" '^SUM ' || return 1
     _v_forbid  "$file" "run error"          "$VERDICT_RUN_ERRORS" || return 1
 
-    ## Matched narrowly and case-sensitively on nvbandwidth's own words for a
-    ## test it declined to run. NOT a bare `error` sweep of the file: the
-    ## previous rule paired one of those with the N/A bug above, and a blanket
-    ## grep over a log full of test names is how that class of false-fail gets
-    ## in. Judge the strings the tool actually prints.
+    ## nvbandwidth's own words for a test it declined to run, matched narrowly
+    ## and case-sensitively. Deliberately not a bare `error` sweep -- a blanket
+    ## grep over a log full of test names is how the N/A false-fail got in.
     _v_forbid "$file" "test not supported on this platform" \
         'Waived|not supported|Unsupported' || return 1
 
@@ -550,24 +391,23 @@ _v_gate_stressapptest() {
     return 0
 }
 
-## memtester prints `<subtest> : ok` per subtest, `FAILURE` on a bad address,
-## and `Done.` when every loop has finished. Both positive markers are required:
-## with the error grep alone, output that stops partway through -- an OOM kill,
-## a walltime kill, a memtester that is not installed -- reads as a pass.
+## memtester prints `<subtest> : ok` per subtest and `Done.` when every loop has
+## finished. Both are required: with the error grep alone, output that stops
+## partway through -- OOM, walltime kill, no binary -- reads as a pass.
 _v_gate_memtester() {
     local file="$1"
     _v_require "$file" "memtester subtest results" ':[[:space:]]*ok[[:space:]]*$' || return 1
     _v_require "$file" "memtester Done marker"     '^Done\.?$' || return 1
     _v_forbid  "$file" "run error"                 "$VERDICT_RUN_ERRORS" || return 1
-    ## FAILURE is memtester's own word for a bad address, and it prints it in
-    ## caps. Matched case-sensitively so it cannot catch prose.
+    ## memtester's own word for a bad address, printed in caps. Case-sensitive
+    ## so it cannot catch prose.
     _v_forbid  "$file" "memtester reported a bad address" 'FAILURE' || return 1
     return 0
 }
 
-## stress-ng prints `successful run completed` on a clean pass. `unsuccessful`
-## is its word for the other outcome -- and note that `successful run
-## completed` does not contain it, so the two rules do not collide.
+## stress-ng prints `successful run completed` on a clean pass; `unsuccessful`
+## is its word for the other outcome, and the pass line does not contain it, so
+## the two rules do not collide.
 _v_gate_stress_ng() {
     local file="$1"
     _v_require  "$file" "stress-ng completion line" 'successful run completed' || return 1
@@ -582,8 +422,8 @@ _v_gate_fio() {
     _v_require_count "$file" "fio IOPS summaries" 'IOPS=' \
         "$VERDICT_MIN_FIO_PASSES" || return 1
     _v_forbid "$file" "run error" "$VERDICT_RUN_ERRORS" || return 1
-    ## `^fio: ` is how fio prefixes its own diagnostics. Anchored, because the
-    ## string appears in ordinary output otherwise.
+    ## `fio: ` prefixes fio's own diagnostics. Anchored, because the string
+    ## appears in ordinary output otherwise.
     _v_forbid "$file" "fio reported an error" \
         '^fio: |error=|No such file or directory' || return 1
     return 0
@@ -594,8 +434,8 @@ _v_gate_ethr() {
     local file="$1"
     _v_require  "$file" "ethr results" 'Bandwidth|Latency' || return 1
     _v_forbid   "$file" "run error"    "$VERDICT_RUN_ERRORS" || return 1
-    ## The interface having no address is the job's own message, and is the
-    ## common case here -- a NIC named in IFACES that this node does not have.
+    ## The job's own message, and the common case here -- a NIC named in IFACES
+    ## that this node does not have.
     _v_forbid   "$file" "interface has no IPv4 address" '^ethr: no IPv4 address' || return 1
     _v_forbid_i "$file" "could not reach the ethr server" \
         'connection refused|no route to host|unable to' || return 1
@@ -632,15 +472,11 @@ _v_gate_mnubergemm() {
     return 0
 }
 
-## nvsm. `nvsm show health` ends in a health summary; requiring it is what
-## proves both srun steps got far enough to report.
-##
-## The fail/error sweep below is deliberately broad and is the one rule in this
-## file that has NOT been checked against a captured healthy run -- `nvsm show
-## health` reports on things whose names contain the word error, and if it
-## prints any of them unconditionally this gate will false-fail the way
-## nvbandwidth's N/A rule did. Capture a passing run as a fixture and narrow
-## this to the strings nvsm uses for an actual fault.
+## nvsm. The health summary proves both srun steps got far enough to report.
+## The fail/error sweep is the loosest rule in this file and the one never
+## checked against a captured healthy run -- narrow it to nvsm's own fault
+## strings once one exists. See
+## docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says.
 _v_gate_nvsm() {
     local file="$1"
     _v_require  "$file" "nvsm health summary" 'Health Summary|System Status' || return 1
@@ -658,10 +494,9 @@ _v_gate_example() {
     return 0
 }
 
-## Fallback for jobs that have no gate written for them yet. It applies the
-## common failure signatures and nothing else -- it cannot know what that job's
-## output is supposed to look like, so it does not pretend to. A job that
-## matters belongs above, with a rule that names its own success condition.
+## Fallback for jobs with no gate yet: the common failure signatures and nothing
+## else, because it cannot know what that job's output should look like. A job
+## that matters belongs above, with a rule naming its own success condition.
 _v_gate_generic() {
     local file="$1"
     [[ -s "$file" ]] || { VERDICT_REASON="empty result file"; return 1; }
@@ -727,32 +562,21 @@ _v_dispatch_gate() {
 ## Sets VERDICT_STATUS to exactly one of:
 ##
 ##   NOT_RUN      no result file
-##   INCOMPLETE   the file ends in no marker -- the job died before its last
-##                line: node crash, walltime kill, OOM. Callers must treat this
-##                as a failure, not as "no verdict yet", or a node that
-##                reliably kills its jobs retries forever and never drains.
-##                Note that "died" is the caller's conclusion, not this
-##                function's evidence: sbatch writes --output as the job runs,
-##                so a RUNNING job also has no marker yet. launch_job.sh earns
-##                the conclusion by checking squeue before it judges anything;
-##                status-check.sh, which reads results at arbitrary times,
-##                re-labels the live column RUNNING. A caller doing neither
-##                will call every in-flight job dead.
+##   INCOMPLETE   no end marker. "Died" is the caller's conclusion, not this
+##                function's evidence -- a RUNNING job has no marker either, so
+##                a caller that does not check squeue first will call every
+##                in-flight job dead. See docs/operations.md#status-and-reporting.
 ##   FAIL         the job reported it could not run, or the gate rejected it
 ##   DONE         the gate accepted it
 ##
 ## and VERDICT_REASON / VERDICT_DETAIL to why, for everything except DONE.
 ##
-## This sets variables rather than echoing, and callers must NOT wrap it in
-## $(...). Command substitution runs in a subshell, so the reason would be set
-## in a child and lost -- leaving every failure reported with an empty
-## explanation, which is the entire thing this file was written to provide.
+## Callers must NOT wrap this in $(...): the subshell would set the reason in a
+## child and lose it, leaving every failure reported with no explanation.
 ##
-## The disable below is for those three variables. Setting them IS this
-## function's return value, but every read of them happens in a caller that
-## sources this file, so shellcheck -- which sees one file at a time -- reads
-## the assignments as dead stores. Scoped to the function rather than the file
-## so that a genuinely unused variable added elsewhere here still gets caught.
+## Scoped to the function, not the file, so a genuinely unused variable added
+## elsewhere here is still caught: setting those three IS the return value, but
+## every read is in a caller, and shellcheck sees one file at a time.
 # shellcheck disable=SC2034
 verdict() {
     local job="$1" file="$2" last
@@ -769,22 +593,15 @@ verdict() {
     last=$(tail -1 "$file" 2>/dev/null)
     case "$last" in
         FAIL)
-            ## Self-reported: the job refused to run at all, or the workload
-            ## exited non-zero.
+            ## Self-reported: the job could not run, or the workload exited
+            ## non-zero. The STATUS is taken at its word and never re-judged --
+            ## the property the nvbandwidth note above depends on -- but the
+            ## REASON is derived, because "job reported FAIL" names no cause and
+            ## an sbatch only decides whether the job RAN.
             ##
-            ## The STATUS is not re-judged -- a self-reported FAIL stays a FAIL
-            ## whatever the log says, which is the property the nvbandwidth note
-            ## above depends on. The REASON is, because "job reported FAIL" names
-            ## no cause: `dcgmi diag` exits 226 on a failed subtest and the
-            ## sbatch, which only decides whether the job RAN, turns that into a
-            ## bare FAIL. Fifty nodes then read `dcgm: FAIL -- job reported FAIL`
-            ## and every one of them had to be opened by hand to find the one
-            ## line that said which subtest.
-            ##
-            ## Asked in causal order, first answer wins: a run error explains the
-            ## non-zero exit on its own, and the gate is asked last because on a
-            ## job that died early its positive checks report the missing output
-            ## rather than the reason it is missing.
+            ## Asked in causal order, first answer wins: the gate is last because
+            ## on a job that died early its positive checks report the missing
+            ## output rather than the reason it is missing.
             VERDICT_STATUS=FAIL
             _v_forbid "$file" "run error"                "$VERDICT_RUN_ERRORS"   &&
             _v_forbid "$file" "no compute-plane HCA"     '^No compute-plane HCA' &&
@@ -797,9 +614,8 @@ verdict() {
             return
             ;;
         PENDING|DONE)
-            ## PENDING is the current contract. DONE is legacy, written by an
-            ## sbatch that judged itself before this file existed -- re-judged
-            ## here rather than trusted, which is what retires those results.
+            ## PENDING is the current contract; DONE is legacy and is re-judged
+            ## here rather than trusted -- see the header.
             ;;
         *)
             VERDICT_REASON="no end marker -- job died before finishing"

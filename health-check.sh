@@ -29,13 +29,9 @@
 # contacted and nothing is re-run. Use node-health-refresh.sh to re-run checks
 # and sync-check.sh to see the actual diff for a node named below.
 #
-# That makes this report only as complete as the drains behind it. With
-# DRAIN_AFTER_FAILED_HEALTH_CHECK=no -- the shipped default -- node_health.sh
-# records failures and never drains, so nothing reaches the reason field and
-# every node reads as PASSING here. The banner below says so rather than
-# leaving a clean report to be read as a clean cluster. Until drains are turned
-# on, sync-check.sh is the tool that answers "is this node in spec": it diffs
-# the logs directly and does not go through Slurm at all.
+# Only as complete as the drains behind it: with the shipped
+# DRAIN_AFTER_FAILED_HEALTH_CHECK=no every node reads as PASSING, and the banner
+# below says so. See docs/operations.md#disabling-drains.
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
@@ -75,8 +71,8 @@ if [[ "$full" -eq 1 ]]; then
     max_groups=100000; max_checks=100000; max_reasons=100000
 fi
 
-# Width to wrap node lists at. tput falls back to the terminfo default when
-# stdout is not a tty, which is what we want for a redirect into a file.
+# Width to wrap node lists at. tput's terminfo default off a tty is what a
+# redirect into a file wants.
 width="${COLUMNS:-}"
 [[ -z "$width" ]] && width=$(tput cols 2>/dev/null)
 [[ -z "$width" || "$width" -lt 60 ]] && width=100
@@ -89,10 +85,9 @@ is_not_a_check() {
     esac
 }
 
-# The set of valid check names. Taken from the baseline first, then widened with
-# anything present under logs/ -- a check added to node_health.sh after the last
-# set-valid-default.sh run has log output but no baseline entry yet, and it still
-# needs to be recognized as a check rather than dismissed as operator text.
+# Valid check names: the baseline, widened with logs/ -- a check newer than the
+# last set-valid-default.sh run has no baseline entry yet and would otherwise be
+# dismissed as operator text. See docs/health-checks.md#the-baseline-is-cluster-local.
 declare -A known_check baseline_has
 if [[ -d "$valid_dir" ]]; then
     while IFS= read -r name; do
@@ -144,10 +139,9 @@ count_list() {
     printf '%s' "$(( $(tr -cd ',' <<< "$1" | wc -c) + 1 ))"
 }
 
-# Break a comma-separated list into chunks no wider than $2, splitting only at
-# top-level commas -- a break inside a [14,29,34] range yields two lists that
-# neither scontrol nor a copy-paste will take. Emits bare chunks; the caller
-# supplies the label and continuation indent.
+# Break a comma-separated list into chunks no wider than $2. Splits only at
+# top-level commas: a break inside a [14,29,34] range yields two lists neither
+# scontrol nor a copy-paste will take. Caller supplies label and indent.
 wrap_list() {
     awk -v text="$1" -v avail="$2" '
     BEGIN {
@@ -174,9 +168,8 @@ wrap_list() {
     }'
 }
 
-# Print "<label><list>" wrapped, with continuation lines indented to match. A
-# third argument caps the number of lines -- for the informational sections a
-# full hostlist is pages of output nobody reads, and --full still has it.
+# Print "<label><list>" wrapped, continuation lines indented to match. $3 caps
+# the line count for the informational sections; --full still prints it all.
 print_wrapped() {
     local label="$1" text="$2" max_lines="${3:-0}" cont first=1 chunk n=0
     [[ "$full" -eq 1 ]] && max_lines=0
@@ -221,19 +214,15 @@ while IFS='|' read -r node state reason; do
     [[ -n "${seen_node[$node]}" ]] && continue
     seen_node["$node"]=1
 
-    # shellcheck disable=SC2053  # $pattern is the caller's node glob, unquoted
-    # so it still globs; quoting it would only ever match a literal node named
-    # '*'.
+    # shellcheck disable=SC2053  # $pattern is the caller's node glob; quoting
+    # it would only ever match a literal node named '*'.
     [[ "$node" == $pattern ]] || continue
     ((total++))
 
     if [[ -z "$reason" || "$reason" == "none" ]]; then
-        # No reason at all. node_health.sh sets IDLE with no reason on a clean
-        # pass, so an available node here is a node whose checks all passed --
-        # but only if they ran. A node with no logs/<node> has never been
-        # checked, which is not the same thing and must not be counted as a
-        # pass. A node down with no reason is neither; leave it with the other
-        # drains rather than claim it is healthy.
+        # No reason: available splits on whether logs/<node> exists, since a
+        # never-checked node is not a passing one. Down with no reason is
+        # neither, so it goes with the other drains. docs/operations.md#--summary.
         case "$state" in
             *down*|*drain*|*fail*|*unk*|*error*)
                 ((other++))
@@ -255,15 +244,15 @@ while IFS='|' read -r node state reason; do
     for raw in $(canonicalize_reason "$reason"); do
         name=$(resolve_token "$raw")
         [[ -n "${known_check[$name]}" ]] || continue
-        # A check can appear twice in one reason (dmesg-xid carries its own
-        # output, which can echo a name back); count the node once per check.
+        # dmesg-xid carries its own output, which can echo a check name back;
+        # count the node once per check.
         [[ " $matched " == *" $name "* ]] && continue
         matched+="$name "
     done
 
     if [[ -z "$matched" ]]; then
-        # Nothing in the reason is a check name, so node_health.sh did not write
-        # it -- an operator drain, or a drain from launch_job.sh.
+        # No check name in the reason, so node_health.sh did not write it -- an
+        # operator drain, or one from launch_job.sh.
         ((other++))
         other_nodes+="$node,"
         reason_nodes["$state|$reason"]+="$node,"
@@ -272,8 +261,7 @@ while IFS='|' read -r node state reason; do
 
     ((failing++))
     failing_nodes+="$node,"
-    # Sort the names so two nodes failing the same checks in a different order
-    # land in the same group.
+    # Sorted, so the same checks in a different order land in the same group.
     sig=$(tr ' ' '\n' <<< "${matched% }" | sort | tr '\n' ' ')
     sig="${sig% }"
     sig_nodes["$sig"]+="$node,"
@@ -287,9 +275,8 @@ if [[ "$total" -eq 0 ]]; then
     exit 1
 fi
 
-# A dangling or missing baseline makes every check fail on every node that ran,
-# and none of those failures are real. That has to lead, not trail: the whole
-# report below it is an artifact.
+# A missing baseline fails every check on every node that ran, so this leads
+# rather than trails: the whole report below it is an artifact.
 if [[ ! -d "$valid_dir" ]]; then
     echo "WARNING: no baseline — $valid_dir does not resolve"
     if [[ -L "$valid_dir" ]]; then
@@ -302,9 +289,8 @@ if [[ ! -d "$valid_dir" ]]; then
     echo
 fi
 
-# Paused means no node is re-running its checks, so this report is a snapshot
-# of whatever was true when the pause went on -- including for nodes queued for
-# a refresh, whose sentinel is held until it lifts.
+# Paused means nothing re-runs, so this is a snapshot of whatever was true when
+# the pause went on. See docs/operations.md#pausing-everything.
 if setting_enabled "$PAUSE_HEALTH_CHECKS"; then
     echo "NOTE: PAUSE_HEALTH_CHECKS=$PAUSE_HEALTH_CHECKS in ${SETTINGS_FILE##*/}"
     echo "      node_health.sh is not running on any node, so nothing below can change"
@@ -313,9 +299,8 @@ if setting_enabled "$PAUSE_HEALTH_CHECKS"; then
     echo
 fi
 
-# Drains off means this report has nothing to read. Say it at the top, for the
-# same reason the baseline warning is at the top: an empty report and a healthy
-# cluster look identical, and only one of them is worth trusting.
+# Drains off means this report has nothing to read, and an empty report looks
+# exactly like a healthy cluster. See docs/operations.md#disabling-drains.
 if ! setting_enabled "$DRAIN_AFTER_FAILED_HEALTH_CHECK"; then
     echo "NOTE: DRAIN_AFTER_FAILED_HEALTH_CHECK=$DRAIN_AFTER_FAILED_HEALTH_CHECK in ${SETTINGS_FILE##*/}"
     echo "      node_health.sh records failures without draining, so a failing node"
@@ -325,9 +310,8 @@ if ! setting_enabled "$DRAIN_AFTER_FAILED_HEALTH_CHECK"; then
     echo
 fi
 
-# --summary: every node placed in exactly one bucket, with the full list for
-# each. The grouped report answers "what do I fix"; this answers "where does
-# each node stand", which is the roll-up question and a different one.
+# --summary: every node in exactly one bucket, full list for each. See
+# docs/operations.md#--summary.
 if [[ "$summary" -eq 1 ]]; then
     echo "SUMMARY — $total $(plural "$total")"
     echo
@@ -358,8 +342,8 @@ fi
 if [[ "$failing" -eq 0 ]]; then
     echo "No failed health checks — $total $(plural "$total") checked"
 else
-    # One group per distinct set of failing checks, largest first. Sorting on the
-    # node count puts the fix that clears the most nodes at the top.
+    # One group per distinct set of failing checks, largest first, so the fix
+    # that clears the most nodes leads.
     mapfile -t groups < <(
         for sig in "${!sig_nodes[@]}"; do
             printf '%s|%s\n' "$(count_list "${sig_nodes[$sig]%,}")" "$sig"
@@ -400,8 +384,8 @@ else
             "$hidden_nodes" "$(plural "$hidden_nodes")"
     fi
 
-    # With one group the per-check tally just restates it. With several it is the
-    # only place you can see that one check spans more than one pattern.
+    # With one group the tally restates it; with several it is the only place a
+    # check spanning more than one pattern shows up.
     if [[ "${#groups[@]}" -gt 1 ]]; then
         tally=$(
             for name in "${!check_count[@]}"; do
@@ -413,10 +397,9 @@ else
     fi
 fi
 
-# A check with log output but no baseline entry can never pass: node_health.sh
-# diffs against a file that is not there. Worth calling out separately -- the fix
-# is a new baseline, not anything on the node. Suppressed when the baseline is
-# missing outright, since the banner above already said so.
+# A check with no baseline entry can never pass, and the fix is a new baseline
+# rather than anything on the node. Suppressed when the baseline is missing
+# outright -- the banner above already said so.
 if [[ -d "$valid_dir" ]]; then
     missing=""
     for name in "${!check_count[@]}"; do
@@ -431,7 +414,7 @@ if [[ -d "$valid_dir" ]]; then
 fi
 
 # Grouped by reason, not by node: eighteen racks powered off by CMDaemon is one
-# line, and it stays one line however many racks get added.
+# line, and stays one line however many racks get added.
 if [[ "$other" -gt 0 ]]; then
     echo "Not health drains — $other $(plural "$other") (operator, or the job sequencer):"
     mapfile -t reasons < <(
@@ -463,8 +446,8 @@ if [[ "$other" -gt 0 ]]; then
 fi
 
 if [[ "$failing" -gt 0 ]]; then
-    # One node per pattern is enough to diff: every node in a pattern failed the
-    # same checks. Handing sync-check.sh all 60 buries the answer in 60 copies.
+    # One node per pattern is enough to diff -- the rest failed the same checks,
+    # and 60 copies of one diff buries the answer.
     first_sig="${groups[0]#*|}"
     first_node="${sig_nodes[$first_sig]%%,*}"
     echo "Why a node failed:  bash sync-check.sh $first_node"

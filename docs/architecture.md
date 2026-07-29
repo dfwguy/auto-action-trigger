@@ -23,8 +23,9 @@ Node boots → BCM device status = UP
 
 Because a quiet cycle and a broken chain look identical from outside, each node
 keeps a running trace at `results/<node>/trigger.log`, one line per cycle
-recording what it did or why it stopped. `trigger-debug.sh` reads those traces
-across the cluster and names the broken link.
+recording what it did or why it stopped. `trigger-log.sh` reads those traces
+across the cluster; `trigger-debug.sh` walks the configuration behind them when
+the traces have gone stale.
 
 ## Directory layout
 
@@ -83,6 +84,7 @@ across the cluster and names the broken link.
 │           ├── hpl1N.dat              # HPL config for 1-node runs
 │           └── hpl2N.dat              # HPL config for 2-node runs
 │
+├── README.md                      # Entry point: what the framework is and how to deploy it
 ├── docs/                          # This directory
 ├── tests/                         # Offline suites; stub Slurm, need no cluster
 ├── .gitlab-ci.yml                 # CI: the tests, plus the conventions in CLAUDE.md
@@ -99,6 +101,77 @@ across the cluster and names the broken link.
 ├── trigger-log.sh                 # Read what the chain wrote: trigger.log across the cluster
 └── watch-rack.sh                  # Watch a nodelist for DOWN/drained nodes
 ```
+
+## Registering with BCM
+
+`pre-post/create-action-trigger.sh` registers six objects: three monitoring
+actions — `node_health_action`, `file_copy_action`, `launch_job_action` — and
+one trigger apiece, `NodeHealthTrigger`, `FileCopyTrigger` and
+`LaunchJobTrigger`. `pre-post/delete-action-trigger.sh` removes the same six.
+cmsh has no upsert, so creation removes each object before adding it; that
+makes the script safe to re-run, and it is why the removals are silent — on a
+first run there is nothing to remove. The adds are not silent. A registration
+that fails quietly is how you end up believing a node is being health-checked
+when it is not.
+
+An action is a path plus execution settings. All three run with `runon node`
+and `nodeenvironment yes`, so BCM executes the script on the node itself, out
+of the NFS-exported tree, with no working directory to infer anything from —
+hence the absolute `BRINGUP_HOME` path described under [Runtime
+paths](#runtime-paths). The timeout is `2m` on all three because `2m` is BCM's
+hard maximum; anything larger is rejected outright. The first sync of a
+container image is multi-gigabyte over NFS and cannot finish inside that, which
+is why `file_copy.sh` detaches its rsync and returns immediately rather than
+being killed mid-transfer on every monitoring cycle.
+
+Each trigger attaches its action with `duringactions`, which re-fires on every
+monitoring cycle while the device is `UP`. `enteractions` fires only on the
+transition into `UP`, so a node that was already up would never pick up a newly
+built container image until it rebooted.
+
+Because BCM runs an action by executing the registered path, the exec bit is
+part of the contract: a `644` action registers fine, reports success and
+silently runs nothing. The exec bit is also easy to lose in transit — a tarball
+unpacked through a Windows-mounted path, an `scp` of a single file, an editor
+that rewrites rather than edits. So the script preflights the three action
+scripts, restores the bit where it can, and refuses to register anything while
+one is missing or still not runnable. The wider `755`/`644` split across the
+tree is deliberate and asymmetric; the table in `CLAUDE.md` says which a given
+file is and why, and the `permissions` CI job enforces it.
+
+## Driving cmsh
+
+Two things about `cmsh` shape every script that touches it.
+
+It exits `0` even when an individual `set` inside the `-c` string was rejected.
+It reports the problem on stdout and carries on to the commit, so the exit
+status is useless and the output has to be inspected instead — which is what
+`cm_run` in `pre-post/create-action-trigger.sh` does, grepping the combined
+output for the phrasings BCM uses to refuse. Getting this wrong once already
+produced a trigger with no actions attached that still reported success: the
+object exists, so nothing looks broken until you notice nothing runs.
+
+Read trigger state with `get <property>`, never by parsing `show`. The column
+padding and property names in `show` output drift between BCM releases, so a
+parser written against one release quietly matches nothing on the next — the
+same silent-empty-result failure the framework is written against.
+
+## What CI gates on
+
+`.gitlab-ci.yml` runs the checks listed under "Before committing" in
+`CLAUDE.md`, and it is the last gate before a change reaches a cluster; there
+is no staging deployment behind it. Nothing in the pipeline talks to Slurm, BCM
+or a GPU — the suites stub those on `PATH` — so a job that needs cluster access
+does not belong there, because it could only be faked.
+
+The `lint` stage runs `shellcheck -f gcc -S warning` over every tracked `*.sh`
+and `*.sbatch`, `bash -n` over the same set, the `permissions` job described
+above, and `architecture-doc`, which fails if a top-level script is not named
+in this file's tree listing. `severity=warning` is the gate, not the ceiling:
+the info- and style-level findings below it are largely deliberate here. The
+`test` stage runs the three suites — `tests/verdict-test.sh`,
+`tests/health-runner-test.sh`, `tests/recover-test.sh` — as one job each, so a
+failure names the gate that broke without anyone opening a log.
 
 ## Runtime paths
 

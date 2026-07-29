@@ -7,33 +7,22 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH -t 0:25:00
 #SBATCH --nice=20
-## --nice orders this job against everything else queued for the node: higher
-## is LATER, 0 is the front. 20 is the sweep's tier -- behind the dcgm gates at
-## 0, ahead of burn-in at 100000. See docs/benchmarks.md.
+## The sweep's tier; higher is later. See docs/benchmarks.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/allreduce-nonvlink.txt
 
-## Allocation. --exclusive is a JOB-level guarantee, and a step inherits only
-## what was explicitly requested -- never what the job was implicitly granted.
-## So --gres and --mem=0 are stated even though --exclusive is supposed to
-## cover them, and --cpus-per-task is deliberately absent: it implies --exact
-## and would shrink every srun below to that core count. See the allocation
-## header section of docs/benchmarks.md.
+## Steps inherit only what was explicitly requested; no --cpus-per-task, it
+## implies --exact. See docs/benchmarks.md#the-allocation-header.
 
-## AI Factory Testing Plan: NCCL AllReduce -- Single Node, No NVLink -- SNT2
-## Intra-node GPU collectives forced over the HCAs (GB300 MOP 7.3 Scope A,
-## loopback east/west fabric with NVLink excluded). Confirms the in-system
-## network is configured correctly and performant.
-## NVLink-scope counterpart: allreduce.sbatch
+## SNT2, GB300 MOP 7.3 Scope A: intra-node collectives forced over the HCAs,
+## NVLink excluded. NVLink-scope counterpart: allreduce.sbatch
 
-## Job name is used in the status line. Edit grep for failures you're looking for
+## Used in the status line. Read out of this file's text by grep, never sourced.
 # shellcheck disable=SC2034
 job_name=allreduce-nonvlink
 
-## Step time limit, handed to srun --time below: 2x the plan's < 5 min for
-## single-node NCCL, floored at 15 min.
-## Slurm cancels the STEP at this limit, which leaves the batch script alive to
-## write its marker. #SBATCH -t above is this plus a margin, so the step limit
-## is what fires -- see example.sbatch.
+## 2x the plan's < 5 min for single-node NCCL, floored at 15 min. Cancelling
+## the step leaves the script alive to write its marker; see
+## docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=0:15:00
 ## Read out of this file's text by grep, never sourced -- see example.sbatch.
 # shellcheck disable=SC2034
@@ -41,11 +30,9 @@ totalRuns=1
 
 ## ------------- job info starts here ------------- ##
 
-## Preflight -- what the STEP actually holds, asked from inside a step. The
-## job's AllocTRES cannot answer that: a step is a different cgroup, and
-## --exclusive grants the job resources a step does not inherit unless they
-## were named. The passing line's wording is fixed -- the parse block below and
-## verdict.sh grep this same file. See example.sbatch for the full reasoning.
+## What the STEP holds, which only a step can see. The passing line's wording
+## is fixed -- verdict.sh greps this same file. See
+## docs/benchmarks.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -57,20 +44,17 @@ srun --ntasks=1 bash -c '
 
 
 
-## Locally built image (build_containers.sh). The node-local copy that
-## actions/file_copy.sh rsyncs to /tmp is preferred so job start does not read
-## a multi-gigabyte image over NFS; the shared directory is the fallback for a
-## node the rsync has not reached yet. See docs/containers.md.
+## The node-local copy first so job start does not read a multi-gigabyte image
+## over NFS; shared directory is the fallback. See
+## docs/containers.md#why-local-images.
 IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
 [[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
-## Registry alternative -- every node pulls it over the network on first use.
-## Note the enroot `#` separator between registry host and image path.
+## Registry fallback by hand; note enroot's `#` separator.
 #CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
 
-## bond0 is the out-of-band interface only -- bootstrap and the IB OOB
-## handshake. It is not where collective data goes. Confusing the two is what
-## let this job run entirely over TCP without anyone noticing.
+## bond0 is out-of-band only -- bootstrap and the IB OOB handshake, never
+## collective data.
 export NCCL_SOCKET_IFNAME=bond0
 export NCCL_DEBUG=INFO
 
@@ -81,17 +65,14 @@ export NCCL_NVLS_ENABLE=0
 export NCCL_MNNVL_ENABLE=0
 export NCCL_IB_DISABLE=0
 
-## Disabling the shortcuts only says "go to the network"; it does not say which
-## one. With no HCA visible NCCL logs `NET/IB : No device found.`, drops to
-## `NET/Socket : Using [0]bond0`, and the run still prints a clean summary --
-## which is how this passed for weeks at ~1 GB/s bus bandwidth over TCP.
-## NCCL_NET=IB deletes the fallback: no usable HCA is now an init failure
-## rather than a quietly meaningless result.
+## Excluding the shortcuts does not say which network. Without this, no visible
+## HCA silently means TCP over bond0 and a clean-looking summary. See
+## docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says.
 export NCCL_NET=IB
 
-## Compute-plane HCA discovery lives in jobs/nvl72/nccl-hca.sh. This file and
-## alltoall-nonvlink.sbatch carried byte-identical copies of it, so ab9121d had
-## to make the same edit twice. See that file for what is filtered out and why.
+## Compute-plane HCA discovery, shared with alltoall-nonvlink.sbatch. See that
+## file for what is filtered out, and
+## docs/benchmarks.md#host-hcas-are-not-container-hcas.
 HCA_LIB=/home/cmods/bringup/jobs/nvl72/nccl-hca.sh
 if [[ ! -f "$HCA_LIB" ]]; then
 	echo "Missing $HCA_LIB -- cannot work out which HCAs to run over."
@@ -101,8 +82,7 @@ fi
 # shellcheck source=/dev/null
 source "$HCA_LIB"
 
-## Better to say so here than to let NCCL_IB_HCA="" mean "any HCA, including
-## the ones we just excluded" -- or to spend an hour of walltime discovering it.
+## Better than letting NCCL_IB_HCA="" mean "any HCA, including the excluded".
 if ! nccl_hca_detect; then
 	echo "No compute-plane HCA found on $(hostname). Nothing to run this test over."
 	echo FAIL
@@ -110,35 +90,19 @@ if ! nccl_hca_detect; then
 fi
 nccl_hca_report_host
 
-## What the host sees is not the question being asked. NCCL calls
-## ibv_get_device_list from inside the container, and enroot gives the container
-## a fresh /dev -- so the host list can be complete and correct while the
-## container sees nothing at all. That is exactly what happened here, and it is
-## precisely what checking by hand over ssh cannot show, because ssh puts you on
-## the host. Ask the container directly, before spending an hour of walltime
-## finding out from the bandwidth.
-##
-## --ntasks=1 rather than --ntasks-per-node=1: the header already asked for 4,
-## and Slurm resolves the per-node form by warning `can't honor
-## --ntasks-per-node set to 1` and running 4 anyway, which would print all of
-## this four times.
+## Ask the container what it sees, not the host -- see
+## docs/benchmarks.md#host-hcas-are-not-container-hcas. --ntasks=1 rather than
+## --ntasks-per-node=1, which Slurm ignores in favour of the header's 4.
 srun --ntasks=1 --export=ALL \
                 --container-image="${CONT}" \
                 --container-mounts=/dev/infiniband:/dev/infiniband \
                 bash -c "$NCCL_HCA_PROBE"
 
 
-## No --ntasks-per-node here on purpose: srun inherits the 4 from the #SBATCH
-## header above. Setting it in both places let them drift -- the header asked
-## for 4 and srun asked for 1, which Slurm resolves by warning `can't honor
-## --ntasks-per-node set to 1` and running 4 anyway. One rank per GPU, so `-g 1`
-## pairs with 4 tasks to cover all 4 GPUs.
-##
-## /dev/infiniband is mounted in because enroot gives the container a fresh
-## /dev, so the HCA character devices are absent unless asked for. That single
-## omission is what made ibv_get_device_list return nothing and sent the whole
-## benchmark over bond0. /sys/class/infiniband comes along with the host /sys
-## enroot already bind-mounts, so only /dev needs saying.
+## No --ntasks-per-node here on purpose: srun inherits the header's 4, and
+## stating it twice let them drift. `-g 1` pairs with those 4 to cover 4 GPUs.
+## /dev/infiniband must be mounted in -- enroot's fresh /dev omits the HCA
+## character devices, while /sys comes along with the host bind mount.
 srun --time="$STEP_TIMELIMIT" --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none \
                 --container-image="${CONT}" \
                 --container-mounts=/dev/infiniband:/dev/infiniband \
@@ -148,18 +112,11 @@ rc=$?
 
 ## ------------- parse info starts here ----------- ##
 
-## Only whether the job ran is decided here. Whether the result is any good is
-## decided by verdict.sh, which is read on every status check rather than
-## written once into this file. That is what lets a tightened gate re-judge
-## results that already exist -- see the header of verdict.sh.
-##
-## srun's exit status is the one thing that cannot be recovered from the log
-## afterwards: a run can print a complete, valid summary and still have a rank
-## die on the way out.
+## Only whether the job ran is decided here; verdict.sh decides whether the
+## result is good. See docs/benchmarks.md#where-a-pass-is-decided.
 
-## The workload's exit status, written into the log rather than left only in
-## the marker below. A FAIL with a non-zero here is the job's own -- srun
-## returned it. A FAIL with `exit status: 0` came from the gate in verdict.sh,
-## which is read at status-check time and leaves no trace in this file.
+## srun's status is the one thing the log cannot recover afterwards -- a run
+## can print a valid summary and still lose a rank on the way out. A FAIL with
+## `exit status: 0` therefore came from verdict.sh, not from the job.
 echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

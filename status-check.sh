@@ -67,32 +67,22 @@ elif [[ "$pattern" != *[\*\?\[]* ]]; then
     pattern="${pattern}*"
 fi
 
-# The active benchmark list is the setting itself, read from the same SETTINGS
-# launch_job.sh reads. It used to be grepped back out of launch_job.sh, which
-# worked only for as long as the two agreed on where the list lived.
-#
-# Burn-in is appended only when RUN_BURNIN is on, matching what the sequencer
-# will actually queue. With it off, a BURNIN column would read NOT_RUN on every
-# node forever -- a permanent empty column that looks like work outstanding.
+# Burn-in columns appear only while RUN_BURNIN is on, or they read NOT_RUN
+# forever. See docs/operations.md#status-and-reporting.
 active_benchmarks="$BENCHMARKS"
 setting_enabled "$RUN_BURNIN" && active_benchmarks="$BENCHMARKS $BURNIN"
 
-# Build ordered job+run list matching what launch_job.sh actually tracks
 declare -a columns  # each entry is "job" or "job-runN"
 
-# Both names are offered to the pattern rather than stripping "-runN" off the
-# column: the split is only reliable here, where the suffix was just built.
+# Job name and full column are both offered to the pattern; the "-runN" split is
+# only reliable here, where the suffix was just built.
 select_test() {
     local job="$1" col="$2" pat
     [[ ${#tests[@]} -eq 0 ]] && return 0
     for pat in "${tests[@]}"; do
-        ## Unquoted on purpose -- the glob is the feature. The header promises
-        ## that `-t 'allreduce*'` picks up allreduce-nonvlink and `-t '*nonvlink'`
-        ## picks up the nonvlink pair, and a quoted right-hand side is a plain
-        ## string compare that matches neither. What stays literal is the
-        ## *implicit* wildcard: unlike the node pattern above, nothing is
-        ## appended here, so a `-t` without a glob character still matches only
-        ## the name as written.
+        ## Unquoted RHS on purpose: -t globs are the feature, and quoting makes
+        ## it a plain string compare. Nothing is appended, so a -t without a
+        ## glob still matches only the literal name.
         # shellcheck disable=SC2053
         [[ "$job" == $pat || "$col" == $pat ]] && return 0
     done
@@ -127,10 +117,8 @@ if [[ ${#columns[@]} -eq 0 ]]; then
     exit 1
 fi
 
-## The verdict is derived from the log by the parser on every run, not read from
-## a marker the sbatch wrote. So this reports what the CURRENT gate makes of a
-## result, which is the point -- a result that passed an older, looser gate is
-## re-judged here rather than keeping its original DONE.
+## Verdicts are derived from the log on every read, so a result on disk is
+## re-judged by the current gate. See docs/operations.md#status-and-reporting.
 if [[ ! -f "$PARSERS_DIR/verdict.sh" ]]; then
     echo "ERROR: $PARSERS_DIR/verdict.sh is missing -- it carries the pass/fail rule" >&2
     echo "       for every job, and without it nothing can be judged." >&2
@@ -139,21 +127,14 @@ if [[ ! -f "$PARSERS_DIR/verdict.sh" ]]; then
 fi
 source "$PARSERS_DIR/verdict.sh"
 
-# Prior failed attempts are archived by launch_job.sh as <col>.fail<N>.txt.
-# A column with archives and no current file is queued for its next retry.
-#
-# Newest archive for a column, by the numeric suffix rather than by mtime --
-# the suffix is what launch_job.sh increments, and an rsync or a restore can
-# reorder mtimes without changing which attempt was last.
+# Newest <col>.fail<N>.txt, launch_job.sh's archive of a rejected attempt.
 last_fail_file() {
     last_archive_file "$1" "$2" fail
 }
 
-# Same, for either archive suffix. .prev<N>.txt is a result that PASSED and was
-# moved aside by `launch_job.sh --all` re-running the job, so it is not a failed
-# attempt and is never counted as one -- but it is still the last thing this
-# column is known to have produced, which is what the NOT_RUN fallback below
-# needs to avoid reporting a forced re-sweep as a job that never ran.
+# Same for either suffix; .prev<N>.txt is a PASSING result moved aside by
+# `launch_job.sh --all`, never counted as a failure. Selected by numeric suffix,
+# not mtime: an rsync or restore reorders mtimes, the suffix is authoritative.
 last_archive_file() {
     local node="$1" col="$2" kind="$3" n
     n=$(ls "$results_dir/$node" 2>/dev/null \
@@ -161,41 +142,19 @@ last_archive_file() {
     [[ -n "$n" ]] && printf '%s' "$results_dir/$node/${col}.${kind}${n}.txt"
 }
 
-# The slurm client tools are behind a module, so they are on PATH in a login
-# shell and absent when this is run from cron, from a trigger, or over ssh with
-# a command argument. Load it the same way launch_job.sh does, but only when
-# the tools are actually missing -- an operator who already has slurm loaded,
-# or a site that puts it in /usr/bin, keeps whatever they have. `module` is a
-# shell function that only exists after modules.sh is sourced, so both halves
-# are guarded and neither is allowed to be fatal: unlike launch_job.sh, which
-# exits rather than misreport a node as healthy, this script still has a report
-# to give from the files alone. It degrades in exactly two named places --
-# node_running below and compress() at the bottom.
+# The slurm tools live behind a module and are absent from cron/ssh/trigger
+# shells. Nothing here is fatal: unlike launch_job.sh, this script still has a
+# report to give from the files alone, degrading in node_running and compress().
 if ! command -v squeue >/dev/null 2>&1 && [[ -r /etc/profile.d/modules.sh ]]; then
     source /etc/profile.d/modules.sh >/dev/null 2>&1
     command -v module >/dev/null 2>&1 && module load slurm >/dev/null 2>&1
 fi
 
-# Nodes with one of our batches actually executing right now.
+# Nodes with one of our batches executing right now, so a mid-run partial file
+# is not reported as INCOMPLETE. See docs/operations.md#status-and-reporting.
 #
-# verdict() reports "no end marker" as INCOMPLETE, which is correct for
-# launch_job.sh -- it only judges a node after squeue has told it nothing is
-# queued or running there, so a missing marker really does mean the job died.
-# This script has no such guard: it reads result files whenever an operator
-# runs it, and sbatch is invoked with --output=<result file>, so a benchmark
-# that is mid-run has a partial file and no marker. Reported verbatim, every
-# in-flight job on the cluster reads as `died before finishing` -- and
-# INCOMPLETE outranks everything but FAIL, so it takes the node's whole
-# roll-up with it.
-#
-# One squeue call for the cluster, not one per node: the per-node query is the
-# same table filtered N times, and on a full rack that is hundreds of forks to
-# answer a question a single listing already answers. Jobs are matched by the
-# names launch_job.sh submits under, which is also how it finds its own work --
-# `bringup-<node>` for the sweep and `burnin-<node>` for burn-in. Both count
-# here: either one is a live job writing a result file. RUNNING only -- a
-# queued job has not been given a node yet and has written no file, so its
-# columns are NOT_RUN or RETRY and never reach the reclassification below.
+# One squeue call for the cluster, not one per node. RUNNING only -- a queued
+# job has written no file, so its columns are NOT_RUN or RETRY anyway.
 declare -A node_running
 if command -v squeue >/dev/null 2>&1; then
     while IFS='|' read -r name state; do
@@ -206,38 +165,24 @@ if command -v squeue >/dev/null 2>&1; then
         esac
     done < <(squeue -h -o '%j|%T' 2>/dev/null)
 else
-    # Same posture as compress(): the report still works off the files alone,
-    # it just cannot separate running from dead. Say so once rather than
-    # printing "died before finishing" over jobs nobody has checked on.
+    # Say it once rather than printing "died before finishing" over live jobs.
     echo "NOTE: squeue is not on PATH even after 'module load slurm' -- a running" >&2
     echo "      job cannot be told from a dead one, so both report as INCOMPLETE." >&2
 fi
 
-# The column a running batch is currently writing, or empty.
+# The column a running batch is currently writing, or empty. squeue knows the
+# node but not the benchmark; the file system does. sbatch truncates --output at
+# job start and every benchmark is --exclusive, so the live job's file is the
+# newest result file on the node even before it writes its first byte.
 #
-# squeue knows a job is running on the node but not which benchmark it is: they
-# share a per-list name, `bringup-<node>` or `burnin-<node>`, which is how
-# launch_job.sh finds its own queued jobs. The file system knows. sbatch truncates its --output at
-# job start, and every benchmark is `#SBATCH --exclusive`, so no earlier one for
-# this node is still running -- the live job's file is therefore the most
-# recently touched result file on the node, newest even when it has not yet
-# written its first byte, because every other file was last written by a job
-# that had already exited.
-#
-# Archives are excluded: a .fail<N>.txt is created by launch_job.sh's `mv` at
-# submit time, which can leave it newer than the file the new job is writing.
-# Same for .prev<N>.txt, the passing result `launch_job.sh --all` moves aside
-# when it re-runs a job that had already passed.
+# Archives are excluded: launch_job.sh `mv`s them at submit time, which can
+# leave one newer than the file the new job is writing.
 live_column() {
     local node="$1" f
-    ## `ls -t` is the whole point of the line, and it is the one thing a glob
-    ## cannot do: bash expands *.txt in collating order, so newest-first would
-    ## have to be rebuilt from a stat per file. The exclusion has to run after
-    ## that ordering, which leaves a pipe. Every name here was written by
-    ## launch_job.sh out of a BENCHMARKS entry and a fixed suffix, so the odd
-    ## filenames SC2010 guards against cannot arise. A node with no result files
-    ## expands to nothing, ls says nothing, and the caller returns empty --
-    ## reported as no live column, which is correct.
+    ## `ls -t` is the point: a glob expands in collating order, so newest-first
+    ## would cost a stat per file, and the exclusion must follow the ordering.
+    ## Every name here is a BENCHMARKS entry plus a fixed suffix, so the odd
+    ## filenames SC2010 guards against cannot arise.
     # shellcheck disable=SC2010
     f=$(ls -t "$results_dir/$node"/*.txt 2>/dev/null | grep -vE '\.(fail|prev)[0-9]+\.txt$' | head -1)
     [[ -n "$f" ]] || return
@@ -255,29 +200,21 @@ if [[ "$matched" -eq 0 ]]; then
     exit 1
 fi
 
-# Worst status a node holds decides its summary bucket. Ranked so the roll-up
-# lists stay disjoint: a node failing one test and missing another is a FAIL,
-# because that is the state that has to be acted on first.
-#
-# RUNNING sits above DONE and below everything else. Above DONE because a node
-# still working is not a node that passed, and a DONE list is read as "finished
-# and good" -- an in-flight benchmark can still fail. Below NOT_RUN because a
-# node with untouched columns has work outstanding whether or not one job
-# happens to be executing at the instant the report was run.
+# Worst status a node holds decides its summary bucket, so the roll-up lists
+# stay disjoint. RUNNING sits above DONE (still working is not passed) and below
+# NOT_RUN (untouched columns are work outstanding either way).
+# See docs/operations.md#status-and-reporting.
 declare -A rank=([FAIL]=6 [INCOMPLETE]=5 [RETRY]=4 [NOT_RUN]=3 [RUNNING]=2 [DONE]=1)
 declare -A worst  # node -> worst status seen across the selected columns
 
-# One line per node per column on stdout, and the per-node roll-up in `worst`.
-# Only the default path pipes this into dshbak: a pipeline runs the loop in a
-# subshell, so piping in summary mode would build `worst` in a child and leave
-# the parent printing empty lists.
+# One line per node per column on stdout, plus the per-node roll-up in `worst`.
+# Never pipe this in summary mode: a pipeline runs the loop in a subshell and
+# `worst` would be built in a child.
 scan() {
 for node_dir in "$results_dir"/$pattern/; do
     [[ -d "$node_dir" ]] || continue
     node=$(basename "$node_dir")
-    # Once per node, and only for a node squeue placed a live job on -- the
-    # lookup is a directory listing, and running it per column would repeat it
-    # for every benchmark on every node to answer one question per node.
+    # Once per node, not per column -- the lookup is a directory listing.
     live=""
     [[ -n "${node_running[$node]:-}" ]] && live=$(live_column "$node")
     for col in "${columns[@]}"; do
@@ -287,46 +224,30 @@ for node_dir in "$results_dir"/$pattern/; do
         status="$VERDICT_STATUS"
         reason="$VERDICT_REASON"
 
-        ## NOT_RUN means "no result file", which covers two states that are
-        ## nothing alike: never attempted, and attempted-failed-archived-and
-        ## resubmitted. launch_job.sh moves a rejected result to <col>.failN.txt
-        ## BEFORE submitting the retry, so between the archive and the new job
-        ## writing its first byte the column has no file at all -- and the node
-        ## reported NOT_RUN, which reads as never attempted when an attempt had
-        ## just been rejected.
-        ##
-        ## Judge the newest archive instead. That turns the line into RETRY plus
-        ## the reason the last attempt was rejected, which is the question
-        ## anyone reading this actually has. NOT_RUN then keeps a single
-        ## meaning: no attempt has ever been made.
+        ## launch_job.sh archives a rejected result before submitting the retry,
+        ## so the column has no file at all in between. Judge the newest archive
+        ## and call it RETRY, leaving NOT_RUN one meaning: never attempted.
         if [[ "$status" == "NOT_RUN" ]] &&
              prev=$(last_fail_file "$node" "$col") && [[ -n "$prev" ]]; then
             verdict "$(verdict_job_name "$col")" "$prev"
             status=RETRY
-            ## DONE here is not a contradiction either: the archive was rejected
-            ## by the gate in force when it ran, and a since-loosened gate now
-            ## accepts it. Say so rather than printing RETRY with no reason.
+            ## Not a contradiction: the gate has been loosened since the archive
+            ## was rejected. Say so rather than printing RETRY with no reason.
             if [[ "$VERDICT_STATUS" == "DONE" ]]; then
                 reason="prior attempt passes the current gate"
             else
                 reason="$VERDICT_REASON"
             fi
-        ## The same gap, opened by `launch_job.sh --all`: it archives a PASSING
-        ## result as <col>.prevN.txt before resubmitting, so the column has no
-        ## current file and no failures either. Without this the operator who
-        ## just forced the re-sweep is told the job has never run.
+        ## Same gap from `launch_job.sh --all`, which archives a PASSING result
+        ## as <col>.prevN.txt -- no current file and no failures either.
         elif [[ "$status" == "NOT_RUN" ]] &&
              prev=$(last_archive_file "$node" "$col" prev) && [[ -n "$prev" ]]; then
             verdict "$(verdict_job_name "$col")" "$prev"
             status=RETRY
             reason="re-queued by --all; previous result: $VERDICT_STATUS"
         fi
-        ## The one column on this node that a live batch is writing is not a
-        ## job that died before its last line -- it has not reached its last
-        ## line yet. Every OTHER incomplete column on the same node keeps its
-        ## INCOMPLETE: --exclusive runs these one at a time, so a marker-less
-        ## file that is not the one being written was left by a job that has
-        ## already exited.
+        ## Only the column being written now. --exclusive runs these one at a
+        ## time, so any OTHER marker-less file was left by a job that has exited.
         if [[ "$status" == "INCOMPLETE" && -n "$live" && "$col" == "$live" ]]; then
             status=RUNNING
             reason="job is on the node now, no verdict until it finishes"
@@ -340,17 +261,9 @@ for node_dir in "$results_dir"/$pattern/; do
             continue
         fi
 
-        # The reason is part of the line on purpose. dshbak groups identical
-        # lines, so nodes failing the same way collapse into one block and a
-        # single node failing differently stands out -- the same reason
-        # health-check.sh groups by failure signature rather than by check.
-        #
-        # An attempt count is deliberately not on the line: it is per node, so
-        # it differs between nodes that are in exactly the same state, and it
-        # would split one dshbak block into a block per count. How many tries a
-        # column took is history and stays on disk as the .fail<N>.txt archives;
-        # this report answers what the column is now. The daily CSV still
-        # carries the per-job pass/fail counts.
+        # The reason is on the line so dshbak collapses nodes failing the same
+        # way. No attempt count: it is per node and would split one block into a
+        # block per count. See docs/operations.md#status-and-reporting.
         line="$node: $col: $status"
         [[ "$status" != "DONE" && "$status" != "NOT_RUN" && -n "$reason" ]] && line+=" -- $reason"
         echo "$line"
@@ -358,23 +271,17 @@ for node_dir in "$results_dir"/$pattern/; do
 done
 }
 
-# Paused means this report stops moving: no sweep runs, so every RETRY and
-# NOT_RUN below stays exactly where it is until the pause lifts. Say it on
-# stderr so it survives -s being piped somewhere, and so it cannot end up
-# inside a node list being pasted into scancel.
+# Paused means the report stops moving. On stderr so it survives -s being piped
+# and cannot land inside a node list pasted into scancel.
 if setting_enabled "$PAUSE_JOBS"; then
     echo "NOTE: PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE##*/} -- no benchmarks are" >&2
     echo "      being submitted, so nothing below will change until it is set to no." >&2
 fi
 
 if [[ "$summary" -ne 1 ]]; then
-    # dshbak (from pdsh) only groups the lines -- every line it would print is
-    # already on stdout without it. Guarded because a missing dshbak takes the
-    # whole report down silently: the shell writes `dshbak: command not found`
-    # to stderr, the pipeline still exits 0, and stdout is empty. On a cluster
-    # that reads as "no nodes match", which is the same failure this script was
-    # just taught to stop making about running jobs. Print ungrouped instead
-    # and say why.
+    # dshbak (from pdsh) only groups lines. Guarded because a missing dshbak
+    # empties stdout while the pipeline still exits 0 -- silently identical to
+    # "no nodes match". Print ungrouped and say why instead.
     if command -v dshbak >/dev/null 2>&1; then
         scan | sort | dshbak -c
     else
@@ -385,9 +292,8 @@ if [[ "$summary" -ne 1 ]]; then
     exit 0
 fi
 
-# Ranges rather than a bare comma list, so a bucket can be pasted straight into
-# scancel/pdsh -w. Falls back to the raw list where scontrol is not on PATH,
-# which is still valid input to most of the same tools.
+# Ranges rather than a bare comma list, for pasting into scancel/pdsh -w. The
+# raw list is still valid input to most of the same tools, so falling back is ok.
 compress() {
     local out
     out=$(scontrol show hostlistsorted "$1" 2>/dev/null)
@@ -398,8 +304,8 @@ plural() { [[ "$1" -eq 1 ]] && printf 'node' || printf 'nodes'; }
 
 scan
 
-# Name the tests up front. A roll-up carries no column names, so without this
-# a list produced by -t reads as a verdict on the whole benchmark set.
+# Name the tests up front, or a -t-scoped list reads as a verdict on the whole
+# benchmark set. See docs/operations.md#status-and-reporting.
 if [[ ${#tests[@]} -gt 0 ]]; then
     echo "SUMMARY — judged on: ${columns[*]}"
 else
@@ -409,10 +315,8 @@ echo
 
 bucket() {
     local status="$1" note="$2" list="" n=0 node
-    # Sorted, because the fallback path prints this list as-is and associative
-    # array order is a hash order -- the same cluster would export the same
-    # nodes in a different order on every run, and no diff of two runs would
-    # mean anything.
+    # Sorted: the fallback path prints the list as-is, and associative array
+    # order is hash order, so two runs of the same cluster would not diff.
     while IFS= read -r node; do
         [[ "${worst[$node]}" == "$status" ]] && { list+="${list:+,}$node"; ((n++)); }
     done < <(printf '%s\n' "${!worst[@]}" | sort)

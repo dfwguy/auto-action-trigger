@@ -2,22 +2,19 @@
 #
 # Usage: trigger-log.sh [-w hours] [-s minutes] [-t lines] [node-pattern]
 #
-# Answers "why is nothing running?" from the written record, rather than from
-# the configuration. trigger-debug.sh walks BCM -> trigger -> script -> sbatch
-# and names the link that is broken; this reads what the sequencer actually
-# wrote at results/<node>/trigger.log and says what it decided, fleet-wide.
-#
-# The two are complementary, and which one to reach for depends on the answer
-# to one question: is the trigger firing at all?
+# Answers "why is nothing running?" from the written record rather than from
+# the configuration: what the sequencer wrote at results/<node>/trigger.log,
+# summarized fleet-wide. Run this one FIRST; trigger-debug.sh is for when the
+# traces turn out to be stale.
 #
 #   Logs stale or missing  -> nothing is running the script. trigger-debug.sh.
 #   Logs fresh, no submits -> the script is running and every gate is closed.
 #                             The reason is in section 2, already written down.
 #
-# That distinction is section 1, and it is the reason this script leads with
-# timestamps instead of contents. A fleet whose logs all stopped an hour ago is
-# a BCM problem and no amount of reading decisions will show it; a fleet with
-# fresh logs and zero submissions is a gate problem and BCM is fine.
+# That distinction is section 1, and it is why this leads with timestamps
+# instead of contents: a fleet whose logs all stopped an hour ago is a BCM
+# problem that no amount of reading decisions will show, and a fleet with
+# fresh logs and zero submissions is a gate problem with BCM working fine.
 #
 #   -w, --window <hours>   how far back to scan for events. Default 24.
 #   -s, --stale <minutes>  a log older than this has stopped being written.
@@ -25,13 +22,16 @@
 #                          slow cycle or a node that just booted is not noise.
 #   -t, --tail <lines>     lines of raw trace to print per node. Default 0
 #                          (summary only); implied 20 when the pattern matches
-#                          a single node, which is the "look at this one node"
-#                          case and wants the trace, not a histogram of one.
+#                          a single node, where a histogram of one is useless.
 #   pattern                node filter, same rules as status-check.sh: a bare
 #                          string matches by prefix, globs are honored as
 #                          written.
 #
 # Read-only. It submits nothing, drains nothing, changes nothing.
+#
+# The five sections it prints, and what each one rules out, are described in
+# docs/operations.md#debugging-nothing-is-running.
+#
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"      ## for BRINGUP_HOME, in the closing hint
@@ -40,8 +40,7 @@ logs_dir="$home/logs"
 
 window_hours=24
 stale_minutes=15
-tail_lines=-1          ## -1 means "not set", so the single-node default can tell
-                       ## an explicit -t 0 from no flag at all.
+tail_lines=-1          ## "not set": distinguishes an explicit -t 0 from no flag
 
 args=()
 while [[ $# -gt 0 ]]; do
@@ -88,12 +87,8 @@ hdr()  { printf '\n=== %s ===\n' "$*"; }
 ##############################################################################
 
 shopt -s nullglob
-## $pattern is unquoted because it is a glob, not a value: it is expanded
-## against results/ to find the matching node directories, which is the whole
-## job of this line. Quoting it, or splitting it with read -a, would leave a
-## one-element array holding the literal pattern -- every loop below would then
-## run once against a directory that does not exist and report the fleet as
-## empty. The trailing / and nullglob keep it to directories that are there.
+## $pattern is a glob, not a value: quoting it (or read -a) yields one literal
+## element, and every loop below then reports the fleet as empty.
 # shellcheck disable=SC2206
 node_dirs=("$results_dir"/$pattern/)
 
@@ -103,18 +98,14 @@ if [[ "${#node_dirs[@]}" -eq 0 ]]; then
     exit 1
 fi
 
-## Single node and no explicit -t: show the trace. Asking about one node is
-## asking what it did, and a one-row summary of one node is just a worse tail.
+## One node and no explicit -t: show the trace, not a one-row summary.
 if [[ "${#node_dirs[@]}" -eq 1 && "$tail_lines" -lt 0 ]]; then
     tail_lines=20
 fi
 [[ "$tail_lines" -lt 0 ]] && tail_lines=0
 
-## Normalize a trace line into a group key. Node names and every number are
-## replaced, because the interesting question is how many nodes stopped for the
-## same *reason*, and the reason text carries the node name, an age in seconds,
-## a queue depth and a countdown -- all of which differ per node and per cycle
-## and would otherwise split one reason into one group per node.
+## Group key for a trace line: node names and numbers out, so one reason does
+## not split into one group per node. See docs/operations.md#debugging-nothing-is-running.
 normalize() {
     local msg="$1" node="$2"
     msg="${msg//$node/<node>}"
@@ -146,9 +137,8 @@ for node_dir in "${node_dirs[@]}"; do
     [[ "$mtime" -gt "$newest_write" ]] && newest_write="$mtime"
     [[ "$oldest_write" -eq 0 || "$mtime" -lt "$oldest_write" ]] && oldest_write="$mtime"
 
-    ## One pass per log: the last decision, and every notable event inside the
-    ## window. Timestamps are `%F %T`, so a lexicographic compare against the
-    ## cutoff is a chronological compare -- no date(1) per line.
+    ## One pass per log: last decision plus notable events in the window.
+    ## `%F %T` timestamps compare chronologically as strings -- no date(1) per line.
     saw_decision=0
     while IFS=$'\t' read -r kind payload; do
         case "$kind" in
@@ -184,12 +174,9 @@ for node_dir in "${node_dirs[@]}"; do
             print "sub\t" (n + 0)
         }
     ' "$log")
-    ## The file exists but holds no trace line. trace() in launch_job.sh sends
-    ## its append to /dev/null on error, deliberately -- an unprivileged run
-    ## should still print its trace rather than die on the log file -- so a
-    ## trigger.log that cannot be written to stays empty and silent forever.
-    ## Without this the node counts as fresh above and contributes nothing
-    ## below, and the two section counts disagree with no reason given.
+    ## A log with no trace lines: usually one trace() cannot write to, which
+    ## fails silently by design. Untracked, it counts as fresh and section 1
+    ## and 2 then disagree with no reason given.
     [[ "$saw_decision" -eq 1 ]] || empty_log+=("$node")
 done
 
@@ -197,10 +184,7 @@ done
 hdr "1. Is the trigger firing? (${#node_dirs[@]} node dir(s), stale = no write in ${stale_minutes}m)"
 ##############################################################################
 
-## The framework-wide case first. If every log stopped, the sequencer is not
-## being run anywhere and nothing below matters -- the decisions on screen are
-## whatever was true when it stopped, which is exactly the trap this section
-## exists to avoid.
+## Fleet-wide case first: if every log stopped, nothing below can be trusted.
 if [[ "$fresh" -eq 0 && "${#stale_log[@]}" -gt 0 ]]; then
     bad "NO node has written a trigger.log in ${stale_minutes}m -- the sequencer is not running anywhere"
     note "the decisions in section 2 are stale; they are what the nodes last thought, not what is true now"
@@ -232,9 +216,8 @@ fi
 hdr "2. What each node last decided"
 ##############################################################################
 
-## Every gate in launch_job.sh ends with a traced `EXIT:` naming why it
-## stopped. Grouped, a whole fleet collapses to a handful of reasons -- and
-## "nothing is running" is usually one reason holding every node at once.
+## Every gate in launch_job.sh ends with a traced `EXIT:` naming why it stopped;
+## "nothing is running" is usually one such reason holding every node at once.
 if [[ "${#last_reason_count[@]}" -eq 0 ]]; then
     note "no trace lines found"
 else
@@ -251,10 +234,8 @@ fi
 hdr "3. Did anything actually get submitted in the last ${window_hours}h?"
 ##############################################################################
 
-## The question section 2 cannot answer on its own. Every node reporting a
-## healthy-looking reason is still consistent with a fleet that has run nothing
-## all day -- "every benchmark passing" and "next sweep in Ns" both look fine
-## and both mean no work went out.
+## The question section 2 cannot answer alone: a fleet of healthy-looking
+## reasons is still consistent with no work having gone out all day.
 if [[ "$submits" -gt 0 ]]; then
     note "$submits job(s) submitted -- the sequencer is reaching sbatch"
 else
@@ -284,10 +265,9 @@ fi
 hdr "5. Health-check side"
 ##############################################################################
 
-## node_health.sh writes logs/<node>/ and is what sets a node IDLE in the first
-## place. A node it never ran on never leaves DOWN, so no benchmark can be
-## scheduled there -- which reads as "nothing is running" with a perfectly
-## healthy sequencer, because the sequencer is not the thing that is stuck.
+## node_health.sh writes logs/<node>/ and is what sets a node IDLE. A node it
+## never ran on never leaves DOWN, so nothing can be scheduled there -- a stuck
+## bringup with a healthy sequencer.
 never_checked=()
 for node_dir in "${node_dirs[@]}"; do
     node=$(basename "$node_dir")

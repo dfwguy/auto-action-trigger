@@ -1,12 +1,9 @@
 #!/bin/bash
 # banner: ########INFO: Check IB PKEY (Expected: All nodes have the same PKEY)
 
-# The inner substitution builds a list of "-e <bdf>." arguments for grep -v, one
-# per nvswitch-connected PCI function, so the split into separate words is the
-# point: quoting it would hand grep a single pattern and stop the exclusion.
-# The ls -l is parsed for its symlink targets, which a glob would not give us;
-# the entries are kernel-generated infiniband device names, so there is nothing
-# in them for grep to trip over.
+# SC2046: the word split is the point -- quoting hands grep -v one pattern
+# instead of the "-e <bdf>." list. SC2010: ls -l is parsed for symlink targets,
+# which a glob would not give us. See docs/health-checks.md.
 # shellcheck disable=SC2046,SC2010
 for i in $(
   ls -l /sys/class/infiniband \

@@ -1,22 +1,11 @@
 #!/bin/bash
 #
-# Checks the drain classification and the gates in slurm-recovery.sh.
+# Checks the drain classification and the gates in slurm-recovery.sh against
+# stubbed sinfo/scontrol/squeue/systemctl/nvidia-smi on PATH, driven by STUB_*.
+# The library under test is the real one, sourced; see docs/benchmarks.md.
 #
-# This is the one piece of the framework that clears a node's drain, so the
-# mistake it can make is not "a node stays drained" -- somebody notices that --
-# but "a node an operator took out of service came back". That is invisible
-# from every direction: sinfo shows an idle node, the sequencer shows a normal
-# sweep, and the only trace of the decision is one line in trigger.log. So the
-# operator cases below are as load-bearing as the recovery cases.
-#
-# Slurm is stubbed rather than mocked in the library: sinfo, scontrol, squeue,
-# systemctl and nvidia-smi are scripts on PATH driven by STUB_* variables, and
-# the library under test is the real one, sourced. Nothing here talks to a
-# scheduler.
-#
-# Each case runs in a subshell -- the library is sourced per case, and the
-# settings it reads with := would otherwise be fixed by whichever case ran
-# first -- and reports back through files.
+# Each case runs in a subshell, because the settings the library reads with :=
+# would otherwise be fixed by whichever case ran first.
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -26,8 +15,7 @@ trap 'rm -rf "$work"' EXIT
 stub="$work/bin"
 mkdir -p "$stub" "$work/health-checks/test"
 
-## A check set with one check in it, so a reason of "bios" is recognisable as
-## something node_health.sh wrote rather than as free text.
+## One check, so a reason of "bios" classifies as health rather than free text.
 cat > "$work/health-checks/test/10-bios.sh" <<'EOF'
 #!/bin/bash
 # banner: ########INFO: Check BIOS
@@ -53,8 +41,8 @@ cat > "$stub/squeue" <<'EOF'
 exit 0
 EOF
 
-## `is-active --quiet slurmd` answers from a file so that `restart` can change
-## the answer, which is what the RECOVER_RESTART_SLURMD case needs.
+## is-active answers from a file so that restart can change the answer, which
+## is what the RECOVER_RESTART_SLURMD case needs.
 cat > "$stub/systemctl" <<'EOF'
 #!/bin/bash
 for a in "$@"; do
@@ -81,12 +69,9 @@ fail=0
 ok()  { printf '  ok   %s\n' "$*"; pass=$((pass + 1)); }
 bad() { printf '  FAIL %s\n' "$*"; fail=$((fail + 1)); }
 
-## One case. $1 is the name, $2 the expected RECOVER_RESULT, the rest are
-## VAR=value assignments -- STUB_* to drive Slurm, RECOVER_* to set policy.
-##
-## The per-case directory is what makes the rate-limit and scontrol assertions
-## possible: $STUB_DIR/scontrol.calls exists only if the library issued one,
-## and recover.log is seeded per case where the case is about history.
+## One case: $1 name, $2 expected RECOVER_RESULT, rest VAR=value overrides.
+## The per-case directory carries the assertions -- scontrol.calls exists only
+## if the library issued one, and recover.log is seeded where history matters.
 setup=""
 run_case() {
     local name="$1" want="$2"; shift 2
@@ -105,8 +90,8 @@ run_case() {
         RECOVER_ACCEPT="machine"
         RECOVER_LOG="$dir/recover.log"
 
-        ## Case overrides, after the settings so a case can contradict them,
-        ## and before the library so its := defaults see them.
+        ## After the settings so a case can contradict them, before the
+        ## library so its := defaults see them.
         for kv in "$@"; do
             printf -v "${kv%%=*}" '%s' "${kv#*=}"
         done
@@ -159,8 +144,8 @@ resumed_node && bad "  ... and it resumed an operator drain"
 run_case "operator prose, no setter recorded" class \
     STUB_REASON="waiting on RMA"
 
-## The setter veto, which is the discriminator that has to hold when the text
-## itself looks machine-generated.
+## The setter veto: the only discriminator left when the text looks machine-
+## generated. See docs/settings.md#how-an-operators-drain-is-protected.
 run_case "prolog text typed by a named admin" class \
     STUB_REASON="Prolog error" STUB_SETTER="breese"
 resumed_node && bad "  ... and it resumed an operator drain"
@@ -207,9 +192,9 @@ run_case "scontrol refuses the update" not-ready \
 
 echo "== rate limiting =="
 
-## Three recoveries inside the window is the shipped cap, so the fourth must
-## leave the node where Slurm put it -- and must NOT re-drain it under our own
-## marker, which would hand it to resume_node() and start the flapping again.
+## Three inside the window is the shipped cap; the fourth must leave the drain
+## exactly as Slurm set it, never re-drained under our own marker.
+## See docs/settings.md#why-a-resume-is-not-enough-on-its-own.
 setup='now=$(date +%s); for i in 1 2 3; do
            printf "%s\tseeded\tmachine\tdrained\tslurm\tProlog error\n" "$((now - i * 600))" >> "$RECOVER_LOG"
        done'

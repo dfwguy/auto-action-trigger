@@ -30,10 +30,7 @@ if [ "$(uname -m)" == aarch64 ]; then
     m=scaling_cur_freq
   fi
   if [ -n "${m}" ]; then
-    # On a machine with no NUMA sysfs the glob stays unexpanded, so guard on
-    # the directory rather than cat'ing a literal "node*" path. Names here are
-    # kernel-generated as node<decimal>, so the glob yields the same set in the
-    # same order as a sorted listing would, in any locale.
+    # Guard on the directory: with no NUMA sysfs the glob stays unexpanded.
     for d in /sys/devices/system/node/node*/; do
       [ -d "$d" ] || continue
       i=${d%/}; i=${i##*/}; i=${i#node}

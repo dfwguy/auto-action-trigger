@@ -1,23 +1,14 @@
 #!/bin/bash
 #
-# Register the BCM monitoring actions and triggers this framework runs from.
-# Safe to re-run: each object is removed before it is added, so an existing
-# registration is replaced rather than colliding with "already exists".
-#
-# Removals are silent by design -- on a first run there is nothing to remove.
-# The adds are not silent: a registration that fails quietly is how you end up
-# believing a node is being health-checked when it is not.
+# Register the BCM monitoring actions and triggers. Safe to re-run: each object
+# is removed before it is added. Removals are silent, adds are not.
 
 ################
 ### ACTIONS  ###
 ################
 
-## cmsh exits 0 even when an individual `set` inside the -c string was
-## rejected -- it reports the problem on stdout and carries on to the commit.
-## So exit status is useless here and the output has to be inspected. Getting
-## this wrong once already produced a trigger with no actions attached that
-## still reported success, which is the failure mode most worth catching: the
-## object exists, so nothing looks broken until you notice nothing runs.
+## cmsh exits 0 even when a `set` inside the -c string was rejected -- it
+## reports on stdout and commits anyway, so inspect output, never exit status.
 cm_run() {
     local label="$1" cmd="$2" out
     out=$(cmsh -c "$cmd" 2>&1)
@@ -38,12 +29,8 @@ cm_replace() {
 
 rc=0
 
-## The path BCM will hand the nodes. It is deliberately not this script's own
-## location: BCM invokes the action on the node with no working directory to
-## infer one from, so the registration has to carry the absolute NFS path the
-## tree is deployed at, which is what BRINGUP_HOME means. Running this from a
-## git checkout therefore registers the deployed tree, not the checkout -- the
-## preflight below checks the deployed paths for the same reason.
+## Registers BRINGUP_HOME, not this script's own location -- and so preflights
+## the deployed tree, not the checkout. See docs/architecture.md#runtime-paths.
 _home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ -f "$_home/settings.sh" ]] && source "$_home/settings.sh"
 : "${BRINGUP_HOME:=/home/cmods/bringup}"
@@ -56,13 +43,8 @@ LAUNCH_JOB_SCRIPT="$BRINGUP_HOME/actions/launch_job.sh"
 ### PREFLIGHT    ###
 ####################
 
-## BCM will register an action pointing at a script it cannot execute and
-## report success -- the same "looks healthy, runs nothing" failure the
-## trigger check below guards against, one link further down. The exec bit is
-## easy to lose in transit: a tarball unpacked through a Windows-mounted path,
-## an scp of a single file, an editor that rewrites rather than edits. Check it
-## here, restore it where we can, and refuse to register an action whose script
-## is missing or still not runnable.
+## A 644 action registers fine and silently runs nothing, and the exec bit is
+## easy to lose in transit -- so restore it here, or refuse to register.
 for s in "$NODE_HEALTH_SCRIPT" "$FILE_COPY_SCRIPT" "$LAUNCH_JOB_SCRIPT"; do
     if [[ ! -f "$s" ]]; then
         echo "FAILED: $s does not exist -- nothing to register" >&2
@@ -86,11 +68,8 @@ cm_replace action node_health_action \
     "script node_health_action; set runon node; set script ${NODE_HEALTH_SCRIPT}; set timeout 2m; set nodeenvironment yes; set runinshell yes; set mergedelay 0s; set mergetriggers yes; set mergemeasurables no" || rc=1
 
 # Action for Container Copy
-## 2m is BCM's hard maximum for an action timeout -- anything larger is
-## rejected outright ("above the maximum value of 2m"). The first sync of an
-## image is multi-gigabyte over NFS and will not finish inside that, so
-## file_copy.sh detaches the rsync and returns immediately rather than being
-## killed mid-transfer on every monitoring cycle. See the header there.
+## 2m is BCM's hard maximum for an action timeout; the first image sync cannot
+## finish inside it, so file_copy.sh detaches the rsync and returns at once.
 cm_replace action file_copy_action \
     "script file_copy_action; set runon node; set script ${FILE_COPY_SCRIPT}; set timeout 2m; set nodeenvironment yes; set runinshell no; set mergedelay 0s; set mergetriggers no; set mergemeasurables no" || rc=1
 
@@ -102,10 +81,9 @@ cm_replace action launch_job_action \
 ### TRIGGERS ###
 ################
 
-## All three use duringactions, which re-fires on every monitoring cycle while
-## the device is UP. enteractions fires only on the transition into UP, so a
-## node that is already up would never pick up a newly built container image
-## until it rebooted.
+## duringactions, not enteractions: the latter fires only on the transition
+## into UP, so an already-up node never picks up new work. See
+## docs/architecture.md.
 cm_trigger() {
     local name="$1" action="$2"
     cmsh -c "monitoring trigger; remove ${name}; commit" >/dev/null 2>&1

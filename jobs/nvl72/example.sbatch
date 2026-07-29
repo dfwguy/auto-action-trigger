@@ -7,127 +7,43 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH -t 0:25:00
 #SBATCH --nice=20
-## --nice orders this job against everything else queued for the node: higher
-## is LATER, 0 is the front. 20 is the sweep's tier -- behind the dcgm gates at
-## 0, ahead of burn-in at 100000. See docs/benchmarks.md.
 
-## Allocation. This is the template every other job is copied from, so the
-## header shape matters as much as the parse block does.
-##
-## --exclusive is a JOB-level guarantee. A step inherits only what was
-## EXPLICITLY requested, never what the job was implicitly granted:
-##
-##   --exclusive alone          job gets every GPU, the step gets none
-##   --exclusive --gres=gpu:4   job and step both get 4
-##   --exclusive --mem=0        memory is never implied either -- say it
-##   --exclusive -c 32          -c implies --exact, so the step gets 32 cores
-##                              out of an allocation holding all of them
-##
-## Hence: state --gres and --mem=0 even though --exclusive supposedly covers
-## them, and leave --cpus-per-task out. If a job does need it, re-state it on
-## the srun or export SRUN_CPUS_PER_TASK="${SLURM_CPUS_PER_TASK}", and keep
-## ntasks-per-node x cpus-per-task equal to the node's core count or cores sit
-## stranded inside an exclusive allocation. See docs/benchmarks.md.
-##
-## --exclusive is also what serializes the sweep: one job per node at a time,
-## enforced by the scheduler on resources rather than by a shared job name.
+## ── Allocation header ─────────────────────────────────────────────────────
+## Copy the header above as-is. Steps inherit only what was EXPLICITLY
+## requested, so --gres and --mem=0 are stated even though --exclusive is a
+## job-level guarantee, and --cpus-per-task is deliberately absent -- it implies
+## --exact. The GPU count is a literal shared with the preflight below; change
+## both together. See docs/benchmarks.md#the-allocation-header.
+## --nice orders this job against everything else queued for the node: higher is
+## LATER, and 20 is the sweep's tier. See docs/benchmarks.md#queue-priority.
 
-## Job name is used in the status line. Edit grep for failures you're looking for
+## Set job_name to the new benchmark's name; it appears in the status line.
 # shellcheck disable=SC2034
 job_name=example
-## totalRuns is read out of this file's TEXT, not from a shell that sourced it:
-## launch_job.sh greps the .sbatch for the name and awk -F= pulls the value, and
-## daily-report.sh does the same to size its per-job columns. So the assignment
-## has to stay a plain, greppable `totalRuns=<n>` on one line -- no export, no
-## arithmetic, no quoting -- and it looks unused to any static check.
+## totalRuns is read out of this file's TEXT -- launch_job.sh and
+## daily-report.sh grep the .sbatch for it -- so keep it a plain, greppable
+## one-line `totalRuns=<n>`: no export, no arithmetic, no quoting. It looks
+## unused to any static check.
 # shellcheck disable=SC2034
 totalRuns=1
 
-## ── The two time limits ───────────────────────────────────────────────────
-## Every job carries both, and they are not redundant. The reasoning is here
-## rather than repeated in each one.
-##
-## STEP_TIMELIMIT goes to `srun --time` on the workload below and bounds the
-## STEP. `#SBATCH -t` above bounds the JOB, and is deliberately the larger of
-## the two -- this plus about ten minutes -- so that the step limit is what
-## fires.
-##
-## That ordering is the whole point, because the two kills do not leave the
-## same result file behind:
-##
-##   The job walltime      Slurm kills the batch script itself. Nothing runs
-##                         after it, so no marker is written, and verdict.sh
-##                         reads a result file with no end marker as
-##                         INCOMPLETE -- "the job died before finishing",
-##                         which is indistinguishable from a node that
-##                         crashed. The node is retried on the next sweep,
-##                         overruns again, and never converges.
-##   The step time limit   Slurm cancels the STEP and logs
-##                         `*** STEP ... CANCELLED AT ... DUE TO TIME LIMIT ***`
-##                         into this file. The batch script survives, srun
-##                         returns non-zero, and the parse block below writes
-##                         FAIL. That is a stated verdict with the reason
-##                         already in the log -- VERDICT_RUN_ERRORS in
-##                         verdict.sh matches that line, so every gate reports
-##                         it the same way.
-##
-## An overrun is usually a real finding -- a node running the same work several
-## times slower than its peers -- and belongs in the log as one rather than as
-## a node that mysteriously stopped.
-##
-## A job whose workload is not an srun step has nothing for --time to bound,
-## and wraps the command in `timeout` instead -- same property (the batch script
-## survives to write its marker), different mechanism. The dcgm jobs are the
-## case in this tree; they write `timeout: killed after <n>`, which
-## VERDICT_RUN_ERRORS matches alongside Slurm's CANCELLED AT line. Prefer
-## --time where there is a step: it is Slurm's own accounting, and it does not
-## depend on a signal reaching the right process.
-##
-## The value is twice what the AI Factory Testing Plan estimates for the test
-## (the upper end, where the plan gives a range), which is the allowance for
-## container start, reading a multi-gigabyte image over NFS, and a node that is
-## merely slow. Where a job configures its own run duration -- stressapptest's
-## RUN_SECONDS, mnubergemm's --time_to_run -- that duration is the estimate to
-## double, not the plan's figure for the row. Where a job runs several steps,
-## each gets its own limit and they have to sum to less than the walltime.
-##
-## The floor is 15 minutes. Doubling holds where the estimate is large enough
-## for the overhead to scale with it; it does not for a two-minute test, where
-## container start alone can exceed the whole doubled budget. Below that floor
-## the doubling is not the binding constraint and a fixed allowance is.
+## Bounds the workload's srun step below. `#SBATCH -t` above bounds the job and
+## is deliberately the larger of the two, so the step limit is what fires. Set
+## this to twice the testing plan's estimate, floored at 15 minutes. See
+## docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=0:15:00
 
 ## ------------- job info starts here ------------- ##
 
 ## ── Preflight ─────────────────────────────────────────────────────────────
-## What the STEP actually holds, asked from inside a step. This is the check
-## every other job carries, and the reasoning is here rather than repeated in
-## each one.
-##
-## The job's AllocTRES cannot answer this question. A step is a different
-## cgroup from the batch script body, and --exclusive grants the job resources
-## that a step does not inherit unless they were requested by name -- so
-## `scontrol show job` can read cpu=144,gres/gpu=4 while the training process
-## sees no GPU at all. Checking from the batch body is the same mistake one
-## level up. Ask the workload's own cgroup.
-##
-## `grep -c "^GPU"` rather than `nvidia-smi -L | wc -l`: the latter counts an
-## error message as a GPU, so a node with no driver reads as healthy.
-##
-## --ntasks=1, not --ntasks-per-node=1 -- the header already asked for 4, and
-## Slurm resolves the per-node form by warning `can't honor --ntasks-per-node
-## set to 1` and running 4 anyway, printing all of this four times.
-##
-## Cores are compared against SLURM_CPUS_ON_NODE, what the job was granted,
-## rather than against the node's physical count. A site reserving cores
-## (CoreSpecCount) would fail every job on the second comparison, and a
-## preflight that drains the cluster is worse than no preflight.
-##
-## The passing line's wording is load-bearing: the parse block below and
-## verdict.sh grep this same file, several of them case-insensitively for
-## fail/warn/error/N-A. It also must not begin with a digit, or the nccl-tests
-## per-size parser in verdict.sh reads it as a data row. The GPU count is the
-## literal from --gres above -- change both together.
+## What the STEP holds, asked from inside a step -- the job's AllocTRES cannot
+## answer that question. Copy this block unchanged except for the GPU count.
+## Load-bearing: `grep -c "^GPU"` (`wc -l` counts an error message as a GPU);
+## `--ntasks=1`, since the per-node form is warned about and run four times;
+## SLURM_CPUS_ON_NODE rather than the physical core count, so a site reserving
+## cores is not failed on every job; and the passing line's wording, which must
+## avoid fail/warn/error and must not begin with a digit. See
+## docs/benchmarks.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -137,10 +53,10 @@ srun --ntasks=1 bash -c '
     exit 0
 }
 
-## The workload, in a step bounded by --time. Capture the exit status
-## immediately after, before anything else runs -- srun returns non-zero when
-## the step is cancelled at that limit, and that status is the only thing the
-## parse block below reads.
+## ── Put your workload here ────────────────────────────────────────────────
+## Run it as an srun step bounded by --time, and capture the exit status
+## immediately after, before anything else runs -- that status is the only thing
+## the parse block below reads.
 srun --time="$STEP_TIMELIMIT" --ntasks=1 bash -c '
     echo $HOSTNAME
     sleep 15
@@ -149,54 +65,15 @@ rc=$?
 
 
 ## ------------- parse info starts here ----------- ##
-## This is the template every other job is copied from, so the shape matters,
-## and the shape is: an sbatch does NOT judge its own result.
-##
-## It reports two things and no more -- PENDING if the workload ran, FAIL if it
-## could not. Whether the output is any good is decided by the gate for this
-## job in parsers/$PARSERS/verdict.sh, which is re-read on every status check
-## rather than written once into this file.
-##
-## The difference is not stylistic. A verdict written here is frozen at run
-## time: launch_job.sh skips any result that says DONE, so tightening a rule
-## afterwards can never re-examine the results it was written for, and a result
-## that says FAIL is never re-judged at all. Both halves of that have cost real
-## time -- 25 nodes passing at 1.17 GB/s over TCP, and nvbandwidth failing every
-## healthy node on a rule that matched its own matrix diagonal. Neither fix
-## could reach the results it was written for.
-##
-## Capture the workload's exit status immediately after it, before anything
-## else runs, and end the file with these two lines. Then write the gate:
-## docs/benchmarks.md, "Adding a new benchmark", steps 4-7.
-##
-## ── Why the status is printed as well as acted on ─────────────────────────
-## The marker alone says FAIL without saying who decided it, and there are two
-## deciders. This line separates them, from the result file alone:
-##
-##   exit status: <non-zero>   the job's own verdict -- srun returned it, and
-##                             the reason is in the log above: a cancelled
-##                             step, a container that would not start, a rank
-##                             that died on the way out.
-##   exit status: 0            the workload ran and exited clean, so a FAIL in
-##                             the status check came from this job's gate in
-##                             verdict.sh instead. Read the reason it printed
-##                             rather than hunting the log for a crash that is
-##                             not there.
-##
-## Without it the two are indistinguishable in the file, because the gate runs
-## at status-check time and writes nothing back here -- that is the whole point
-## of deriving verdicts, and this line is what keeps it debuggable.
-##
-## The wording is load-bearing in the same way the preflight line's is. Every
-## gate in verdict.sh reads this file, several of them sweeping it
-## case-insensitively for fail/warn/error, so the line must not contain any of
-## those words; and it must not begin with a digit, or the nccl-tests per-size
-## parser reads it as a data row. `exit status: <n>` satisfies both. Keep the
-## prefix identical across jobs so one grep finds it everywhere.
-##
-## It goes BEFORE the marker, never after: verdict.sh reads the last line of
-## the file, and anything printed after it is read as "no end marker -- job
-## died before finishing".
+## Required shape: end the file with these two lines, verbatim. An sbatch does
+## NOT judge its own result -- it reports PENDING if the workload ran and FAIL
+## if it could not, and the gate in parsers/$PARSERS/verdict.sh decides the
+## rest, re-read on every status check rather than frozen here. See
+## docs/benchmarks.md#where-a-pass-is-decided, then write the gate:
+## docs/benchmarks.md#adding-a-new-benchmark, steps 4-7.
+## The `exit status:` line says WHO decided a FAIL. Keep the prefix identical
+## across jobs, keep it BEFORE the marker (verdict.sh reads the last line), and
+## keep the words fail/warn/error out of it.
 echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL
 

@@ -116,6 +116,18 @@ Three things are load-bearing:
 - **Each check runs in its own `bash`**, not sourced. One check that exits or
   sets a shell option cannot truncate the other 37.
 
+The metadata block is read from the first 10 lines and nowhere else —
+`check_meta` in `node_health.sh` narrows to that range before matching, so a
+check that greps the machine for the string `# banner:` cannot accidentally
+declare one. Put the keys directly under the shebang. Every check carries a
+`# banner:`; a check without one writes an empty first line into its log and
+therefore differs from every baseline.
+
+Checks are mode `644`, not `755`, and that is the same decision as running them
+under `bash "$check_file"`: they are never executed directly, only handed to a
+fresh interpreter by the runner. `755` would invite running one on its own,
+which produces the check's stdout with no banner, no log file and no diff.
+
 To add a check: drop in a numbered file, run `node-health-refresh.sh` against
 the baseline node, and re-run `set-valid-default.sh` so the baseline has an
 entry for it. Without that second step the new check diffs against a missing
@@ -132,18 +144,59 @@ rather than a pile of `uname` tests inside one script. Sets worth having:
 | `cpu-only` | Login, head and CPU compute nodes: `common` plus iface and bond, no GPU or NVLink. |
 | `storage` | `common` plus IB, bond and mount checks, no GPU. |
 
+## The IB checks skip the nvswitch-attached ports
+
+On B200/B300 four of the IB HCA ports are cabled to the nvswitch rather than to
+the compute fabric. They are not the fabric links these checks are about, and
+they do not present the state the checks expect, so `ib-down`, `ib-link` and
+`ib-pkey` exclude them rather than reporting three failures per node forever.
+
+The exclusion is built the same way in all three: `lspci` finds the InfiniBand
+functions, and the result is turned into a run of `-e <bdf>.` words that
+`grep -v` filters `/sys/class/infiniband` with. Both shellcheck directives on
+those lines are load-bearing.
+
+- **SC2046 — the word splitting is the point.** The substitution has to reach
+  `grep -v` as separate arguments, one `-e <bdf>.` pair per nvswitch-connected
+  function. Quoting it, which is what the warning asks for, collapses the run
+  into a single pattern that matches nothing, and the check quietly stops
+  excluding those ports. It still passes on a machine that has none, so the
+  regression only shows up on real hardware — as every B200/B300 node draining
+  for four ports that were never wrong.
+- **SC2010 — `ls -l` is parsed, not just listed.** The long form prints the
+  symlink targets, and those targets carry the PCI path the `awk` pulls the BDF
+  out of; a glob returns the device names without them. The entries are
+  kernel-generated sysfs device names, so the spaces-and-globs worry behind the
+  warning does not apply here.
+
 ## Reading the reason field
 
 The reason is a list of check names, but it still cannot be split on whitespace
 and used as filenames: `dmesg-xid` carries its own output into the reason
 (`# reason-detail: yes`) and that output is free text. Reasons written before
 checks moved into `health-checks/` also used hand-written headers that did not
-match the log file — `Check BIOS` for `bios`, `enroot missing` for `enroot`.
+match the log file.
 
 `reason-map.sh` carries both cases and is shared by `health-check.sh` and
 `sync-check.sh`. Anything else reading the reason field needs to go through it
-too: match reason text against the known check names, and treat everything else
-as free text a check dragged in.
+too: rewrite the multi-word legacy names first, resolve the single-token
+renames, then keep only tokens that name a check that exists — everything else
+is free text a check dragged in.
+
+| Reason text | Check |
+|-------------|-------|
+| `Check BIOS` | `bios` |
+| `Check OS` | `os` |
+| `enroot missing` | `enroot` |
+| `cuuid` | `nvidia-smi-cuuid` |
+
+Nothing emits these any more. `node_health.sh` writes the check name straight
+into the reason, and the check name is the filename, so the two cannot diverge
+again. They stay parseable because a node drained before the `health-checks/`
+split keeps its old reason text in Slurm until something resumes it — which,
+for a node nobody has touched, may be a long time. Deleting the rewrites turns
+those nodes into a group of unrecognized operator drains in `health-check.sh`
+and a set of files `sync-check.sh` cannot find.
 
 | Check | What it validates |
 |-------|-------------------|

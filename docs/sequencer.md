@@ -20,6 +20,35 @@ run) or `<job>-run<N>.txt` (multiple runs). Prior failures are archived as
 result that `--all` re-runs is archived as `<job>.prev<N>.txt` instead — kept
 the same way, but not counted as a rejected attempt by `status-check.sh`.
 
+`totalRuns` is read out of the job file with `grep` — first line that mentions
+it, everything right of the `=`, whitespace stripped — and never by sourcing it.
+A `.sbatch` is a job script, and sourcing one here would run its body in the
+sequencer's own shell, as root, on every node on every monitoring cycle. A value
+that is not a positive integer falls back to `1` rather than to nothing, so a
+typo costs coverage rather than the whole job.
+
+A name in `BENCHMARKS` or `BURNIN` with no `$JOBS_DIR/<name>.sbatch` behind it
+drops out of the sweep entirely: it never goes pending, so it never blocks the
+node and never surfaces as missing. That is the silent-nothing this tree exists
+to prevent, so the survey traces `skip <job>: no <path>` for it, and `--all`
+re-queues from what the survey found rather than from the configured list — a
+forced sweep cannot pend a job that has nothing to submit.
+
+A run is skipped at submit time when `verdict()` returns `DONE` for its result
+file. What makes that skip safe is that the verdict is derived from the log on
+every sweep and never read from a marker the job wrote at run time. When each
+sbatch judged itself and wrote `DONE`, the skip froze that judgement: the fix
+for the `-nonvlink` jobs running over TCP was correct, deployed, and
+structurally unable to re-examine a single one of the results it was written
+for. See [benchmarks.md](benchmarks.md#where-a-pass-is-decided).
+
+A job counts as *attempted* when any of its archives exist, not only when a
+current result file does — either suffix, since a `.prev<N>` is a pass moved
+aside and is even less untested than a `.fail<N>`. A job mid-retry with its
+output rotated away is tested, and reading it as untested would hold the
+swept-clean condition on the drain below open indefinitely on exactly the node
+that keeps failing.
+
 What serializes the batch is `#SBATCH --exclusive` in every `jobs/*.sbatch`.
 Without serialization the whole batch is eligible at once and a GPU job landing
 on top of dcgm's stress plugins fails on buffer allocation. Ordering follows the
@@ -58,6 +87,15 @@ See [benchmarks.md](benchmarks.md#queue-priority). Priority reorders what has
 not started; it does not preempt what has, because every job is `--exclusive`.
 So a benchmark queued during a burn-in waits out the run on the node (up to
 `MAX_JOB_HOURS`) and then goes ahead of the eleven still waiting.
+
+Burn-in used to be gated behind a clean sweep instead, which made the ordering
+absolute at the cost of making it rigid: a node failing one benchmark could
+never start burning in, and a node three days into a burn-in could not pick up a
+benchmark retry until it finished. Priority buys back both at the cost of the
+one thing it cannot do — a site that needs a benchmark to interrupt a *running*
+burn-in needs Slurm preemption (`PreemptType`/`PreemptMode`, with the two lists
+in different partitions or QOSes), which is scheduler configuration and not
+something this script can arrange.
 
 A list with jobs in the queue is not judged that cycle: its result files are
 being written right now, and a file with no end marker is a job in progress
@@ -153,6 +191,22 @@ marker are ever cleared. A node drained by an operator is never auto-resumed,
 and nothing is queued behind their drain — otherwise the whole batch would land
 the moment they resumed it.
 
+The reason field carries *why* the first failing job failed, not just its name:
+a Slurm reason is one short field and there may be several failures, so the rest
+— and the full text for every one — stay in `trigger.log` and `quick-view.txt`
+next to the results. When the failures are burn-in only, the reason says so,
+because the two mean different things to whoever is reading `sinfo -R`: a
+benchmark failure is a node that does not work, and a burn-in failure is a node
+that worked for hours and then stopped, which should not be reported as if it
+had failed a fifteen-minute collective.
+
+`DRAIN_AFTER_FAILED_BENCHMARK=no` disables every drain this script issues,
+including the `MAX_JOB_HOURS` timeout one. Testing is unchanged — results are
+still recorded, failures still retry hourly — the node is simply never taken out
+of service. The suppressed drain is still traced, so the log answers "what would
+this have done" for a site running with drains off. See
+[settings.md](settings.md#drains).
+
 ```
 sweep runs → all pass            → burn-in if RUN_BURNIN, else idle + all DONE
 sweep runs → some fail           → drain "<jobs> FAIL (auto-retry)"
@@ -238,6 +292,145 @@ The scheduler's reason for any job of ours that is not cleanly schedulable is
 appended to both the `queue:` line and the `EXIT: waiting on our own queue`
 line. `waiting on our own queue` reads identically whether the job starts in a
 minute or never starts at all, and the reason is the whole difference.
+
+## What a submission carries
+
+The submission is built as one string and handed to a shell as `JOB_USER`:
+`su - $JOB_USER -c` when the cycle is root's, `bash -lc` when an operator is
+already `cmods`. It loads the `slurm` module, makes `results/<node>` if it is
+missing, and submits:
+
+```
+sbatch -w $HOSTNAME -J <bringup|burnin>-<node> \
+       --export=ALL,RESULT_FILE=<file>[,<JOB_ENV>] --output=<file> <job>.sbatch
+```
+
+`-J` is per list and per node, and it is passed here rather than as an `#SBATCH`
+line because those are comments rather than shell and would not expand
+`$HOSTNAME`. It is what the queue queries match on, so a job submitted without
+it is invisible to the next cycle's "is anything of ours out there" check.
+`RESULT_FILE` is where the job writes its own markers and `--output` is where
+`sbatch` puts the job's stdout — the same path, which is what makes a result
+file a complete record of the run.
+
+Queue priority is deliberately not set here. Each job states its own in
+`#SBATCH --nice`, alongside its time limit and its allocation, so a job
+submitted by hand sits in the queue exactly where the sequencer would have put
+it. This script decides only *what* to submit.
+
+`sbatch`'s own output is captured with stderr merged and written to the trace,
+successful or not. A bad partition, an unknown node name, an account limit and
+`su` failing for `cmods` all land there, and all of them look identical from
+outside — no job, no result file, no complaint. That diagnosis used to go to
+BCM's action output, which nothing reads. The trace line for a successful
+submission also records the `JOB_ENV` that went with it, because "what was this
+run given" has to be answerable weeks later, when `SETTINGS` says whatever it
+says then.
+
+The module load matters at the top of the cycle too: BCM runs the trigger with
+its own environment rather than a login shell, and without the Slurm client
+tools every check below reads as "node not in slurm" and the script exits
+looking perfectly healthy. So a missing `sinfo`, `squeue`, `sbatch` or
+`scontrol` is traced as an `EXIT:` with the `PATH` it searched.
+
+## Every line the trace can write
+
+`launch_job.sh` writes `results/<node>/trigger.log`, one timestamped line per
+decision, and appends rather than truncates — it is the record, not a status
+file. Reading it across the cluster is `trigger-log.sh` — see
+[operations.md](operations.md#debugging-nothing-is-running); this is what the
+lines mean.
+
+Three conventions hold across all of them:
+
+- **`EXIT:` is the last line of a cycle that stopped.** Every gate that can end
+  the run names itself that way, so the newest `EXIT:` in a node's log is the
+  reason nothing is happening. A cycle that ran to the end has no `EXIT:` line
+  at all — it has `submitted` lines, or the survey and the gates it passed.
+- **A forced run says so, and says what it did not open.** `--force` writes a
+  `MANUAL:` line at the start, and every gate it does *not* override appends
+  ` --force does not override that.` to its own line, where the operator is
+  already looking.
+- **A trace that cannot be written is spoken instead.** Writability is tested
+  once per run; if `trigger.log` is not writable by whoever is running — the
+  common case being an operator running as `cmods` against a log root's cycle
+  created — the run turns verbose, says so on stderr with the `chown` to fix it,
+  and mirrors everything to stdout. A run that can neither write nor speak is
+  the one state this whole mechanism exists to make impossible.
+
+The log is trimmed to its last 2000 lines when it passes 1 MB. It gets a line or
+two per monitoring cycle, forever.
+
+### Startup and housekeeping
+
+| Line | When |
+|------|------|
+| `MANUAL: --force -- hourly gate bypassed[, --all -- passing jobs re-queued too]` | A human ran it. Without this, an hour of off-cadence results reads as the sequencer misbehaving |
+| `chown <user> <path>` | `results/` or `results/<node>`, or `trigger.log` / `quick-view.txt`, handed back to `JOB_USER` — see [below](#result-path-ownership) |
+| `WARNING: <dir> is owned by <user>, not <JOB_USER>, and we are not root` | The same problem seen from a hand-run, which can diagnose it but not fix it |
+| `WARNING: JOB_ENV entry '<pair>' is not NAME=VALUE …  -- dropped` | A rejected `JOB_ENV` entry. The sweep still runs, and the reason it ran without your variable is written next to it — see [settings.md](settings.md#what-is-rejected) |
+| `EXIT: <tool> not on PATH after 'module load slurm' (PATH=…)` | No Slurm client tools; every check below would have read as a healthy idle node |
+| `state=<node state> explain=<0\|1>` | The ordinary first line of a working cycle |
+
+### Pause and recovery
+
+| Line | When |
+|------|------|
+| `EXIT: PAUSE_JOBS=<value> in <settings file>` | Paused: nothing submitted, drained, resumed or archived |
+| `PAUSE_JOBS: cancelled pending <ids>` | Pending jobs of ours cleared, so a pause reaches the queue and not just submission |
+| `PAUSE_JOBS: job <id> still RUNNING for <t> -- left to finish` | A running job is not killed; the id is named so an operator can `scancel` it deliberately |
+| `--force does not override PAUSE_JOBS: it is a site switch, not a timing gate.` | Appended when a forced run hits the pause |
+| `RECOVER …` / `state after recovery=<state>` | A drain Slurm set itself was cleared and the node state re-read — see [above](#drains-slurm-set-itself) |
+| `WARNING: <home>/slurm-recovery.sh is missing` | A deployment that predates the file. Named rather than skipped quietly, because its absence is invisible from outside: nodes simply stay drained |
+
+### The queue
+
+| Line | When |
+|------|------|
+| `EXIT: <node> not known to slurm (sinfo -N -n returned nothing)` | Usually a run on the head node |
+| `EXIT: <n> job(s) not ours on <node> -- leaving the node to them` | Somebody else is using the node |
+| `queue: bench=<n> burnin=<n> [running=<t>] [<id> <state> <reason>…]` | Every cycle that gets this far. The per-job detail is only rendered for jobs that are not cleanly schedulable, so a healthy cycle keeps this to one line |
+| `job <id> held after a failed launch ('<reason>') <n>s ago -- cancelling and resubmitting in <n>s` | A held job seen before its retry interval is up |
+| `CANCELLED <id> -- held <n>s after a failed launch` | Cleared; the survey below decides what to resubmit |
+| `job <id> is held after a failed launch, but its submit time … did not parse -- left queued` | Cancel it by hand |
+| `EXIT: waiting on our own queue [(RUNNING for <t>, limit <n>h)] [<detail>]` | The normal busy cycle. The scheduler's reason for a job that is not cleanly schedulable is appended — this line reads identically whether the job starts in a minute or never, and the reason is the whole difference |
+
+### The survey
+
+| Line | When |
+|------|------|
+| `EXIT: <parsers>/verdict.sh is missing …` | Four lines, with the reason spelled out: without the pass/fail rule nothing can be judged, and treating that as "no results yet" would requeue every benchmark on every node every hour |
+| `skip <job>: no <path>` | A listed benchmark with no job file |
+| `<job> run <n>: <STATUS> -- <reason> [<detail>]` | One per failing run, with why rather than just that. Suppressed while that list has jobs in the queue: `INCOMPLETE` logged once a cycle for six hours reads as a node failing when it is a node working |
+| `survey: pending=[…] failed=[…] swept=<0\|1> busy=<0\|1>` | The benchmark list's state |
+| `burn-in survey: …` | The same for `BURNIN`, when `RUN_BURNIN` is on |
+| `RUN_BURNIN=<value> but BURNIN is empty -- nothing to burn in` | Burn-in switched on with no list behind it |
+| `EXIT: every benchmark and every burn-in job passing` | The node is done |
+| `EXIT: every benchmark passing (burn-in not run: RUN_BURNIN=<value>)` | The node is done as far as it is configured to go — which is not the same thing, and says which |
+| `WARNING: could not write <quick-view> as <user>` | The trace above is then the only current state |
+
+### Drain, resume and the gates before submitting
+
+| Line | When |
+|------|------|
+| `DRAIN: <jobs> FAIL[: <reason>] (auto-retry)` | A full sweep has run and something failed inside `DRAIN_WINDOW_MINUTES` |
+| `DRAIN: job timeout after <n>h (RUNNING)` | Past `MAX_JOB_HOURS`. No marker, so this one stops the retry loop and waits for a human |
+| `drain skipped, already <state>: <reason>` | Somebody or something else got there first; the node is left alone |
+| `drain suppressed by DRAIN_AFTER_FAILED_BENCHMARK=<value>: <reason>` | What the drain would have been, at a site running with drains off |
+| `RESUME: clearing own drain (<reason>)` | Our own `auto-retry` drain, and only ever that one |
+| `EXIT: newest result is <n>s old, next sweep in <n>s` | The hourly gate, closed. The single most common line in the file |
+| `hourly gate bypassed by --force (…would have waited <n>s)` | The hourly gate, forced |
+| `hourly gate open (newest result age=<n>s, -1 means no results on disk)` | The hourly gate, open on its own |
+| `EXIT: node is <state> for a reason that is not ours -- '<reason>' does not carry 'auto-retry'.` | An operator's drain. Names the `scontrol … state=RESUME` that releases it |
+| `NOTE: JOB_ENV sets <name>, but <job>.sbatch exports its own` | The job file wins. Without the line, a `SETTINGS` entry that does nothing looks exactly like one that works |
+| `WOULD SUBMIT <job> run <n>[ (existing <STATUS> result kept as .<fail\|prev><N>.txt)]: <command>` | `--explain` only |
+| `submitted <job> run <n>: Submitted batch job <id> [(JOB_ENV: …)]` | Work went out |
+| `SUBMIT FAILED <job> run <n>: <sbatch output>` | Work did not go out, and `sbatch` says why |
+
+A new gate gets a line here and a line in the table above it. An `exit 0` with
+no explanation is a bug even when the behaviour is correct: most cycles
+legitimately have nothing to do, so a node that has silently stopped testing
+looks exactly like a node that is quietly idle.
 
 ## Result-path ownership
 

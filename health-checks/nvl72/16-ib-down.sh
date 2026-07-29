@@ -2,17 +2,9 @@
 # banner: ########INFO: Check IB Link Down status (Expected: No issue found)
 
 # Bypass those 4 ports IB HCA is connected to nvswitch on B200/B300.
-#
-# SC2010: the entries under /sys/class/infiniband are kernel-generated device
-# names, so the usual worry about spaces and odd characters does not apply. The
-# `ls -l` is also doing real work here beyond listing — the symlink targets it
-# prints are what carry the PCI path that the awk below pulls the BDF out of, and
-# a glob would not give us those.
-#
-# SC2046: the word splitting is the point. The substitution expands to a run of
-# `-e <bdf>.` pairs that `grep -v` has to see as separate arguments, one per
-# nvswitch-connected HCA. Quoting it collapses them into a single pattern, and
-# the check would quietly stop excluding those ports on real hardware.
+# SC2010: `ls -l` prints the symlink targets carrying the PCI path a glob cannot.
+# SC2046: splitting is the point — quoting collapses the per-HCA `-e <bdf>.`
+# pairs into one pattern and stops excluding those ports on real hardware.
 # shellcheck disable=SC2010,SC2046
 ls -l /sys/class/infiniband \
   | grep -v $( (lspci -D | grep -i Infiniband | awk '{print $1}' | cut -d '.' -f 1 \

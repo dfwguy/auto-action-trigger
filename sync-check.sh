@@ -66,8 +66,7 @@ is_not_a_check() {
     esac
 }
 
-# The set of real check names, taken from the baseline. A reason token that is
-# not one of these is free text a check dragged in, not a missing file.
+# Real check names, from the baseline. See docs/health-checks.md#reading-the-reason-field.
 declare -A known_check
 while IFS= read -r name; do
     is_not_a_check "$name" && continue
@@ -92,7 +91,6 @@ while IFS='|' read -r node reason; do
         continue
     fi
 
-    # Which checks to diff.
     checks=""
     if [[ "$all" -eq 1 ]]; then
         checks=$(printf '%s\n' "${!known_check[@]}" | sort | tr '\n' ' ')
@@ -101,8 +99,7 @@ while IFS='|' read -r node reason; do
         for raw in $(canonicalize_reason "$reason"); do
             name=$(resolve_token "$raw")
             if [[ -z "${known_check[$name]}" ]]; then
-                # Free text from a check that carries its own output into the
-                # reason (dmesg-xid does). Note it once; do not try to diff it.
+                # Free text a check dragged in (dmesg-xid); note once, never diff.
                 [[ " $unknown " == *" $raw "* ]] || unknown+="$raw "
                 continue
             fi
@@ -131,9 +128,8 @@ while IFS='|' read -r node reason; do
         fi
         out=$(diff "$node_file" "$base_file" 2>&1)
         if [[ -z "$out" ]]; then
-            # Matches the baseline. The drain reason named it, so the reason is
-            # older than either the log or the baseline -- worth saying, but not
-            # worth a screen of blank sections.
+            # Named in the reason but matching now: the reason is stale. Say so
+            # in one line rather than printing an empty section.
             matching+="$name, "
             continue
         fi
