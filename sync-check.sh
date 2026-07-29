@@ -19,6 +19,7 @@
 # With no argument, falls back to $SLURM_JOB_NODELIST so this can be run from
 # inside a job.
 
+# --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 logs_dir="$home/logs"
 valid_dir="$home/valid-config/default"

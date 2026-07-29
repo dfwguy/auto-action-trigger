@@ -28,6 +28,7 @@
 # baseline, so the Slurm reason field is the source of truth here -- no node is
 # contacted and nothing is re-run. Use node-health-refresh.sh to re-run checks
 # and sync-check.sh to see the actual diff for a node named below.
+# --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
 #
 # Only as complete as the drains behind it: with the shipped
 # DRAIN_AFTER_FAILED_HEALTH_CHECK=no every node reads as PASSING, and the banner

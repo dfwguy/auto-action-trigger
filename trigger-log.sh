@@ -32,6 +32,7 @@
 # The five sections it prints, and what each one rules out, are described in
 # docs/operations.md#debugging-nothing-is-running.
 #
+# --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"      ## for BRINGUP_HOME, in the closing hint

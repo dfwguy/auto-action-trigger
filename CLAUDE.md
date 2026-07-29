@@ -75,6 +75,7 @@ padding and property names drift between BCM releases.
 ./tests/verdict-test.sh        # parser gates against captured fixtures
 ./tests/health-runner-test.sh  # the health check runner loop
 ./tests/recover-test.sh        # drain classification in slurm-recovery.sh
+./tests/help-text-test.sh      # --help blocks, if you touched a header comment
 bash -n <changed script>       # these scripts run as root on 200+ nodes
 shellcheck -S warning <changed script>   # CI gates on this; see below
 ```
@@ -91,6 +92,25 @@ tree — it changes the environment every sourcing script and Slurm job runs in.
 
 Keep the tree listing in `docs/architecture.md` in step with the files — it has
 drifted twice by adding a top-level script and not listing it.
+
+## Five scripts print their own header as `--help`
+
+`status-check.sh`, `health-check.sh`, `daily-report.sh`, `sync-check.sh` and
+`trigger-log.sh` implement `-h` as `sed -n '2,NNp'` over themselves. The line
+range is hardcoded, so in those five files **comment length is runtime
+behaviour**: shortening a header truncates `--help`, and adding prose below the
+block starts printing shell source at whoever typed it. Both pass a
+"comments only" review, because that is what they are.
+
+Each carries a sentinel on the line after its range:
+
+```bash
+# --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
+```
+
+Move the sentinel when you move the text, and run `./tests/help-text-test.sh`.
+It is the only place in the tree where editing a comment can change what a
+script does.
 
 Commit subjects are `component: lowercase summary`; bodies explain *why*, in
 prose, wrapped at 72.

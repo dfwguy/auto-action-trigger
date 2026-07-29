@@ -169,9 +169,20 @@ and `*.sbatch`, `bash -n` over the same set, the `permissions` job described
 above, and `architecture-doc`, which fails if a top-level script is not named
 in this file's tree listing. `severity=warning` is the gate, not the ceiling:
 the info- and style-level findings below it are largely deliberate here. The
-`test` stage runs the three suites — `tests/verdict-test.sh`,
-`tests/health-runner-test.sh`, `tests/recover-test.sh` — as one job each, so a
-failure names the gate that broke without anyone opening a log.
+`test` stage runs the four suites — `tests/verdict-test.sh`,
+`tests/health-runner-test.sh`, `tests/recover-test.sh`, `tests/help-text-test.sh`
+— as one job each, so a failure names the gate that broke without anyone opening
+a log.
+
+`help-text` is there for a coupling the rest of the tree does not have.
+`status-check.sh`, `health-check.sh`, `daily-report.sh`, `sync-check.sh` and
+`trigger-log.sh` implement `--help` by printing their own header comment through
+a hardcoded `sed -n '2,NNp'`, which makes comment length a runtime property of
+five operator scripts. Editing a comment is the one change everybody treats as
+free, so without a gate a cleanup that shortens a header truncates `--help`
+silently and passes review as "comments only" — because it is. Each of the five
+carries a sentinel comment on the line after its range, and the suite fails when
+the two stop agreeing.
 
 ## Runtime paths
 

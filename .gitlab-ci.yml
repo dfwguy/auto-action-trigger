@@ -170,3 +170,12 @@ recover:
   stage: test
   script:
     - ./tests/recover-test.sh
+
+# Five scripts print --help from their own header through a hardcoded line
+# range, so comment length is runtime behaviour there. This is the gate that
+# stops a comment edit truncating --help silently.
+help-text:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/help-text-test.sh
