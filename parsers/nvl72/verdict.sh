@@ -98,14 +98,16 @@ _v_forbid_i() {
 }
 
 ## Floor on the largest message size actually run, out-of-place busbw (column 8).
-## Extraction must stay identical to daily-report.sh's extract_metric, or the
-## report prints a number the gate did not judge. `sort -k1,1n` because
-## nccl-tests does not guarantee the largest size is printed last. Comparison in
-## awk because bash arithmetic is integer-only and these are floats.
+## Extraction must stay identical to verdict-scan.sh's extract_metric, or the
+## report prints a number the gate did not judge. The largest size is tracked in
+## the one awk pass rather than piped through `sort | tail | awk`, because
+## nccl-tests does not guarantee the largest size is printed last and three of
+## those four processes were bought only to find a maximum. Comparison in awk
+## because bash arithmetic is integer-only and these are floats.
 _v_min_peak_bw() {
     local file="$1" min="$2" val
-    val=$(awk '$1 ~ /^[0-9]+$/ {print}' "$file" 2>/dev/null \
-          | sort -k1,1n | tail -1 | awk '{print $8}')
+    val=$(awk '$1 ~ /^[0-9]+$/ && $1 + 0 >= big { big = $1 + 0; v = $8 }
+               END { print v }' "$file" 2>/dev/null)
     if [[ -z "$val" ]]; then
         VERDICT_REASON="no per-size bandwidth rows"
         VERDICT_DETAIL=""
@@ -506,6 +508,37 @@ _v_gate_generic() {
 
 ## ── Entry point ───────────────────────────────────────────────────────────
 
+## The end marker is the last line, and reading it is the one thing EVERY call
+## pays for, so it is done without forking: `tail -1` costs a process, and this
+## runs once per node per benchmark -- tens of thousands of times on a report
+## over a large fleet.
+##
+## Capped rather than reading the file whole: `mapfile` with no limit is the
+## fastest form on a normal result file and the slowest on a runaway log, where
+## it builds an array of every line in order to look at one. The cap is far
+## above any real result file, so `tail` is what a pathological log gets, not
+## the common path. Hitting the cap means the read stopped short of the end and
+## the last line held is not the file's -- ask `tail` then.
+##
+## Sets _V_LAST rather than printing, for the same reason verdict() sets
+## VERDICT_STATUS: `last=$(_v_last_line ...)` would fork the subshell this
+## function exists to avoid, leaving the saving at zero.
+_VERDICT_TAIL_CAP=2000
+_V_LAST=""
+
+_v_last_line() {
+    local -a lines
+    _V_LAST=""
+    mapfile -n "$_VERDICT_TAIL_CAP" -t lines < "$1" 2>/dev/null
+    if (( ${#lines[@]} == _VERDICT_TAIL_CAP )); then
+        _V_LAST=$(tail -1 "$1" 2>/dev/null)
+        return
+    fi
+    ## Not ${lines[-1]}: negative subscripts need bash 4.3, and nothing else in
+    ## this tree requires it.
+    (( ${#lines[@]} )) && _V_LAST="${lines[${#lines[@]} - 1]}"
+}
+
 ## Run the gate for a job. Split out of verdict() because it is needed twice:
 ## once to judge a result that ran to completion, and once to explain a result
 ## whose job condemned itself -- see the FAIL branch below.
@@ -590,7 +623,8 @@ verdict() {
         return
     fi
 
-    last=$(tail -1 "$file" 2>/dev/null)
+    _v_last_line "$file"
+    last="$_V_LAST"
     case "$last" in
         FAIL)
             ## Self-reported: the job could not run, or the workload exited
