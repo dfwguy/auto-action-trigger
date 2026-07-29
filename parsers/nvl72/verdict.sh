@@ -37,8 +37,8 @@
 ## the run finished; it is just not the number judged.
 ##
 ## Set per job because alltoall and allreduce bus bandwidth are not comparable,
-## and because NVLink scope and IB scope are two different fabrics: 683/623 are
-## NVLink figures. The -nonvlink pair is gated at 43, which is the rate the
+## and because NVLink scope and IB scope are two different fabrics: 683/670/623
+## are NVLink figures. The -nonvlink pair is gated at 43, which is the rate the
 ## compute-plane HCAs are expected to sustain on this platform.
 ##
 ## 43 is a spec figure, not one read off a known-good run, and it is the one
@@ -52,13 +52,16 @@ VERDICT_MIN_PEAK_BW_ALLREDUCE=683
 VERDICT_MIN_PEAK_BW_ALLTOALL=623
 VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK=43
 VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK=43
-## allreduce-forcesharp has no floor of its own on purpose. It is the same
-## collective on the same fabric as allreduce, with NCCL_ALGO=NVLS removing the
-## fallback -- so when it runs at all, it ran the way allreduce is meant to and
-## the 683 above is the figure it should meet. A second number here would be a
-## second thing to keep in step for no gain. The question that job asks is
-## answered before the bandwidth is: a node without working NVLS fails in
-## ncclCommInitRank and never reaches a summary line to be judged.
+## allreduce-forcesharp is the same collective on the same fabric as allreduce,
+## with NCCL_ALGO=NVLS removing the fallback, so it used to be judged against
+## the 683 above. It gets 670 of its own instead: pinning the algorithm costs a
+## little bandwidth even on a node where NVLS is exactly what allreduce would
+## have chosen, and a floor carried over from the unpinned run fails those
+## nodes for the difference. The question that job asks is still answered
+## before the bandwidth is -- a node without working NVLS fails in
+## ncclCommInitRank and never reaches a summary line to be judged -- so this
+## floor only catches a node that runs SHARP slowly, not one that lacks it.
+VERDICT_MIN_PEAK_BW_ALLREDUCE_FORCESHARP=670
 
 ## Floors for the non-NCCL jobs. These used to live in the sbatch that ran the
 ## workload, which meant they were applied once, at run time, and a result that
@@ -668,8 +671,7 @@ _v_dispatch_gate() {
         allreduce)
             _v_gate_nccl "$file" nvlink "$VERDICT_MIN_PEAK_BW_ALLREDUCE" ;;
         allreduce-forcesharp)
-            ## Deliberately the same floor as allreduce -- see the note by it.
-            _v_gate_nccl "$file" nvlink "$VERDICT_MIN_PEAK_BW_ALLREDUCE" ;;
+            _v_gate_nccl "$file" nvlink "$VERDICT_MIN_PEAK_BW_ALLREDUCE_FORCESHARP" ;;
         alltoall)
             _v_gate_nccl "$file" nvlink "$VERDICT_MIN_PEAK_BW_ALLTOALL" ;;
         allreduce-nonvlink)

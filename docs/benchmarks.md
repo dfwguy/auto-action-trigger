@@ -331,10 +331,13 @@ pick, so an unsupported node fails in `ncclCommInitRank` instead. The pair
 answers two different questions — `allreduce` asks whether the collective works,
 `allreduce-forcesharp` asks whether the switch offload is the thing doing it.
 
-That is why `allreduce-forcesharp` has no floor of its own. When it produces a
-summary line at all it ran the way `allreduce` is meant to, so it is judged
-against the same 683; its own question is settled before any bandwidth is
-measured. A failure here is a real answer, not a broken job — expect the NCCL
+Its own question is settled before any bandwidth is measured: when it produces
+a summary line at all, it ran the way `allreduce` is meant to. The floor is
+therefore a second check rather than the point of the job, and it is set at
+670 rather than the 683 `allreduce` uses — pinning the algorithm costs a little
+bandwidth even where NVLS is what NCCL would have picked anyway, and the
+unpinned floor fails healthy nodes for that difference. A failure here is a
+real answer, not a broken job — expect the NCCL
 init error in full in the result file. `NCCL_ALGO` is also the first line to
 suspect if it starts failing fleet-wide right after an image change: which
 algorithms exist behind that name is a property of the NCCL build, not of the
@@ -415,9 +418,9 @@ true, and would send someone to look at the fabric instead of at a missing bind
 mount. Keep new checks in causal order.
 
 Bandwidth floors live in `VERDICT_MIN_PEAK_BW_*` at the top of
-`parsers/nvl72/verdict.sh` — 683 and 623 GB/s for the NVLink-scope `allreduce`
-and `alltoall` — `allreduce-forcesharp` is judged against the `allreduce` floor
-rather than one of its own — and 43 GB/s for each of the `-nonvlink` pair. They
+`parsers/nvl72/verdict.sh` — 683, 670 and 623 GB/s for the NVLink-scope
+`allreduce`, `allreduce-forcesharp` and `alltoall`, and 43 GB/s for each of the
+`-nonvlink` pair. They
 all read the same number: out-of-place busbw at the
 largest message size actually run. That is also the figure `daily-report.sh`
 prints in those columns, so a value in the report can be compared against the
