@@ -7,51 +7,28 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH -t 2:10:00
 #SBATCH --nice=20
-## --nice orders this job against everything else queued for the node: higher
-## is LATER, 0 is the front. 20 is the sweep's tier -- behind the dcgm gates at
-## 0, ahead of burn-in at 100000. See docs/benchmarks.md.
+## 20 is the sweep's tier. See docs/benchmarks.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/llm-pretrain.txt
 
-## Allocation. --exclusive is a JOB-level guarantee and a step inherits only
-## what was explicitly requested, so --gres and --mem=0 are stated even though
-## --exclusive is supposed to cover them. Without the --gres line this job held
-## an exclusive node and handed its srun zero GPUs. --cpus-per-task is
-## deliberately absent: it implies --exact and would shrink the step.
-## See docs/benchmarks.md.
+## Steps inherit only what was explicitly requested; no --cpus-per-task, it
+## implies --exact. See docs/benchmarks.md#the-allocation-header.
 ##
-## LLMB_SCALE below is 8 while this asks for 4 GPUs -- the recipe is still TBD
-## and the two have to agree before this job is enabled. Set both from the GPU
+## Recipe is still TBD: LLMB_SCALE below is 8 while this asks for 4 GPUs, and
+## the two have to agree before this job is enabled. Set both from the GPU
 ## count of the platform under test.
-
-## AI Factory Testing Plan: Single-Node LLM Pre-Training -- SNT3
-## End-to-end pre-training scoped to one node. Validates the full workload
-## stack: framework, containers, data pipeline, checkpointing, and intra-node
-## collectives. Primary workload gate in TTM Single Node; node-level workload
-## check in Hybrid before multi-node NCCL.
-##
-## Recipe is still TBD -- see incubation/TTM_Single_Node_Workload_MOP.md in the
-## validation-mops repo. FastTrack variant uses pretrain_nemotron-h at minimum
-## supported scale via llmb-run; candidates are Llama 3.1 8B (Megatron-Bridge,
-## 8 GPUs, FP8/NVFP4) with Qwen3 30B (BF16) as the ungated fallback.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 # shellcheck disable=SC2034
 job_name=llm-pretrain
 
-## Step time limit, handed to srun --time below: 2x the plan's ~30-60 min,
-## taking the upper end.
-## Slurm cancels the STEP at this limit, which leaves the batch script alive to
-## write its marker. #SBATCH -t above is this plus a margin, so the step limit
-## is what fires -- see example.sbatch.
+## Handed to srun --time below; #SBATCH -t is this plus a margin so the step
+## limit fires first. See docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=2:00:00
 
 ## ------------- job info starts here ------------- ##
 
-## Preflight -- what the STEP actually holds, asked from inside a step. The
-## job's AllocTRES cannot answer that: a step is a different cgroup, and
-## --exclusive grants the job resources a step does not inherit unless they
-## were named. The passing line's wording is fixed -- the parse block below and
-## verdict.sh grep this same file. See example.sbatch for the full reasoning.
+## Preflight -- what the STEP holds, which the job's AllocTRES cannot answer.
+## The passing line's wording is fixed. See docs/benchmarks.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -86,14 +63,10 @@ rc=$?
 
 ## ------------- parse info starts here ----------- ##
 
-## Only whether the job ran is decided here. Whether the result is any good is
-## decided by verdict.sh, which is read on every status check rather than
-## written once into this file. That is what lets a tightened gate re-judge
-## results that already exist -- see the header of verdict.sh.
+## Only whether the job ran is decided here; verdict.sh decides whether the
+## result is good. See docs/benchmarks.md#where-a-pass-is-decided.
 
-## The workload's exit status, written into the log rather than left only in
-## the marker below. A FAIL with a non-zero here is the job's own -- srun
-## returned it. A FAIL with `exit status: 0` came from the gate in verdict.sh,
-## which is read at status-check time and leaves no trace in this file.
+## A FAIL with a non-zero status here is srun's own; a FAIL with `exit
+## status: 0` came from the gate in verdict.sh, which leaves no trace here.
 echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

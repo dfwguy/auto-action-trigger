@@ -28,6 +28,31 @@ commented catalog above `BENCHMARKS` in `SETTINGS`.
 | Single-Node LLM Pre-Training | `llm-pretrain` | all |
 | HPL / cuBlasMatMul (single-node GEMM) | `hpl`, `cublasmatmul` | remediation-only |
 
+## What each job exercises
+
+The plan row names the gate; it does not say what the tool measures. Each job
+in one line, because "which of these would have caught this" is the question
+asked when a node misbehaves and nothing drained it:
+
+| Job | What it measures |
+|-----|------------------|
+| `dcgm-r2` / `dcgm` / `dcgm-r4` | DCGM diagnostics at rising depth — `-r 2` is the fast TTM gate, `-r 3` the Hybrid gate, `-r 4` extended stress |
+| `nvbandwidth` | per-GPU HBM, PCIe and NVLink/NVSwitch bandwidth. Surfaces PCIe width/speed negotiation faults — x8 where x16 was ordered — and HBM channel failures that DCGM does not report as an explicit bandwidth figure |
+| `allreduce`, `alltoall` | NCCL collectives over NVLink, single node: does the collective work, and at what bus bandwidth |
+| `allreduce-forcesharp` | the same collective with the NVSwitch's in-network reduction made mandatory — does the switch offload run at all |
+| `allreduce-nonvlink`, `alltoall-nonvlink` | the same collectives forced over the compute-plane HCAs with NVLink excluded (GB300 MOP 7.3 Scope A, loopback east-west). Confirms the in-system network is configured and performant |
+| `nvsm` | system-level compute, memory and thermal stress across every GPU on the node, plus a health summary. Pre-burn-in gate — quarantine a failing node before it spends three days in `mnubergemm` |
+| `stream` | sustained CPU memory bandwidth (Copy/Scale/Add/Triad) against arrays too large to fit in cache. Validates DRAM channels and NUMA layout before any GPU workload |
+| `memtester` | DRAM integrity and ECC behaviour. The integrity half of the pair `stream` covers the bandwidth half of |
+| `stress-ng` | CPU stress across arithmetic, SIMD, cache, mmap and OS primitives. Exposes thermal instability, power-delivery limits and CPU-side faults before GPU burn-in |
+| `stressapptest` | randomized memory access across all DRAM with simultaneous I/O and network pressure. Surfaces marginal cells, uncorrectable ECC and signal-integrity faults that lighter memory tests miss |
+| `fio` | local NVMe and shared storage (VAST / Lustre / WekaFS) throughput, IOPS and latency at several block sizes and queue depths, before workloads commit data to it |
+| `ethr` | north-south throughput and latency on the in-band management and storage NICs (ConnectX / BlueField). Deliberately not the same traffic as NCCL or perftest, which are east-west RDMA — these paths are otherwise never exercised |
+| `nvloom` | MNNVL fabric validation per node: bandwidth uniformity across CE and SM engines, outlier detection, thermal behaviour under sustained collective load. Incubation tool, not a required gate in any variant |
+| `mnubergemm` | GPU burn-in — sustained mixed GEMM load for hours, the 24–72 hour row of the plan |
+| `llm-pretrain` | end-to-end pre-training scoped to one node. The only job that exercises the whole stack together: framework, container, data pipeline, checkpointing and intra-node collectives |
+| `hpl`, `cublasmatmul` | single-node GEMM, for isolating one suspect node during remediation. GB300/B300 uses `cublasmatmul` (GB300 MOP 7.5.2); GB200 uses `hpl` |
+
 Three single-node plan rows have no `.sbatch` file because they are not Slurm
 jobs: **Inventory & BOM Verification (ClusterMinder)** and **Network Fabric
 Health Check (CVT)** are externally deployed collectors with their own MOPs, and
@@ -64,6 +89,61 @@ Everything else needs one of three things first:
   it fails on every node and drains the cluster for a tool that was never going
   to run. It is out of the default list for that reason. On a DGX site it also
   needs a sudoers grant on every compute node — see [nvsm.md](nvsm.md).
+
+## Notes on individual jobs
+
+Things about one job that are not true of the rest, and that a reader of the
+generic header would get wrong.
+
+- **`nvloom` must not be given `--gpus-per-task`.** It assigns GPUs by MPI local
+  rank, so scoping CUDA devices per task leaves a rank with no device it is
+  allowed to use and the run dies in `CUDA_ERROR_NO_DEVICE` (MOP section 2.4).
+  The allocation asks with `--gres` for that reason, and exports
+  `NVIDIA_VISIBLE_DEVICES=all` so the Pyxis/Enroot hook bind-mounts every GPU.
+- **The `dcgm` jobs run `dcgmi` in the batch body, not in a step.** That is
+  deliberate — it sees the job's GPUs without restating `--gres` — and it is why
+  they bound their work with `timeout` rather than `srun --time`. The `--gres`
+  line is still load-bearing: without it Slurm reads the job as GPU-free, and
+  anything co-scheduled dies allocating framebuffer that `dcgmi`'s memory and
+  stress plugins have already taken.
+- **`timeout` sends TERM first and KILL 60 s later.** TERM so `dcgmi` can tear
+  down its connection to the host engine and leave nothing wedged behind it;
+  KILL for one that will not go. `timeout` reports 124 when the command took the
+  TERM and exited, and 137 when the KILL had to fire — and ignoring a TERM is
+  exactly what a wedged diagnostic does, so both count as an overrun.
+- **`llm-pretrain` is not ready to enable.** Its `LLMB_SCALE` is 8 while the
+  allocation asks for 4 GPUs, because the recipe is still TBD (see
+  `incubation/TTM_Single_Node_Workload_MOP.md` in the validation-mops repo).
+  Set both from the GPU count of the platform under test, and only then add it
+  to `BENCHMARKS`.
+- **`nvsm` is not a container job.** It is installed on the host alongside
+  `dcgmi`, refuses to run as anyone but root, and a batch task has no tty for a
+  password prompt — so it needs a NOPASSWD sudoers grant on every compute node
+  and fails fast and loudly if it cannot get to root, rather than reporting a
+  bogus hardware failure. See [nvsm.md](nvsm.md).
+- **`ethr` needs a server started by hand**, once, outside the job:
+  `ethr -s` on the headnode or a storage-network endpoint. It is a single static
+  Go binary — install it on the host from `github.com/microsoft/ethr` rather
+  than containerizing it. An interface in `IFACES` that this node does not have
+  is skipped rather than failed, and the skip is reported in a fixed wording the
+  gate reads: nothing ran, so there is no exit status to report.
+- **`stream` runs out of the `hpc-benchmarks` image**, the same one the NCCL
+  jobs use, and its `stream-cpu-test.sh` is Arm SBSA only. On an x86 host,
+  install STREAM there or build it into a site image.
+- **`nvbandwidth`'s image is architecture-specific, and that is a CPU split**
+  rather than a GPU-generation one — Grace and Vera are ARM, Intel and AMD hosts
+  take the x86 build. The job runs the full default suite of 33 tests, which
+  includes every test the plan calls out by name; `nvbandwidth -l` and `-t
+  <test>` are for triage.
+- **`--mem=0` is load-bearing rather than tidy in `memtester` and
+  `stressapptest`.** Both size their footprint at 80% of the node's
+  `MemAvailable`, so without it the step is capped at the partition's default
+  memory and is killed partway through — which reads as a DRAM failure rather
+  than as a scheduling mistake.
+- **Multi-pass jobs report one status for all their passes.** `fio` (four
+  passes), `ethr` (two per interface) and `nvsm` (stress, then health) set an
+  aggregate that is only ever raised, so a later success cannot overwrite an
+  earlier failure: any pass failing means the job did not run to completion.
 
 ## The allocation header
 
@@ -188,6 +268,48 @@ survives to write a marker — but prefer `--time` wherever there is a step: it 
 Slurm's own accounting, and does not depend on a signal reaching the right
 process.
 
+#### What each job's limits were derived from
+
+The arithmetic used to sit in the job it applied to, where nobody could compare
+two of them. It is stated once, here, so that a limit raised for one job can be
+checked against how its neighbours were sized:
+
+| Job | Step limit | `#SBATCH -t` | Derivation |
+|---|---|---|---|
+| `allreduce`, `allreduce-forcesharp`, `alltoall`, and the `-nonvlink` pair | `0:15:00` | `0:25:00` | 2× the plan's < 5 min for single-node NCCL — the 15 min floor is what binds |
+| `dcgm-r2` | `15m` (`timeout`) | `0:25:00` | 2× ~2 min, floored at 15 min |
+| `dcgm` | `40m` (`timeout`) | `0:50:00` | 2× ~20 min for `dcgmi -r 3` |
+| `dcgm-r4` | `3h` (`timeout`) | `3:10:00` | 2× ~45–90 min, taking the upper end |
+| `nvbandwidth` | `0:30:00` | `0:40:00` | 2× ~15 min |
+| `nvloom` | `1:00:00` | `1:10:00` | 2× the plan's 30 min for the Scope 1 health check |
+| `nvsm` | `0:35:00` stress + `0:05:00` health | `0:50:00` | 2× ~20 min, which `STRESS_SECONDS=1200` matches; the two steps sum inside the walltime |
+| `stream`, `memtester` | `4:00:00` | `4:10:00` | 2× the ~1–2 hr STREAM + Memtester row, upper end |
+| `stress-ng` | `2:00:00` | `2:10:00` | 2× `TIMEOUT=3600`, which is the plan's ~1 hr |
+| `stressapptest` | `4:00:00` | `4:10:00` | 2× `RUN_SECONDS=7200`; the plan's row is 2–4 hr |
+| `fio` | `0:30:00` per pass | `2:10:00` | 2× the plan's ~1 hr, divided over four passes (`read`, `write`, `randread`, `randwrite`) |
+| `ethr` | `0:30:00` per pass | `1:10:00` | 2× the plan's ~30 min; two passes per interface, and the walltime holds **one** interface |
+| `llm-pretrain` | `2:00:00` | `2:10:00` | 2× the plan's ~30–60 min, upper end |
+| `hpl` | `1:50:00` | `2:00:00` | the plan gives no estimate for the remediation GEMM, so this is a bound rather than a doubling |
+| `cublasmatmul` | `0:20:00` | `0:30:00` | 2× its own `DURATION=600`, for the same reason |
+| `mnubergemm` | `6:30:00` | `6:41:00` | `--time_to_run 21420` (5:57) **plus half an hour**, not 2× — see below |
+
+`mnubergemm` is the one job that does not double, and the reason generalises to
+any workload that caps its own runtime for hours. A step limit at twice a
+six-hour run cannot catch a hung one: it waits six hours past the point the job
+should have finished before admitting anything is wrong, and `MAX_JOB_HOURS`
+then has to be set high enough to clear the padding rather than the work.
+Its four limits are a ladder that moves together — the workload's own
+`--time_to_run`, then `STEP_TIMELIMIT`, then `#SBATCH -t`, then `MAX_JOB_HOURS`
+in `SETTINGS`, which is the rung that is not in the job file. See
+[settings.md](settings.md#burn-in).
+
+Where a job configures its own duration the padding is the point: an `ethr`
+pass is 30 s of traffic inside a 30 min limit, and a `fio` pass is 120 s of I/O
+plus laying out the test file. In both cases the limit is covering the failure
+the workload does not bound — an `ethr` that cannot reach its server and sits in
+connection retries, a `fio` laying out files on a cold filesystem — not the
+measurement.
+
 ### Preflight
 
 Every job opens with a one-line `srun` that reports what the *step* holds:
@@ -308,7 +430,12 @@ gate belongs in `verdict.sh`:
 - **A self-reported `FAIL` is never re-judged.** `DONE` is re-derived on every
   read, but `FAIL` is taken at its word, because it means "the job could not
   run" — the log is the diagnosis. Fixing the rule in the sbatch would have left
-  every already-condemned result condemned. Those have to be re-run.
+  every already-condemned result condemned. Those have to be re-run. It is the
+  *status* that is frozen, not the explanation: the gate still runs against the
+  log to say why. That is what turns fifty nodes reporting
+  `dcgm: FAIL -- job reported FAIL` into fifty nodes naming the subtest that
+  failed — `dcgmi diag` exits 226 on a failed subtest, and the sbatch, which
+  decides only whether the job *ran*, can write nothing but a bare `FAIL`.
 - **It failed closed and looked like a hardware finding.** A node reporting
   `nvbandwidth: FAIL` reads as a bad node, not as a bad grep.
 
@@ -445,7 +572,9 @@ node landing in the thirties is the floor being wrong.
 Run `tests/verdict-test.sh` after changing a gate. It checks
 `parsers/nvl72/verdict.sh` against captured result files, including a real
 socket run and a real healthy `nvbandwidth` run, and asserts the reason as well
-as the verdict.
+as the verdict. When a gate rejects something it should not have, capture that
+node's result file as a fixture *before* changing the rule — that is what stops
+the next change to `verdict.sh` from quietly undoing this one.
 
 Coverage is uneven and worth knowing before you trust a gate. `allreduce`,
 `alltoall`, their `-nonvlink` pair, `dcgm`, `nvbandwidth` and `example` have

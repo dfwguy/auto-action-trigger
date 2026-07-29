@@ -1,32 +1,12 @@
 #!/bin/bash
 #
-# Shared translation from a Slurm drain reason to check names. Sourced by
-# health-check.sh and sync-check.sh -- keep it in one place, because the two
-# drifting apart is what made sync-check.sh try to diff files called "Check",
-# "BIOS", "missing", "(no" and "output)".
+# Shared drain-reason -> check-name translation for health-check.sh and
+# sync-check.sh; one copy, because the two drifting apart is what made
+# sync-check.sh diff files called "Check", "BIOS" and "missing".
+# See docs/health-checks.md#reading-the-reason-field.
 #
-# A drain reason still cannot be split on whitespace and used as filenames
-# directly, for two reasons that survive the split into health-checks/:
-#
-#   dmesg-xid carries its own output into the reason (`# reason-detail: yes`),
-#   and that output is free text which tokenizes into anything.
-#
-#   Reasons written before the split used hand-written headers that did not
-#   match the log file the check produced:
-#
-#     "Check BIOS"     -> logs/<node>/bios            (two words)
-#     "cuuid"          -> logs/<node>/nvidia-smi-cuuid
-#     "enroot missing" -> logs/<node>/enroot          (two words)
-#
-# The rewrites below exist for that second case and are now legacy. Every check
-# is a file in health-checks/<set>/, and node_health.sh writes the check name
-# straight into the reason, so nothing new can produce these strings. They stay
-# because a node drained before the upgrade keeps its old reason text in Slurm
-# until something resumes it, and until then this is what parses it.
-#
-# So: rewrite the multi-word legacy names first, resolve the single-token
-# renames, and then keep only tokens that name a check that actually exists --
-# anything else is free text that a check dragged into the reason field.
+# Nothing new emits these strings -- they are pre-health-checks/ reason text
+# that a node keeps in Slurm until something resumes it.
 
 canonicalize_reason() {
     local r="$1"

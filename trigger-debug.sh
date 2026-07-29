@@ -2,41 +2,25 @@
 #
 # Usage: trigger-debug.sh [node-pattern]
 #
-# Answers "why is nothing running?" by walking the chain from BCM down to
-# sbatch, in order, and stopping to say which link is broken. Run on the head
-# node. Read-only -- it submits nothing, drains nothing, changes nothing.
+# Walks the BCM -> sbatch chain and names the broken link. Read-only. Run
+# trigger-log.sh first: fresh traces mean every link is intact by definition.
+# See docs/operations.md#debugging-the-trigger-chain.
 #
-# This checks the configuration that should be producing work. trigger-log.sh
-# reads the record it actually produced, and is the one to run first: if the
-# traces are fresh, every link below is intact by definition and the reason
-# nothing is running is a gate the sequencer already wrote down.
+#   pattern  node filter, same rules as status-check.sh: bare string matches
+#            by prefix, globs honored as written. Per-node sections only.
 #
-#   pattern  optional node filter, same rules as status-check.sh: a bare
-#            string matches by prefix, globs are honored as written. Only
-#            affects the per-node sections.
+# The links, which the section headers below number against:
 #
-# The chain, and what breaks at each link:
-#
-#   1. action registered in BCM      -- cm_replace failed, or was never run
-#   2. trigger registered + enabled  -- same, or someone set disabled yes
-#   3. trigger has the action bound  -- the failure create-action-trigger.sh
-#                                       warns about: object exists, runs nothing
-#   4. script exists on the node     -- NFS not mounted, or wrong path
-#   5. script decides to submit      -- read trigger.log, or run --explain
-#   6. sbatch accepts the job        -- partition, account, node state
-#   7. slurm can write the result    -- output path not writable by cmods
-#
-# Link 7 is the one with no symptom of its own: BCM fires, the script submits,
-# sbatch returns a job id, and the job dies before it writes a byte. Nothing
-# in slurm's accounting distinguishes that from a benchmark that never ran.
+#   1. action registered in BCM      5. script decides to submit
+#   2. trigger registered + enabled  6. sbatch accepts the job
+#   3. trigger has the action bound  7. slurm can write the result
+#   4. script exists on the node
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 results_dir="$home/results"
 
-## Sourced for JOBS_DIR / HEALTHCHECKS_DIR / PARSERS_DIR / BENCHMARKS, checked
-## in section 0. Missing settings.sh is reported there rather than here so the
-## whole answer arrives in one place; the defaults it would have supplied are
-## not worth faking, because a tree without settings.sh cannot run anyway.
+## Absence is reported in section 0 rather than here, so the whole answer
+## arrives in one place. Nothing is faked: such a tree cannot run anyway.
 [[ -f "$home/settings.sh" ]] && source "$home/settings.sh"
 
 pattern="$1"
@@ -59,26 +43,19 @@ hdr()   { printf '\n=== %s ===\n' "$*"; }
 hdr "0. Deployed layout"
 ##############################################################################
 
-## Upstream of every link below: the tree on disk has to be the tree the
-## scripts expect. Since the job set, check set and parser set became
-## directories chosen by SETTINGS, "the deployment is stale" stopped being
-## visible as a missing file and became a missing *directory* one level down --
-## and a stale tree passes links 1-7 without complaint, because BCM is
-## registered correctly, the scripts exist, and the trigger fires. It just runs
-## the old code, or exits early looking for a path that moved.
-##
-## The tell for a pre-settings tree is verdict.sh sitting at the top level: it
-## lives in parsers/$PARSERS/ now, and launch_job.sh hard-exits without it.
+## Upstream of every link: a stale tree passes links 1-7 without complaint,
+## because BCM fires and the scripts exist -- they just look for paths that
+## moved when the job/check/parser sets became SETTINGS-chosen directories.
+## See docs/settings.md#which-set-of-things-to-run.
 if [[ -z "$SETTINGS_FILE" && ! -f "$home/settings.sh" ]]; then
     bad "settings.sh is missing from $home -- this tree predates the settings split"
     note "  the whole deployment is stale; nothing below is worth reading until it is replaced"
 else
     note "settings from ${SETTINGS_FILE:-<neither SETTINGS nor SETTINGS.default found>}"
 
-    ## A pause produces exactly the symptom this script gets run over -- the
-    ## triggers fire, the scripts run, and nothing happens -- so it is reported
-    ## before any of the links, not as a footnote. It is not counted as a
-    ## problem: it is a choice someone made, and the answer to the question.
+    ## A pause produces exactly the symptom this script gets run over, so it is
+    ## reported ahead of the links -- but not counted as a problem, since it is
+    ## a choice someone made. See docs/settings.md#pause-switches.
     for spec in "PAUSE_JOBS:benchmarks:$PAUSE_JOBS" \
                 "PAUSE_HEALTH_CHECKS:health checks:$PAUSE_HEALTH_CHECKS" \
                 "PAUSE_CONTAINER_COPY:container copy:$PAUSE_CONTAINER_COPY"; do
@@ -90,12 +67,9 @@ else
     done
     [[ -f "$home/verdict.sh" ]] && bad "verdict.sh is at the top level -- stale tree, it belongs in parsers/\$PARSERS/"
 
-    ## Both actions source this and both carry on without it -- deliberately,
-    ## since its absence must not stop a node testing. What it does mean is
-    ## that nothing clears a drain Slurm set itself, so nodes accumulate in
-    ## `drained` for failed prologs and rogue processes and the sequencer
-    ## reports each one as somebody else's drain. A tree from before the file
-    ## existed looks entirely healthy in every other section.
+    ## Both actions carry on without it by design, so a tree from before the
+    ## file existed looks healthy in every other section -- while nodes
+    ## accumulate in `drained`. See docs/settings.md#recovering-drains-slurm-set-itself.
     if [[ ! -f "$home/slurm-recovery.sh" ]]; then
         bad "slurm-recovery.sh is missing from $home -- this tree predates it"
         note "  nodes drained by Slurm itself (prolog, rogue process, no reason) will never be resumed"
@@ -116,11 +90,10 @@ else
         fi
     done
 
-    ## JOB_ENV reaches the jobs through sbatch --export, so a malformed entry
-    ## is dropped at submit time and the sweep runs without it -- visible in
-    ## trigger.log, but only on a cycle that submitted something. Report the
-    ## effective list here, where the configuration is being read anyway, and
-    ## apply the same test launch_job.sh applies rather than a looser one.
+    ## A malformed entry is dropped at submit time and only shows in
+    ## trigger.log on a cycle that submitted something, so report the effective
+    ## list here -- with launch_job.sh's exact test, not a looser one.
+    ## See docs/settings.md#what-is-rejected.
     if [[ -n "${JOB_ENV// /}" ]]; then
         bad_env=""; good_env=""
         # shellcheck disable=SC2086  # list-in-a-string, as BENCHMARKS is
@@ -135,17 +108,14 @@ else
         [[ -n "$bad_env" ]] && bad "JOB_ENV entries are not NAME=VALUE with a value of [A-Za-z0-9_.:/+@%-] and will be dropped:$bad_env"
     fi
 
-    ## launch_job.sh sources this and exits if it is absent, which shows up in
-    ## trigger.log as an exit rather than as a submission. Named separately
-    ## because it is the one file whose absence stops every node at once.
+    ## Named separately because it is the one file whose absence stops every
+    ## node at once: launch_job.sh exits before submitting anything.
     [[ -d "$PARSERS_DIR" && ! -f "$PARSERS_DIR/verdict.sh" ]] &&
         bad "$PARSERS_DIR/verdict.sh is missing -- launch_job.sh exits before submitting anything"
 
-    ## A benchmark named in BENCHMARKS with no .sbatch behind it is skipped per
-    ## node, per cycle, silently. After a job-set rename that is the whole sweep.
-    ## BURNIN is checked the same way and only when the phase is on -- a name
-    ## with no file behind it would otherwise leave every node reporting a
-    ## clean sweep and never burning in, with nothing said about why.
+    ## A name with no .sbatch behind it is skipped per node, per cycle, in
+    ## silence -- after a job-set rename, that is the whole sweep. BURNIN is
+    ## checked the same way, but only when the phase is on.
     if [[ -d "$JOBS_DIR" ]]; then
         missing=""
         for b in $BENCHMARKS; do
@@ -196,18 +166,15 @@ else
             bad "trigger $t is NOT registered -- run pre-post/create-action-trigger.sh"
             continue
         fi
-        ## `get <property>` and not `show` + awk. The show table pads the value
-        ## column with a variable number of spaces and renames properties
-        ## between BCM releases, so parsing it silently yields an empty string
-        ## -- which reads as "disabled, nothing bound" and sends you chasing a
-        ## registration that is in fact fine. get returns the bare value.
+        ## `get <property>`, never `show` + awk: show's padding and property
+        ## names drift between BCM releases, and parsing it silently yields ""
+        ## -- which reads as "disabled, nothing bound" on a healthy trigger.
         disabled=$(cmsh -c "monitoring trigger; use $t; get disabled" 2>&1 | tr -d '[:space:]')
         during=$(cmsh -c "monitoring trigger; use $t; get duringactions" 2>&1 | tr -d '\r')
         note "trigger $t: disabled=${disabled:-?} duringactions=${during:-<none>}"
         [[ "$disabled" == "no" ]] || bad "  $t is disabled -- it will never fire"
-        ## The failure create-action-trigger.sh calls out by name: the trigger
-        ## object exists and looks healthy, but has no action bound, so it
-        ## fires on every cycle and does nothing.
+        ## The failure create-action-trigger.sh calls out by name: the object
+        ## exists and looks healthy, fires every cycle, and runs nothing.
         grep -q "$want" <<<"$during" || bad "  $t has no '$want' bound -- fires but runs nothing"
     done
 fi
@@ -216,9 +183,9 @@ fi
 hdr "4. Node reachability and script presence"
 ##############################################################################
 
-## A node in down* is not running slurmd, so BCM may still fire the trigger
-## there but nothing will ever be scheduled onto it. Separate that population
-## out first -- otherwise "nothing is running" gets blamed on the trigger.
+## A node in down* is not running slurmd: the trigger may still fire there, but
+## nothing will ever be scheduled onto it. Separated out so that population
+## does not get blamed on the trigger.
 if command -v sinfo >/dev/null 2>&1; then
     while read -r state count; do
         [[ -z "$state" ]] && continue
@@ -236,14 +203,12 @@ fi
 hdr "5. What the script decided, per node"
 ##############################################################################
 
-## launch_job.sh appends a line per monitoring cycle to results/<node>/trigger.log
-## explaining what it did or why it stopped. No log at all means the script is
-## not being run on that node -- which points back at links 1-4, not at slurm.
+## No trigger.log at all means the script is not being run on that node --
+## which points back at links 1-4, not at slurm.
 shopt -s nullglob
-## $pattern is a glob by construction -- it is either '*' or the caller's node
-## filter with a trailing '*' appended above -- so it has to stay unquoted:
-## quoting it would look for one directory literally named '*'. This is
-## pathname expansion, not word splitting, so mapfile/read -a do not apply.
+## $pattern is a glob by construction and must stay unquoted; quoting looks for
+## a directory literally named '*'. Pathname expansion, not word splitting, so
+## mapfile/read -a do not apply.
 # shellcheck disable=SC2206
 nodes=("$results_dir"/$pattern/)
 if [[ "${#nodes[@]}" -eq 0 ]]; then
@@ -266,16 +231,10 @@ fi
 hdr "6-7. Ownership of the result path"
 ##############################################################################
 
-## BCM runs launch_job.sh as root on the node, so root recreates results/ and
-## results/<node>. sbatch then runs as cmods with --output into that directory.
-## If root's copy is mode 755, cmods cannot create the result file: sbatch
-## still returns a job id, slurm still schedules it, and the job dies at
-## startup with nowhere to write. The node goes back to idle with no result
-## file, no failure, and no archive -- indistinguishable from never having run.
-##
-## launch_job.sh now repairs this itself on every monitoring cycle, so a
-## root-owned directory here means either no cycle has run since the tree was
-## created, or the script is not reaching this node at all -- check section 5.
+## A root-owned result directory kills the job at startup with no symptom of
+## its own; see docs/sequencer.md#result-path-ownership. launch_job.sh repairs
+## it every cycle, so finding one here means no cycle has run since the tree
+## was created, or the script is not reaching this node -- check section 5.
 if [[ -d "$results_dir" ]]; then
     owner=$(stat -c '%U %a' "$results_dir")
     note "results/ owned by $owner"

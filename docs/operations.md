@@ -173,6 +173,11 @@ compressed and wrapped at range boundaries, so they paste straight into
 
 Nothing is contacted or re-run: it reports what the last health run concluded.
 
+A missing or dangling `valid-config/default` is reported first, above the
+groups, because it makes every check fail on every node that ran and none of
+those failures are real — the report under it is an artifact of the baseline,
+not a description of the cluster. Fix the baseline and read it again.
+
 ### `--summary`
 
 The default report answers "what do I fix". `--summary` answers "where does
@@ -255,6 +260,43 @@ lets Slurm put the node back to `idle` or `alloc` on its own. Setting
 `state=IDLE` directly is rejected from some states and skips that bookkeeping.
 These commands need privilege — see
 [Slurm permissions](sequencer.md#slurm-permissions).
+
+### Drains that clear themselves
+
+Some of the drains in `sinfo -R` will go away without anyone touching them, and
+knowing which is the difference between waiting a cycle and resuming a node by
+hand. `slurm-recovery.sh` runs inside both actions and sorts every drain reason
+into one of four classes:
+
+| Class | The reason says | Who clears it |
+|-------|-----------------|---------------|
+| `marker` | it carries `DRAIN_MARKER` — this framework drained the node over a benchmark | `launch_job.sh`, once the benchmarks pass |
+| `health` | it is a list of check names — `node_health.sh` drained the node | `node_health.sh`, on a clean run |
+| `machine` | it matches `RECOVER_REASONS` (prolog, epilog, rogue process, failed launch, unexpected reboot), or it is empty | the recovery, subject to the gates below |
+| `operator` | anything else | nobody, ever |
+
+**Operator drains are never cleared by anything in this tree**, and that is the
+distinction the whole classification exists to protect. A node somebody took out
+of service and a node Slurm drained over a lost epilog race look the same in
+`sinfo`, and resuming the first one puts work back on a machine somebody is
+standing in front of — invisibly, because the node returns to `idle` with the
+reason gone and nothing left to say it was ever drained on purpose. A drain set
+from a named admin account is left alone whatever its text says, and so are
+`maint`, `reserved`, `planned` and `fail`. Free-text prose in the reason
+(`waiting on RMA`, `bad NVLink, do not use`) is what keeps a drain out of the
+`machine` class; the classification and its limits are in
+[settings.md](settings.md#recovering-drains-slurm-set-itself), and
+`tests/recover-test.sh` holds a case for each of them.
+
+A `machine` drain is still only cleared once the condition behind it is gone —
+`slurmd` answering, no compute processes left holding the GPUs, no job still
+assigned. A node put back while still broken is re-drained within the minute,
+and it is capped at `RECOVER_MAX_ATTEMPTS` inside `RECOVER_WINDOW_HOURS` for
+that reason. Past the cap the drain is left exactly as Slurm set it rather than
+re-drained under our own marker, which would only start the flapping again by
+another route. Every decision, including the ones that changed nothing, is
+written to `results/<node>/recover.log` and traced — so a node that is not
+coming back says why, in the same place everything else does.
 
 ## Pausing everything
 
@@ -357,6 +399,15 @@ Two scripts, and the order matters. `trigger-log.sh` reads the record the
 sequencer already wrote; `trigger-debug.sh` inspects the configuration that
 should be producing it. Read the record first — it tells you which of the two
 failures you have, and they are indistinguishable from the outside:
+
+Fresh traces settle it on their own. Every gate the sequencer evaluates writes a
+line to `results/<node>/trigger.log` before it stops, so a log written this cycle
+means BCM fired, the action ran and the script reached a decision — the chain is
+intact by definition, and whatever is holding the cluster is a gate that has
+already named itself in section 2. There is nothing for `trigger-debug.sh` to
+find in that case; it answers the other one, where the traces are stale, nothing
+is writing them, and the question is which link between BCM and `sbatch` is
+broken.
 
 ```bash
 bash trigger-log.sh                       # whole cluster
@@ -469,3 +520,29 @@ rm -rf results                       # everything, gone
 Safe at any time — the tree is recreated and re-owned on the next monitoring
 cycle. See [result-path ownership](sequencer.md#result-path-ownership) for why
 ownership matters and how to fix a tree immediately.
+
+`single-node-purge.sh` removes `results/<node>` outright, per node: the current
+result file for every benchmark, every `.fail<N>.txt` and `.prev<N>.txt`
+archive, `quick-view.txt`, `trigger.log` and `recover.log`. The node is then
+`NOT_RUN` in every column with no history behind it, and the next sweep re-runs
+the full benchmark set from scratch. Arguments are node names or nodelists
+(`node00[1-18]`), expanded through `scontrol show hostnames`, and several may be
+given at once; a name with no results directory is reported and skipped rather
+than passed silently.
+
+That is the right move after a hardware change — a swapped GPU, a reseated
+cable, new firmware — where the results on disk describe a machine that no
+longer exists and would otherwise keep a node in `RETRY` against failures it has
+already grown out of. It also resets the recovery rate limit, since the log the
+cap is counted from goes with the directory.
+
+What it does not touch is the health side: `logs/<node>` and the
+`valid-config/default` baseline survive, so a purge re-runs the benchmarks and
+changes nothing about what `node_health.sh` concluded. To redo that half, use
+`node-health-refresh.sh`.
+
+Do not purge a node with a benchmark in flight. `sbatch --output` is already
+holding that file open, so the running job writes into a directory that no
+longer exists and the result never appears — which reads afterwards as a job
+that ran and produced nothing. Check with `squeue -h -n bringup-<node>` first,
+or purge after the sweep is idle.

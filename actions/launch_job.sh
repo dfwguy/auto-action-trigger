@@ -4,19 +4,9 @@
 
 ## ── Settings ──────────────────────────────────────────────────────────────
 ##
-## Everything configurable lives in SETTINGS (or SETTINGS.default when a site
-## has not made one). BCM invokes this script by absolute path with no working
-## directory to infer from, so the checkout is located the same way it always
-## was -- by the hardcoded path below -- and the settings are read from there.
-##
-## This gives us: BENCHMARKS, BURNIN, RUN_BURNIN, JOBS_DIR, PARSERS_DIR,
-## JOB_USER, MAX_JOB_HOURS, RETRY_INTERVAL_HOURS, DRAIN_WINDOW_MINUTES,
-## DRAIN_MARKER, PAUSE_JOBS, and DRAIN_AFTER_FAILED_BENCHMARK.
-##
-## A missing settings.sh is fatal rather than defaulted. Without it BENCHMARKS
-## is empty, the sweep finds nothing pending on every node, and the whole
-## cluster reads as "every benchmark passing" -- a silent stop, which is the
-## one failure mode the tracing below exists to prevent.
+## Hardcoded path: BCM invokes this by absolute path with no working directory
+## to infer from. Missing settings.sh is fatal rather than defaulted -- an empty
+## BENCHMARKS reads as "everything passing" on every node. See docs/settings.md.
 home=/home/cmods/bringup
 if [[ ! -f "$home/settings.sh" ]]; then
     echo "ERROR: $home/settings.sh is missing -- refusing to run, because an" >&2
@@ -25,128 +15,37 @@ if [[ ! -f "$home/settings.sh" ]]; then
 fi
 source "$home/settings.sh"
 
-## Retry policy.
-##
-## Once an hour, every benchmark in BENCHMARKS that does not have a passing
-## result is queued, in listed order. Slurm runs them back to back on the node.
-## There is no retry limit -- a node keeps being re-tested until it passes or an
-## operator intervenes.
-##
-## Two lists, both surveyed every cycle. BENCHMARKS always runs; BURNIN runs
-## when RUN_BURNIN is on. They are separate lists rather than one longer
-## BENCHMARKS because they answer different questions on different timescales
-## -- "does this node work", in minutes, and "does it keep working", in days --
-## and because the queue has to be able to tell them apart.
-##
-## What orders them is Slurm priority, not a gate, and each job states its own
-## in `#SBATCH --nice`: 0 for the dcgm gates, 20 for the rest of the sweep,
-## 100000 for mnubergemm -- large enough that a burn-in is always behind any
-## benchmark in the queue. Burn-in was gated behind a clean sweep before, which
-## made the ordering absolute at the cost of making it rigid: a node failing
-## one benchmark could never start burning in, and a node three days into a
-## burn-in could not pick up a benchmark retry until it finished.
-##
-## The limit of doing it with priority is that priority does not preempt.
-## Everything here is --exclusive, so a burn-in run that has already started
-## holds the node until it ends -- up to MAX_JOB_HOURS. A benchmark submitted
-## behind it goes ahead of the remaining burn-in runs, not ahead of the one on
-## the node. On the shipped list that is a wait of one ~6h run rather than of
-## twelve. A site that needs a benchmark to interrupt a running burn-in needs
-## Slurm preemption (PreemptType/PreemptMode with the two lists in different
-## partitions or QOSes), which is a scheduler configuration and not something
-## this script can arrange.
-##
-## This script fires on every BCM monitoring cycle, so the hourly cadence needs
-## no cron and no second trigger -- just a time gate. Retry state is derived
-## entirely from files already on disk: the newest result file's mtime is when
-## the last sweep ran, and prior failures are archived as <job>.fail<N>.txt.
-## There is no state file to keep in sync.
-##
-## The node is drained only once a full sweep has been attempted -- every
-## benchmark has run at least once and something is still not passing. A single
-## failure mid-sweep does not drain, so the rest of the sweep still runs and one
-## bad test does not hide the state of the others.
-##
-## The drain reason carries a marker, and only drains carrying that marker are
-## ever cleared. An operator drain is never auto-resumed, and a node already
-## drained for another reason is left alone.
-## A drain only fires on failures that just happened -- results newer than
-## DRAIN_WINDOW_MINUTES. Without that window the script would re-drain from
-## stale result files on every cycle, so a node an operator had resumed would
-## be pulled straight back out of service. Failures only take the node down
-## again once a fresh retry sweep has failed again.
-##
-## Keep DRAIN_WINDOW_MINUTES above the BCM monitoring interval, or the drain is
-## missed entirely, and well below RETRY_INTERVAL_HOURS. Both, along with
-## MAX_JOB_HOURS and DRAIN_MARKER, are set in SETTINGS.
+## Retry and drain policy, the two lists, and how the ordering between them is
+## expressed: docs/sequencer.md#retry-and-drain-behaviour and
+## docs/sequencer.md#two-lists.
 
 ## set paths
 logs="$home/results/$HOSTNAME"
 quickview="$logs/quick-view.txt"
 tracelog="$logs/trigger.log"
 
-## Slurm job names, one per list. Both are per-node because every queue query
-## below is per-node, and they are distinct from each other because the two
-## lists are queued at the same time and have to be counted, cancelled and
-## reasoned about separately. Anything matching neither is somebody else's job.
+## Per-node and distinct per list: the two lists are queued at once and have to
+## be counted and cancelled separately. Anything matching neither is somebody
+## else's job. See docs/sequencer.md#two-lists.
 JOB_NAME_BENCH="bringup-$HOSTNAME"
 JOB_NAME_BURNIN="burnin-$HOSTNAME"
 
 ## ── Tracing ───────────────────────────────────────────────────────────────
 ##
-## Every gate below can end the run with a plain `exit 0`, which is correct --
-## the trigger re-fires on every monitoring cycle and most cycles have nothing
-## to do. But it also means a node that has silently stopped testing looks
-## exactly like a node that is quietly idle: no output, no exit code, nothing
-## in a log. Each decision is therefore recorded, so "nothing is running"
-## always has a written reason next to it.
+## Every gate below can end the run with a plain `exit 0`, and a node that has
+## silently stopped testing looks exactly like one that is quietly idle. So
+## every decision is written down instead.
 ##
-## `launch_job.sh --explain` mirrors the trace to stdout and makes the run a
-## dry run: state is read, but no sbatch, drain, or resume is issued and no
-## result file is archived. Safe to run by hand on a node while the trigger is
-## live -- it cannot queue a duplicate job or move a result out from under one.
-##
-## The other two flags are for an operator standing in front of a node who does
-## not want to wait for the next cycle. BCM passes no arguments, so the trigger
-## never takes either path.
-##
-##   --force  ignore the hourly gate and sweep now. Everything that is not
-##            passing is queued, exactly as the next open cycle would have
-##            queued it -- the gate decides *when*, and this answers "now".
-##   --all    additionally re-queue jobs that are already passing, so the node
-##            is swept from scratch. Implies --force, because a full re-sweep
-##            held behind the hourly gate would do nothing at all.
-##
-## What neither flag overrides, deliberately:
-##
-##   PAUSE_JOBS         a site-wide switch, not a timing gate. Forcing past it
-##                      would defeat the one setting that means "stop".
-##   an operator drain  the same argument as in the gate below: queueing behind
-##                      somebody's drain dumps the batch the moment they resume.
-##                      Our own auto-retry drain is still cleared and swept.
-##   our own queue      a forced submit on top of a queued batch is how a node
-##                      ends up running the same benchmark twice. The trace
-##                      names the jobs to scancel if that is what is wanted.
-##
-## Every decision below is about $HOSTNAME and nothing else -- the trigger fires
-## on the node it is deciding about, and this script has no idea how to reach
-## another one. So there is no node argument: a list belongs in the pdsh that
-## invokes this, not in this.
-##
-## Which makes anything unrecognised fatal, and fatal here rather than traced.
-## An argument this does not understand is an instruction that will not be
-## carried out, and the run that follows would be a sweep of whatever node the
-## command happened to be typed on -- the head node, usually, which is not in
-## Slurm and exits reporting so into a log file nobody is looking at. That reads
-## as a command that worked. Exit 2 with the reason on stderr instead. BCM
-## passes no arguments and cannot trip this.
+## The flags, and what --force deliberately does not override, are in
+## docs/sequencer.md#running-it-by-hand. There is no node argument -- the
+## trigger fires on the node it is deciding about -- so an unrecognised argument
+## is fatal here rather than traced: the run that followed would sweep whatever
+## node the command was typed on and report success from a log nobody reads.
 EXPLAIN=0
 FORCE=0
 FORCE_ALL=0
-## Mirror the trace to stdout, so a hand-run says what it decided rather than
-## only writing it down. On by default when stdout is a terminal and never when
-## it is not: BCM's action output goes nowhere anyone reads, and neither does
-## pdsh's until you ask for it with -v.
+## Default on for a terminal, off otherwise: BCM's action output goes nowhere
+## anyone reads, and neither does pdsh's until you ask with -v.
 VERBOSE=0; [[ -t 1 ]] && VERBOSE=1
 usage() {
     cat <<'USAGE'
@@ -184,22 +83,14 @@ done
 
 mkdir -p "$logs"
 
-## The append is allowed to fail: a hand-run as $JOB_USER should print its trace
-## rather than die on the log file, and the log file is very often not writable
-## by them. root's cycles create trigger.log and quick-view.txt, so they end up
-## root-owned at 644 inside a $JOB_USER-owned directory -- fixed for good by
-## ensure_owned below, but only from the next root cycle, and only for a tree
-## that still gets them.
+## Tested once, not per line, and a run that cannot write anything down says
+## everything out loud instead -- otherwise it is silent in both directions at
+## once. root's cycles leave trigger.log root-owned inside a $JOB_USER-owned
+## directory, so a hand-run as $JOB_USER very often cannot append.
 ##
-## Tested once, not per line, and the result decides where the trace goes: a run
-## that cannot write anything down has to say everything out loud, or it is
-## silent in both directions at once, which is the state this whole mechanism
-## exists to make impossible.
-##
-## `>> file 2>/dev/null` does NOT suppress the failure. Redirections are opened
-## left to right, so the append fails while stderr is still the terminal and
-## bash reports it there -- once per traced line, which over a pdsh of a rack is
-## the only thing you see.
+## The braces matter: `>> file 2>/dev/null` does NOT suppress the failure.
+## Redirections open left to right, so the append fails while stderr is still
+## the terminal and bash reports it there, once per traced line.
 TRACE_WRITABLE=-1
 trace_writable() {
     [[ "$TRACE_WRITABLE" -ge 0 ]] && return "$TRACE_WRITABLE"
@@ -233,26 +124,10 @@ force_note=""
 
 ## ── Extra environment for the jobs ────────────────────────────────────────
 ##
-## JOB_ENV is a space-separated NAME=VALUE list from SETTINGS, appended to the
-## sbatch --export below so a site can set something like NCCL_DMABUF_ENABLE=0
-## across the whole sweep without editing every jobs/*.sbatch.
-##
-## It is validated rather than pasted, because the submission is built as a
-## string and run through `su - $JOB_USER -c`. Everything in a hand-edited
-## SETTINGS is shell that root has arranged to have run, so the value is an
-## allowlist -- letters, digits, and `_.:/+@%-` -- rather than a list of
-## characters to exclude. A blocklist here has to be right about every
-## metacharacter at once; `NCCL_X=0;id` is a plausible typo and would be a
-## rejected-benchmark-shaped hole that runs as root on 200+ nodes. The
-## allowlist also settles globbing: no `*` or `?` survives to be expanded.
-##
-## Commas are excluded for a second, duller reason -- --export is itself a
-## comma-separated list, so a value carrying one silently becomes two entries.
-##
-## Anything that does not match is dropped with its own trace line: the sweep
-## still runs, and the reason it ran without your variable is written down next
-## to it rather than being nothing at all. A value that genuinely needs a comma
-## or a space belongs in the .sbatch, which is a file and not a list.
+## An allowlist rather than a blocklist: the submission is built as a string and
+## run through `su - $JOB_USER -c`, so a plausible typo like `NCCL_X=0;id` would
+## run as root on 200+ nodes. Commas are out because --export is itself
+## comma-separated. See docs/settings.md#what-is-rejected.
 JOB_ENV_ARGS=""
 JOB_ENV_NAMES=()
 ## Unquoted on purpose -- this is the list-in-a-string convention BENCHMARKS
@@ -268,33 +143,21 @@ for _pair in $JOB_ENV; do
 done
 unset _pair
 
-## A forced run is a human decision, and the trace has to say so: without this
-## line, an hour of results appearing off-cadence -- or a passing job suddenly
-## re-running -- reads as the sequencer misbehaving.
+## Without this line, results appearing off-cadence -- or a passing job suddenly
+## re-running -- reads as the sequencer misbehaving rather than as a human.
 [[ "$FORCE" -eq 1 ]] &&
     trace "MANUAL: --force -- hourly gate bypassed$([[ "$FORCE_ALL" -eq 1 ]] && printf ', --all -- passing jobs re-queued too')"
 
 ## ── Hand the result path to $JOB_USER ─────────────────────────────────────
 ##
-## BCM runs this script as root, but the benchmarks are submitted with
-## `su - $JOB_USER` and sbatch writes its --output as that user. So when root
-## is the one that creates results/ or results/<node>, they land root-owned at
-## mode 755 and $JOB_USER cannot create a file inside. sbatch still returns a
-## job id and slurm still schedules the job -- it dies at startup with nowhere
-## to write its output. The node goes back to idle with no result file, no
-## FAIL, and no archive: identical, from every angle, to never having run.
-##
-## This is not hypothetical. Clearing results/ by hand is a normal thing to do
-## between bringup passes, and the very next monitoring cycle has root recreate
-## the tree. So rather than only getting ownership right on creation, fix it on
-## every cycle: `mv results results.old` or `rm -rf results` is then a safe
-## operation, and any tree already broken repairs itself without intervention.
+## Re-checked every cycle, not just on creation, so clearing results/ by hand is
+## safe and an already-broken tree repairs itself.
+## See docs/sequencer.md#result-path-ownership.
 ensure_owned() {
     local d="$1"
     [[ -d "$d" ]] || mkdir -p "$d" 2>/dev/null || return 1
     [[ "$(stat -c %U "$d" 2>/dev/null)" == "$JOB_USER" ]] && return 0
-    ## Only root can hand a directory over. Running by hand as an unprivileged
-    ## user, this is a diagnosis rather than something we can act on.
+    ## Only root can hand a directory over; anyone else gets a diagnosis.
     if [[ "$EUID" -ne 0 ]]; then
         trace "WARNING: $d is owned by $(stat -c %U "$d" 2>/dev/null), not $JOB_USER, and we are not root -- sbatch --output will fail"
         return 0
@@ -303,12 +166,9 @@ ensure_owned() {
     chown "$JOB_USER:$JOB_USER" "$d" 2>/dev/null
 }
 
-## The same repair, for the two files this script writes itself. A directory
-## handed to $JOB_USER is not enough: root's cycle creates trigger.log and
-## quick-view.txt inside it, and they stay root-owned at 644, so the operator
-## who runs this by hand gets "Permission denied" per traced line from a tree
-## whose permissions otherwise look right. Also fixed on every cycle rather than
-## on creation, so a tree already in that state repairs itself.
+## The same repair for the two files this script writes itself: a handed-over
+## directory is not enough, since root's cycle creates trigger.log and
+## quick-view.txt inside it root-owned at 644.
 ensure_file_owned() {
     local f="$1"
     [[ -e "$f" ]] || return 0
@@ -326,9 +186,8 @@ ensure_file_owned "$quickview"
 source /etc/profile.d/modules.sh
 module load slurm
 
-## The trigger runs this with BCM's environment, not a login shell. If the
-## slurm module did not give us the client tools, every downstream check reads
-## as "node not in slurm" and the script exits looking perfectly healthy.
+## BCM's environment, not a login shell. Without the client tools every check
+## below reads as "node not in slurm" and the script exits looking healthy.
 for tool in sinfo squeue scontrol sbatch; do
     command -v "$tool" >/dev/null 2>&1 || {
         trace "EXIT: $tool not on PATH after 'module load slurm' (PATH=$PATH)"
@@ -338,30 +197,9 @@ done
 
 ## ── Pause ─────────────────────────────────────────────────────────────────
 ##
-## PAUSE_JOBS=yes stops the sequencer here: nothing is submitted, nothing is
-## drained, nothing is resumed, and no result is archived. Results already on
-## disk are left exactly as they are, so unpausing resumes the sweep rather
-## than restarting it.
-##
-## Pausing has to reach the queue as well, or it is not a pause. The trigger
-## fires every monitoring cycle but the batch it already submitted sits in
-## Slurm for hours, so gating submission alone leaves the cluster running
-## benchmarks for the rest of the sweep. Two populations, handled differently:
-##
-##   PENDING -- cancelled. A pending job has produced nothing, and the next
-##              unpaused sweep queues it again from the same survey, so this
-##              costs a queue slot and no results.
-##   RUNNING -- left to finish. It holds the node exclusively and has been
-##              writing to its result file for some time; killing it turns
-##              hours of burn-in into a truncated log that the gate reads as
-##              INCOMPLETE, which is indistinguishable from a node that
-##              crashed mid-benchmark. The id is traced so an operator who
-##              wants the node back now can scancel it deliberately.
-##
-## Only jobs carrying one of our two names are ever cancelled -- the same name
-## queries the queue check below uses, and both of them, so a pause stops the
-## burn-in as well as the sweep. Somebody else's job on this node is not ours
-## to stop, and a pause is not a reason to touch it.
+## A pause has to reach the queue too, or it is not a pause: pending jobs are
+## cancelled, a running one is left to finish, and only our two job names are
+## ever touched. See docs/settings.md#pause-switches.
 if setting_enabled "$PAUSE_JOBS"; then
     paused_queue=$( { squeue -h -n "$JOB_NAME_BENCH"  -o '%i %T %M' 2>/dev/null
                       squeue -h -n "$JOB_NAME_BURNIN" -o '%i %T %M' 2>/dev/null
@@ -401,42 +239,27 @@ result_file() {
     fi
 }
 
-## Move a result aside so the slot is free for the next attempt. The archives
-## double as the per-job attempt history.
-##
-## Two suffixes, because the archive name is read as a verdict and not just as
-## a serial number: status-check.sh counts <job>.fail<N>.txt to report how many
-## times a column has been rejected, and re-judges the newest one to turn a
-## column with no current file into `RETRY <- <reason>`. A passing result that
-## --all is re-running is neither of those things, so it archives as
-## <job>.prev<N>.txt -- kept, and counted against nothing.
+## Move a result aside so the slot is free for the next attempt; the archives
+## double as the attempt history. Two suffixes because status-check.sh reads the
+## name as a verdict -- it counts .fail<N> as rejections, and a pass that --all
+## re-runs is not one. See docs/sequencer.md.
 archive_result() {
     local file="$1" kind="${2:-fail}" base n
     [[ -f "$file" ]] || return 0
     base=$(basename "$file" .txt)
-    ## The serial has to be the count of archives of exactly this shape, and only
-    ## a regex says that -- a glob cannot spell "one or more digits", so
-    ## <base>.fail[0-9]*.txt would also swallow a hand-renamed <base>.fail2-bad.txt
-    ## and push the serial past it. Undercount and the mv below destroys an
-    ## earlier attempt; overcount and status-check.sh reports rejections that
-    ## never happened. Every name in here was written by result_file() out of a
-    ## BENCHMARKS entry and a fixed suffix, so the odd filenames SC2010 guards
-    ## against cannot arise. A missing or empty $logs lists nothing and leaves
-    ## n=0, which is the right answer for a first archive.
+    ## ls|grep, not a glob: the serial must count archives of exactly this shape
+    ## and a glob cannot spell "one or more digits", so <base>.fail[0-9]*.txt
+    ## would swallow a hand-renamed <base>.fail2-bad.txt and the mv below would
+    ## destroy an earlier attempt. Every name here came from result_file(), so
+    ## the odd filenames SC2010 guards against cannot arise.
     # shellcheck disable=SC2010
     n=$(ls "$logs" 2>/dev/null | grep -cE "^${base}\.${kind}[0-9]+\.txt$")
     mv "$file" "$logs/${base}.${kind}$((n + 1)).txt"
 }
 
-## Drain only if the node is currently usable and not already drained by us.
-## A node drained for any other reason is left alone.
-##
-## DRAIN_AFTER_FAILED_BENCHMARK=no in SETTINGS disables every drain this script
-## would issue, including the MAX_JOB_HOURS timeout drain. Testing continues
-## exactly as before — results are still recorded and failures still retry
-## hourly — the node is just never taken out of service. The suppressed drain
-## is still traced, so the trigger log answers "what would this have done" for
-## a site running with drains off.
+## Drain only a node that is currently usable; anything already drained is left
+## alone. DRAIN_AFTER_FAILED_BENCHMARK=no suppresses every drain here, including
+## the timeout one, but still traces it. See docs/settings.md#drains.
 drain_node() {
     local reason="$1"
     setting_enabled "$DRAIN_AFTER_FAILED_BENCHMARK" || {
@@ -471,24 +294,10 @@ trace "state=$(printf '%s' "$state" | tr '\n' ',') explain=$EXPLAIN"
 
 ## ── Drains Slurm set itself ───────────────────────────────────────────────
 ##
-## Before anything else looks at the node state: a node drained for a failed
-## prolog, a rogue process left by the previous job, or nothing written down at
-## all is a node with nothing wrong with it, and every gate below would
-## otherwise read it as unusable and stop -- correctly, and permanently, since
-## nothing in this script ever cleared a drain it did not set.
-##
-## Only the `machine` class is accepted here. A health-check drain belongs to
-## node_health.sh, which is the only thing that knows whether the check passes
-## now; our own $DRAIN_MARKER drain belongs to resume_node() below, which
-## clears it when the benchmarks pass; an operator drain belongs to the
-## operator. slurm-recovery.sh has the full argument.
-##
-## Placed after the PAUSE_JOBS gate on purpose: a pause means this script
-## touches Slurm in neither direction, and a resume is touching Slurm.
-##
-## The state is re-read on success rather than assumed, so the rest of the
-## cycle -- the drain gate, the submit gate, quick-view -- proceeds against
-## what the scheduler actually holds now.
+## Cleared before any gate below reads the node state, and only the `machine`
+## class -- every other drain belongs to whoever set it. After the PAUSE_JOBS
+## gate on purpose: a resume is touching Slurm. The state is re-read rather than
+## assumed. See docs/sequencer.md#drains-slurm-set-itself.
 if [[ -f "$home/slurm-recovery.sh" ]]; then
     recover_log() { trace "$@"; }
     RECOVER_ACCEPT="machine"
@@ -501,52 +310,25 @@ if [[ -f "$home/slurm-recovery.sh" ]]; then
         trace "state after recovery=$(printf '%s' "$state" | tr '\n' ',')"
     fi
 else
-    ## Named rather than skipped quietly: this is the tell for a deployment
-    ## that predates the file, and its absence is invisible from the outside --
-    ## nodes simply stay drained, exactly as they did before it existed.
+    ## Named rather than skipped quietly: the tell for a deployment predating
+    ## the file, whose absence is otherwise invisible -- nodes just stay drained.
     trace "WARNING: $home/slurm-recovery.sh is missing -- drains set by Slurm itself (prolog, rogue process, no reason) will not be cleared. Stale deployment?"
 fi
 
-## If a job of ours is anywhere in the queue for this node -- running or still
-## pending -- wait. The queue is asked two ways, and both are load-bearing.
+## Wait if anything of ours is queued for this node. Asked per list by name and
+## once by node, and why each query is load-bearing:
+## docs/sequencer.md#retry-and-drain-behaviour.
 ##
-## `-w $HOSTNAME` matches on the node a job is *assigned* to, and the scheduler
-## only assigns one once the job is about to run. Our batch is submitted with
-## `-w` as a constraint, not an assignment, so while the node is down or
-## drained the entire queued batch is invisible to that query. The sweep then
-## saw an idle node with no passing results and submitted the whole list again,
-## every hour, with nothing ever draining the pile: nine nodes reached ~35
-## queued jobs each before anyone noticed.
-##
-## `-n <name>` matches on the job names every submission below carries, so our
-## batch is visible from the moment sbatch returns, wherever the scheduler has
-## or has not placed it. That is the query that closes the requeue loop. The
-## node query stays, because it catches the one thing the name queries cannot:
-## somebody else's job occupying the node, which is still a reason not to pile
-## benchmarks on top of it.
-##
-## The two lists carry different names -- bringup-<node> and burnin-<node> --
-## and that is what lets them be queued at the same time. "Is anything of ours
-## out there" was one question when there was one list; with two it has to be
-## asked per list, or a burn-in sitting in the queue for three days would block
-## every benchmark retry behind it and the jobs' nice values would never get a
-## chance to matter. The names are also worth having in `squeue` on their own:
-## an operator can see which of the two a node is doing, and stop just the
-## burn-in with `scancel -n burnin-<node>`.
-##
-## %V (submit time) and %r (why the scheduler has not started it) come last and
-## in that order, because a Slurm reason is free text with spaces in it -- "launch
-## failed requeued held" is one field. Everything that reads these lines takes
-## $1..$4 positionally and the reason as the remainder, so nothing may be added
-## after %r.
+## %V and %r come last and in that order: a Slurm reason is free text with
+## spaces in it, so everything reading these lines takes $1..$4 positionally and
+## the reason as the remainder. Nothing may be added after %r.
 queue_fmt='%i %T %M %V %r'
 mine_bench=$(squeue -h -n "$JOB_NAME_BENCH"  -o "$queue_fmt" 2>/dev/null)
 mine_burnin=$(squeue -h -n "$JOB_NAME_BURNIN" -o "$queue_fmt" 2>/dev/null)
 
-## One queued job, rendered for a trace line, reason included -- which is the
-## only part of a stuck queue that says anything. RUNNING and cleanly-schedulable
-## jobs report "None" and are left out, so this is empty on a healthy cycle and
-## the trace stays one line.
+## The scheduler's reason is the only part of a stuck queue that says anything.
+## Cleanly-schedulable jobs report "None" and are left out, so this is empty on
+## a healthy cycle and the trace stays one line.
 queue_detail() {
     awk 'NF >= 5 {
              reason = $5
@@ -558,33 +340,11 @@ queue_detail() {
 
 ## ── Jobs the scheduler has given up on ────────────────────────────────────
 ##
-## A failed launch -- slurmd not answering at the moment the scheduler tried to
-## start the job -- does not fail the job. Slurm requeues it and *holds* it. A
-## held job reads as PENDING to every query above while carrying priority 0: it
-## will never start, however healthy the node becomes. The busy gate below then
-## waits on it forever and the node sits idle, tracing "waiting on our own
-## queue" every cycle -- true, useless, and exactly the silence this script
-## exists to prevent. Seen for real on ink50-dh01-h22-34, whose slurmd flapped
-## for two minutes and whose sweep then stopped for good.
-##
-## Cancelling one is safe on ownership grounds without any further check: the
-## queue was matched by name, so every id here is bringup-<node> or
-## burnin-<node>, ours by construction. Anyone else's work is $foreign below and
-## is never touched.
-##
-## An operator's own hold (JobHeldUser / JobHeldAdmin) is left alone. It is the
-## same PENDING-at-priority-0, but a person chose it, and a script that cancels
-## a hold is a script that argues with whoever set it. It gets named in the
-## trace instead, which is all it needs.
-##
-## The retry cadence is taken from the job's own submit time rather than a
-## counter on disk: a held job is cancelled only once it has sat for
-## RETRY_INTERVAL_HOURS. Its replacement carries a fresh timestamp, so a node
-## that genuinely cannot launch anything retries hourly rather than every
-## monitoring cycle -- and this script gets to remember nothing between runs.
-## Without that bound it would be a resubmit loop every 30s: the hourly gate
-## further down keys off result mtime, and a job that never ran writes no
-## result, so that gate stays open and would not slow this down at all.
+## A held job reads as PENDING at priority 0 and never starts, so the busy gate
+## below would wait on it forever. Ours by construction (matched by name), so
+## cancelling is safe; an operator's own hold is only named in the trace, and
+## the cadence comes from the job's own submit time.
+## See docs/sequencer.md#jobs-the-scheduler-has-given-up-on.
 LAUNCH_FAILED_HELD='launch failed requeued held'
 
 reap_held_jobs() {
@@ -626,9 +386,8 @@ reap_held_jobs() {
 reap_held_jobs "$mine_bench";  bench_reaped=$reaped
 reap_held_jobs "$mine_burnin"; burnin_reaped=$reaped
 
-## Re-ask rather than editing the lists in place: scancel is asynchronous and
-## the busy gate must act on what the scheduler actually holds now, not on what
-## this script believes it cancelled.
+## Re-ask rather than editing the lists in place: scancel is asynchronous, and
+## the busy gate must act on what the scheduler holds now.
 [[ "$bench_reaped"  -eq 1 ]] && mine_bench=$(squeue -h -n "$JOB_NAME_BENCH"  -o "$queue_fmt" 2>/dev/null)
 [[ "$burnin_reaped" -eq 1 ]] && mine_burnin=$(squeue -h -n "$JOB_NAME_BURNIN" -o "$queue_fmt" 2>/dev/null)
 
@@ -644,12 +403,9 @@ if [[ -n "$foreign" ]]; then
     exit 0
 fi
 
-## Only a RUNNING job has an elapsed time worth measuring. A PENDING one reads
-## 0:00 for as long as it waits, so feeding it to the MAX_JOB_HOURS check would
-## compare 0 against the limit forever -- harmless, but it also means a backlog
-## behind a dead node must never be mistaken for a stuck job and drained on
-## that basis. The node is already unusable; draining it for "timeout" would
-## just bury the real reason.
+## RUNNING only: a PENDING job reads 0:00 for as long as it waits, so a backlog
+## behind a dead node must never be drained as a stuck job -- that would bury
+## the real reason. See docs/sequencer.md#retry-and-drain-behaviour.
 if [[ -n "$mine" ]]; then
     running=$(awk '$2 == "RUNNING" { print; exit }' <<<"$mine")
     if [[ -n "$running" ]]; then
@@ -676,14 +432,10 @@ burnin_busy=0; [[ -n "$mine_burnin" ]] && burnin_busy=1
 trace "queue: bench=$(grep -c . <<<"$mine_bench") burnin=$(grep -c . <<<"$mine_burnin")${running:+ running=${elapsed}}$(queue_detail "$mine")"
 
 ## ── Survey what has and has not passed ────────────────────────────────────
-## A job passes when verdict() returns DONE for every one of its runs. Anything
-## else — FAIL, truncated output from a crashed node, or no file at all — is not
-## a pass and gets queued again on the next sweep.
-##
-## The verdict is derived from the log here, on every sweep, rather than read
-## from a marker the sbatch wrote at run time. That is deliberate: a result
-## judged by an older, looser gate is re-judged by the current one instead of
-## keeping its original pass forever. See the header of verdict.sh.
+## A job passes when verdict() returns DONE for every run. The verdict is
+## re-derived from the log on every sweep rather than read from a marker the
+## sbatch left, so a result that passed an older, looser gate does not keep its
+## pass forever. See the header of verdict.sh.
 
 if [[ ! -f "$PARSERS_DIR/verdict.sh" ]]; then
     trace "EXIT: $PARSERS_DIR/verdict.sh is missing -- it carries the pass/fail rule"
@@ -702,17 +454,14 @@ declare -A job_runs=()
 declare -A fail_reasons=()
 newest_result=0
 swept=1
-## Survey one list. pending_jobs / failed_jobs / swept are per-list and reset
-## on each call; fail_reasons, job_runs and newest_result accumulate, because
-## they are keyed by job or are properties of the node rather than of a list.
+## Survey one list. pending_jobs / failed_jobs / swept reset on each call;
+## fail_reasons, job_runs and newest_result accumulate, being keyed by job or
+## properties of the node.
 ##
-## $2 is whether jobs from this list are currently in the queue. If they are,
-## the results on disk are being written right now, and a file with no end
-## marker yet is a job in progress rather than a job that died -- so the survey
-## still runs (quick-view has to say something about every job) but its
-## per-run failure lines are not traced, because "INCOMPLETE" logged once a
-## cycle for six hours reads as a node failing when it is a node working.
-## Nothing acts on a busy list either: see the submit and drain gates below.
+## $2 is whether this list is in the queue. If it is, the survey still runs --
+## quick-view has to say something about every job -- but its per-run failure
+## lines are not traced: "INCOMPLETE" once a cycle for six hours reads as a node
+## failing when it is a node working. See docs/sequencer.md#two-lists.
 survey() {
     local list="$1" busy="${2:-0}" job launch totalRuns passed attempted failed r file mtime
 
@@ -723,13 +472,11 @@ survey() {
 
 for job in $list; do
     launch="$JOBS_DIR/$job.sbatch"
-    ## A benchmark named in the list with no sbatch file behind it drops out of
-    ## the sweep entirely -- it never goes pending, so it never blocks a node
-    ## and never shows up as missing. Worth a line.
+    ## A listed benchmark with no sbatch behind it drops out of the sweep
+    ## entirely and would otherwise never show up as missing. Worth a line.
     [[ -f "$launch" ]] || { trace "skip $job: no $launch"; continue; }
-    ## Everything --all can re-queue: the listed jobs that have a job file
-    ## behind them. Taken from here rather than from $list directly so a
-    ## forced sweep cannot pend a job that has nothing to submit.
+    ## What --all can re-queue. Built here rather than from $list, so a forced
+    ## sweep cannot pend a job that has nothing to submit.
     surveyed_jobs+=("$job")
 
     if grep -Fq "totalRuns" "$launch"; then
@@ -751,42 +498,31 @@ for job in $list; do
         mtime=$(stat -c %Y "$file" 2>/dev/null || echo 0)
         [[ "$mtime" -gt "$newest_result" ]] && newest_result=$mtime
 
-        ## Only DONE is a pass. Everything else counts as a failure, including
-        ## a file that ends in no marker at all because the job never reached
-        ## its last line -- node crash, walltime kill, OOM. Treating that as
-        ## "no verdict yet" left the job pending forever without ever entering
-        ## failed_jobs, so a node that reliably kills its jobs retried hourly
-        ## and never drained. verdict() reports that case as INCOMPLETE.
+        ## Only DONE is a pass. A file ending in no marker (crash, walltime
+        ## kill, OOM) counts as a failure rather than "no verdict yet" -- as the
+        ## latter it stayed pending forever, never entered failed_jobs, and a
+        ## node that reliably killed its jobs never drained.
         ##
-        ## An unterminated file is a dead job only when nothing of this list is
-        ## in the queue -- which is what $busy answers, and why nothing acts on
-        ## a busy list.
-        ## Not $(verdict ...) -- that would run it in a subshell and the reason
-        ## would be set in a child and lost. See the note on verdict().
+        ## Not $(verdict ...) -- a subshell would set the reason in a child and
+        ## lose it. See the note on verdict().
         verdict "$job" "$file"
         if [[ "$VERDICT_STATUS" == "DONE" ]]; then
             passed=$((passed + 1))
         else
             failed=1
-            ## Why, not just that. This is the line that turns "allreduce-nonvlink
-            ## FAIL" into something an operator can act on without opening the log.
+            ## Why, not just that: what an operator can act on without opening
+            ## the log.
             fail_reasons["$job"]="$VERDICT_REASON"
             [[ "$busy" -eq 0 ]] &&
                 trace "$job run $r: $VERDICT_STATUS -- ${VERDICT_REASON}${VERDICT_DETAIL:+ [$VERDICT_DETAIL]}"
         fi
     done
 
-    ## Archived attempts still count as having run — a job whose output was
-    ## rotated aside is mid-retry, not untested. Either suffix: .prev<N> is a
-    ## pass that --all moved aside, which is even less "untested".
-    ##
-    ## Same reasoning as archive_result(): the shape asked about here -- an
-    ## optional -run<N>, then a .fail<N> or a .prev<N> -- needs alternation and a
-    ## one-or-more digit run, neither of which a glob expresses. A looser match
-    ## marks a job that has never run as attempted, and that job then drops out
-    ## of the swept-clean gate below without anything being written down. A
-    ## missing or empty $logs lists nothing and the test is false -- untested,
-    ## which is correct.
+    ## Archived attempts still count as having run — a rotated-aside job is
+    ## mid-retry, not untested. ls|grep for the same reason as archive_result():
+    ## the shape needs alternation and a one-or-more digit run, and a looser
+    ## match marks a never-run job as attempted, dropping it out of the
+    ## swept-clean gate below with nothing written down.
     # shellcheck disable=SC2010
     if [[ "$attempted" -eq 0 ]] &&
        ls "$logs" 2>/dev/null | grep -qE "^${job}(-run[0-9]+)?\.(fail|prev)[0-9]+\.txt$"; then
@@ -809,21 +545,13 @@ in_list() {
     return 1
 }
 
-## quick-view.txt is the one file an operator reads per node, so it carries
-## both lists. A burn-in nobody has run must not read as DONE next to the
-## benchmarks that are -- that would report a node as burned in on the strength
-## of having passed a fifteen-minute allreduce.
+## The one file an operator reads per node, so it carries both lists -- a
+## burn-in nobody has run must not read as DONE next to benchmarks that are.
 ##
-## Under --all a job can be queued with nothing wrong with it, and a QUEUED
-## line with no reason next to it is exactly the silence this file exists to
-## remove -- so it says who asked for the re-run.
-##
-## Written to a temp file and renamed, rather than truncated in place. Rename
-## needs write permission on the *directory*, which $JOB_USER has, while
-## truncating needs it on the file, which they do not when root's cycle created
-## it -- so a hand-run can still record its state on a tree ensure_file_owned
-## has not caught up with yet. It also means a reader never sees the file
-## half-written.
+## Temp file and rename, not truncate in place: rename needs write permission on
+## the *directory*, which $JOB_USER has, while truncating needs it on the file,
+## which they do not when root's cycle created it. A reader also never sees the
+## file half-written.
 forced_reason=""
 [[ "$FORCE_ALL" -eq 1 ]] && forced_reason="re-queued by --all"
 write_quickview() {
@@ -857,23 +585,12 @@ write_quickview() {
 
 ## ── Survey both lists ─────────────────────────────────────────────────────
 ##
-## Both, every cycle, and independently. Burn-in used to be gated behind a
-## clean sweep, which made the ordering absolute but also made it rigid: a node
-## that failed one benchmark could never start burning in, and a node three
-## days into a burn-in could not pick up a benchmark retry until it finished.
+## Both, every cycle, independently; the ordering between them is queue priority
+## rather than a gate. See docs/sequencer.md#two-lists.
 ##
-## The ordering is now expressed as queue priority instead -- each job's own
-## `#SBATCH --nice` -- so both lists can be in the queue at once and Slurm runs
-## the important one next. What that does not do is preempt: a
-## burn-in run that has already started holds the node until it ends, because
-## every job here is --exclusive. The gain is that a benchmark goes ahead of
-## the *remaining* burn-in runs rather than behind all of them, which on the
-## shipped list is a wait of one run rather than of twelve.
-##
-## --all widens `pending` to every job in the list, and only that. The failure
-## and sweep bookkeeping keeps reading the results on disk, so a forced
-## re-sweep neither invents a failure nor clears one: whether the node is
-## drained is still decided by what its results say.
+## --all widens `pending` to every job in the list, and only that -- the failure
+## and sweep bookkeeping keeps reading the results on disk, so a forced re-sweep
+## neither invents a failure nor clears one.
 survey "$BENCHMARKS" "$bench_busy"
 bench_pending=("${pending_jobs[@]}")
 bench_failed=("${failed_jobs[@]}")
@@ -885,9 +602,8 @@ burn_pending=()
 burn_failed=()
 burn_swept=1
 if setting_enabled "$RUN_BURNIN"; then
-    ## An empty BURNIN with the switch on is a settings mistake worth naming:
-    ## the operator asked for a phase that has no jobs in it, and without this
-    ## line the node quietly never burns in.
+    ## A settings mistake worth naming: without this line the node quietly
+    ## never burns in.
     if [[ -z "${BURNIN// /}" ]]; then
         trace "RUN_BURNIN=$RUN_BURNIN but BURNIN is empty -- nothing to burn in"
     else
@@ -918,19 +634,16 @@ if [[ "$bench_busy" -eq 1 || "$burnin_busy" -eq 1 ]]; then
     if [[ ( "${#bench_pending[@]}" -eq 0 || "$bench_busy" -eq 1 ) && \
           ( "${#burn_pending[@]}" -eq 0 || "$burnin_busy" -eq 1 ) ]]; then
         write_quickview
-        ## The reason is repeated on the EXIT line and not left to the `queue:`
-        ## line above, because this is the line that says why the node stopped
-        ## and it has to stand on its own. "Waiting on our own queue" reads the
-        ## same whether the job starts in a minute or never starts at all; the
-        ## scheduler's reason is the whole difference between the two.
+        ## The scheduler's reason is repeated here rather than left to the
+        ## `queue:` line above: this is the line that says why the node stopped
+        ## and it has to stand on its own.
         trace "EXIT: waiting on our own queue${running:+ (RUNNING for $elapsed, limit ${MAX_JOB_HOURS}h)}$(queue_detail "$mine").${force_note:+$force_note Submitting on top of a queued batch is how a node runs the same job twice; scancel -n $JOB_NAME_BENCH / -n $JOB_NAME_BURNIN first if that is what you want.}"
         exit 0
     fi
 fi
 
-## Only failures from a list with nothing in the queue are actionable: a list
-## that is mid-run has results being written right now, and judging those would
-## drain a node for a job that has not finished.
+## Only failures from a list with nothing in the queue are actionable: judging a
+## mid-run list would drain a node for a job that has not finished.
 declare -a failed_jobs_actionable=()
 burnin_only=1
 if [[ "$bench_busy" -eq 0 && "$bench_swept" -eq 1 ]]; then
@@ -941,26 +654,16 @@ if [[ "$burnin_busy" -eq 0 && "$burn_swept" -eq 1 ]]; then
 fi
 
 ## ── Drain once the full sweep has run and something is still failing ──────
-## Not on the first failure — the rest of the sweep still needs to run, and one
-## bad test should not hide the state of the others.
-
-## Only failures that just landed count. Stale results are left alone, so a
-## node an operator resumed is not immediately pulled back out of service --
-## it takes a fresh retry sweep failing again.
+## Not on the first failure, and only on results newer than the drain window.
+## See docs/sequencer.md#retry-and-drain-behaviour.
 
 age=-1
 [[ "$newest_result" -gt 0 ]] && age=$(( $(date +%s) - newest_result ))
 
-## The reason carries why the first failing job failed, not just its name. A
-## Slurm reason is a single short field and there may be several failures, so
-## only the first is named -- the rest, and the full text for every one, are in
-## trigger.log and quick-view.txt next to the results.
-## The list is named in the reason when the failures are burn-in only, because
-## the two mean different things to whoever reads `sinfo -R`: a benchmark
-## failure is a node that does not work, and a burn-in failure is a node that
-## worked for hours and then stopped -- which is the more interesting of the
-## two and should not be reported as if it had failed a fifteen-minute
-## collective.
+## A Slurm reason is one short field, so only the first failure is named -- the
+## rest are in trigger.log and quick-view.txt. Burn-in-only failures are
+## labelled: to whoever reads `sinfo -R`, a node that worked for hours and then
+## stopped is not the same as one that failed a fifteen-minute collective.
 if [[ "${#failed_jobs_actionable[@]}" -gt 0 && \
       "$age" -ge 0 && "$age" -lt $(( DRAIN_WINDOW_MINUTES * 60 )) ]]; then
     first_reason="${fail_reasons[${failed_jobs_actionable[0]}]}"
@@ -971,10 +674,9 @@ fi
 
 ## ── Hourly gate ───────────────────────────────────────────────────────────
 
-## The only gate --force opens. It is a cadence, not a safety check: everything
-## that decides whether this node should be given work at all -- PAUSE_JOBS, an
-## operator's drain, somebody else's job, our own batch already queued -- is
-## asked somewhere else and is asked the same way either way.
+## The only gate --force opens, because it is a cadence and not a safety check:
+## everything deciding whether this node should get work at all is asked
+## elsewhere. See docs/sequencer.md#running-it-by-hand.
 if [[ "$age" -ge 0 && "$age" -lt $(( RETRY_INTERVAL_HOURS * 3600 )) ]]; then
     if [[ "$FORCE" -eq 1 ]]; then
         trace "hourly gate bypassed by --force (newest result is ${age}s old, would have waited $(( RETRY_INTERVAL_HOURS * 3600 - age ))s)"
@@ -988,12 +690,9 @@ fi
 
 ## ── Queue every non-passing job, in listed order ──────────────────────────
 
-## A node drained by an operator stays untouched — queueing work behind their
-## drain would dump the whole batch on the node the moment they resume it. That
-## holds for a forced run too: --force and --all move the *schedule*, not this.
-## A down, drained or maintenance node gets nothing added to the queue on its
-## behalf unless the drain is one of ours, which is the retry loop working as
-## it always has.
+## Queueing behind an operator's drain would dump the whole batch on the node
+## the moment they resume it, so nothing is submitted unless the drain carries
+## our own marker. --force and --all move the *schedule*, not this.
 drain_reason=$(sinfo -n "$HOSTNAME" -h -o '%E' 2>/dev/null | head -1)
 case "$state" in
     *drain*|*down*|*fail*|*maint*)
@@ -1006,12 +705,9 @@ esac
 
 resume_node
 
-## Queue priority is NOT set here. Each job carries its own `#SBATCH --nice`,
-## alongside its time limit and its allocation, because that is where the rest
-## of a job's scheduling character already lives -- and because a job submitted
-## by hand should carry the same priority as one the sequencer submits. This
-## script only decides *what* to submit; the job file decides where it sits in
-## the queue. See docs/benchmarks.md.
+## Queue priority is NOT set here: each job carries its own `#SBATCH --nice`, so
+## a hand-submitted job sits where a sequencer-submitted one would. This script
+## decides only *what* to submit. See docs/benchmarks.md#queue-priority.
 submit_list() {
     local jname="$1"; shift
     local job launch totalRuns r file submit out kind name
@@ -1020,13 +716,9 @@ submit_list() {
     launch="$JOBS_DIR/$job.sbatch"
     totalRuns=${job_runs["$job"]}
 
-    ## Say so when JOB_ENV and the job file name the same variable. The job
-    ## file wins -- its `export` runs after the environment sbatch handed it --
-    ## and that is the right way round: allreduce-nonvlink.sbatch has to have
-    ## NCCL_P2P_DISABLE=1 or it stops being the non-NVLink test and quietly
-    ## becomes a second NVLink one that passes. What is wrong is only that the
-    ## override is invisible, so a SETTINGS line that does nothing looks
-    ## exactly like one that works. Now it has a trace line.
+    ## The job file wins when both name a variable, which is right -- but the
+    ## override was invisible, so a SETTINGS line that did nothing looked exactly
+    ## like one that worked. See docs/settings.md#the-job-file-wins.
     if [[ -f "$launch" ]]; then
         for name in "${JOB_ENV_NAMES[@]}"; do
             grep -qE "^[[:space:]]*export[[:space:]]+$name=" "$launch" &&
@@ -1036,14 +728,9 @@ submit_list() {
 
     for ((r = 1; r <= totalRuns; r++)); do
         file=$(result_file "$job" "$r" "$totalRuns")
-        ## Judged by the current gate, not by whatever marker the sbatch left
-        ## behind. A run that passed an older, looser gate is re-queued here --
-        ## which is the whole point, and is what the old `tail -1 == DONE` test
-        ## structurally could not do.
-        ##
-        ## --all submits the run anyway, and the verdict is still taken --
-        ## it decides which suffix the existing result is kept under, so a pass
-        ## being re-run is not filed as a rejected attempt. See archive_result.
+        ## Judged by the current gate, so a run that passed an older, looser one
+        ## is re-queued here. Under --all the verdict is still taken: it decides
+        ## which suffix the existing result is kept under. See archive_result.
         kind=fail
         verdict "$job" "$file"
         if [[ "$VERDICT_STATUS" == "DONE" ]]; then
@@ -1051,37 +738,14 @@ submit_list() {
             kind=prev
         fi
 
-        ## What serializes the batch is `#SBATCH --exclusive` in every
-        ## jobs/*.sbatch, not anything passed here. Without serialization the
-        ## whole batch is eligible at once, and a GPU job landing on top of
-        ## dcgm's stress plugins fails on buffer allocation -- nccl-tests
-        ## reports that as `Cuda failure 2 'out of memory'` after NCCL init has
-        ## already succeeded. The CPU-only jobs (stream, stressapptest) skew
-        ## collective timings the same way without ever touching a GPU.
+        ## Nothing here serializes the batch -- `#SBATCH --exclusive` in every
+        ## jobs/*.sbatch does, and no job may depend on an earlier one having
+        ## finished. See docs/sequencer.md.
         ##
-        ## This used to be `--dependency=singleton` over a shared job name.
-        ## Singleton matches on name alone, cluster-wide, so the name had to
-        ## carry the hostname or a bare `bringup` would have serialized every
-        ## node in the rack against every other -- serialization by string
-        ## equality, one typo away from a rack-wide queue of one, and it said
-        ## nothing about what the job would actually be given when it ran.
-        ## --exclusive states the real requirement -- this job wants the whole
-        ## node -- and the scheduler enforces one-at-a-time from that. It also
-        ## keeps somebody else's job off the node mid-benchmark, which singleton
-        ## never did: it only ever held back OUR jobs of the same name.
-        ##
-        ## Ordering within a tier still follows the listed order in practice:
-        ## these are submitted in that order, carry the same nice, and a
-        ## whole-node job leaves no backfill window for a later one to slip
-        ## into. It is a scheduling consequence rather than a guarantee, so do
-        ## not add a job here that depends on an earlier one having finished.
-        ## Ordering *between* tiers is each job's own `#SBATCH --nice`.
-        ##
-        ## -J is per-list and per-node, and load-bearing: it is what the queue
-        ## queries above match on to see our own queued-but-unplaced jobs, and
-        ## it is what tells a burn-in apart from a benchmark there. It has to be
-        ## passed here rather than as an #SBATCH line -- those are comments, not
-        ## shell, and would not expand $HOSTNAME.
+        ## -J is load-bearing: it is what the queue queries above match on to see
+        ## our own queued-but-unplaced jobs, and what tells a burn-in from a
+        ## benchmark. It must be passed here, not as an #SBATCH line -- those are
+        ## comments, not shell, and would not expand $HOSTNAME.
         submit="source /etc/profile.d/modules.sh; module load slurm; \
 mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
 --export=ALL,RESULT_FILE=$file$JOB_ENV_ARGS --output=$file $launch"
@@ -1093,18 +757,14 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
 
         archive_result "$file" "$kind"
 
-        ## sbatch's own diagnosis of a rejected submission is the single most
-        ## useful line in this whole script, and it used to go to BCM's action
-        ## output, which nothing reads. A bad partition, an unknown node name,
-        ## an account limit, or su failing for cmods all land here -- and all
-        ## of them look identical from outside: no job, no result file, no
-        ## complaint. Merge stderr and keep it.
-        ## `su` is how root becomes $JOB_USER, and it is also the one thing
-        ## that cannot work when $JOB_USER is already who we are: su
-        ## authenticates for anyone but root, and a hand-run over pdsh has no
-        ## terminal to be asked on, so it fails with "must be run from a
-        ## terminal" and the sweep reads as rejected by Slurm. Same submission
-        ## either way -- only the way of arriving at the user differs.
+        ## stderr is merged and kept: a bad partition, an unknown node name, an
+        ## account limit and a failed su all look identical from outside -- no
+        ## job, no result file, no complaint -- and sbatch's own diagnosis is the
+        ## only thing that tells them apart.
+        ##
+        ## Same submission either way; only how we arrive at $JOB_USER differs.
+        ## `su` authenticates for anyone but root, and a hand-run over pdsh has
+        ## no terminal to be asked on. See docs/sequencer.md#running-it-by-hand.
         if [[ "$EUID" -eq 0 ]]; then
             out=$(su - "$JOB_USER" -c "$submit" 2>&1)
         elif [[ "$(id -un)" == "$JOB_USER" ]]; then
@@ -1114,10 +774,9 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
             continue
         fi
         if [[ "$out" == *"Submitted batch job"* ]]; then
-            ## The environment goes in the trace, not just the job id. When a
-            ## result is questioned weeks later, "what was this run given" has
-            ## to be answerable from what was written down at the time --
-            ## SETTINGS by then says whatever it says now.
+            ## The environment goes in the trace, not just the job id: when a
+            ## result is questioned weeks later, SETTINGS says whatever it says
+            ## then, so what the run was given has to be written down now.
             trace "submitted $job run $r: ${out##*$'\n'}${JOB_ENV_ARGS:+ (JOB_ENV:${JOB_ENV_ARGS//,/ })}"
         else
             trace "SUBMIT FAILED $job run $r: ${out:-<no output>}"
@@ -1126,9 +785,8 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
     done
 }
 
-## A list with jobs already in the queue is skipped rather than added to --
-## that is what keeps a cycle from submitting the same run twice while the
-## first copy waits behind a burn-in.
+## Skipped rather than added to: what keeps a cycle from submitting the same run
+## twice while the first copy waits behind a burn-in.
 if [[ "${#bench_pending[@]}" -gt 0 && "$bench_busy" -eq 0 ]]; then
     submit_list "$JOB_NAME_BENCH" "${bench_pending[@]}"
 fi
@@ -1136,7 +794,7 @@ if [[ "${#burn_pending[@]}" -gt 0 && "$burnin_busy" -eq 0 ]]; then
     submit_list "$JOB_NAME_BURNIN" "${burn_pending[@]}"
 fi
 
-## Reflect the newly queued state for anyone reading quick-view directly.
-## Queued lines carry the reason the previous attempt was rejected, so this file
-## answers "why is this node still being retested" on its own.
+## Reflect the newly queued state. Queued lines carry the reason the previous
+## attempt was rejected, so this file answers "why is this node still being
+## retested" on its own.
 write_quickview

@@ -1,39 +1,23 @@
 #!/bin/bash
 #
-# Populate the node-local container cache in /tmp/containers/ from the shared
-# copy in /home/cmods/bringup/containers/. Every job prefers the /tmp copy, so
-# a benchmark start reads its image off local disk instead of pulling a
-# multi-gigabyte squashfs over NFS on every run.
+# Warm the node-local container cache /tmp/containers/ from the shared NFS
+# copy. See docs/containers.md#how-the-caching-works.
 #
-# Runs on each BCM monitoring cycle. -a matters: with plain -r the destination
-# mtimes are the copy time, so rsync's size+mtime quick check never matches and
-# every cycle re-transfers the whole directory -- exactly the NFS traffic this
-# is meant to avoid. With -a, an unchanged image transfers once.
-#
-# Every precondition below is a silent exit 0, not an error. This is a cache
-# warmer: nothing depends on it having run, because each job falls back to the
-# NFS path when its image is not in /tmp yet. A node with no images built yet,
-# no rsync installed, or NFS not mounted should look no different to BCM than
-# one with nothing to do -- otherwise the action logs a failure on every
-# monitoring cycle, on every node, forever, and the real failures get lost in
-# it. Genuine copy problems are left to surface as a job start reading from
-# NFS, which still works.
+# Every precondition below is a silent exit 0: jobs fall back to the NFS path,
+# so nothing depends on this having run, and an error per node per cycle would
+# bury the real ones.
 
 home=/home/cmods/bringup
 src="$home/containers"
 dst=/tmp/containers
 
-## Settings are read for one switch, PAUSE_CONTAINER_COPY, and a missing
-## settings.sh is not fatal here -- unlike the other two actions, which refuse
-## to run without one. Nothing is judged or drained from this script, so the
-## worst a missing file costs is a cache warm that keeps happening during a
-## pause. Refusing to copy would be the more surprising of the two.
+## Read only for PAUSE_CONTAINER_COPY, so a missing settings.sh is not fatal
+## here as it is in the other two actions: the worst it costs is a cache warm
+## during a pause.
 [[ -f "$home/settings.sh" ]] && source "$home/settings.sh"
 
-## An rsync detached by an earlier cycle is left to finish -- it is NFS reads
-## into a local cache, holds no node and blocks no job, and killing it mid-copy
-## just means transferring those bytes again later. What the pause stops is
-## starting another one.
+## Only new copies are stopped; a detached rsync finishes.
+## See docs/settings.md#pause-switches.
 if declare -F setting_enabled >/dev/null && setting_enabled "${PAUSE_CONTAINER_COPY:-no}"; then
     exit 0
 fi
@@ -43,38 +27,27 @@ fi
 ## Nothing to copy from -- images not built yet, or NFS not mounted here.
 [[ -d "$src" ]] || exit 0
 
-## An empty containers/ is the normal state before the first build. Copying it
-## would be a no-op anyway; skipping keeps rsync out of the process table on
-## every cycle across the whole cluster.
+## Empty containers/ is the normal pre-build state; skip to keep rsync out of
+## the process table on every cycle, clusterwide.
 compgen -G "$src"/*.sqsh >/dev/null 2>&1 || exit 0
 
 command -v rsync >/dev/null 2>&1 || exit 0
 
 mkdir -p "$dst" 2>/dev/null || exit 0
 
-## BCM caps an action timeout at 2m and kills whatever is still running. The
-## first sync of an image is multi-gigabyte over NFS and does not fit in that,
-## so the copy is detached with setsid and this script returns immediately.
-## The action always completes well inside its timeout; the transfer outlives
-## it. --partial means even a copy killed for some other reason resumes rather
-## than restarting.
-##
-## flock keeps the monitoring cycles from stacking: the trigger is
-## duringactions, so it fires again every cycle while the first copy is still
-## running, and without the lock each one would spawn another rsync against
-## the same destination.
+## The first multi-gigabyte sync does not fit in BCM's 2m action timeout, so it
+## is detached and this script returns immediately; flock stops the every-cycle
+## duringactions trigger from stacking rsyncs on the same destination.
 lock=/tmp/.file_copy.lock
 
 if [[ -z "${FILE_COPY_DETACHED:-}" ]]; then
-    ## Re-exec through bash rather than running "$0" directly: the latter needs
-    ## the exec bit, and a checkout that lost it would fail here silently and
-    ## never copy anything.
+    ## Via bash, not "$0" directly: a checkout that lost the exec bit would
+    ## fail here silently and never copy anything.
     if command -v setsid >/dev/null 2>&1; then
         FILE_COPY_DETACHED=1 setsid nohup bash "$0" </dev/null >/dev/null 2>&1 &
         exit 0
     fi
-    ## No setsid: fall through and copy inline. Large images will be cut off
-    ## at the action timeout and resume on later cycles instead.
+    ## No setsid: copy inline, cut off at the action timeout, resume next cycle.
 fi
 
 if command -v flock >/dev/null 2>&1; then
@@ -82,6 +55,8 @@ if command -v flock >/dev/null 2>&1; then
     flock -n 9 || exit 0          # a copy from an earlier cycle is still running
 fi
 
+## -a not -r, or every cycle re-transfers everything; --partial so a killed
+## copy resumes. See docs/containers.md#how-the-caching-works.
 rsync -a --partial "$src/" "$dst/" >/dev/null 2>&1
 
 exit 0

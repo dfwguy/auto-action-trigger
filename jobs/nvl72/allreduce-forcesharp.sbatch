@@ -7,47 +7,31 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH -t 0:25:00
 #SBATCH --nice=20
-## --nice orders this job against everything else queued for the node: higher
-## is LATER, 0 is the front. 20 is the sweep's tier -- behind the dcgm gates at
-## 0, ahead of burn-in at 100000. See docs/benchmarks.md.
+## 20 is the sweep's tier; higher is later. See docs/benchmarks.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/allreduce-forcesharp.txt
 
-## Allocation. --exclusive is a JOB-level guarantee, and a step inherits only
-## what was explicitly requested -- never what the job was implicitly granted.
-## So --gres and --mem=0 are stated even though --exclusive is supposed to
-## cover them, and --cpus-per-task is deliberately absent: it implies --exact
-## and would shrink every srun below to that core count. See the allocation
-## header section of docs/benchmarks.md.
+## Steps inherit only what was explicitly requested; no --cpus-per-task, it
+## implies --exact. See docs/benchmarks.md#the-allocation-header.
 
-## AI Factory Testing Plan: NCCL AllReduce -- Single Node, NVLink, SHARP forced.
-## The same collective over the same fabric as allreduce.sbatch, with the
-## NVSwitch's in-network reduction (NVLS/SHARP) made mandatory rather than
-## merely permitted -- see NCCL_ALGO below. This job exists to answer "did SHARP
-## run", which allreduce.sbatch cannot: a node with no NVLS support runs it
-## quietly on the GPUs instead and reports a plausible number.
-## Permissive counterpart: allreduce.sbatch
+## NCCL AllReduce, single node, NVLink, SHARP forced -- allreduce.sbatch with
+## the NVSwitch offload made mandatory, so this asks "did SHARP run" rather than
+## "was it allowed". See docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says.
 
-## Job name is used in the status line. Edit grep for failures you're looking for
-# shellcheck disable=SC2034
+## Job name is used in the status line.
+# shellcheck disable=SC2034  # read by grep out of this file, never sourced
 job_name=allreduce-forcesharp
 
-## Step time limit, handed to srun --time below: 2x the plan's < 5 min for
-## single-node NCCL, floored at 15 min.
-## Slurm cancels the STEP at this limit, which leaves the batch script alive to
-## write its marker. #SBATCH -t above is this plus a margin, so the step limit
-## is what fires -- see example.sbatch.
+## Step limit fires before #SBATCH -t so the script survives to write a marker.
+## See docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=0:15:00
-## Read out of this file's text by grep, never sourced -- see example.sbatch.
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034  # read by grep out of this file, never sourced
 totalRuns=1
 
 ## ------------- job info starts here ------------- ##
 
-## Preflight -- what the STEP actually holds, asked from inside a step. The
-## job's AllocTRES cannot answer that: a step is a different cgroup, and
-## --exclusive grants the job resources a step does not inherit unless they
-## were named. The passing line's wording is fixed -- the parse block below and
-## verdict.sh grep this same file. See example.sbatch for the full reasoning.
+## Preflight -- what the STEP holds, which only a step can see. The wording of
+## these lines is fixed; verdict.sh greps this file. See
+## docs/benchmarks.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -59,15 +43,13 @@ srun --ntasks=1 bash -c '
 
 
 
-## Locally built image (build_containers.sh). The node-local copy that
-## actions/file_copy.sh rsyncs to /tmp is preferred so job start does not read
-## a multi-gigabyte image over NFS; the shared directory is the fallback for a
-## node the rsync has not reached yet. See docs/containers.md.
+## Node-local copy first, NFS as the fallback. See
+## docs/containers.md#why-local-images.
 IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
 [[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
-## Registry alternative -- every node pulls it over the network on first use.
-## Note the enroot `#` separator between registry host and image path.
+## Registry alternative -- every node pulls over the network on first use. The
+## `#` is enroot's registry/path separator.
 #CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
 #HPLDATPATH=/home/cmods/bringup/jobs/nvl72/hpl/
 
@@ -76,36 +58,20 @@ export NCCL_DEBUG=INFO
 export NCCL_P2P_LEVEL=NVL
 #export NCCL_P2P_LEVEL=NVL
 
-## NVLS is the NVSwitch's in-network reduction -- SHARP. 1 is what
-## allreduce.sbatch sets and, on the 2.29 NCCL in this image, is identical to
-## the shipped default of 2: allocation failure is an error, but *absent
-## support* is a quiet fallback to a GPU-side algorithm. So a node with no
-## working NVLS passes allreduce.sbatch at whatever a Ring run happens to
-## measure, and nothing in the log says the offload never ran.
+## Permits the NVSwitch offload; on its own it still falls back silently.
 export NCCL_NVLS_ENABLE=1
 
-## Which is why this line, and not the one above, is what makes this job
-## different. Pinning the algorithm removes the fallback: NVLS is the only
-## algorithm NCCL may pick, so a node that cannot use it fails in
-## ncclCommInitRank instead of quietly measuring something else. That turns
-## "was SHARP allowed" into "did SHARP run", which is the question being asked
-## before this scales past a handful of nodes.
-##
-## A failure here is therefore a real answer and not a broken job -- expect the
-## init error, in full, in the result file. It is also the one line to remove
-## first if this job starts failing fleet-wide right after an image change:
-## NCCL_ALGO is a supported knob, but which algorithms exist behind it is a
-## property of the NCCL build, not of the fabric.
+## This line, not the one above, is what makes this job different: pinning the
+## algorithm turns an unsupported node into an ncclCommInitRank failure instead
+## of a quiet Ring run. Suspect it first if this fails fleet-wide after an image
+## change. See docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says.
 export NCCL_ALGO=NVLS
 export NCCL_MNNVL_ENABLE=1
 export NCCL_IB_DISABLE=0
 
 
-## No --ntasks-per-node here on purpose: srun inherits the 4 from the #SBATCH
-## header above. Setting it in both places let them drift -- the header asked
-## for 4 and srun asked for 1, which Slurm resolves by warning `can't honor
-## --ntasks-per-node set to 1` and running 4 anyway. One rank per GPU, so `-g 1`
-## pairs with 4 tasks to cover all 4 GPUs.
+## No --ntasks-per-node here on purpose: srun inherits the 4 from the header,
+## and stating it in both places let them drift. `-g 1` is one rank per GPU.
 srun --time="$STEP_TIMELIMIT" --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none \
                 --container-image="${CONT}" \
                 all_reduce_perf_mpi -b 8 -e 16G -f 2 -g 1
@@ -122,21 +88,16 @@ rc=$?
 
 ## ------------- parse info starts here ----------- ##
 
-## Only whether the job ran is decided here. Whether the result is any good is
-## decided by verdict.sh, which is read on every status check rather than
-## written once into this file. That is what lets a tightened gate re-judge
-## results that already exist -- see the header of verdict.sh.
+## Only whether the job ran is decided here; whether the result is good is
+## verdict.sh's call, re-read on every status check. See
+## docs/benchmarks.md#where-a-pass-is-decided.
 ##
-## Note that /dev/infiniband is deliberately NOT mounted for this job, unlike
-## its -nonvlink counterpart. This is the NVLink scope: the collective is meant
-## to stay on NVLink and never reach the network at all. Making the HCAs
-## reachable would let a run that has lost NVLink quietly succeed over IB
-## instead of being caught.
+## /dev/infiniband is deliberately not mounted, unlike the -nonvlink jobs: this
+## is the NVLink scope, and reachable HCAs would let a run that lost NVLink
+## quietly succeed over IB.
 
-## The workload's exit status, written into the log rather than left only in
-## the marker below. A FAIL with a non-zero here is the job's own -- srun
-## returned it. A FAIL with `exit status: 0` came from the gate in verdict.sh,
-## which is read at status-check time and leaves no trace in this file.
+## A FAIL with a non-zero status here is the job's own; `exit status: 0` means
+## the gate in verdict.sh rejected it.
 echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL
 

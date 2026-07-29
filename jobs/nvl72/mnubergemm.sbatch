@@ -7,68 +7,30 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH -t 6:41:00
 #SBATCH --nice=100000
-## --nice orders this job against everything else queued for the node: higher
-## is LATER, 0 is the front. Burn-in sits far back so that any benchmark queued
-## while it is running goes ahead of the runs still waiting -- it is the whole
-## reason burn-in no longer has to be gated behind a clean sweep. It does not
-## preempt: --exclusive means the run already on the node keeps it. The value is
-## deliberately large because on priority/basic a nice only outranks jobs within
-## that many job ids. See docs/benchmarks.md.
+## Burn-in queues last; higher --nice is LATER. See
+## docs/benchmarks.md#queue-priority.
 
-## Allocation. --exclusive is a JOB-level guarantee and a step inherits only
-## what was explicitly requested, so --gres and --mem=0 are stated even though
-## --exclusive is supposed to cover them.
-##
-## --cpus-per-task stays out. It is the one option here that is both
-## load-bearing and dangerous: setting it implies --exact, so the srun below
-## silently drops to that core count instead of the whole node -- a burn-in
-## running on a quarter of the cores that still reports a clean pass. If it is
-## ever needed (ntasks-per-node x cpus-per-task should equal the node's core
-## count, or cores are stranded inside an exclusive allocation), re-state it on
-## the srun or export SRUN_CPUS_PER_TASK="${SLURM_CPUS_PER_TASK}" alongside it.
-## See docs/benchmarks.md.
+## Steps inherit only what was explicitly requested; no --cpus-per-task, it
+## implies --exact. See docs/benchmarks.md#the-allocation-header.
 
-## Job name is used in the status line. Edit grep for failures you're looking for
+## Job name is used in the status line.
 # shellcheck disable=SC2034  # read by grepping this file, from actions/launch_job.sh
 job_name=mnubergemm
 
-## Step time limit, handed to srun --time below. The workload itself is capped
-## by --time_to_run 21420 further down -- 5h57m -- so this is that plus half an
-## hour, not the 2x it used to be. A step limit at twice the workload cannot
-## catch a hung run: it waits six hours past the point the job was supposed to
-## be finished before admitting anything is wrong, and MAX_JOB_HOURS then has
-## to be set high enough to clear the padding rather than the work.
-##
-## Four limits in a ladder, each above the one before, and they have to move
-## together. Change --time_to_run and all four move:
-##
-##   --time_to_run 21420   5:57  the workload's own cap -- what normally ends it
-##   STEP_TIMELIMIT        6:30  srun kills the step; the script still writes
-##   #SBATCH -t            6:41  slurm kills the job, marker or not
-##   MAX_JOB_HOURS            7  the sequencer drains the node for timeout
-##
-## Slurm cancels the STEP at STEP_TIMELIMIT, which leaves the batch script
-## alive to write its marker; #SBATCH -t above is that plus a margin so the
-## step limit is what fires -- see example.sbatch. MAX_JOB_HOURS is in
-## SETTINGS, and is the one that is not in this file: set it below the job
-## limit and the sequencer drains healthy nodes running on schedule.
+## --time_to_run 21420 (5:57) plus half an hour. Rung two of a four-limit
+## ladder that moves together; see docs/settings.md#retry-and-drain-policy.
 STEP_TIMELIMIT=6:30:00
 
-## 12 runs of ~6h, submitted one at a time, so a full burn-in holds the node
-## for about three days -- the plan's 24-72 hour row. Each run is its own job
-## and its own result file, so an interrupted burn-in resumes at the run it got
-## to rather than starting over.
+## 12 runs of ~6h, one job at a time -- about three days on the node. See
+## docs/settings.md#burn-in.
 # shellcheck disable=SC2034  # read by grepping this file, from actions/launch_job.sh
 totalRuns=12
 
 
 ## ------------- job info starts here ------------- ##
 
-## Preflight -- what the STEP actually holds, asked from inside a step. The
-## job's AllocTRES cannot answer that: a step is a different cgroup, and
-## --exclusive grants the job resources a step does not inherit unless they
-## were named. The passing line's wording is fixed -- the parse block below and
-## verdict.sh grep this same file. See example.sbatch for the full reasoning.
+## Preflight -- what the STEP holds, which only a step can see. Wording of the
+## passing line is fixed; see docs/benchmarks.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -79,11 +41,9 @@ srun --ntasks=1 bash -c '
 }
 
 
-## NVIDIA-internal image -- nothing to build from, it has to be obtained
-## through the internal channel and imported into the containers directory.
-## `./build_containers.sh -l mnubergemm` says whether it is there. The version
-## and -arch suffix must match the nodes under test. See docs/containers.md.
-## /tmp/containers is the node-local copy rsync'd by actions/file_copy.sh.
+## NVIDIA-internal image; version and -arch suffix must match the nodes under
+## test. See docs/containers.md#mnubergemm. /tmp/containers is the node-local
+## copy rsync'd by actions/file_copy.sh.
 IMG=mnubergemm-26.03-v1.17-arm.sqsh
 CONT=/tmp/containers/$IMG
 [[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
@@ -127,20 +87,10 @@ rc=$?
 
 ## ------------- parse info starts here ----------- ##
 
-## Only whether the job ran is decided here. Whether the result is any good is
-## decided by verdict.sh, which is read on every status check rather than
-## written once into this file. That is what lets a tightened gate re-judge
-## results that already exist -- see the header of verdict.sh.
-##
-## mnubergemm has no documented success banner, so _v_gate_mnubergemm there has
-## no positive marker to require beyond a non-empty file -- a container that
-## starts, runs nothing and exits 0 produces an empty file and a zero status.
-## Add a real marker there once the tool's clean-run format is known.
+## Only whether the job ran is decided here; the verdict is derived by
+## verdict.sh on every read. See docs/benchmarks.md#where-a-pass-is-decided.
 
-## The workload's exit status, written into the log rather than left only in
-## the marker below. A FAIL with a non-zero here is the job's own -- srun
-## returned it. A FAIL with `exit status: 0` came from the gate in verdict.sh,
-## which is read at status-check time and leaves no trace in this file.
+## Says who decided a FAIL: non-zero is the job's own, 0 is verdict.sh's gate.
 echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL
 

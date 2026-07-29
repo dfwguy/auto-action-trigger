@@ -12,7 +12,7 @@ fi
 
 
 
-# Watch for down nodes from the list provided
+# Only DOWN/drained nodes; empty output is healthy. See docs/operations.md#status-and-reporting.
 watch -n 20 "echo 'Shows only bad nodes - no nodes listed is a good sign.'; scontrol show node=$NODELIST | awk -F= '/NodeName=/{n=\$2; sub(/ .*/,\"\",n)} /Reason=/{r=\$2; sub(/ \\[.*/,\"\",r); print n, r}'"
 
 

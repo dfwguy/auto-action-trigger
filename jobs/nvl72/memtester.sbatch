@@ -6,40 +6,29 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH -t 4:10:00
 #SBATCH --nice=20
-## --nice orders this job against everything else queued for the node: higher
-## is LATER, 0 is the front. 20 is the sweep's tier -- behind the dcgm gates at
-## 0, ahead of burn-in at 100000. See docs/benchmarks.md.
+## nice 20 is the sweep's tier. See docs/benchmarks.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/memtester.txt
 
-## Allocation. No --gres: this job never touches a GPU. --mem=0 is load-bearing
-## here -- the test size below is 80% of MemAvailable on the node, and without
-## it the step is capped at the partition's default memory and gets killed
-## partway through, which the parse block reads as a DRAM failure.
-## --cpus-per-task is deliberately absent: it implies --exact.
-## See docs/benchmarks.md.
+## No --gres: this job never touches a GPU. --mem=0 is load-bearing -- the test
+## size below is 80% of MemAvailable. No --cpus-per-task, it implies --exact.
+## See docs/benchmarks.md#the-allocation-header.
 
-## AI Factory Testing Plan: memtester -- SNT2 (Exhaustive)
-## DRAM integrity and ECC behaviour on every node. Paired with stream.sbatch
-## (STREAM covers bandwidth, memtester covers integrity).
+## DRAM integrity and ECC behaviour; paired with stream.sbatch, which covers
+## bandwidth. AI Factory Testing Plan SNT2 (Exhaustive).
 
-## Job name is used in the status line. Edit grep for failures you're looking for
 # shellcheck disable=SC2034  # read by grepping this file, from actions/launch_job.sh
 job_name=memtester
 
-## Step time limit, handed to srun --time below: 2x the plan's ~1-2 hr
-## STREAM + Memtester row, taking the upper end.
-## Slurm cancels the STEP at this limit, which leaves the batch script alive to
-## write its marker. #SBATCH -t above is this plus a margin, so the step limit
-## is what fires -- see example.sbatch.
+## 2x the plan's ~1-2 hr STREAM + Memtester row, upper end. The step limit
+## fires first so the batch script survives to write its marker. See
+## docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=4:00:00
 
 ## ------------- job info starts here ------------- ##
 
-## Preflight -- what the STEP actually holds, asked from inside a step. The
-## job's AllocTRES cannot answer that: a step is a different cgroup, and
-## --exclusive grants the job resources a step does not inherit unless they
-## were named. The passing line's wording is fixed -- the parse block below and
-## verdict.sh grep this same file. See example.sbatch for the full reasoning.
+## What the STEP holds, asked from inside a step; the job's AllocTRES cannot
+## answer that. Wording is fixed -- verdict.sh greps this file.
+## See docs/benchmarks.md#preflight.
 srun --ntasks=1 bash -c '
     echo "preflight: $(hostname) cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
     [[ "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
@@ -59,14 +48,10 @@ rc=$?
 
 ## ------------- parse info starts here ----------- ##
 
-## Only whether the job ran is decided here. Whether the result is any good is
-## decided by verdict.sh, which is read on every status check rather than
-## written once into this file. That is what lets a tightened gate re-judge
-## results that already exist -- see the header of verdict.sh.
+## Only whether the job ran is decided here; verdict.sh decides whether the
+## result is good. See docs/benchmarks.md#where-a-pass-is-decided.
 
-## The workload's exit status, written into the log rather than left only in
-## the marker below. A FAIL with a non-zero here is the job's own -- srun
-## returned it. A FAIL with `exit status: 0` came from the gate in verdict.sh,
-## which is read at status-check time and leaves no trace in this file.
+## A FAIL with a non-zero status here is srun's own; a FAIL with `exit status:
+## 0` came from verdict.sh, which leaves no trace in this file.
 echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

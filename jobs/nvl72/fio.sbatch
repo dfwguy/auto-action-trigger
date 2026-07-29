@@ -6,41 +6,29 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH -t 2:10:00
 #SBATCH --nice=20
-## --nice orders this job against everything else queued for the node: higher
-## is LATER, 0 is the front. 20 is the sweep's tier -- behind the dcgm gates at
-## 0, ahead of burn-in at 100000. See docs/benchmarks.md.
+## 20 is the sweep's tier. See docs/benchmarks.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/fio.txt
 
-## Allocation. No --gres: this job never touches a GPU. --exclusive is what
-## makes the numbers mean anything -- another job doing I/O on the same node
-## would show up here as a storage fault. --mem=0 is stated because --exclusive
-## does not imply it, and --cpus-per-task is deliberately absent: it implies
-## --exact. See docs/benchmarks.md.
+## No --gres: this job never touches a GPU. Steps inherit only what was
+## explicitly requested; no --cpus-per-task, it implies --exact.
+## See docs/benchmarks.md#the-allocation-header.
 
-## AI Factory Testing Plan: fio -- SNT2 (Exhaustive)
-## Local NVMe and shared-storage (VAST / Lustre / WekaFS) throughput, IOPS, and
-## latency at multiple block sizes and queue depths. Validates storage against
-## performance targets before workloads commit data.
+## AI Factory Testing Plan: fio -- SNT2 (Exhaustive). Local NVMe and shared
+## storage (VAST / Lustre / WekaFS) throughput, IOPS and latency.
 
-## Job name is used in the status line. Edit grep for failures you're looking for
-# shellcheck disable=SC2034
+## Job name is used in the status line.
+# shellcheck disable=SC2034  # read by the status line, not by this script
 job_name=fio
 
-## Per-pass step time limit, handed to srun --time below -- one limit per pass
-## rather than one for the job, because that is the granularity srun --time
-## works at. Four passes at 30 min sit inside the 2:10 walltime above with
-## room to spare. 2x the plan's ~1 hr for fio, divided over the four passes.
-## Slurm cancels the STEP at this limit, which leaves the batch script alive to
-## write its marker -- see example.sbatch.
+## Per-pass step limit -- srun --time bounds a step, and the four passes must
+## sum inside the walltime above.
+## See docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
 PASS_TIMELIMIT=0:30:00
 
 ## ------------- job info starts here ------------- ##
 
-## Preflight -- what the STEP actually holds, asked from inside a step. The
-## job's AllocTRES cannot answer that: a step is a different cgroup, and
-## --exclusive grants the job resources a step does not inherit unless they
-## were named. The passing line's wording is fixed -- the parse block below and
-## verdict.sh grep this same file. See example.sbatch for the full reasoning.
+## Preflight -- what the STEP holds, which only a step can see. The wording of
+## the passing line is fixed. See docs/benchmarks.md#preflight.
 srun --ntasks=1 bash -c '
     echo "preflight: $(hostname) cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
     [[ "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
@@ -49,22 +37,18 @@ srun --ntasks=1 bash -c '
     exit 0
 }
 
-## Scratch directory on the device under test -- point at local NVMe by default.
-## Change to the shared mount (e.g. /lustre, /vast) to characterize that path.
+## Site value: the device under test. Local NVMe by default; point at the shared
+## mount (e.g. /lustre, /vast) to characterize that path instead.
+## See docs/benchmarks.md#before-enabling-a-job.
 FIO_DIR=/raid/scratch/fio-$SLURM_JOB_ID
 FILE_SIZE=64G
 RUNTIME=120
 
 mkdir -p "${FIO_DIR}" || exit 1
 
-## One status for four passes: any pass failing means the job did not run to
-## completion, and the loop must not let a later success overwrite an earlier
-## failure. Set once here, only ever raised inside the loop.
+## One status for four passes: only ever raised, so a later pass cannot
+## overwrite an earlier failure.
 rc=0
-
-## Each pass is RUNTIME seconds of I/O plus laying out a FILE_SIZE file per job,
-## and it is the layout that dominates on a cold filesystem -- which is what
-## PASS_TIMELIMIT above is really covering.
 
 for rw in read write randread randwrite; do
     case "$rw" in
@@ -95,17 +79,10 @@ rm -rf "${FIO_DIR}"
 
 ## ------------- parse info starts here ----------- ##
 
-## Only whether the job ran is decided here. Whether the result is any good is
-## decided by verdict.sh, which is read on every status check rather than
-## written once into this file. That is what lets a tightened gate re-judge
-## results that already exist -- see the header of verdict.sh.
-##
-## _v_gate_fio there requires one IOPS summary per pass, which is what catches
-## a pass that was skipped rather than one that failed.
+## Only whether the job ran is decided here; _v_gate_fio in verdict.sh decides
+## whether the result is good. See docs/benchmarks.md#where-a-pass-is-decided.
 
-## The aggregate exit status over every pass -- 0 if all of them returned 0, 1
-## if any did not. Written into the log rather than left only in the marker
-## below: a FAIL with a non-zero here is the job's own, a FAIL with
-## `exit status: 0` came from the gate in verdict.sh at status-check time.
+## Logged, not just left in the marker: a FAIL with a non-zero here is the
+## job's own, a FAIL with `exit status: 0` came from the gate.
 echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

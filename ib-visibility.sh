@@ -2,32 +2,13 @@
 #
 # Usage: ib-visibility.sh <node> [container]
 #
-# Answers one question, on one node, in under a minute: does the container see
-# the same HCAs the host does, and will NCCL use them?
+# Does the container see the same HCAs the host does, and will NCCL use them?
+# The four failure modes and the case numbers printed below are documented in
+# docs/operations.md#debugging-ib-visibility; the host-vs-container split
+# itself is docs/benchmarks.md#host-hcas-are-not-container-hcas.
 #
-# This exists because the two NCCL -nonvlink jobs can fail for four different
-# reasons that all read the same way from a bandwidth number, and telling them
-# apart from a finished benchmark log means waiting an hour first:
-#
-#   1. the host has no compute-plane HCA at all    -- nccl_hca_detect finds none
-#   2. the host has them, the container sees none  -- /dev/infiniband not bound
-#                                                     into the container
-#   3. the container sees them, NCCL finds none    -- no ACTIVE port, or the
-#                                                     names pinned in
-#                                                     NCCL_IB_HCA do not exist
-#                                                     inside the container
-#   4. all of it is visible and NCCL still declines to use it
-#
-# verdict.sh gates on 2 and 3 as separate reasons for exactly this purpose. A
-# node reporting "no IB device visible to NCCL" rather than "no HCA visible
-# inside the container" has already ruled out case 2 -- the container DID list
-# devices -- so the answer is in case 3, and neither port state nor the
-# host-vs-container name match is visible from an ssh session or from a
-# bandwidth figure.
-#
-# One node at a time on purpose. The host selection is read back here and
-# pinned into the container run, so the two sections are guaranteed to be
-# describing the same machine; a nodelist would let them drift apart.
+# One node at a time on purpose: the host selection is read back here and
+# pinned into the container run, so both sections describe the same machine.
 #
 # Read-only. Runs interactive sruns, writes nothing, drains nothing.
 
@@ -47,13 +28,11 @@ if ! command -v srun &>/dev/null; then
     module load slurm
 fi
 
-## Explicit image, if given. Otherwise it is resolved on the NODE in section 1
-## below -- see there for why it cannot be resolved here.
+## Explicit image, if given. Otherwise resolved on the NODE in section 1 below.
 CONT="${2:-}"
 
-## The jobs source this from the NFS path, and the probe text plus the HCA
-## filter both have to be the ones the benchmark uses -- probing with a
-## different rule would not test what actually runs.
+## Must be the same filter and probe the jobs use, or this is not testing what
+## runs. See docs/benchmarks.md#host-hcas-are-not-container-hcas.
 HCA_LIB="$JOBS_DIR/nccl-hca.sh"
 if [[ ! -f "$HCA_LIB" ]]; then
     echo "ERROR: missing $HCA_LIB -- it carries the HCA filter and the container" >&2
@@ -65,14 +44,10 @@ fi
 echo "=== ib-visibility: $node"
 
 ## ── 1. Host side ──────────────────────────────────────────────────────────
-## Through srun rather than ssh. ssh puts you on the host too, but it also puts
-## you outside Slurm's view of the node, and the whole failure this script
-## chases is one that looks fine from an ssh session.
-##
-## nccl_hca_detect is sourced and run INSIDE the payload so the selection is the
-## one that node makes, not one recomputed on the head node against the head
-## node's PCI bus. The chosen list is echoed in a fixed format and read back
-## below to pin the container run to the same devices the job would use.
+## srun rather than ssh: ssh reaches the host but sits outside Slurm's view.
+## nccl_hca_detect runs INSIDE the payload so the selection is the node's own,
+## not one recomputed against the head node's PCI bus; the fixed-format echo is
+## read back below to pin the container run to the same devices.
 host_out=$(srun --ntasks=1 -w "$node" --export=ALL bash -c '
 source '"$HCA_LIB"'
 
@@ -91,9 +66,8 @@ else
     echo "##   The jobs abort here and write FAIL. Nothing below will help."
 fi
 
-## A device that is present but LinkDown is invisible to NCCL in exactly the
-## way a device that is absent is, so the state has to be printed, not just
-## the name.
+## A present-but-LinkDown device is invisible to NCCL exactly as an absent one
+## is, so print the state, not just the name.
 echo "## port state:"
 if command -v ibv_devinfo >/dev/null 2>&1; then
     ibv_devinfo 2>/dev/null | awk "
@@ -109,16 +83,10 @@ else
     done
 fi
 
-## Resolved HERE, on the node, and read back on the head node for the container
-## sruns below. /tmp is node-local: the head node is where build_containers.sh
-## builds, so /tmp/containers/<img> exists there whether or not file_copy.sh has
-## rsynced it to this node yet. Testing for it on the head node picked a path
-## that was real where it was looked for and absent where it ran, and pyxis
-## failed with `No such file or directory` on a node whose NFS fallback was
-## fine. That is this script'"'"'s own subject matter -- asking the wrong machine
-## -- so it does not get to make that mistake itself.
-##
-## The arch comes from the node for the same reason.
+## Image path and arch resolved HERE, on the node, then read back on the head
+## node: /tmp is node-local, so testing it on the head node picks a path that is
+## real where it was looked for and absent where it runs. Same fallback the jobs
+## use -- see docs/containers.md#how-the-caching-works.
 img=nvidia+hpc-benchmarks+26.02-$(uname -m | sed "s/aarch64/arm/;s/x86_64/x86/").sqsh
 if [[ -f /tmp/containers/$img ]]; then
     echo "CONTAINER=/tmp/containers/$img"
@@ -136,13 +104,11 @@ echo
 echo "---------------- HOST $node ----------------"
 printf '%s\n' "$host_out" | grep -vE '^(HOSTSELECTED|CONTAINER)='
 
-## Empty is a legitimate answer (case 1) and is passed through as empty rather
-## than defaulted: NCCL_IB_HCA="" does not mean "no devices" to NCCL, it means
-## "any device", so the container section below has to know the difference.
+## Empty is a legitimate answer (case 1), passed through rather than defaulted:
+## NCCL_IB_HCA="" means "any device" to NCCL, not "no devices".
 host_hca=$(printf '%s\n' "$host_out" | sed -n 's/^HOSTSELECTED=//p' | tail -1)
 
-## An explicit $2 wins -- that is the whole point of passing one. Otherwise take
-## what the node resolved.
+## An explicit $2 wins; otherwise take what the node resolved.
 [[ -n "$CONT" ]] || CONT=$(printf '%s\n' "$host_out" | sed -n 's/^CONTAINER=//p' | tail -1)
 if [[ -z "$CONT" ]]; then
     echo
@@ -153,8 +119,8 @@ fi
 echo "## container image: $CONT"
 
 ## ── 2. Container side ─────────────────────────────────────────────────────
-## Same image, same mounts, and the same libibverbs call the benchmark makes.
-## Anything that differs from the section above is the bug.
+## Same image, same mounts, same libibverbs call the benchmark makes. Anything
+## that differs from section 1 is the bug.
 echo
 echo "---------------- CONTAINER on $node ----------------"
 srun --ntasks=1 -w "$node" --export=ALL,NCCL_IB_HCA="$host_hca" \
@@ -197,11 +163,9 @@ if [[ -z "$active" ]]; then
     echo "##   device at all. This is a link/fabric problem, not a mount one."
 fi
 
-## The other half of case 3, and the one nothing else reports: the job pins
-## NCCL to names computed on the HOST. If the container enumerates the same
-## hardware under different names, or a subset, NCCL is pinned to devices that
-## do not exist in there and reports no device found while sitting on four
-## perfectly good HCAs.
+## The other half of case 3, and the one nothing else reports: the job pins NCCL
+## to names computed on the HOST. Different names or a subset inside the
+## container, and NCCL reports no device found while sitting on four good HCAs.
 if [[ -n "${NCCL_IB_HCA:-}" ]]; then
     missing=
     for d in ${NCCL_IB_HCA//,/ }; do
@@ -217,22 +181,15 @@ fi
 '
 
 ## ── 3. What NCCL itself makes of it ───────────────────────────────────────
-## The two sections above describe the node; this one asks the library, in the
-## same environment the -nonvlink jobs set, cut to a single 8-byte message so it
-## returns in seconds. The init log is the point, not the bandwidth.
+## Sections 1-2 describe the node; this asks the library, in the -nonvlink jobs'
+## environment cut to one 8-byte message. The init log is the point, not the
+## bandwidth, and NCCL_NET=IB with no fallback makes it fail loudly rather than
+## quietly succeed over TCP.
 ##
-## NCCL_NET=IB with no fallback, matching the jobs: this is meant to fail loudly
-## here rather than quietly succeed over TCP.
-##
-## Output is filtered to the transport lines. The full log is enormous and the
-## four lines that decide the verdict -- what plugin loaded, what network was
-## chosen, and what each channel actually used -- are what verdict.sh reads.
-##
-## The filter also keeps pyxis, enroot and srun errors. It did not, and a run
-## that never started a container printed an empty section under a heading
-## saying NCCL init -- which reads as "NCCL ran and said nothing", the single
-## most misleading thing this script could produce. A section with no output at
-## all now means the grep found nothing, and that is itself reported.
+## Filtered to the transport lines verdict.sh reads -- see
+## docs/benchmarks.md#judge-the-channels-never-the-plugin-registration -- plus
+## pyxis, enroot and srun errors, so a run that never started a container cannot
+## print an empty section that reads as "NCCL ran and said nothing".
 echo
 echo "---------------- NCCL init on $node ----------------"
 nccl_out=$(

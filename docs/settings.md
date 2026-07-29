@@ -28,6 +28,29 @@ Editing `SETTINGS.default` in place works until the next tarball drop
 overwrites it. Do it once and forget, and the site's configuration silently
 reverts on an upgrade.
 
+### Reading them from a script
+
+`settings.sh` is sourced, never run. It needs to know where the bringup root is
+before it can look for either file, and it takes that from `SETTINGS_HOME`, or
+from `home`, or failing both from its own location:
+
+```bash
+home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$home/settings.sh"
+```
+
+Afterwards `SETTINGS_FILE` holds the path that was actually read, or is empty if
+neither file was found. A script that can usefully say which file it read
+reports it; nothing treats an empty one as fatal, because the defaults inside
+`settings.sh` are a complete working configuration on their own. The two BCM
+actions are the exception — they carry `home=` literally and treat a missing
+`settings.sh` itself as fatal, since without it `BENCHMARKS` and the drain
+switches are simply absent rather than defaulted.
+
+`settings.sh` also defines `setting_enabled`, which is how every yes/no key in
+this document is read. There is one implementation so that a value reads the
+same way wherever it is tested.
+
 ## Which set of things to run
 
 Three settings each name a subdirectory:
@@ -43,9 +66,32 @@ All three ship as `nvl72`. They are separate variables rather than one
 job set against a health-check set trimmed for its hardware, and a new platform
 usually starts by reusing the existing parsers.
 
-`settings.sh` exports `JOBS_DIR`, `HEALTHCHECKS_DIR` and `PARSERS_DIR` already
-joined to the bringup root, so no script has to remember which variable indexes
-which directory.
+Each is a directory *name*, never a path. `settings.sh` joins each one to the
+bringup root and leaves `JOBS_DIR`, `HEALTHCHECKS_DIR` and
+`PARSERS_DIR` set, so no script has to remember which variable indexes which
+directory. They are set rather than exported, like everything else here: this
+file is sourced by every check runner, status check and container build in the
+tree, and an export would put them into the environment of all of them.
+
+That is the only place those paths are built. Nothing else may rebuild one by
+hand from `$JOBS` — a second copy of the join is a second thing to update when
+the layout moves, and it will be the one that is missed.
+
+A name that resolves to a directory that does not exist is the failure mode
+this whole section is arranged against, because the natural way to write each
+of these consumers is a loop, and a loop over a directory that is not there
+finds nothing and says nothing — per node, per cycle, silently. So each one
+checks the path and writes a reason instead:
+
+| Consumer | On a missing path |
+|---|---|
+| `node_health.sh` | `ERROR: no health check set at <dir>`, before the loop over `[0-9]*.sh` |
+| `launch_job.sh` | traces `EXIT: <dir>/verdict.sh is missing -- it carries the pass/fail rule`, and submits nothing |
+| `status-check.sh`, `daily-report.sh` | the same `verdict.sh` check, to stderr |
+| `trigger-debug.sh` | reports all three, each name with the directory it resolved to; flags one that does not exist, and one that exists but is empty |
+
+The same rule applies one level down, to the names *inside* these directories:
+prefer an explicit check and a written reason over a loop that finds no matches.
 
 ## The benchmark list
 

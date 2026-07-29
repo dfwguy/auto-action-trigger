@@ -1,21 +1,14 @@
-# Pipeline for the checks in "Before committing" (CLAUDE.md).
+# Pipeline for the checks in "Before committing" (CLAUDE.md). Last gate before
+# a change reaches a cluster; there is no staging deployment behind it.
 #
-# These scripts run as root on 200+ nodes and are deployed by unpacking a
-# tarball by hand, so the pipeline is the last gate that runs before a change
-# reaches a cluster -- there is no staging deployment to catch it after.
-#
-# Nothing here talks to Slurm, BCM or a GPU. The test suites stub sinfo,
-# scontrol, squeue, systemctl and nvidia-smi on PATH and source the real
-# libraries, so a plain Debian image with bash is the whole environment. Do not
-# add a job that needs cluster access -- it would be skipped or faked, and a
-# gate that cannot fail is worse than no gate.
+# Nothing here talks to Slurm, BCM or a GPU -- the suites stub those on PATH.
+# Do not add a job that needs cluster access: it could only be faked.
 
 stages:
   - lint
   - test
 
-# Without this, a push to a branch that has an open merge request runs the
-# whole pipeline twice -- once for the branch and once for the MR.
+# Without this, a push to a branch with an open MR runs the pipeline twice.
 workflow:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
@@ -23,69 +16,42 @@ workflow:
       when: never
     - if: $CI_COMMIT_BRANCH
 
-# One place for the image and the runner tags, so a change to either does not
-# have to be made six times and half-applied.
-#
-# buildpack-deps:*-scm rather than debian:*-slim: it is the same Debian
-# bookworm userland the tests need, with git already in it. The slim image
-# needs an apt-get before the runner can even clone, which makes every job
-# depend on a package mirror being reachable at the moment it runs.
-#
-# `bookworm` is a frozen Debian release, so the userland underneath does not
-# move the way a `latest` tag would. The tag itself is still rebuilt for
-# security updates -- if this pipeline ever starts failing with no commit
-# behind it, suspect the base image before the scripts.
+# One place for the image and the runner tags. -scm ships git, so no job needs
+# a package mirror to clone; bookworm is frozen, so the userland cannot move.
 .base:
   image: buildpack-deps:bookworm-scm
-  # Required -- the runners here are tagged, and an untagged job does not fail,
-  # it sits pending forever. Exactly the silent stall the framework is written
-  # against, so it is worth knowing that this line is load-bearing.
+  # Load-bearing: the runners are tagged, and an untagged job sits pending
+  # forever rather than failing.
   tags:
     - size/medium
-  # Superseded pipelines are wasted work; nothing here has a side effect that
-  # would make a half-finished run worse than no run.
+  # Superseded pipelines are wasted work; no job here has a side effect.
   interruptible: true
 
-# Every job names what it checked, passing or failing. A green pipeline that
-# printed nothing cannot be told from one whose loop matched no files -- the
-# same silent-success failure the framework itself is designed against.
+# Every job names what it checked, passing or failing -- a green pipeline that
+# printed nothing is indistinguishable from a loop that matched no files.
 
 shellcheck:
   extends: .base
   stage: lint
-  # Blocking from the first run, because the tree is clean as of the commit that
-  # added this. A lint job that starts out red is one everybody learns to scroll
-  # past, and then it is a gate that cannot fail.
-  #
-  # severity=warning is the gate, not the ceiling. Below it sit ~80 info/style
-  # findings that are mostly deliberate here -- single-quoted cmsh strings and
-  # intentional word splitting -- and folding them in would bury the warnings
-  # that matter. Tightening to `info` later is a separate change with its own
-  # triage.
-  #
-  # The version is deliberately Debian's rather than the newest: bookworm is
-  # frozen at 0.9.0, so the check set cannot grow under us and turn the pipeline
-  # red with no commit behind it. Every finding this tree carries a disable for
-  # was triaged against exactly this version.
+  # severity=warning is the gate, not the ceiling: the ~80 info/style findings
+  # below it are mostly deliberate here. Debian's 0.9.0 rather than the newest,
+  # so the check set cannot grow under us; the tree's disables were triaged
+  # against that version.
   before_script:
     - apt-get update -qq
     - apt-get install -y -qq --no-install-recommends shellcheck
     - shellcheck --version
   script:
     - |
-      # jobs/nvl72/hpl/*.dat are HPL config, not shell -- the glob excludes them
-      # by extension rather than by a skip list that would drift.
+      # By extension rather than a skip list that would drift.
       files=$(git ls-files '*.sh' '*.sbatch')
       if [ -z "$files" ]; then
         echo "no scripts found -- the glob is wrong, not the tree"
         exit 1
       fi
       echo "$(echo "$files" | wc -l) files"
-      # -f gcc so a failure names file:line:col in the job log without anyone
-      # opening an artifact. The status is checked explicitly rather than left
-      # to the runner's set -e: the first draft of this job let shellcheck's
-      # exit status fall on the floor, printed its findings, and still went
-      # green -- a gate that reports and does not stop is worse than no gate.
+      # -f gcc names file:line:col in the log. The status is checked explicitly,
+      # not left to set -e: an earlier draft printed findings and went green.
       if shellcheck -f gcc -S warning $files; then
         echo "no findings at severity>=warning"
       else
@@ -118,10 +84,8 @@ syntax:
 permissions:
   extends: .base
   stage: lint
-  # The exec-bit split is load-bearing and asymmetric, which is what makes it
-  # easy to break: a 644 action registers with BCM fine and silently runs
-  # nothing, and a 755 example.sbatch propagates into every job cp'd from it.
-  # Both survive a tarball drop and neither shows up at runtime.
+  # The exec-bit split breaks silently in both directions and survives a tarball
+  # drop. See the mode table in CLAUDE.md.
   script:
     - |
       status=0
@@ -136,16 +100,14 @@ permissions:
         fi
       }
 
-      # Sourced libraries -- never executed, so 755 would only invite running
-      # them directly, which does nothing useful.
+      # Sourced libraries -- never executed.
       for f in settings.sh reason-map.sh slurm-recovery.sh \
                $(git ls-files 'parsers/*/verdict.sh') \
                $(git ls-files 'jobs/*/nccl-hca.sh'); do
         check 100644 "$f"
       done
 
-      # node_health.sh runs each check as `bash "$check_file"` deliberately, so
-      # one check's `exit 1` cannot truncate the set.
+      # node_health.sh runs each check as `bash "$check_file"`, deliberately.
       for f in $(git ls-files 'health-checks/*/[0-9][0-9]-*.sh'); do
         check 100644 "$f"
       done
@@ -175,10 +137,8 @@ permissions:
 architecture-doc:
   extends: .base
   stage: lint
-  # The tree listing in docs/architecture.md has drifted twice by someone
-  # adding a top-level script and not listing it. Scoped to the top level on
-  # purpose: the doc lists health-checks/ and jobs/ as directories rather than
-  # naming their contents, and it should stay free to.
+  # The tree listing in docs/architecture.md has drifted twice this way. Scoped
+  # to the top level: the doc lists health-checks/ and jobs/ as directories.
   script:
     - |
       status=0
@@ -191,8 +151,7 @@ architecture-doc:
       [ "$status" -eq 0 ] && echo "every top-level script is listed"
       exit $status
 
-# One job per suite rather than a loop, so a failure names the gate that broke
-# in the pipeline view without anyone opening a log.
+# One job per suite rather than a loop, so a failure names the gate that broke.
 
 verdict:
   extends: .base

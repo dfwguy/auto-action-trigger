@@ -1,19 +1,11 @@
 #!/bin/bash
 #
 # Checks the check-running loop in actions/node_health.sh against a synthetic
-# check set and a synthetic baseline.
+# check set and baseline. A mistake in that loop is invisible from outside:
+# see docs/health-checks.md#informational-checks.
 #
-# The loop is what decides which mismatches become a drain reason and which are
-# only recorded, and a mistake there is invisible from outside: an
-# informational check that starts draining takes the fleet down for its own
-# rack topology, and a real check that stops draining reports a broken node as
-# healthy. Neither shows up as an error anywhere.
-#
-# The loop is extracted from the script rather than copied here -- a copy would
-# pass forever while the real one drifted. That means node_health.sh has to
-# keep `append_reason()` as the first line of the extracted region and `done`
-# as the last, which it does; if the extraction ever comes back empty this
-# fails loudly rather than passing on nothing.
+# The loop is extracted from the live script, not copied -- a copy would pass
+# forever while the real one drifted.
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -52,8 +44,7 @@ cat > "$work/set/40-dmesg-xid.sh" <<'EOF'
 echo 'GPU:74'
 EOF
 
-## exits non-zero partway through: must not stop the checks after it. This is
-## why the runner uses `bash "$file"` rather than sourcing.
+## exits non-zero partway through: must not stop the checks after it
 cat > "$work/set/50-explodes.sh" <<'EOF'
 #!/bin/bash
 # banner: ########INFO: Check Explodes
@@ -103,8 +94,7 @@ check() {
 
 check "reason" " beta dmesg-xid GPU:74 omega " "$reason"
 
-## Every check writes its log whether it drains or not -- including the
-## informational one, which is the only place its value is ever recorded.
+## Every check writes its log whether it drains or not, informational included
 for c in alpha beta gamma dmesg-xid explodes omega; do
     if [[ -f "$work/log/$c" ]]; then
         printf 'ok       %-42s %s\n' "log written: $c" "$(head -1 "$work/log/$c")"
@@ -114,8 +104,7 @@ for c in alpha beta gamma dmesg-xid explodes omega; do
     fi
 done
 
-## The banner is reproduced verbatim: the baseline is a copy of this file, so
-## a runner that reformatted it would fail every check on every node.
+## The banner is reproduced verbatim. See docs/health-checks.md#the-check-file-format.
 check "banner verbatim" "########INFO: Check Alpha" "$(head -1 "$work/log/alpha")"
 
 echo
