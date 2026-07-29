@@ -37,6 +37,7 @@
 # splits on paste without a dialog at all.
 #
 # Read-only apart from -o. It submits nothing and drains nothing.
+# --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"

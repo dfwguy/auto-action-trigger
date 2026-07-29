@@ -40,6 +40,7 @@
 #            covers: `-s -t allreduce` is a list of nodes judged on allreduce
 #            alone, and an exported list that does not say so is one paste away
 #            from draining nodes for a test they were never judged on.
+# --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
