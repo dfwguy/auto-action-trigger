@@ -371,7 +371,7 @@ and which one to turn on first — is in
 
 ```bash
 RECOVER_SLURM_DRAINS=yes
-RECOVER_REASONS="prolog|epilog|rogue ?process|batch job complete failure|Kill task failed|node unexpectedly rebooted"
+RECOVER_REASONS="prolog|epilog|rogue ?process|batch job complete failure|Kill task failed|node unexpectedly rebooted|duplicate jobid|gres/gpu count"
 RECOVER_EMPTY_REASON=yes
 RECOVER_SETTERS="slurm root"
 RECOVER_MAX_ATTEMPTS=3
@@ -388,6 +388,32 @@ framework is the one for drains carrying `DRAIN_MARKER`. Nodes accumulated in
 `drained`, the sequencer traced *"node is drain for a reason that is not ours"*
 on every cycle, and somebody had to run `scontrol update ... state=RESUME` by
 hand, per node, indefinitely.
+
+Two of the shipped patterns are registration failures rather than job failures,
+and both are worth spelling out because they look like hardware faults and are
+usually not:
+
+- **`Duplicate jobid`.** `slurmd` registered with `slurmctld` carrying a job the
+  controller believes is finished, or belongs elsewhere — a job record left in
+  `/var/spool/slurmd` across a reboot, a controller failover or restart that
+  replayed state the node had already moved past, or a node that came back
+  before the epilog for its last job completed. The node is fine; the two ends
+  disagree about one job id. A resume re-registers it and the disagreement is
+  gone. If a node earns this repeatedly, the stale spool file is the thing to
+  look at — the recovery will not delete it, and the attempt cap is what stops
+  the loop.
+- **`gres/gpu count reported by slurmd (n) lower than configured (m)`.**
+  `slurmd` counted the GPUs before the driver finished coming up, so it
+  registered with a count that was true for a few seconds after boot and is not
+  true now. This is the one shipped pattern that *can* also mean a genuinely
+  missing GPU, and the recovery does not attempt to tell the two apart: it
+  resumes, `slurmd` re-registers, and a node that really is short a GPU is
+  drained again immediately with the same reason. That costs one attempt of
+  `RECOVER_MAX_ATTEMPTS`, three times, and then the node stays drained with
+  Slurm's own reason on it. The check that names a missing GPU as a hardware
+  fault is `14-nvidia-smi-cuuid.sh`, which compares against
+  `valid-config/default` and drains under the `health` class — a different
+  class, cleared by a different caller, and unaffected by this.
 
 `slurm-recovery.sh` is what clears them, and both actions use it:
 `launch_job.sh` on every monitoring cycle, `node_health.sh` after a clean check

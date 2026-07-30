@@ -45,7 +45,7 @@ fi
 ## and must stay narrow -- it is the only discriminator left when an admin
 ## drains as root. See docs/settings.md#recovering-drains-slurm-set-itself.
 : "${RECOVER_SLURM_DRAINS:=yes}"
-: "${RECOVER_REASONS:=prolog|epilog|rogue ?process|batch job complete failure|Kill task failed|node unexpectedly rebooted}"
+: "${RECOVER_REASONS:=prolog|epilog|rogue ?process|batch job complete failure|Kill task failed|node unexpectedly rebooted|duplicate jobid|gres/gpu count}"
 : "${RECOVER_EMPTY_REASON:=yes}"
 : "${RECOVER_SETTERS:=slurm root}"
 : "${RECOVER_MAX_ATTEMPTS:=3}"

@@ -129,6 +129,13 @@ run_case "kill task failed"        resumed STUB_REASON="Kill task failed"
 run_case "unexpected reboot"       resumed STUB_REASON="node unexpectedly rebooted"
 run_case "down, not drained"       resumed STUB_REASON="Prolog error" STUB_STATE="down"
 
+## Registration disagreements, not node faults. A node genuinely short a GPU is
+## re-drained by slurmd on the next registration and by 14-nvidia-smi-cuuid.sh
+## as a health reason; see docs/settings.md#recovering-drains-slurm-set-itself.
+run_case "duplicate jobid"         resumed STUB_REASON="Duplicate jobid"
+run_case "gres count under-reported" resumed \
+    STUB_REASON="gres/gpu count reported by slurmd (7) lower than configured (8)"
+
 echo "== no reason at all =="
 
 run_case "empty reason, opted in"  resumed     STUB_REASON="none"
