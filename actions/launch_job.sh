@@ -44,16 +44,20 @@ JOB_NAME_BURNIN="burnin-$HOSTNAME"
 EXPLAIN=0
 FORCE=0
 FORCE_ALL=0
+TEST_LIST=""
 ## Default on for a terminal, off otherwise: BCM's action output goes nowhere
 ## anyone reads, and neither does pdsh's until you ask with -v.
 VERBOSE=0; [[ -t 1 ]] && VERBOSE=1
 usage() {
     cat <<'USAGE'
-Usage: launch_job.sh [--explain] [--force] [--all] [--verbose|--quiet]
+Usage: launch_job.sh [--explain] [--force] [--all] [--test JOB] [--verbose|--quiet]
 
   --explain, -n   dry run: print every gate, submit/drain/archive nothing
   --force,   -f   ignore the hourly retry gate and sweep now
   --all,     -a   re-queue every job, passing ones included (implies --force)
+  --test,    -t   run JOB instead of the configured lists, whether or not
+                  BENCHMARKS names it. Repeatable. Implies --force and --all,
+                  drains nothing, and leaves quick-view.txt alone
   --verbose, -v   mirror the trace to stdout (default when stdout is a tty)
   --quiet,   -q   never mirror the trace to stdout
 
@@ -66,20 +70,44 @@ With no arguments -- how BCM invokes it -- the hourly gate applies and only
 jobs without a passing result are queued.
 USAGE
 }
-for arg in "$@"; do
-    case "$arg" in
+## while/shift rather than `for arg`: -t takes a value.
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --explain|-n|--dry-run) EXPLAIN=1 ;;
         --force|-f)             FORCE=1 ;;
         --all|-a)               FORCE=1; FORCE_ALL=1 ;;
+        --test|-t)
+            [[ -n "${2:-}" ]] || {
+                echo "ERROR: $1 needs a job name -- nothing was swept." >&2
+                usage >&2
+                exit 2 ;
+            }
+            TEST_LIST+="${TEST_LIST:+ }$2"
+            FORCE=1; FORCE_ALL=1
+            shift ;;
         --verbose|-v)           VERBOSE=1 ;;
         --quiet|-q)             VERBOSE=0 ;;
         -h|--help)              usage; exit 0 ;;
         *)
-            echo "ERROR: unrecognised argument '$arg' -- nothing was swept." >&2
+            echo "ERROR: unrecognised argument '$1' -- nothing was swept." >&2
             usage >&2
             exit 2 ;;
     esac
+    shift
 done
+
+## Fatal rather than traced and skipped, unlike a bad BENCHMARKS entry: the
+## operator is standing there, and a name that resolves to no .sbatch would
+## otherwise sweep nothing and exit looking like a healthy idle cycle.
+## See docs/sequencer.md#running-a-job-that-is-not-in-the-list.
+for _job in $TEST_LIST; do
+    [[ -f "$JOBS_DIR/$_job.sbatch" ]] || {
+        echo "ERROR: --test $_job: no $JOBS_DIR/$_job.sbatch -- nothing was swept." >&2
+        echo "       Available: $(cd "$JOBS_DIR" 2>/dev/null && ls ./*.sbatch 2>/dev/null | sed 's#^\./##;s#\.sbatch$##' | tr '\n' ' ')" >&2
+        exit 2
+    }
+done
+unset _job
 
 mkdir -p "$logs"
 
@@ -145,8 +173,12 @@ unset _pair
 
 ## Without this line, results appearing off-cadence -- or a passing job suddenly
 ## re-running -- reads as the sequencer misbehaving rather than as a human.
-[[ "$FORCE" -eq 1 ]] &&
-    trace "MANUAL: --force -- hourly gate bypassed$([[ "$FORCE_ALL" -eq 1 ]] && printf ', --all -- passing jobs re-queued too')"
+if [[ -n "$TEST_LIST" ]]; then
+    trace "MANUAL TEST: --test $TEST_LIST -- BENCHMARKS and BURNIN not surveyed this run, no drains, quick-view.txt left alone"
+else
+    [[ "$FORCE" -eq 1 ]] &&
+        trace "MANUAL: --force -- hourly gate bypassed$([[ "$FORCE_ALL" -eq 1 ]] && printf ', --all -- passing jobs re-queued too')"
+fi
 
 ## ── Hand the result path to $JOB_USER ─────────────────────────────────────
 ##
@@ -262,6 +294,12 @@ archive_result() {
 ## the timeout one, but still traces it. See docs/settings.md#drains.
 drain_node() {
     local reason="$1"
+    ## A hand-run of a job the fleet is not judged on cannot take the node out.
+    ## See docs/sequencer.md#running-a-job-that-is-not-in-the-list.
+    [[ -n "$TEST_LIST" ]] && {
+        trace "drain suppressed by --test: $reason"
+        return 0
+    }
     setting_enabled "$DRAIN_AFTER_FAILED_BENCHMARK" || {
         trace "drain suppressed by DRAIN_AFTER_FAILED_BENCHMARK=$DRAIN_AFTER_FAILED_BENCHMARK: $reason"
         return 0
@@ -556,6 +594,10 @@ forced_reason=""
 [[ "$FORCE_ALL" -eq 1 ]] && forced_reason="re-queued by --all"
 write_quickview() {
     local job reason
+    ## The file describes the BENCHMARKS and BURNIN lists, which a --test run
+    ## has not surveyed -- writing it here would report every real column as
+    ## QUEUED. See docs/sequencer.md#running-a-job-that-is-not-in-the-list.
+    [[ -n "$TEST_LIST" ]] && return 0
     {
         for job in $BENCHMARKS; do
             if ! in_list "$job" "${bench_pending[@]}"; then
@@ -591,17 +633,21 @@ write_quickview() {
 ## --all widens `pending` to every job in the list, and only that -- the failure
 ## and sweep bookkeeping keeps reading the results on disk, so a forced re-sweep
 ## neither invents a failure nor clears one.
-survey "$BENCHMARKS" "$bench_busy"
+##
+## --test replaces the list outright rather than adding to it, so a run asked
+## for one job submits one job. See
+## docs/sequencer.md#running-a-job-that-is-not-in-the-list.
+survey "${TEST_LIST:-$BENCHMARKS}" "$bench_busy"
 bench_pending=("${pending_jobs[@]}")
 bench_failed=("${failed_jobs[@]}")
 bench_swept=$swept
 [[ "$FORCE_ALL" -eq 1 ]] && bench_pending=("${surveyed_jobs[@]}")
-trace "survey: pending=[${bench_pending[*]}] failed=[${bench_failed[*]}] swept=$bench_swept busy=$bench_busy"
+trace "survey${TEST_LIST:+ (--test)}: pending=[${bench_pending[*]}] failed=[${bench_failed[*]}] swept=$bench_swept busy=$bench_busy"
 
 burn_pending=()
 burn_failed=()
 burn_swept=1
-if setting_enabled "$RUN_BURNIN"; then
+if [[ -z "$TEST_LIST" ]] && setting_enabled "$RUN_BURNIN"; then
     ## A settings mistake worth naming: without this line the node quietly
     ## never burns in.
     if [[ -z "${BURNIN// /}" ]]; then

@@ -554,6 +554,18 @@ somebody else's job, or already holding a batch of ours — those gates are
 unchanged, and each says in `trigger.log` that `--force` did not override it.
 See [sequencer.md](sequencer.md#running-it-by-hand).
 
+To try a job the site does not run — `jobs/$JOBS/` ships more than `BENCHMARKS`
+names — `--test` runs it in place of the lists, without editing `SETTINGS`:
+
+```bash
+pdsh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh -t ethr -v'
+```
+
+It drains nothing and leaves `quick-view.txt` alone, so it cannot affect what
+the fleet is judged on; the result has no column in the reports and is read with
+`status-check.sh -t ethr`. See
+[sequencer.md](sequencer.md#running-a-job-that-is-not-in-the-list).
+
 Each node also keeps a running trace at `results/<node>/trigger.log`, one line
 per monitoring cycle recording what it did or why it stopped.
 
