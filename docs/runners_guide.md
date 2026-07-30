@@ -39,8 +39,8 @@ compute node:
 /home/cmods/bringup/
 ├── results/<node>/           ← benchmark output, one file per job
 │   ├── allreduce.txt              a job with totalRuns=1
-│   ├── dcgm-run1.txt              a job with totalRuns>1, one file per run
-│   ├── dcgm-run2.txt
+│   ├── dcgmi-r3-run1.txt         a job with totalRuns>1, one file per run
+│   ├── dcgmi-r3-run2.txt
 │   ├── allreduce.fail1.txt        an attempt that was rejected, archived
 │   ├── allreduce.prev1.txt        a passing attempt that --all re-ran
 │   ├── quick-view.txt             this node's current state, one screen

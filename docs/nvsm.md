@@ -6,7 +6,7 @@
 > every node, so leaving it in `BENCHMARKS` drains the whole cluster for a tool
 > that was never going to run. It is omitted from the default `BENCHMARKS` list
 > in `actions/launch_job.sh` for that reason — add it back only on a DGX site.
-> GPU stress is covered by `dcgm` and `mnubergemm` everywhere else.
+> GPU stress is covered by `dcgmi-r3` and `mnubergemm` everywhere else.
 
 `nvsm` is the one job that runs a host binary as **root**, and the one job whose
 failures are as likely to be cluster configuration as hardware. Both setup
@@ -79,7 +79,7 @@ software gap. That is why it is not in the default `BENCHMARKS` list: on a
 non-DGX platform it cannot pass, and a check that cannot pass is a check that
 drains every node it runs on.
 
-On a **non-DGX** platform, leave it out and cover GPU stress with `dcgm` and
+On a **non-DGX** platform, leave it out and cover GPU stress with `dcgmi-r3` and
 `mnubergemm`. That is the default and needs no action.
 
 On a **DGX** platform seeing this error, the PDF for that specific model is

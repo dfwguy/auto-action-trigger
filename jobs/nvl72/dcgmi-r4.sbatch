@@ -1,0 +1,61 @@
+#!/bin/bash
+#SBATCH -N 1
+#SBATCH --exclusive
+#SBATCH --mem=0
+#SBATCH -t 3:10:00
+## Steps inherit only what was named here, never what --exclusive implied.
+## See docs/benchmarks.md#the-allocation-header.
+#SBATCH --gres=gpu:4
+#SBATCH --ntasks-per-node=1
+#SBATCH --nice=0
+## The dcgmi gates run first because they gate the rest of the sweep; higher
+## --nice is later. See docs/benchmarks.md#queue-priority.
+##SBATCH -o /home/cmods/bringup/results/%N/dcgmi-r4.txt
+
+## DCGM diagnostics at run level 4. The four dcgmi-r* jobs differ only in the
+## -r level and the time that level needs. See docs/benchmarks.md#the-dcgmi-gates.
+
+## Job name is used in the status line.
+# shellcheck disable=SC2034  # consumed by the status line, not by this script
+job_name=dcgmi-r4
+
+## `timeout` rather than srun --time because dcgmi runs in the batch body, not
+## a step; the derivation is in
+## docs/benchmarks.md#what-each-jobs-limits-were-derived-from. See
+## docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+JOB_TIMEOUT=3h
+
+## ------------- job info starts here ------------- ##
+
+## Preflight -- what the STEP holds, which the job's AllocTRES cannot answer.
+## The wording is fixed; verdict.sh greps this file. See
+## docs/benchmarks.md#preflight and example.sbatch.
+srun --ntasks=1 bash -c '
+    gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
+    echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
+    [[ "$gpus" -eq 4 && "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
+    echo "preflight: the step did not receive the whole node -- see above"
+    echo FAIL
+    exit 0
+}
+unset CUDA_VISIBLE_DEVICES
+#export CUDA_VISIBLE_DEVICES=0,1,2,3
+
+#module load cuda-dcgm
+## TERM first so dcgmi tears down its host engine connection; KILL 60s later
+## for one that will not go, which is why 137 counts alongside 124 below.
+timeout --signal=TERM --kill-after=60 "$JOB_TIMEOUT" dcgmi diag -r 4
+rc=$?
+
+## Fixed wording VERDICT_RUN_ERRORS matches, so an overrun does not read as a
+## dead node. See docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+[[ "$rc" -eq 124 || "$rc" -eq 137 ]] && echo "timeout: killed after ${JOB_TIMEOUT}"
+
+
+## ------------- parse info starts here ----------- ##
+## Only whether the job ran is decided here; whether it passed is verdict.sh's
+## call, made at status-check time. See docs/benchmarks.md#where-a-pass-is-decided.
+
+## Says who decided a FAIL: non-zero is the workload's own, 0 is verdict.sh.
+echo "exit status: $rc"
+[[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

@@ -11,7 +11,7 @@ this page is the full set.
 bash status-check.sh                      # every node
 bash status-check.sh ink50-dh01-h20        # one rack (bare prefix)
 bash status-check.sh -t allreduce          # one benchmark, every run of it
-bash status-check.sh -t 'allreduce*' -t dcgm ink50-dh01-h20
+bash status-check.sh -t 'allreduce*' -t dcgmi-r3 ink50-dh01-h20
 bash status-check.sh -s                    # node lists per status, no reasons
 bash status-check.sh -s -t allreduce       # ...judged on allreduce alone
 ```
@@ -112,7 +112,7 @@ rather than pooled — Gflops, GB/s and MB/s share a table but not a scale. It s
 stderr so neither `-o` nor a redirect ever gets prose mixed into the data.
 
 The last block is `job (pass/fail)`: one row per job, counting its cells by
-status. It is the only summary a pass/fail job gets — `dcgm`, `stressapptest`
+status. It is the only summary a pass/fail job gets — `dcgmi-r3`, `stressapptest`
 and `memtester` judge a node without producing a figure, so the metric block
 has no row for them at all, and the pooled status counts above say how many
 cells failed but not which job they belong to. It is counted from the status
