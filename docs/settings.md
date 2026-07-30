@@ -107,9 +107,10 @@ Jobs are organized by AI Factory Testing Plan (SNT) tier:
 
 | Job | Description | Tier |
 |-----|-------------|------|
-| `dcgm-r2` | TTM DCGM gate (`dcgmi diag -r 2`) | TTM |
-| `dcgm` | Hybrid DCGM gate (`dcgmi diag -r 3`) | Hybrid |
-| `dcgm-r4` | Exhaustive gate (`dcgmi diag -r 4`) | Exhaustive |
+| `dcgmi-r1` | Software and deployment checks (`dcgmi diag -r 1`) | all |
+| `dcgmi-r2` | TTM DCGM gate (`dcgmi diag -r 2`) | TTM |
+| `dcgmi-r3` | Hybrid DCGM gate (`dcgmi diag -r 3`) | Hybrid |
+| `dcgmi-r4` | Exhaustive gate (`dcgmi diag -r 4`) | Exhaustive |
 | `nvbandwidth` | HBM / PCIe / NVLink bandwidth | Hybrid / Exhaustive |
 | `allreduce` `alltoall` | NCCL single-node, NVLink scope | Hybrid / Exhaustive |
 | `allreduce-forcesharp` | NCCL all-reduce, NVLink scope, NVLS/SHARP required | Hybrid / Exhaustive |
@@ -128,17 +129,22 @@ Jobs are organized by AI Factory Testing Plan (SNT) tier:
 ### Choosing a `BENCHMARKS` list
 
 Pick the set matching the delivery methodology. The default holds only jobs
-whose dependencies are always available: `dcgm` uses a host binary, and the
-NCCL jobs use the `hpc-benchmarks` image, which `build_containers.sh` pulls
-from the public catalog. Jobs whose image has to be built or obtained
+whose dependencies are always available: the `dcgmi-r*` jobs use a host binary,
+and the NCCL jobs use the `hpc-benchmarks` image, which `build_containers.sh`
+pulls from the public catalog. Jobs whose image has to be built or obtained
 (`nvbandwidth`, `nvloom`, `mnubergemm`) are covered in
 [containers.md](containers.md) and are added here once their image exists.
 
 **Default — ships as written:**
 ```bash
-BENCHMARKS="dcgm nvbandwidth allreduce allreduce-forcesharp alltoall \
-            allreduce-nonvlink alltoall-nonvlink"
+BENCHMARKS="dcgmi-r1 dcgmi-r3 nvbandwidth allreduce allreduce-forcesharp \
+            alltoall allreduce-nonvlink alltoall-nonvlink"
 ```
+
+Two DCGM levels rather than one: `-r 1` is software-only and nearly free, so it
+says a node is testable before the sweep spends hours finding out it is not, and
+`-r 3` is the deepest level that still fits a normal sweep. See
+[benchmarks.md](benchmarks.md#the-dcgmi-gates).
 
 This default assumes an NGC login: `nvbandwidth` is pulled from a private NGC
 org, so `./build_containers.sh -L` has to have been run on the head node.
@@ -149,8 +155,8 @@ about. `./build_containers.sh -l` says which images are actually present.
 For a sweep with no credentials needed, drop `nvbandwidth` from both lists:
 
 ```bash
-BENCHMARKS="dcgm allreduce allreduce-forcesharp alltoall allreduce-nonvlink \
-            alltoall-nonvlink"
+BENCHMARKS="dcgmi-r1 dcgmi-r3 allreduce allreduce-forcesharp alltoall \
+            allreduce-nonvlink alltoall-nonvlink"
 CONTAINERS="hpc-benchmarks"
 ```
 
@@ -158,9 +164,10 @@ CONTAINERS="hpc-benchmarks"
 same list minus `nvsm`, `nvbandwidth`, `nvloom`, `mnubergemm` and the two
 remediation GEMMs. This one runs as shipped on any site, credentials or not:
 ```bash
-BENCHMARKS="dcgm-r2 dcgm dcgm-r4 allreduce allreduce-forcesharp alltoall \
-            allreduce-nonvlink alltoall-nonvlink stream memtester \
-            stress-ng stressapptest fio ethr llm-pretrain"
+BENCHMARKS="dcgmi-r1 dcgmi-r2 dcgmi-r3 dcgmi-r4 allreduce \
+            allreduce-forcesharp alltoall allreduce-nonvlink \
+            alltoall-nonvlink stream memtester stress-ng \
+            stressapptest fio ethr llm-pretrain"
 ```
 
 **Everything** — the Exhaustive tier plus the optional jobs. Nothing stops you
@@ -171,10 +178,10 @@ remediation tools meant to be submitted by hand against one suspect node, not
 swept across a fleet. A sweep of this list takes days per node, and every job
 holds the whole node while it runs:
 ```bash
-BENCHMARKS="dcgm-r2 dcgm dcgm-r4 nvbandwidth allreduce allreduce-forcesharp \
-            alltoall nvsm allreduce-nonvlink alltoall-nonvlink stream \
-            memtester stress-ng stressapptest fio ethr nvloom mnubergemm \
-            llm-pretrain hpl cublasmatmul"
+BENCHMARKS="dcgmi-r1 dcgmi-r2 dcgmi-r3 dcgmi-r4 nvbandwidth allreduce \
+            allreduce-forcesharp alltoall nvsm allreduce-nonvlink \
+            alltoall-nonvlink stream memtester stress-ng stressapptest \
+            fio ethr nvloom mnubergemm llm-pretrain hpl cublasmatmul"
 ```
 
 ## Burn-in
@@ -197,7 +204,7 @@ separately: a burn-in sitting in the queue for three days must not block a
 benchmark retry behind it.
 
 What keeps them in order is priority, not a gate: `#SBATCH --nice` in each job
-file puts the dcgm gates at `0`, the rest of the sweep at `20`, and burn-in at
+file puts the dcgmi gates at `0`, the rest of the sweep at `20`, and burn-in at
 `100000` — see [benchmarks.md](benchmarks.md#queue-priority). A benchmark
 queued while a burn-in is running goes ahead of the burn-in runs still waiting.
 It does **not** interrupt the run already on the node, because every job is
@@ -237,7 +244,7 @@ ships with DGX OS and only carries platform definition files for DGX platforms,
 so on anything else it exits before doing any work ("Failed to find a matching
 definition file for this platform") and fails identically on every node — which
 means a whole-cluster drain for a tool that was never going to run. GPU stress
-is already covered by `dcgm` and `mnubergemm`.
+is already covered by `dcgmi-r3` and `mnubergemm`.
 
 Add it back on a DGX site, where it also needs a passwordless sudoers grant on
 every compute node. Put it between the NVLink NCCL jobs and the no-NVLink ones
@@ -245,7 +252,7 @@ so a fabric problem does not push a GPU stress test to the back of the queue —
 `nvsm` has no fabric dependency and should report early:
 
 ```bash
-BENCHMARKS="dcgm allreduce allreduce-forcesharp alltoall nvsm \
+BENCHMARKS="dcgmi-r1 dcgmi-r3 allreduce allreduce-forcesharp alltoall nvsm \
             allreduce-nonvlink alltoall-nonvlink"
 ```
 
@@ -277,7 +284,7 @@ being absent is a real problem — but it is why `-L` comes first:
 | `nvloom` | `nvloom` | No published image; two-pass source build, and only with `-S` |
 | `mnubergemm` | `mnubergemm` | Private NGC org (needs a login); NVIDIA-internal, no source build exists |
 
-`dcgm` and `nvsm` are not in this table — they run host binaries and need no image.
+`dcgmi-r*` and `nvsm` are not in this table — they run host binaries and need no image.
 
 ```bash
 CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm"   # default — needs an NGC login

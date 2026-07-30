@@ -51,7 +51,7 @@ that keeps failing.
 
 What serializes the batch is `#SBATCH --exclusive` in every `jobs/*.sbatch`.
 Without serialization the whole batch is eligible at once and a GPU job landing
-on top of dcgm's stress plugins fails on buffer allocation. Ordering follows the
+on top of dcgmi's stress plugins fails on buffer allocation. Ordering follows the
 `BENCHMARKS` list in practice — the jobs are submitted in that order, carry
 equal priority, and a whole-node job leaves no backfill window for a later one
 to slip into — but that is a scheduling consequence, not a guarantee. No job
@@ -82,7 +82,7 @@ burn-in sitting in the queue for three days would block every benchmark retry
 behind it.
 
 Ordering between them is Slurm priority — `#SBATCH --nice` in each job file,
-`0` for the dcgm gates, `20` for the rest of the sweep, `100000` for burn-in.
+`0` for the dcgmi gates, `20` for the rest of the sweep, `100000` for burn-in.
 See [benchmarks.md](benchmarks.md#queue-priority). Priority reorders what has
 not started; it does not preempt what has, because every job is `--exclusive`.
 So a benchmark queued during a burn-in waits out the run on the node (up to

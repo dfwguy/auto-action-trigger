@@ -24,7 +24,7 @@ fi
 : "${JOBS:=nvl72}"
 : "${HEALTHCHECKS:=nvl72}"
 : "${PARSERS:=nvl72}"
-: "${BENCHMARKS:=dcgm nvbandwidth allreduce allreduce-forcesharp alltoall allreduce-nonvlink alltoall-nonvlink}"
+: "${BENCHMARKS:=dcgmi-r1 dcgmi-r3 nvbandwidth allreduce allreduce-forcesharp alltoall allreduce-nonvlink alltoall-nonvlink}"
 ## `=` not `:=`: an empty BURNIN means "no burn-in" and is a real answer.
 ## See docs/settings.md#burn-in.
 : "${RUN_BURNIN:=no}"

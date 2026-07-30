@@ -16,7 +16,7 @@ Node boots → BCM device status = UP
     │       off local disk. Silent no-op if there is nothing to copy.
     │
     └── LaunchJobTrigger → launch_job.sh
-            Sequences through benchmarks (dcgm → allreduce → alltoall).
+            Sequences through benchmarks (dcgmi-r1 → dcgmi-r3 → allreduce).
             Submits the next Slurm job when the node is idle and the prior run passed.
             Drains the node if a benchmark fails or runs too long.
 ```
@@ -60,9 +60,10 @@ the traces have gone stale.
 ├── jobs/                          # One directory per platform; JOBS picks one
 │   └── nvl72/
 │       ├── example.sbatch             # Annotated template for adding new benchmarks
-│       ├── dcgm-r2.sbatch             # DCGM diagnostics (level 2, TTM gate)
-│       ├── dcgm.sbatch                # DCGM diagnostics (level 3, Hybrid gate)
-│       ├── dcgm-r4.sbatch             # DCGM diagnostics (level 4, Exhaustive gate)
+│       ├── dcgmi-r1.sbatch            # DCGM diagnostics (level 1, quick gate)
+│       ├── dcgmi-r2.sbatch            # DCGM diagnostics (level 2, TTM gate)
+│       ├── dcgmi-r3.sbatch            # DCGM diagnostics (level 3, Hybrid gate)
+│       ├── dcgmi-r4.sbatch            # DCGM diagnostics (level 4, Exhaustive gate)
 │       ├── nvbandwidth.sbatch         # HBM / PCIe / NVLink bandwidth
 │       ├── allreduce.sbatch           # NCCL all-reduce, NVLink scope
 │       ├── allreduce-forcesharp.sbatch # NCCL all-reduce, NVLS/SHARP required (NCCL_ALGO=NVLS)

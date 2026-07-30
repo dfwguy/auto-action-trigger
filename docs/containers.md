@@ -43,7 +43,7 @@ leaving `RUN_BURNIN=no`.
 | `nvloom` | `nvloom` |
 | `mnubergemm` | `mnubergemm` |
 
-`dcgm` and `nvsm` are not in the table — they run host binaries and need no
+`dcgmi-r*` and `nvsm` are not in the table — they run host binaries and need no
 image at all.
 
 Add an image to `CONTAINERS` at the same time as you add the job that uses it
@@ -282,7 +282,7 @@ succeed over IB.
 | nvloom | `nvloom-v2.0.0-<arch>.sqsh` | built from the upstream sample Dockerfile | `nvloom` |
 | mnubergemm | `mnubergemm-26.03-v1.17-<arch>.sqsh` | private NGC org, ARM only | `mnubergemm` |
 
-Jobs not listed need no container at all — `dcgm*`, `nvsm`, `stress-ng`,
+Jobs not listed need no container at all — `dcgmi-r*`, `nvsm`, `stress-ng`,
 `memtester`, `stressapptest`, `fio`, and `ethr` run a host-installed binary.
 
 `<arch>` is `arm` or `x86`, defaulting to `uname -m` on the machine that built

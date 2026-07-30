@@ -2,28 +2,28 @@
 #SBATCH -N 1
 #SBATCH --exclusive
 #SBATCH --mem=0
-#SBATCH -t 3:10:00
+#SBATCH -t 0:25:00
 ## Steps inherit only what was named here, never what --exclusive implied.
 ## See docs/benchmarks.md#the-allocation-header.
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=1
 #SBATCH --nice=0
-## The dcgm gates run first because they gate the rest of the sweep; higher
+## The dcgmi gates run first because they gate the rest of the sweep; higher
 ## --nice is later. See docs/benchmarks.md#queue-priority.
-##SBATCH -o /home/cmods/bringup/results/%N/dcgm-r4.txt
+##SBATCH -o /home/cmods/bringup/results/%N/dcgmi-r2.txt
 
-## AI Factory Testing Plan: DCGM Diagnostics (`dcgmi -r 4`) -- SNT2
-## Exhaustive gate (extended stress, ~45-90 min). `-r 2` is the TTM gate
-## (dcgm-r2.sbatch), `-r 3` is the Hybrid gate (dcgm.sbatch).
+## DCGM diagnostics at run level 2. The four dcgmi-r* jobs differ only in the
+## -r level and the time that level needs. See docs/benchmarks.md#the-dcgmi-gates.
 
 ## Job name is used in the status line.
 # shellcheck disable=SC2034  # consumed by the status line, not by this script
-job_name=dcgm-r4
+job_name=dcgmi-r2
 
-## 2x the plan's ~45-90 min for dcgmi -r 4, upper end. `timeout` rather than
-## srun --time because dcgmi runs in the batch body, not a step. See
+## `timeout` rather than srun --time because dcgmi runs in the batch body, not
+## a step; the derivation is in
+## docs/benchmarks.md#what-each-jobs-limits-were-derived-from. See
 ## docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
-JOB_TIMEOUT=3h
+JOB_TIMEOUT=15m
 
 ## ------------- job info starts here ------------- ##
 
@@ -42,10 +42,9 @@ unset CUDA_VISIBLE_DEVICES
 #export CUDA_VISIBLE_DEVICES=0,1,2,3
 
 #module load cuda-dcgm
-##
 ## TERM first so dcgmi tears down its host engine connection; KILL 60s later
 ## for one that will not go, which is why 137 counts alongside 124 below.
-timeout --signal=TERM --kill-after=60 "$JOB_TIMEOUT" dcgmi diag -r 4
+timeout --signal=TERM --kill-after=60 "$JOB_TIMEOUT" dcgmi diag -r 2
 rc=$?
 
 ## Fixed wording VERDICT_RUN_ERRORS matches, so an overrun does not read as a

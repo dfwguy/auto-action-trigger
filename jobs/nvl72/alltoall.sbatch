@@ -7,7 +7,7 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH -t 0:25:00
 #SBATCH --nice=20
-## The sweep's tier: higher is later, behind the dcgm gates at 0 and ahead of
+## The sweep's tier: higher is later, behind the dcgmi gates at 0 and ahead of
 ## burn-in at 100000. See docs/benchmarks.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/alltoall.txt
 

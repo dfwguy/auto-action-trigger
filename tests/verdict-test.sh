@@ -38,13 +38,13 @@ cases=(
   ## network Socket`. Keep it -- it is the argument for
   ## docs/benchmarks.md#judge-the-channels-never-the-plugin-registration.
   "allreduce__good-nvlink|DONE|"
-  "dcgm__pass|DONE|"
-  "dcgm__gpu-failure|FAIL|dcgmi subtest failed: Targeted Stress"
-  "dcgm__no-output|FAIL|no dcgmi Pass row"
+  "dcgmi-r3__pass|DONE|"
+  "dcgmi-r3__gpu-failure|FAIL|dcgmi subtest failed: Targeted Stress"
+  "dcgmi-r3__no-output|FAIL|no dcgmi Pass row"
   ## Real h03-16: a self-reported FAIL explained rather than repeated. Names the
   ## subtest without the per-GPU text, which differs between nodes and would
   ## stop dshbak collapsing them.
-  "dcgm__targeted-power|FAIL|dcgmi subtest failed: targeted_power"
+  "dcgmi-r3__targeted-power|FAIL|dcgmi subtest failed: targeted_power"
   ## Real h01-13: a healthy node that a flat `grep -iE "N/A"` failed on the
   ## matrix diagonal. Keep it -- it is the argument for
   ## docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says. Only the end
@@ -89,6 +89,21 @@ for case in "${cases[@]}"; do
         printf 'ok       %-42s %s%s\n' \
             "$fixture" "$VERDICT_STATUS" "${VERDICT_REASON:+ -- $VERDICT_REASON}"
         ((pass++))
+    fi
+done
+
+## The four dcgmi levels share one gate, and only one of them has fixtures. A
+## level missing from verdict.sh's case arm would fall through to the default
+## and pass everything. See docs/benchmarks.md#the-dcgmi-gates.
+for level in 1 2 3 4; do
+    verdict "dcgmi-r$level" "$home/tests/fixtures/dcgmi-r3__gpu-failure.txt"
+    if [[ "$VERDICT_STATUS" == "FAIL" ]]; then
+        printf 'ok       %-42s FAIL -- %s\n' "(dcgmi-r$level routes to the gate)" "$VERDICT_REASON"
+        ((pass++))
+    else
+        printf 'FAIL     %-42s want FAIL, got %s -- no gate for this level\n' \
+            "(dcgmi-r$level routes to the gate)" "$VERDICT_STATUS"
+        ((fail++))
     fi
 done
 

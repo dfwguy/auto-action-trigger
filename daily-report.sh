@@ -19,7 +19,7 @@
 # The table goes to stdout, and a summary follows on stderr -- how many nodes
 # are in each slurm state, how many cells hold each status, min/median/mean/max
 # per job for the cells that hold a number, and last a pass/fail count per job,
-# which is the only summary a job like dcgm gets: it has no number to take a
+# which is the only summary a job like dcgmi-r3 gets: it has no number to take a
 # median of, and pooled status counts do not say which job failed. The summary
 # is on stderr and not in the rows on purpose: the file written by -o and a
 # redirect of stdout both have to stay machine-readable.

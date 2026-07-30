@@ -12,7 +12,7 @@ commented catalog above `BENCHMARKS` in `SETTINGS`.
 
 | Plan row | Job | Variants |
 |----------|-----|----------|
-| DCGM Diagnostics `-r 2` / `-r 3` / `-r 4` | `dcgm-r2`, `dcgm`, `dcgm-r4` | TTM / Hybrid / Exhaustive |
+| DCGM Diagnostics `-r 2` / `-r 3` / `-r 4` | `dcgmi-r1`, `dcgmi-r2`, `dcgmi-r3`, `dcgmi-r4` | all / TTM / Hybrid / Exhaustive |
 | nvbandwidth | `nvbandwidth` | all |
 | NCCL Single Node, NVLink | `allreduce`, `alltoall` | all |
 | NCCL Single Node, NVLink, SHARP required | `allreduce-forcesharp` | all |
@@ -36,7 +36,7 @@ asked when a node misbehaves and nothing drained it:
 
 | Job | What it measures |
 |-----|------------------|
-| `dcgm-r2` / `dcgm` / `dcgm-r4` | DCGM diagnostics at rising depth — `-r 2` is the fast TTM gate, `-r 3` the Hybrid gate, `-r 4` extended stress |
+| `dcgmi-r1` … `dcgmi-r4` | DCGM diagnostics at rising depth — `-r 1` is software-only, `-r 2` the fast TTM gate, `-r 3` the Hybrid gate, `-r 4` extended stress. See [the dcgmi gates](#the-dcgmi-gates) |
 | `nvbandwidth` | per-GPU HBM, PCIe and NVLink/NVSwitch bandwidth. Surfaces PCIe width/speed negotiation faults — x8 where x16 was ordered — and HBM channel failures that DCGM does not report as an explicit bandwidth figure |
 | `allreduce`, `alltoall` | NCCL collectives over NVLink, single node: does the collective work, and at what bus bandwidth |
 | `allreduce-forcesharp` | the same collective with the NVSwitch's in-network reduction made mandatory — does the switch offload run at all |
@@ -62,7 +62,7 @@ rather than as a submitted job.
 ## Before enabling a job
 
 Most of the default `BENCHMARKS` list has dependencies that are always
-available: `dcgm` uses a host binary, and the NCCL jobs use the
+available: the `dcgmi-r*` jobs use a host binary, and the NCCL jobs use the
 `hpc-benchmarks` image that `build_containers.sh` pulls from the public catalog.
 The exception is `nvbandwidth`, which is in the default list and comes from a
 private NGC org — so a head node that has not run `./build_containers.sh -L`
@@ -100,7 +100,7 @@ generic header would get wrong.
   allowed to use and the run dies in `CUDA_ERROR_NO_DEVICE` (MOP section 2.4).
   The allocation asks with `--gres` for that reason, and exports
   `NVIDIA_VISIBLE_DEVICES=all` so the Pyxis/Enroot hook bind-mounts every GPU.
-- **The `dcgm` jobs run `dcgmi` in the batch body, not in a step.** That is
+- **The `dcgmi-r*` jobs run `dcgmi` in the batch body, not in a step.** That is
   deliberate — it sees the job's GPUs without restating `--gres` — and it is why
   they bound their work with `timeout` rather than `srun --time`. The `--gres`
   line is still load-bearing: without it Slurm reads the job as GPU-free, and
@@ -144,6 +144,33 @@ generic header would get wrong.
   passes), `ethr` (two per interface) and `nvsm` (stress, then health) set an
   aggregate that is only ever raised, so a later success cannot overwrite an
   earlier failure: any pass failing means the job did not run to completion.
+
+### The dcgmi gates
+
+`dcgmi-r1`, `dcgmi-r2`, `dcgmi-r3` and `dcgmi-r4` are one job written four
+times. The files are byte-identical apart from the `-r` level, the `job_name`
+and `-o` path that follow from it, and the two time limits that level needs —
+`#SBATCH -t` and `JOB_TIMEOUT`, both derived in the table below. There is no
+`dcgm` job without a level: the level is the whole difference between them, so
+it belongs in the name rather than in whichever file happened to be first.
+
+| Job | `dcgmi diag` | What it adds | Tier |
+|-----|--------------|--------------|------|
+| `dcgmi-r1` | `-r 1` | software and deployment checks — driver, NVML, permissions, persistence mode. No stress at all, so it says "this node can be tested" before a sweep spends hours finding out it cannot | quick gate |
+| `dcgmi-r2` | `-r 2` | adds the short hardware probes: PCIe/NVLink, memory bandwidth, SM stress at low duration | TTM |
+| `dcgmi-r3` | `-r 3` | adds the full stress plugins — targeted stress, targeted power, memory bandwidth at length | Hybrid |
+| `dcgmi-r4` | `-r 4` | the same plugins run long, for faults that only appear under sustained thermal and power load | Exhaustive |
+
+The default `BENCHMARKS` runs `dcgmi-r1` and `dcgmi-r3`: `-r 1` is nearly free
+and catches a misconfigured node before anything else is attempted, and `-r 3`
+is the deepest level that still fits inside a normal sweep. `-r 2` is there for
+a TTM schedule that cannot afford `-r 3`, and `-r 4` for a node under
+investigation.
+
+All four share one gate in `verdict.sh` — the output format does not change
+with the level, only how much of it there is. `tests/verdict-test.sh` checks
+that every level reaches that gate, because a level missing from the `case` arm
+would fall through to the default and pass everything.
 
 ## The allocation header
 
@@ -193,7 +220,7 @@ priority, so **higher is later** and `0` is the front of the queue. Three tiers:
 
 | `--nice` | Jobs | Why |
 |---|---|---|
-| `0` | `dcgm`, `dcgm-r2`, `dcgm-r4` | fast, and they decide whether the rest of the sweep is worth running at all |
+| `0` | the four `dcgmi-r*` gates | fast, and they decide whether the rest of the sweep is worth running at all |
 | `20` | every other benchmark | the sweep's own tier |
 | `100000` | `mnubergemm` | burn-in, always last |
 
@@ -206,7 +233,7 @@ It lives in the job file, not in `SETTINGS` and not in `launch_job.sh`, for the
 same reason `-t` and `--exclusive` do — it is part of how this job wants to be
 scheduled, and stating it here means a job submitted **by hand** carries the
 same priority as one the sequencer submits. `hpl` and `cublasmatmul` are
-remediation jobs run by hand, and they still queue at `20` behind a dcgm gate.
+remediation jobs run by hand, and they still queue at `20` behind a dcgmi gate.
 
 Two limits worth knowing:
 
@@ -249,7 +276,7 @@ mysteriously stopped.
 
 Where the estimate is small the floor binds instead of the doubling: container
 start and a multi-gigabyte image read over NFS do not scale with a two-minute
-test, and doubling `~2 min` to four would cancel healthy `dcgm -r 2` steps.
+test, and doubling `~2 min` to four would cancel healthy `dcgmi-r2` steps.
 Where a job configures its own run duration — `stressapptest`'s `RUN_SECONDS`,
 `mnubergemm`'s `--time_to_run` — that is the estimate to double, not the plan's
 figure for the row. Where a job runs several steps (`fio` and `ethr` per pass,
@@ -257,7 +284,7 @@ figure for the row. Where a job runs several steps (`fio` and `ethr` per pass,
 **sum** to less than the walltime — `ethr` in particular sizes its walltime for
 one interface, so adding a second to `IFACES` means raising `#SBATCH -t` too.
 
-The three `dcgm` jobs bound their work with `timeout` instead of `srun --time`.
+The four `dcgmi-r*` jobs bound their work with `timeout` instead of `srun --time`.
 `dcgmi diag` runs in the batch script body rather than in a step — deliberately,
 so it sees the job's GPUs without restating `--gres` — so there is no step for
 `--time` to bound. `JOB_TIMEOUT` there is a `timeout(1)` duration (`40m`, not
@@ -277,9 +304,10 @@ checked against how its neighbours were sized:
 | Job | Step limit | `#SBATCH -t` | Derivation |
 |---|---|---|---|
 | `allreduce`, `allreduce-forcesharp`, `alltoall`, and the `-nonvlink` pair | `0:15:00` | `0:25:00` | 2× the plan's < 5 min for single-node NCCL — the 15 min floor is what binds |
-| `dcgm-r2` | `15m` (`timeout`) | `0:25:00` | 2× ~2 min, floored at 15 min |
-| `dcgm` | `40m` (`timeout`) | `0:50:00` | 2× ~20 min for `dcgmi -r 3` |
-| `dcgm-r4` | `3h` (`timeout`) | `3:10:00` | 2× ~45–90 min, taking the upper end |
+| `dcgmi-r1` | `15m` (`timeout`) | `0:25:00` | 2× under a minute of software checks — the 15 min floor is what binds |
+| `dcgmi-r2` | `15m` (`timeout`) | `0:25:00` | 2× ~2 min, floored at 15 min |
+| `dcgmi-r3` | `40m` (`timeout`) | `0:50:00` | 2× ~20 min for `dcgmi -r 3` |
+| `dcgmi-r4` | `3h` (`timeout`) | `3:10:00` | 2× ~45–90 min, taking the upper end |
 | `nvbandwidth` | `0:30:00` | `0:40:00` | 2× ~15 min |
 | `nvloom` | `1:00:00` | `1:10:00` | 2× the plan's 30 min for the Scope 1 health check |
 | `nvsm` | `0:35:00` stress + `0:05:00` health | `0:50:00` | 2× ~20 min, which `STRESS_SECONDS=1200` matches; the two steps sum inside the walltime |
@@ -433,7 +461,7 @@ gate belongs in `verdict.sh`:
   every already-condemned result condemned. Those have to be re-run. It is the
   *status* that is frozen, not the explanation: the gate still runs against the
   log to say why. That is what turns fifty nodes reporting
-  `dcgm: FAIL -- job reported FAIL` into fifty nodes naming the subtest that
+  `dcgmi-r3: FAIL -- job reported FAIL` into fifty nodes naming the subtest that
   failed — `dcgmi diag` exits 226 on a failed subtest, and the sbatch, which
   decides only whether the job *ran*, can write nothing but a bare `FAIL`.
 - **It failed closed and looked like a hardware finding.** A node reporting
@@ -577,7 +605,7 @@ node's result file as a fixture *before* changing the rule — that is what stop
 the next change to `verdict.sh` from quietly undoing this one.
 
 Coverage is uneven and worth knowing before you trust a gate. `allreduce`,
-`alltoall`, their `-nonvlink` pair, `dcgm`, `nvbandwidth` and `example` have
+`alltoall`, their `-nonvlink` pair, `dcgmi-r3`, `nvbandwidth` and `example` have
 fixtures. The rest — `allreduce-forcesharp`, `nvloom`, `cublasmatmul`, `stream`, `stressapptest`,
 `memtester`, `stress-ng`, `fio`, `ethr`, `hpl`, `llm-pretrain`, `mnubergemm`
 and `nvsm` — do not, because no result file from this platform has been captured

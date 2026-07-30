@@ -9,7 +9,7 @@
 #            With no pattern, every node under results/ is reported.
 #
 #   -t, --test <pattern>
-#            optional test filter, repeatable (-t dcgm -t allreduce). Unlike the
+#            optional test filter, repeatable (-t dcgmi-r3 -t fio). Unlike the
 #            node pattern this does NOT append a `*`: benchmark names are
 #            prefixes of each other (allreduce, allreduce-nonvlink), so an
 #            implicit prefix match would quietly pull in the nonvlink variant

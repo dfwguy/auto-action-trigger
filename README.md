@@ -13,7 +13,7 @@ Node boots → BCM device status = UP
     │       off local disk. Silent no-op if there is nothing to copy.
     │
     └── LaunchJobTrigger → launch_job.sh
-            Sequences through benchmarks (dcgm → allreduce → alltoall).
+            Sequences through benchmarks (dcgmi-r1 → dcgmi-r3 → allreduce).
             Submits the next Slurm job when the node is idle and the prior run passed.
             Drains the node if a benchmark fails or runs too long.
 ```
@@ -58,7 +58,7 @@ A local user named `cmods` must exist on the **headnode and every compute node**
 | `lspci` | `node_health.sh` (PCIe checks) |
 | `numactl` | `node_health.sh` (NUMA checks) |
 | `dmidecode` | `node_health.sh` (BIOS/memory checks) |
-| `dcgmi` | `jobs/nvl72/dcgm.sbatch`, `jobs/nvl72/dcgm-r2.sbatch`, `jobs/nvl72/dcgm-r4.sbatch` |
+| `dcgmi` | `jobs/nvl72/dcgmi-r1.sbatch` … `jobs/nvl72/dcgmi-r4.sbatch` |
 | `nvsm` | `jobs/nvl72/nvsm.sbatch` (DGX only; runs on the host, no container, needs root — see [docs/nvsm.md](docs/nvsm.md)) |
 | `nvidia-imex-ctl` | `node_health.sh` (IMEX checks, GB series only) |
 | `enroot` | `build_containers.sh` (headnode for the fetch pass, compute nodes for the source-build pass; pyxis already needs it there) |
@@ -144,8 +144,8 @@ Editing `SETTINGS.default` in place works until the next tarball drop replaces i
 The active list is `BENCHMARKS` in `SETTINGS`; which subset a site should run depends on its delivery methodology. See [docs/benchmarks.md](docs/benchmarks.md).
 
 ```bash
-BENCHMARKS="dcgm nvbandwidth allreduce allreduce-forcesharp alltoall \
-            allreduce-nonvlink alltoall-nonvlink"
+BENCHMARKS="dcgmi-r1 dcgmi-r3 nvbandwidth allreduce allreduce-forcesharp \
+            alltoall allreduce-nonvlink alltoall-nonvlink"
 ```
 
 ### 6. Decide whether to burn in
@@ -157,7 +157,7 @@ RUN_BURNIN=no
 BURNIN="mnubergemm"
 ```
 
-`mnubergemm` is 12 runs of a ~6-hour step, one job at a time, so a node is under burn-in for about three days. It is not gated on the benchmarks passing — it is ordered behind them by `#SBATCH --nice` in the job files (dcgm at 0, the rest of the sweep at 20, burn-in at 100000), so a benchmark retry queued mid-burn-in goes ahead of the runs still waiting rather than behind all of them. It does not interrupt the run already on the node: every job is `--exclusive`.
+`mnubergemm` is 12 runs of a ~6-hour step, one job at a time, so a node is under burn-in for about three days. It is not gated on the benchmarks passing — it is ordered behind them by `#SBATCH --nice` in the job files (the dcgmi gates at 0, the rest of the sweep at 20, burn-in at 100000), so a benchmark retry queued mid-burn-in goes ahead of the runs still waiting rather than behind all of them. It does not interrupt the run already on the node: every job is `--exclusive`.
 
 `MAX_JOB_HOURS` ships at `7` to clear a single burn-in run — lower it and the sequencer drains healthy nodes mid-run for a timeout. The image is downloaded by default even though the list is off, so turning it on does not mean a fleet-wide failure while the image catches up. See [docs/settings.md](docs/settings.md#burn-in).
 

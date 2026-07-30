@@ -50,7 +50,7 @@ VERDICT_MIN_FIO_PASSES=4
 ## Failure signatures common to every job. A summary line can print in full and
 ## a rank still die on the way out, so this is checked independently of whether
 ## the expected output is present. The last two are the two ways an overrun
-## arrives -- Slurm's step cancellation and the dcgm jobs' `timeout` wrapper --
+## arrives -- Slurm's step cancellation and the dcgmi jobs' `timeout` wrapper --
 ## so it is reported as a run error rather than as missing output. See
 ## docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
 VERDICT_RUN_ERRORS='NCCL WARN|Test NCCL failure|Test failure|srun: error|Segmentation fault|CANCELLED AT|error: unable to|slurmstepd: error|^timeout: killed after'
@@ -205,7 +205,7 @@ _v_gate_nccl() {
 ## that had one; rules (`-----`, `=====`) are not names and must not be carried,
 ## or a Fail gets reported against a section header. Names only, no values or GPU
 ## indices: this becomes VERDICT_REASON -- see the note on it above.
-_v_dcgm_failed_tests() {
+_v_dcgmi_failed_tests() {
     awk -F'|' '
         NF >= 3 {
             name = $2; res = $3
@@ -232,7 +232,7 @@ _v_dcgm_failed_tests() {
 ## `Warning:`/`Error:` row under the failing test, not the bare `Fail`, is what
 ## tells an operator whether the node is broken or the profile is wrong. Falls
 ## back to the Fail row for output that carries no warning text.
-_v_dcgm_fail_detail() {
+_v_dcgmi_fail_detail() {
     local file="$1" hit
     hit=$(grep -nEm1 '^\|[[:space:]]*(Warning|Error)[^|]*\|' "$file" 2>/dev/null)
     [[ -n "$hit" ]] ||
@@ -251,14 +251,14 @@ _v_dcgm_fail_detail() {
 ## The named-subtest check comes before the broad fail/warn/error sweep so the
 ## reason says WHICH test failed; the sweep stays as the catch-all for a problem
 ## reported outside the results table.
-_v_gate_dcgm() {
+_v_gate_dcgmi() {
     local file="$1" failed
     _v_require   "$file" "dcgmi Pass row"          '\|[[:space:]]*Pass[[:space:]]*\|' || return 1
 
-    failed=$(_v_dcgm_failed_tests "$file")
+    failed=$(_v_dcgmi_failed_tests "$file")
     if [[ -n "$failed" ]]; then
         VERDICT_REASON="dcgmi subtest failed: $failed"
-        VERDICT_DETAIL="$(_v_dcgm_fail_detail "$file")"
+        VERDICT_DETAIL="$(_v_dcgmi_fail_detail "$file")"
         return 1
     fi
 
@@ -543,8 +543,8 @@ _v_dispatch_gate() {
             _v_gate_nccl "$file" ib "$VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK" ;;
         alltoall-nonvlink)
             _v_gate_nccl "$file" ib "$VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK" ;;
-        dcgm|dcgm-r2|dcgm-r4)
-            _v_gate_dcgm "$file" ;;
+        dcgmi-r1|dcgmi-r2|dcgmi-r3|dcgmi-r4)
+            _v_gate_dcgmi "$file" ;;
         nvbandwidth)
             _v_gate_nvbandwidth "$file" ;;
         nvloom)
