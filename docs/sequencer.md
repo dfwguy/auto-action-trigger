@@ -115,6 +115,7 @@ BCM passes no arguments, so everything below is only ever an operator's.
 | `--explain`, `-n` | Dry run. Prints every gate and the `sbatch` commands it would issue; submits, drains, resumes and archives nothing. Safe while the trigger is live |
 | `--force`, `-f` | Ignore the hourly gate and sweep now. Queues exactly what the next open cycle would have queued: everything without a passing result |
 | `--all`, `-a` | Also re-queue jobs that *are* passing, sweeping the node from scratch. Implies `--force` |
+| `--test JOB`, `-t` | Run `JOB` instead of the configured lists, whether or not `BENCHMARKS` names it. Repeatable. Implies `--force` and `--all`. See [below](#running-a-job-that-is-not-in-the-list) |
 | `--verbose`, `-v` / `--quiet`, `-q` | Mirror the trace to stdout, or don't. Verbose by default when stdout is a terminal, quiet when it is not — so a hand-run says what it decided and BCM's action output stays empty |
 
 Every decision the script makes is about `$HOSTNAME`, because the trigger fires
@@ -165,6 +166,58 @@ Combine either with `--explain` to see the batch before committing to it:
 ```bash
 pdsh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --all --explain'
 ```
+
+## Running a job that is not in the list
+
+`jobs/<platform>/` carries more `.sbatch` files than `BENCHMARKS` names, and
+`parsers/<platform>/verdict.sh` has gates for several of them. `--test` runs one
+without editing `SETTINGS`, which is the point: a site's benchmark list is what
+the fleet is judged on, and adding a job to it to try it once changes what every
+node is expected to pass and what the daily report calls a hole.
+
+```bash
+pdsh -w ink50-dh01-h02-11 '/home/cmods/bringup/actions/launch_job.sh -t ethr -v'
+```
+
+The name must have an `.sbatch` behind it in `JOBS_DIR` or the run is refused
+with `exit 2` and the list of names that do — unlike a bad `BENCHMARKS` entry,
+which is traced and skipped. The operator is standing there, and a typo that
+swept nothing would otherwise be indistinguishable from a healthy idle cycle.
+
+`--test` **replaces** the lists rather than adding to them: `BENCHMARKS` is not
+surveyed and `BURNIN` is not surveyed even with `RUN_BURNIN=yes`, so a run asked
+for one job submits one job. It implies `--all` as well as `--force`, because a
+job being run deliberately should run whether or not it passed last time.
+
+Three things behave differently from an ordinary sweep, and each says so in the
+trace:
+
+- **Nothing drains.** A job the fleet is not judged on must not be able to take
+  a node out of service, however it fails.
+- **`quick-view.txt` is left alone.** It describes the `BENCHMARKS` and `BURNIN`
+  columns, which this run has not surveyed; rewriting it would report every real
+  column as `QUEUED`.
+- **The gates that decide whether the node should get work at all still
+  apply** — `PAUSE_JOBS`, another user's job, a drain that is not ours, and our
+  own batch already queued. `--test` is a choice of *what* to submit, and the
+  list above is about *whether* to.
+
+The batch is submitted under the ordinary `bringup-<node>` job name, so a test
+in flight is counted, cancelled and waited on exactly like any other benchmark,
+and the next BCM cycle does not submit on top of it.
+
+The result lands at `results/<node>/<job>.txt` like any other, which is what
+lets `status-check.sh -t <job>` and `verdict.sh` judge it. Two consequences:
+
+- The hourly retry gate reads the newest result file's mtime across the whole
+  directory, so a manual test postpones the node's next ordinary sweep by up to
+  `RETRY_INTERVAL_HOURS`. This is accepted rather than special-cased — a sweep
+  deferred by an hour is visible in the trace, and teaching the cadence to
+  ignore some result files is a subtler thing to get wrong.
+- A result for a job outside `BENCHMARKS` has no column in the reports, so it is
+  read with `status-check.sh -t` or by opening the file. It can also show up as
+  the "live" column for a running node in `status-check.sh`, which picks the
+  newest result file in the directory and does not know the job was ad-hoc.
 
 ## Retry and drain behaviour
 
@@ -366,6 +419,7 @@ two per monitoring cycle, forever.
 | Line | When |
 |------|------|
 | `MANUAL: --force -- hourly gate bypassed[, --all -- passing jobs re-queued too]` | A human ran it. Without this, an hour of off-cadence results reads as the sequencer misbehaving |
+| `MANUAL TEST: --test <jobs> -- BENCHMARKS and BURNIN not surveyed this run, no drains, quick-view.txt left alone` | A human ran an ad-hoc job. Replaces the `MANUAL:` line, and is what explains a result in a column the reports do not have — see [above](#running-a-job-that-is-not-in-the-list) |
 | `chown <user> <path>` | `results/` or `results/<node>`, or `trigger.log` / `quick-view.txt`, handed back to `JOB_USER` — see [below](#result-path-ownership) |
 | `WARNING: <dir> is owned by <user>, not <JOB_USER>, and we are not root` | The same problem seen from a hand-run, which can diagnose it but not fix it |
 | `WARNING: JOB_ENV entry '<pair>' is not NAME=VALUE …  -- dropped` | A rejected `JOB_ENV` entry. The sweep still runs, and the reason it ran without your variable is written next to it — see [settings.md](settings.md#what-is-rejected) |
@@ -402,7 +456,7 @@ two per monitoring cycle, forever.
 | `EXIT: <parsers>/verdict.sh is missing …` | Four lines, with the reason spelled out: without the pass/fail rule nothing can be judged, and treating that as "no results yet" would requeue every benchmark on every node every hour |
 | `skip <job>: no <path>` | A listed benchmark with no job file |
 | `<job> run <n>: <STATUS> -- <reason> [<detail>]` | One per failing run, with why rather than just that. Suppressed while that list has jobs in the queue: `INCOMPLETE` logged once a cycle for six hours reads as a node failing when it is a node working |
-| `survey: pending=[…] failed=[…] swept=<0\|1> busy=<0\|1>` | The benchmark list's state |
+| `survey[ (--test)]: pending=[…] failed=[…] swept=<0\|1> busy=<0\|1>` | The benchmark list's state, or the `--test` list's in place of it |
 | `burn-in survey: …` | The same for `BURNIN`, when `RUN_BURNIN` is on |
 | `RUN_BURNIN=<value> but BURNIN is empty -- nothing to burn in` | Burn-in switched on with no list behind it |
 | `EXIT: every benchmark and every burn-in job passing` | The node is done |
@@ -417,6 +471,7 @@ two per monitoring cycle, forever.
 | `DRAIN: job timeout after <n>h (RUNNING)` | Past `MAX_JOB_HOURS`. No marker, so this one stops the retry loop and waits for a human |
 | `drain skipped, already <state>: <reason>` | Somebody or something else got there first; the node is left alone |
 | `drain suppressed by DRAIN_AFTER_FAILED_BENCHMARK=<value>: <reason>` | What the drain would have been, at a site running with drains off |
+| `drain suppressed by --test: <reason>` | The same, on an ad-hoc run: a job the fleet is not judged on cannot take a node out |
 | `RESUME: clearing own drain (<reason>)` | Our own `auto-retry` drain, and only ever that one |
 | `EXIT: newest result is <n>s old, next sweep in <n>s` | The hourly gate, closed. The single most common line in the file |
 | `hourly gate bypassed by --force (…would have waited <n>s)` | The hourly gate, forced |
