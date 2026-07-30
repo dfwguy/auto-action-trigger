@@ -83,18 +83,22 @@ _scan_last_archive() {
 }
 
 # The column a running batch is writing, into _SCAN_LIVE. squeue knows the node
-# but not the benchmark; the newest non-archive result file does. Three
-# processes on purpose -- only RUNNING nodes reach here.
+# but not the benchmark; the newest current result file does. Three processes on
+# purpose -- only RUNNING nodes reach here.
+#
+# Matched against _SCAN_RESULT_RE rather than "every .txt that is not an
+# archive": the node directory also holds quick-view.txt, which is not a result.
 # See docs/operations.md#status-and-reporting.
 _scan_live_column() {
     local node="$1" f
     _SCAN_LIVE=""
-    ## `ls -t` is the point: a glob expands in collating order. Every name here
-    ## is a BENCHMARKS entry plus a fixed suffix, so the odd filenames SC2010
-    ## guards against cannot arise.
+    [[ -n "$_SCAN_RESULT_RE" ]] || return
+    ## `ls -t` is the point: a glob expands in collating order. Every name the
+    ## regex admits is a job name plus a fixed suffix, so the odd filenames
+    ## SC2010 guards against cannot survive it.
     # shellcheck disable=SC2010
     f=$(ls -t "$SCAN_RESULTS_DIR/$node"/*.txt 2>/dev/null \
-        | grep -vE '\.(fail|prev)[0-9]+\.txt$' | head -1)
+        | grep -E "$_SCAN_RESULT_RE" | head -1)
     [[ -n "$f" ]] || return
     f="${f##*/}"
     _SCAN_LIVE="${f%.txt}"
@@ -185,6 +189,19 @@ scan_worker() {
     for n in "${_SCAN_COLS[@]}"; do
         _SCAN_COL_JOB+=("$(verdict_job_name "$n")")
     done
+
+    ## What a result file is allowed to be named, for _scan_live_column. Built
+    ## from both lists and not from SCAN_COLUMNS: -t narrows the report, never
+    ## what the node is running, and the newest file among a SUBSET of the
+    ## columns is not the live one. Archives fail it by construction.
+    ## See docs/operations.md#status-and-reporting.
+    local alt=""
+    # shellcheck disable=SC2086  # both lists are space separated job names
+    for n in $BENCHMARKS $BURNIN; do
+        alt+="${alt:+|}$n"
+    done
+    _SCAN_RESULT_RE=""
+    [[ -n "$alt" ]] && _SCAN_RESULT_RE="/($alt)(-run[0-9]+)?\.txt\$"
 
     for n in "$@"; do
         _scan_node "$n"

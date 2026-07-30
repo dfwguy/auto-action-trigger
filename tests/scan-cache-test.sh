@@ -43,6 +43,13 @@ for n in node01 node02 node03 node04; do
     cp "$F/allreduce__good-nvlink.txt"           "$d/alltoall.txt"
     cp "$F/allreduce-nonvlink__ib-below-floor.txt" "$d/allreduce-nonvlink.txt"
     cp "$F/alltoall-nonvlink__container-blind.txt" "$d/alltoall-nonvlink.txt"
+    ## Not a result: launch_job.sh rewrites it every cycle, so on a real node it
+    ## is the newest .txt in the directory almost all of the time. Pinned ahead
+    ## of every rewrite() below so that is certain here, because it is what the
+    ## live-column probe has to look past.
+    ## See docs/operations.md#status-and-reporting.
+    printf 'alltoall: IN QUEUE\n' > "$d/quick-view.txt"
+    touch -d "$(date -d '+2 hours')" "$d/quick-view.txt"
 done
 
 ## mtime must move for a rewrite to be seen, and these cases rewrite within the

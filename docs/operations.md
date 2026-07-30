@@ -72,6 +72,22 @@ resolves the ambiguity with one cluster-wide `squeue`, matching the
 that live job is writing. Without `squeue` on `PATH` it says so on stderr and both states report
 as `INCOMPLETE`.
 
+`squeue` names the node but not the benchmark — the jobs share one name per
+list so `--dependency=singleton` can serialize them — so the live column is the
+newest result file in `results/<node>/`. `sbatch` truncates `--output` at job
+start and singleton means no earlier benchmark is still running, so that file is
+newest even before its first byte, and every other marker-less column on the
+node really was left by a job that has exited.
+
+"Newest result file" is matched by name against `BENCHMARKS` and `BURNIN`, not
+taken as "the newest `.txt` that is not an archive". The node directory also
+holds `quick-view.txt`, which `launch_job.sh` rewrites every cycle: read as a
+result it is newest almost always, no column ever matches it, and every running
+job on the fleet reports `INCOMPLETE -- job died before finishing`. Both lists
+are used rather than the `-t` selection, because the newest file among a subset
+of the columns is not the one being written. `tests/scan-cache-test.sh` keeps a
+`quick-view.txt` in its fixture tree for this.
+
 `RETRY` and `NOT_RUN` used to be one status, which reported a column whose
 attempt had just been archived as one that had never been attempted. They are
 split because a column with archives is a different thing from one with no
