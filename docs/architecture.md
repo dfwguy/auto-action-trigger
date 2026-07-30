@@ -45,6 +45,7 @@ the traces have gone stale.
 ├── settings.sh                    # Loads SETTINGS, else SETTINGS.default; backfills unset keys
 ├── reason-map.sh                  # Slurm drain reason → check names (health-check.sh, sync-check.sh)
 ├── slurm-recovery.sh              # Clears drains Slurm set itself, never an operator's (both actions)
+├── verdict-scan.sh                # Judges every cell of the fleet in parallel (status-check.sh, daily-report.sh)
 │
 ├── health-checks/                 # One directory per platform; HEALTHCHECKS picks one
 │   └── nvl72/                     # One file per check, NN-<check>.sh, run in numeric order
@@ -169,10 +170,15 @@ and `*.sbatch`, `bash -n` over the same set, the `permissions` job described
 above, and `architecture-doc`, which fails if a top-level script is not named
 in this file's tree listing. `severity=warning` is the gate, not the ceiling:
 the info- and style-level findings below it are largely deliberate here. The
-`test` stage runs the four suites — `tests/verdict-test.sh`,
-`tests/health-runner-test.sh`, `tests/recover-test.sh`, `tests/help-text-test.sh`
-— as one job each, so a failure names the gate that broke without anyone opening
-a log.
+`test` stage runs the five suites — `tests/verdict-test.sh`,
+`tests/health-runner-test.sh`, `tests/recover-test.sh`, `tests/help-text-test.sh`,
+`tests/scan-cache-test.sh` — as one job each, so a failure names the gate that
+broke without anyone opening a log.
+
+`scan-cache` is there for the same reason `help-text` is: a coupling that fails
+without saying so. Break the cache key and every report still prints, still
+looks right, and is wrong about nodes whose answer has changed. See
+[operations.md#the-verdict-cache](operations.md#the-verdict-cache).
 
 `help-text` is there for a coupling the rest of the tree does not have.
 `status-check.sh`, `health-check.sh`, `daily-report.sh`, `sync-check.sh` and

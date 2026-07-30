@@ -506,6 +506,54 @@ grep -H STEP_TIMELIMIT jobs/$JOBS/*.sbatch | sort -t= -k2   # longest run in the
 `DRAIN_MARKER` is what makes an operator drain survive. `launch_job.sh` will not
 queue work behind a drain that does not carry it, and will not clear one.
 
+## Reporting
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `SCAN_JOBS` | empty | Worker processes `status-check.sh` and `daily-report.sh` judge the fleet with. Empty or `0` means one per core |
+
+Both reports derive every cell from the log on each read — the framework never
+stores a verdict, so tightening a gate re-judges the fleet. That is the design,
+and it means a report is thousands of independent judgements. `verdict-scan.sh`
+spreads them across `SCAN_JOBS` workers, because one shell doing all of them in
+sequence is what made these reports slow on a large cluster, not the reading.
+
+The default is one worker per core, which is where it stops getting faster on
+every machine measured: the work is process startup and small reads, so past
+the core count the workers are only competing with each other. Two reasons to
+set it explicitly:
+
+- **Lower it** if the head node is shared, or the reports run from cron
+  alongside something that matters. A report is never urgent enough to take
+  every core on a scheduler node.
+- **Raise it** only if the results tree is on high-latency storage — NFS with
+  many small files is the case where workers spend their time waiting rather
+  than computing, and more of them than cores can help.
+
+It changes nothing about what is reported. The scan's output is folded and
+sorted before it is printed, so two runs at different `SCAN_JOBS` produce
+identical reports.
+
+### The verdict cache
+
+Both reports keep judged verdicts in `results/.result_cache.<mode>`, which turns
+a repeat run from minutes into about a second on a large fleet. There is no
+setting for it: it either tells the truth or it is a bug. How the key works, and
+why that makes it safe, is in
+[operations.md#the-verdict-cache](operations.md#the-verdict-cache).
+
+The files are derived and disposable:
+
+```bash
+rm -f results/.result_cache.*      # rebuilt on the next run
+./status-check.sh --no-cache       # or bypass it for one run
+./daily-report.sh --no-cache
+```
+
+Reach for either when you suspect the *cache* rather than the gate — a restore
+that reset mtimes, a clock that moved backwards. If a `--no-cache` run disagrees
+with a cached one, that is a bug worth reporting, not a cache worth clearing.
+
 ## Extra environment for every job
 
 | Setting | Default | Meaning |

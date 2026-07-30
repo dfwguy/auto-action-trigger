@@ -97,15 +97,15 @@ _v_forbid_i() {
     return 1
 }
 
-## Floor on the largest message size actually run, out-of-place busbw (column 8).
-## Extraction must stay identical to daily-report.sh's extract_metric, or the
-## report prints a number the gate did not judge. `sort -k1,1n` because
-## nccl-tests does not guarantee the largest size is printed last. Comparison in
-## awk because bash arithmetic is integer-only and these are floats.
+## Floor on the largest message size run, out-of-place busbw (column 8). Must
+## stay identical to verdict-scan.sh's extract_metric, or the report prints a
+## number the gate did not judge. Max tracked in the pass because nccl-tests
+## does not guarantee the largest size is last; compared in awk, these are
+## floats.
 _v_min_peak_bw() {
     local file="$1" min="$2" val
-    val=$(awk '$1 ~ /^[0-9]+$/ {print}' "$file" 2>/dev/null \
-          | sort -k1,1n | tail -1 | awk '{print $8}')
+    val=$(awk '$1 ~ /^[0-9]+$/ && $1 + 0 >= big { big = $1 + 0; v = $8 }
+               END { print v }' "$file" 2>/dev/null)
     if [[ -z "$val" ]]; then
         VERDICT_REASON="no per-size bandwidth rows"
         VERDICT_DETAIL=""
@@ -506,6 +506,27 @@ _v_gate_generic() {
 
 ## ── Entry point ───────────────────────────────────────────────────────────
 
+## The last line, without forking -- every call pays for this one, tens of
+## thousands of times per report. Capped because an unbounded mapfile is fastest
+## on a real result file and slowest on a runaway log; hitting the cap means the
+## read stopped short of the end, so ask `tail` then. Sets _V_LAST rather than
+## printing, or the command substitution would reinstate the fork.
+_VERDICT_TAIL_CAP=2000
+_V_LAST=""
+
+_v_last_line() {
+    local -a lines
+    _V_LAST=""
+    mapfile -n "$_VERDICT_TAIL_CAP" -t lines < "$1" 2>/dev/null
+    if (( ${#lines[@]} == _VERDICT_TAIL_CAP )); then
+        _V_LAST=$(tail -1 "$1" 2>/dev/null)
+        return
+    fi
+    ## Not ${lines[-1]}: negative subscripts need bash 4.3, and nothing else in
+    ## this tree requires it.
+    (( ${#lines[@]} )) && _V_LAST="${lines[${#lines[@]} - 1]}"
+}
+
 ## Run the gate for a job. Split out of verdict() because it is needed twice:
 ## once to judge a result that ran to completion, and once to explain a result
 ## whose job condemned itself -- see the FAIL branch below.
@@ -590,7 +611,8 @@ verdict() {
         return
     fi
 
-    last=$(tail -1 "$file" 2>/dev/null)
+    _v_last_line "$file"
+    last="$_V_LAST"
     case "$last" in
         FAIL)
             ## Self-reported: the job could not run, or the workload exited

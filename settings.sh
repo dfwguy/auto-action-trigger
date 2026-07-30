@@ -51,6 +51,9 @@ fi
 : "${RECOVER_MAX_ATTEMPTS:=3}"
 : "${RECOVER_WINDOW_HOURS:=24}"
 : "${RECOVER_RESTART_SLURMD:=no}"
+## `=` not `:=`, like CONTAINERS: empty is the shipped answer and a real one --
+## it means "one worker per core". See docs/settings.md#reporting.
+: "${SCAN_JOBS=}"
 : "${RETRY_INTERVAL_HOURS:=1}"
 : "${MAX_JOB_HOURS:=7}"
 : "${DRAIN_WINDOW_MINUTES:=15}"

@@ -40,6 +40,13 @@
 #            covers: `-s -t allreduce` is a list of nodes judged on allreduce
 #            alone, and an exported list that does not say so is one paste away
 #            from draining nodes for a test they were never judged on.
+#
+#   --no-cache
+#            judge every node from its files, ignoring results/.result_cache.*.
+#            A cached report is the report you would have got anyway; reach for
+#            this when you suspect the cache rather than the gate. Deleting the
+#            cache files does the same, and they are safe to remove at any time.
+#            See docs/operations.md#the-verdict-cache.
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -56,7 +63,8 @@ while (($#)); do
             [[ -n "$2" ]] || { echo "ERROR: $1 needs a test pattern" >&2; exit 1; }
             tests+=("$2"); shift 2 ;;
         -s|--summary) summary=1; shift ;;
-        -h|--help) sed -n '2,42p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        --no-cache) export SCAN_CACHE=0; shift ;;
+        -h|--help) sed -n '2,49p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         *)         args+=("$1"); shift ;;
     esac
 done
@@ -128,20 +136,10 @@ if [[ ! -f "$PARSERS_DIR/verdict.sh" ]]; then
 fi
 source "$PARSERS_DIR/verdict.sh"
 
-# Newest <col>.fail<N>.txt, launch_job.sh's archive of a rejected attempt.
-last_fail_file() {
-    last_archive_file "$1" "$2" fail
-}
-
-# Same for either suffix; .prev<N>.txt is a PASSING result moved aside by
-# `launch_job.sh --all`, never counted as a failure. Selected by numeric suffix,
-# not mtime: an rsync or restore reorders mtimes, the suffix is authoritative.
-last_archive_file() {
-    local node="$1" col="$2" kind="$3" n
-    n=$(ls "$results_dir/$node" 2>/dev/null \
-        | sed -n "s/^${col}\.${kind}\([0-9]\+\)\.txt$/\1/p" | sort -n | tail -1)
-    [[ -n "$n" ]] && printf '%s' "$results_dir/$node/${col}.${kind}${n}.txt"
-}
+# Judges every cell, in parallel worker processes.
+# See docs/operations.md#how-a-report-is-produced.
+# shellcheck source=/dev/null
+source "$home/verdict-scan.sh"
 
 # The slurm tools live behind a module and are absent from cron/ssh/trigger
 # shells. Nothing here is fatal: unlike launch_job.sh, this script still has a
@@ -156,120 +154,71 @@ fi
 #
 # One squeue call for the cluster, not one per node. RUNNING only -- a queued
 # job has written no file, so its columns are NOT_RUN or RETRY anyway.
-declare -A node_running
+#
+# A file, not a variable: the scan runs in workers, and a large fleet's running
+# list should not go through exec once per worker.
+running_file=$(mktemp) || exit 1
+trap 'rm -f "$running_file"' EXIT
 if command -v squeue >/dev/null 2>&1; then
     while IFS='|' read -r name state; do
         [[ "$state" == "RUNNING" ]] || continue
         case "$name" in
-            bringup-*) node_running["${name#bringup-}"]=1 ;;
-            burnin-*)  node_running["${name#burnin-}"]=1 ;;
+            bringup-*) printf '%s\n' "${name#bringup-}" ;;
+            burnin-*)  printf '%s\n' "${name#burnin-}" ;;
         esac
-    done < <(squeue -h -o '%j|%T' 2>/dev/null)
+    done < <(squeue -h -o '%j|%T' 2>/dev/null) > "$running_file"
 else
     # Say it once rather than printing "died before finishing" over live jobs.
     echo "NOTE: squeue is not on PATH even after 'module load slurm' -- a running" >&2
     echo "      job cannot be told from a dead one, so both report as INCOMPLETE." >&2
 fi
 
-# The column a running batch is currently writing, or empty. squeue knows the
-# node but not the benchmark; the file system does. sbatch truncates --output at
-# job start and every benchmark is --exclusive, so the live job's file is the
-# newest result file on the node even before it writes its first byte.
-#
-# Archives are excluded: launch_job.sh `mv`s them at submit time, which can
-# leave one newer than the file the new job is writing.
-live_column() {
-    local node="$1" f
-    ## `ls -t` is the point: a glob expands in collating order, so newest-first
-    ## would cost a stat per file, and the exclusion must follow the ordering.
-    ## Every name here is a BENCHMARKS entry plus a fixed suffix, so the odd
-    ## filenames SC2010 guards against cannot arise.
-    # shellcheck disable=SC2010
-    f=$(ls -t "$results_dir/$node"/*.txt 2>/dev/null | grep -vE '\.(fail|prev)[0-9]+\.txt$' | head -1)
-    [[ -n "$f" ]] || return
-    f="${f##*/}"
-    printf '%s' "${f%.txt}"
-}
-
-matched=0
+declare -a nodes
 for node_dir in "$results_dir"/$pattern/; do
-    [[ -d "$node_dir" ]] && matched=1 && break
+    [[ -d "$node_dir" ]] || continue
+    node_dir="${node_dir%/}"
+    ## Not basename: that is a fork per node for what expansion does free.
+    nodes+=("${node_dir##*/}")
 done
-if [[ "$matched" -eq 0 ]]; then
+if [[ ${#nodes[@]} -eq 0 ]]; then
     # args[0], not $1 -- $1 is whichever flag came first once -t/-s are in play.
     echo "No nodes under $results_dir match '${args[0]:-*}'" >&2
     exit 1
 fi
 
+# Exported, not passed, so node names are all that is on the command line and
+# xargs can chunk them. See docs/operations.md#how-a-report-is-produced.
+export SCAN_RESULTS_DIR="$results_dir"
+export SCAN_COLUMNS="${columns[*]}"
+export SCAN_RUNNING_FILE="$running_file"
+export SCAN_ARCHIVES=1     # RETRY: this report distinguishes it from NOT_RUN
+export SCAN_METRICS=0      # no numbers in this report, only statuses
+
 # Worst status a node holds decides its summary bucket, so the roll-up lists
 # stay disjoint. RUNNING sits above DONE (still working is not passed) and below
 # NOT_RUN (untouched columns are work outstanding either way).
 # See docs/operations.md#status-and-reporting.
-declare -A rank=([FAIL]=6 [INCOMPLETE]=5 [RETRY]=4 [NOT_RUN]=3 [RUNNING]=2 [DONE]=1)
-declare -A worst  # node -> worst status seen across the selected columns
+RANKS='FAIL 6 INCOMPLETE 5 RETRY 4 NOT_RUN 3 RUNNING 2 DONE 1'
 
-# One line per node per column on stdout, plus the per-node roll-up in `worst`.
-# Never pipe this in summary mode: a pipeline runs the loop in a subshell and
-# `worst` would be built in a child.
-scan() {
-for node_dir in "$results_dir"/$pattern/; do
-    [[ -d "$node_dir" ]] || continue
-    node=$(basename "$node_dir")
-    # Once per node, not per column -- the lookup is a directory listing.
-    live=""
-    [[ -n "${node_running[$node]:-}" ]] && live=$(live_column "$node")
-    for col in "${columns[@]}"; do
-        file="$results_dir/$node/${col}.txt"
-        # Not $(verdict ...) -- a subshell would lose the reason. See verdict().
-        verdict "$(verdict_job_name "$col")" "$file"
-        status="$VERDICT_STATUS"
-        reason="$VERDICT_REASON"
+# Scan rows to report lines. The reason is on the line so dshbak collapses
+# nodes failing the same way; no attempt count, which would split one block into
+# one per count. In awk because this is tens of thousands of rows and no state.
+# See docs/operations.md#status-and-reporting.
+report_lines() {
+    awk -F"$SCAN_FS" '{
+        line = $1 ": " $2 ": " $3
+        if ($3 != "DONE" && $3 != "NOT_RUN" && $4 != "") line = line " -- " $4
+        print line
+    }'
+}
 
-        ## launch_job.sh archives a rejected result before submitting the retry,
-        ## so the column has no file at all in between. Judge the newest archive
-        ## and call it RETRY, leaving NOT_RUN one meaning: never attempted.
-        if [[ "$status" == "NOT_RUN" ]] &&
-             prev=$(last_fail_file "$node" "$col") && [[ -n "$prev" ]]; then
-            verdict "$(verdict_job_name "$col")" "$prev"
-            status=RETRY
-            ## Not a contradiction: the gate has been loosened since the archive
-            ## was rejected. Say so rather than printing RETRY with no reason.
-            if [[ "$VERDICT_STATUS" == "DONE" ]]; then
-                reason="prior attempt passes the current gate"
-            else
-                reason="$VERDICT_REASON"
-            fi
-        ## Same gap from `launch_job.sh --all`, which archives a PASSING result
-        ## as <col>.prevN.txt -- no current file and no failures either.
-        elif [[ "$status" == "NOT_RUN" ]] &&
-             prev=$(last_archive_file "$node" "$col" prev) && [[ -n "$prev" ]]; then
-            verdict "$(verdict_job_name "$col")" "$prev"
-            status=RETRY
-            reason="re-queued by --all; previous result: $VERDICT_STATUS"
-        fi
-        ## Only the column being written now. --exclusive runs these one at a
-        ## time, so any OTHER marker-less file was left by a job that has exited.
-        if [[ "$status" == "INCOMPLETE" && -n "$live" && "$col" == "$live" ]]; then
-            status=RUNNING
-            reason="job is on the node now, no verdict until it finishes"
-        fi
-
-        if [[ "$summary" -eq 1 ]]; then
-            prior="${worst[$node]:-}"
-            if [[ -z "$prior" || "${rank[$status]}" -gt "${rank[$prior]}" ]]; then
-                worst["$node"]="$status"
-            fi
-            continue
-        fi
-
-        # The reason is on the line so dshbak collapses nodes failing the same
-        # way. No attempt count: it is per node and would split one block into a
-        # block per count. See docs/operations.md#status-and-reporting.
-        line="$node: $col: $status"
-        [[ "$status" != "DONE" && "$status" != "NOT_RUN" && -n "$reason" ]] && line+=" -- $reason"
-        echo "$line"
-    done
-done
+# Worst status per node, for the summary buckets. In awk because the scan runs
+# in children and cannot build state here.
+worst_per_node() {
+    awk -F"$SCAN_FS" -v ranks="$RANKS" -v ofs="$SCAN_FS" '
+        BEGIN { n = split(ranks, a, " "); for (i = 1; i < n; i += 2) rank[a[i]] = a[i + 1] }
+        !($1 in best) || rank[$3] > rank[best[$1]] { best[$1] = $3 }
+        END { for (node in best) print node ofs best[node] }'
 }
 
 # Paused means the report stops moving. On stderr so it survives -s being piped
@@ -284,11 +233,11 @@ if [[ "$summary" -ne 1 ]]; then
     # empties stdout while the pipeline still exits 0 -- silently identical to
     # "no nodes match". Print ungrouped and say why instead.
     if command -v dshbak >/dev/null 2>&1; then
-        scan | sort | dshbak -c
+        scan_fleet "${nodes[@]}" | report_lines | sort | dshbak -c
     else
         echo "NOTE: dshbak is not on PATH (it ships with pdsh) -- printing one" >&2
         echo "      line per node instead of grouping identical statuses." >&2
-        scan | sort
+        scan_fleet "${nodes[@]}" | report_lines | sort
     fi
     exit 0
 fi
@@ -303,7 +252,13 @@ compress() {
 
 plural() { [[ "$1" -eq 1 ]] && printf 'node' || printf 'nodes'; }
 
-scan
+# One sorted pass, not one per bucket: compress()'s fallback prints the list as
+# built, so the order has to be node order.
+declare -A bucket_nodes bucket_count
+while IFS="$SCAN_FS" read -r node status; do
+    bucket_nodes["$status"]+="${bucket_nodes[$status]:+,}$node"
+    (( bucket_count["$status"]++ ))
+done < <(scan_fleet "${nodes[@]}" | worst_per_node | sort)
 
 # Name the tests up front, or a -t-scoped list reads as a verdict on the whole
 # benchmark set. See docs/operations.md#status-and-reporting.
@@ -315,15 +270,10 @@ fi
 echo
 
 bucket() {
-    local status="$1" note="$2" list="" n=0 node
-    # Sorted: the fallback path prints the list as-is, and associative array
-    # order is hash order, so two runs of the same cluster would not diff.
-    while IFS= read -r node; do
-        [[ "${worst[$node]}" == "$status" ]] && { list+="${list:+,}$node"; ((n++)); }
-    done < <(printf '%s\n' "${!worst[@]}" | sort)
+    local status="$1" note="$2" n="${bucket_count[$1]:-0}"
     [[ "$n" -eq 0 ]] && return
     printf '%s — %d %s (%s)\n' "$status" "$n" "$(plural "$n")" "$note"
-    printf '%s\n\n' "$(compress "$list")"
+    printf '%s\n\n' "$(compress "${bucket_nodes[$status]}")"
 }
 
 # Failures first: on an export the actionable list is the one being reached for.

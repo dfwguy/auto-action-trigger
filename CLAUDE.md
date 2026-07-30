@@ -16,6 +16,32 @@ changes.
 must not overwrite one cluster's node list and drain switches with another's.
 `SETTINGS.default` is the shipped copy and *is* tracked.
 
+## Comments point at the docs; they do not contain them
+
+One or two lines and a reference. The reasoning goes in `docs/`, where it can be
+read in order, linked to, and found by someone who is not already staring at
+that line.
+
+```bash
+## Not a tab: `read` collapses runs of IFS whitespace and eats empty fields.
+## See docs/operations.md#how-a-report-is-produced.
+```
+
+not eight lines restating it above the function. A comment that has grown into
+prose is a sign the explanation has no home yet — give it one in `docs/` and
+link to it from the code.
+
+Three things are exempt, and only these:
+
+- `# shellcheck disable` directives, which carry their reason inline. That is
+  what they are for, and the reason has to sit with the warning it suppresses.
+- The five `--help` header blocks, which *are* the help text — see below.
+- `.sbatch` files and `health-checks/*/NN-*.sh`, which are read on their own by
+  people who will not have the docs open.
+
+This is not licence to delete reasoning. Moving an explanation into `docs/` and
+dropping it look identical in a diff and are not the same thing.
+
 ## Executable bits are load-bearing, and not uniform
 
 The split is deliberate. Before changing a mode, work out which of these a file
@@ -24,7 +50,7 @@ is:
 | Mode | What | Why |
 |------|------|-----|
 | `755` | Entry points — anything a human or BCM invokes directly | Must be `exec`able. BCM registers an action against a path and runs it; a `644` action registers fine and silently runs nothing |
-| `644` | Sourced libraries: `settings.sh`, `reason-map.sh`, `slurm-recovery.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful |
+| `644` | Sourced libraries: `settings.sh`, `reason-map.sh`, `slurm-recovery.sh`, `verdict-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is also *run*, but as `bash verdict-scan.sh` from its own `xargs`, like the health checks below |
 | `644` | `health-checks/*/NN-*.sh` | `node_health.sh` runs each as `bash "$check_file"` — deliberately, so one check's `exit 1` cannot truncate the set of 38 |
 | `644` | `jobs/*/*.sbatch`, including `example.sbatch` | `sbatch` reads them; it does not exec them. `example.sbatch` is a template that gets `cp`'d, so a stray `755` propagates into every new job |
 
@@ -69,6 +95,17 @@ anyway. Never trust its exit status — inspect its output, as `cm_run` does.
 Read trigger state with `get <property>`, not by parsing `show`, whose column
 padding and property names drift between BCM releases.
 
+## A verdict is derived, and the cache does not change that
+
+The reports cache verdicts in `results/.result_cache.*`, keyed on the gate as
+well as on each result file, so editing a floor re-judges the fleet. Anything
+added to a verdict that is not a pure function of the result file and the gate
+must not be cached. `./tests/scan-cache-test.sh` holds this, and a stale hit is
+silent, so that suite is the only thing between a wrong key and a clean-looking
+report of a broken cluster.
+
+Read `docs/operations.md#the-verdict-cache` before touching any of it.
+
 ## Before committing
 
 ```bash
@@ -76,6 +113,7 @@ padding and property names drift between BCM releases.
 ./tests/health-runner-test.sh  # the health check runner loop
 ./tests/recover-test.sh        # drain classification in slurm-recovery.sh
 ./tests/help-text-test.sh      # --help blocks, if you touched a header comment
+./tests/scan-cache-test.sh     # the report cache, if you touched a gate or verdict-scan.sh
 bash -n <changed script>       # these scripts run as root on 200+ nodes
 shellcheck -S warning <changed script>   # CI gates on this; see below
 ```
