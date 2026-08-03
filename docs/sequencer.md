@@ -311,9 +311,10 @@ and the rate limit are in
 [settings.md](settings.md#recovering-drains-slurm-set-itself); the argument for
 each is in the header of `slurm-recovery.sh`.
 
-The recovery runs **after** the `PAUSE_JOBS` gate: a pause means this script
-touches Slurm in neither direction, and a resume is touching Slurm. Under
-`--explain` it classifies and reports and issues nothing.
+The recovery runs **above** the `PAUSE_JOBS` gate and answers to `PAUSE_RECOVERY`
+instead: putting a node back is not putting work on it, and the two are separate
+decisions. See [settings.md](settings.md#pause-switches). Under `--explain` it
+classifies and reports and issues nothing.
 
 ### Jobs the scheduler has given up on
 
@@ -430,7 +431,9 @@ two per monitoring cycle, forever.
 
 | Line | When |
 |------|------|
-| `EXIT: PAUSE_JOBS=<value> in <settings file>` | Paused: nothing submitted, drained, resumed or archived |
+| `EXIT: PAUSE_JOBS=<value> in <settings file>` | Paused: nothing submitted, drained or archived. Drains Slurm set itself are cleared above this gate, under `PAUSE_RECOVERY` |
+| `PAUSE_JOBS=<value> ... -- explaining anyway` | `--explain` reads through the pause; it writes nothing either way |
+| `recovery paused: PAUSE_RECOVERY=<value>` | Drains left exactly where they are, whatever `RECOVER_SLURM_DRAINS` says |
 | `PAUSE_JOBS: cancelled pending <ids>` | Pending jobs of ours cleared, so a pause reaches the queue and not just submission |
 | `PAUSE_JOBS: job <id> still RUNNING for <t> -- left to finish` | A running job is not killed; the id is named so an operator can `scancel` it deliberately |
 | `--force does not override PAUSE_JOBS: it is a site switch, not a timing gate.` | Appended when a forced run hits the pause |

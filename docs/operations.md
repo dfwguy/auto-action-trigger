@@ -399,6 +399,7 @@ cycle.
 PAUSE_JOBS=yes             # no benchmarks submitted; queued ones cancelled
 PAUSE_HEALTH_CHECKS=yes    # no health checks run; Slurm untouched
 PAUSE_CONTAINER_COPY=yes   # no new rsync into /tmp/containers
+PAUSE_RECOVERY=yes         # no drain Slurm set itself is cleared
 ```
 
 What that leaves running, in order of how long it takes to stop:
@@ -421,10 +422,17 @@ What that leaves running, in order of how long it takes to stop:
   hard stop; it is not a failure of the node.
 - **A detached `rsync` from an earlier cycle finishes.** It reads NFS into a
   local cache, holds no node and blocks no job.
-- **Existing drains stay.** A pause neither drains nor resumes anything, so a
-  node the sequencer drained before the pause stays drained, marker and all,
-  and is picked up again when the pause lifts. Resume by hand if you need it
-  back sooner.
+- **Our own drains stay.** `PAUSE_JOBS` drains nothing and clears nothing
+  carrying `DRAIN_MARKER`, so a node the sequencer drained before the pause stays
+  drained, marker and all, and is picked up again when the pause lifts. Resume by
+  hand if you need it back sooner.
+- **Drains Slurm set itself are still cleared**, unless `PAUSE_RECOVERY=yes`.
+  That switch is separate on purpose — stopping the sweep and leaving every drain
+  in place are different decisions. See
+  [settings.md](settings.md#pause-switches).
+
+`launch_job.sh --explain` still works while paused, and is the way to see what a
+sweep *would* do on a node before lifting one.
 
 Nothing is lost. Results stay on disk and the sweep resumes rather than
 restarting, and a `refresh` set by `node-health-refresh.sh` is held through the

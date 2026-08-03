@@ -38,6 +38,9 @@ fi
 : "${PAUSE_JOBS:=no}"
 : "${PAUSE_HEALTH_CHECKS:=no}"
 : "${PAUSE_CONTAINER_COPY:=no}"
+## Independent of PAUSE_JOBS: stopping the sweep and stopping drains being
+## cleared are different decisions. See docs/settings.md#pause-switches.
+: "${PAUSE_RECOVERY:=no}"
 : "${DRAIN_AFTER_FAILED_HEALTH_CHECK:=no}"
 : "${DRAIN_AFTER_FAILED_BENCHMARK:=no}"
 ## Recovery of drains Slurm set itself. On by default, unlike the switches

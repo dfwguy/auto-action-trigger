@@ -304,16 +304,46 @@ this setting, and naming images as arguments overrides it.
 ## Pause switches
 
 ```bash
-PAUSE_JOBS=no             # launch_job.sh: submit nothing, drain nothing, resume nothing
+PAUSE_JOBS=no             # launch_job.sh: submit nothing, drain nothing
 PAUSE_HEALTH_CHECKS=no    # node_health.sh: run no checks, touch Slurm in neither direction
 PAUSE_CONTAINER_COPY=no   # file_copy.sh: start no new rsync into /tmp/containers
+PAUSE_RECOVERY=no         # both actions: clear no drains Slurm set itself
 ```
 
-All three ship off, and read the same way as the drain switches — `yes`, `true`,
+All four ship off, and read the same way as the drain switches — `yes`, `true`,
 `1` and `on` pause, everything else, including a typo and including empty, does
 not. A `SETTINGS` written before these existed leaves them empty and keeps
 running, which is the right way round: an unreadable value must not stop a
 fleet.
+
+`PAUSE_RECOVERY` is **independent of `PAUSE_JOBS`**, and the two answer different
+questions. Stopping the sweep is "put no more work on this cluster"; stopping the
+recovery is "leave every drain where it is". Those are separate decisions and
+usually made for separate reasons — during a bring-up you often want the drains
+cleared while nothing is being submitted, and during an investigation you want
+the opposite. So the recovery runs above the `PAUSE_JOBS` gate in
+`launch_job.sh`, governed only by its own switch: putting a node back is not
+putting work on it.
+
+`node_health.sh` honours `PAUSE_RECOVERY` too, though its own recovery is
+reachable only after a clean check run — so `PAUSE_HEALTH_CHECKS=yes` stops that
+one as a side effect, for want of the evidence rather than for want of
+permission.
+
+### `--explain` reads through a pause
+
+`launch_job.sh --explain` is not stopped by `PAUSE_JOBS`. It writes nothing to
+Slurm and nothing to disk beyond its own trace, and "what would a sweep do on
+this node" is a question worth being able to ask *precisely* when the sweep is
+stopped — while you are looking at a list of drained nodes deciding whether to
+lift the pause. It reports the pause, then carries on explaining:
+
+```
+PAUSE_JOBS=yes in /home/cmods/bringup/SETTINGS -- explaining anyway; nothing below would run while it is set
+```
+
+`--force` is refused instead, and that asymmetry is the point: `--force` would
+touch the cluster, `--explain` cannot.
 
 These stop the framework *doing* things without unregistering it from BCM. The
 triggers keep firing and each action still runs — it reads its switch, does

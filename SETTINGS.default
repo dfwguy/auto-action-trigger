@@ -26,6 +26,7 @@ CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm"
 PAUSE_JOBS=no
 PAUSE_HEALTH_CHECKS=no
 PAUSE_CONTAINER_COPY=no
+PAUSE_RECOVERY=no
 
 ## ── Drains ────────────────────────────────────────────────────────────────
 DRAIN_AFTER_FAILED_HEALTH_CHECK=no
