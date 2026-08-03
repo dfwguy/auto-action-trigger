@@ -551,11 +551,25 @@ pre-post-job-logs/failed-pre-jobs/job.114250.log # only the failures
 what gets read:
 
 ```
-HealthCheckForWlmJob healthchecks for: 114250
-========= ink50-dh01-h03-16 ========
 rogueprocess is FAIL, /usr/sbin/sshd (cmods)/* 503852 */
-Pre-job health checks have failed
+rogueprocess is FAIL, /usr/bin/bash (nvis-ib), /usr/sbin/sshd (nvis-ib)/* 14533, 14535 */
+dmesg is FAIL, /* 4790 */ matches for regex: hardware error
 ```
+
+Three things about that format, each of which has to be handled or the check is
+worse than useless:
+
+- **Several commands share one pid list.** The second line names two commands and
+  two pids, and they are not paired — a longer list may carry four pids for two
+  commands. So the two are matched as *sets*: any listed pid that is still alive
+  and matches any listed command counts.
+- **`/* … */` does not always hold pids.** The `dmesg` check puts its *match
+  count* between the same markers. Reading `4790` as a pid would hold a node over
+  whatever process happened to inherit that number, so only lines from the
+  `rogueprocess` check are read for processes at all.
+- **Most of these drains do not say `rogueprocess`.** They say `Prolog error`,
+  because the prolog is what runs the check and Slurm records only that the
+  prolog failed. Both reasons trigger this.
 
 That is a **login session**, and it holds no GPU, so the readiness test below —
 which looks only at GPU compute processes, deliberately — cannot see it. Without
@@ -601,6 +615,27 @@ This does mean a long-lived `cmods` session keeps its node drained. That is the
 honest outcome: BCM's check will fail every job on that node until the session
 goes away, so the node is not usable either way. Set `RECOVER_PREJOB_LOGS=` to
 skip the check and go back to resuming regardless.
+
+### What failed is written down either way
+
+Whatever the outcome, the checks that failed go into the trace:
+
+```
+recover note: the pre-job check that drained ink50-dh01-h20-35 failed on [dmesg];
+nothing it named is still running, so this is a resume rather than a hold.
+Repeats here are that check failing again, not this.
+```
+
+Only `rogueprocess` can be re-evaluated from outside — a `dmesg` flood or a
+failed IB check cannot be, and holding on one would be a deadlock, since a
+drained node never runs another prolog to prove itself clear. So those resume,
+and the attempt cap is what stops the flapping.
+
+What the note buys is that the flapping is no longer anonymous. A node drained
+three times in a day whose reason only ever reads `Prolog error` looks like a
+recovery that will not settle; the same node saying `failed on [dmesg]` is a
+hardware fault with a ticket to open. The recovery is not the thing to fix in
+that case, and the log now says so.
 
 ### Restarting slurmd
 

@@ -249,6 +249,49 @@ run_case "rogue process, no pre-job logs on this node" resumed \
     STUB_REASON="rogueprocess" RECOVER_PREJOB_LOGS="$work/nonexistent" \
     STUB_LIVE_PID="503852"
 
+## The format on a live fleet: several commands, then ONE pid list for all of
+## them. An earlier pattern matched only the single-pid case and so never fired
+## on any of these. docs/settings.md#a-rogue-process-drain-names-its-process
+mkdir -p "$work/prejob-multi"
+cat > "$work/prejob-multi/job.114250.log" <<'EOF'
+HealthCheckForWlmJob healthchecks for: 114250
+========= ink50-dh01-h01-11 ========
+rogueprocess is FAIL, /usr/bin/bash (nvis-ib), /usr/sbin/sshd (nvis-ib)/* 14533, 14535 */
+Pre-job health checks have failed
+EOF
+
+run_case "several processes, the second pid is still there" not-ready \
+    STUB_REASON="Prolog error" RECOVER_PREJOB_LOGS="$work/prejob-multi" \
+    STUB_LIVE_PID="14535" STUB_LIVE_ARGS="sshd: nvis-ib [priv]" STUB_LIVE_USER="root"
+resumed_node && bad "  ... and it resumed into the same failing pre-job check"
+grep -q "pid 14535" "$CASE_DIR/trace" || bad "  ... and the trace did not name it"
+
+run_case "several processes, the first pid is still there" not-ready \
+    STUB_REASON="Prolog error" RECOVER_PREJOB_LOGS="$work/prejob-multi" \
+    STUB_LIVE_PID="14533" STUB_LIVE_ARGS="/usr/bin/bash -l" STUB_LIVE_USER="nvis-ib"
+
+run_case "several processes, all of them gone" resumed \
+    STUB_REASON="Prolog error" RECOVER_PREJOB_LOGS="$work/prejob-multi"
+
+## Every other check puts its own count between the same /* */ markers. Reading
+## 4790 as a pid would hold nodes on whatever process had inherited the number.
+mkdir -p "$work/prejob-dmesg"
+cat > "$work/prejob-dmesg/job.114250.log" <<'EOF'
+HealthCheckForWlmJob healthchecks for: 114250
+========= ink50-dh01-h20-35 ========
+dmesg is FAIL, /* 4790 */ matches for regex: hardware error
+Pre-job health checks have failed
+EOF
+
+run_case "a match count is not a pid" resumed \
+    STUB_REASON="Prolog error" RECOVER_PREJOB_LOGS="$work/prejob-dmesg" \
+    STUB_LIVE_PID="4790" STUB_LIVE_ARGS="/usr/sbin/sshd -D" STUB_LIVE_USER="root"
+
+## ... but what failed is still written down, or a node flapping on a hardware
+## fault does it behind a drain reason that only ever says `Prolog error`.
+grep -q "failed on \[dmesg\]" "$CASE_DIR/trace" ||
+    bad "  ... and nothing named the check that actually drained the node"
+
 ## What the drain reason actually says on a node the pre-job check failed: the
 ## prolog is what runs it, and only its log knows a rogue process was why.
 run_case "prolog error, the rogue process is still there" not-ready \

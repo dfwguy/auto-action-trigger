@@ -219,13 +219,37 @@ recover_counts_ready() {
 ## The drain reason says `rogueprocess` and stops there; the process it
 ## objected to is only ever written down in the pre-job check's own log.
 ## docs/settings.md#a-rogue-process-drain-names-its-process
+## Is this live process one the check flagged? A pid is not proof on its own --
+## pids are reused, and the flagged command is usually one the node runs anyway,
+## so `sshd` alone would match the sshd daemon on every node forever. The
+## command has to be one of the flagged set, and the user has to place it:
+## owning the process, or named in its args as `sshd: nvis-ib [priv]` is.
+recover_rogue_matches() {
+    local flagged="$1" args="$2" owner="$3" tok cmd user
+    ## In a variable, not inline: `[[ =~ ]]` will not parse an unquoted pattern
+    ## carrying escaped parentheses.
+    local pat='^[[:space:]]*(.+[^[:space:]])[[:space:]]*\(([^)]*)\)[[:space:]]*$'
+    local IFS=,
+    for tok in $flagged; do
+        [[ "$tok" =~ $pat ]] || continue
+        cmd="${BASH_REMATCH[1]}"; user="${BASH_REMATCH[2]}"
+        [[ "$args" == *"${cmd##*/}"* ]] || continue
+        [[ -z "$user" || "$owner" == "$user" || "$args" == *"$user"* ]] || continue
+        return 0
+    done
+    return 1
+}
+
+## What the pre-job check objected to, and whether it is still there. Also sets
+## RECOVER_PREJOB_FAILED to every check that failed, which is the only record of
+## why a `Prolog error` drain happened at all.
 RECOVER_ROGUE=""
+RECOVER_PREJOB_FAILED=""
 recover_rogue_still_running() {
     local when="$1"
-    local dir="${RECOVER_PREJOB_LOGS:-}" log line cmd user pid args owner drained mtime
-    ## `rogueprocess is FAIL, /usr/sbin/sshd (cmods)/* 503852 */`
-    local pat='FAIL,[[:space:]]*(.+)\(([^)]*)\)/\*[[:space:]]*([0-9]+)[[:space:]]*\*/'
+    local dir="${RECOVER_PREJOB_LOGS:-}" log line flagged pids pid args owner drained mtime
     RECOVER_ROGUE=""
+    RECOVER_PREJOB_FAILED=""
     [[ -n "$dir" && -d "$dir" ]] || return 1
 
     ## Only failures land here, one file per job, and nothing prunes them.
@@ -242,25 +266,30 @@ recover_rogue_still_running() {
     fi
 
     while IFS= read -r line; do
-        [[ "$line" =~ $pat ]] || continue
-        cmd="${BASH_REMATCH[1]}"; user="${BASH_REMATCH[2]}"; pid="${BASH_REMATCH[3]}"
-        cmd="${cmd%"${cmd##*[![:space:]]}"}"
-        args=$(ps -p "$pid" -o args= 2>/dev/null)
-        [[ -n "$args" ]] || continue
+        [[ "$line" == *" is FAIL"* ]] || continue
+        RECOVER_PREJOB_FAILED+="${RECOVER_PREJOB_FAILED:+, }${line%% is FAIL*}"
 
-        ## A pid is not proof on its own -- pids are reused, and the flagged
-        ## command is often one the node runs anyway. `sshd` alone would match
-        ## the sshd daemon, so the user has to place it too: either it owns the
-        ## process, or it is named in the args, as `sshd: cmods [priv]` is.
-        [[ "$args" == *"${cmd##*/}"* ]] || continue
-        if [[ -n "$user" ]]; then
+        ## Only the rogue-process check names processes. Every other check puts
+        ## its own number between the same markers -- `dmesg is FAIL, /* 4790 */
+        ## matches for regex: hardware error` is a count, not a pid.
+        [[ "${line,,}" == rogueprocess*is\ fail* ]] || continue
+
+        ## `CMD (USER), CMD (USER)/* PID, PID */` -- one pid list at the end
+        ## rather than a pid per command, so the two are matched as sets.
+        [[ "$line" =~ /\*([^*]*)\*/ ]] || continue
+        pids="${BASH_REMATCH[1]//,/ }"
+        flagged="${line%%"/*"*}"; flagged="${flagged#*" is FAIL,"}"
+
+        for pid in $pids; do
+            [[ "$pid" =~ ^[0-9]+$ ]] || continue
+            args=$(ps -p "$pid" -o args= 2>/dev/null)
+            [[ -n "$args" ]] || continue
             owner=$(ps -p "$pid" -o user= 2>/dev/null)
             owner="${owner//[[:space:]]/}"
-            [[ "$owner" == "$user" || "$args" == *"$user"* ]] || continue
-        fi
-
-        RECOVER_ROGUE="$cmd (${user:-?}) pid $pid, named by ${log##*/}"
-        return 0
+            recover_rogue_matches "$flagged" "$args" "$owner" || continue
+            RECOVER_ROGUE="pid $pid ($owner) '$args', flagged by ${log##*/} as [${flagged# }]"
+            return 0
+        done
     done < "$log"
     return 1
 }
@@ -371,9 +400,16 @@ recover_node_ready() {
     ## `prolog` as well, because that is what the drain reason usually says --
     ## the pre-job check is what the prolog runs, and only its own log records
     ## that the failure was a rogue process.
-    if [[ "${reason,,}" =~ (rogue[[:space:]]?process|prolog) ]] && recover_rogue_still_running "$when"; then
-        RECOVER_NOT_READY="the process the pre-job check objected to is still running -- $RECOVER_ROGUE. Resuming would only fail the next job's pre-job check the same way"
-        return 1
+    if [[ "${reason,,}" =~ (rogue[[:space:]]?process|prolog) ]]; then
+        if recover_rogue_still_running "$when"; then
+            RECOVER_NOT_READY="the process the pre-job check objected to is still running -- $RECOVER_ROGUE. Resuming would only fail the next job's pre-job check the same way"
+            return 1
+        fi
+        ## The drain reason says `Prolog error` and no more. Naming the check
+        ## that failed is the difference between a node that flaps for a reason
+        ## nobody can see and one that says `dmesg is FAIL ... hardware error`.
+        [[ -n "$RECOVER_PREJOB_FAILED" ]] &&
+            recover_log "recover note: the pre-job check that drained $node failed on [$RECOVER_PREJOB_FAILED]; nothing it named is still running, so this is a resume rather than a hold. Repeats here are that check failing again, not this."
     fi
 
     if command -v squeue >/dev/null 2>&1; then
