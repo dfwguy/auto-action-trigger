@@ -33,7 +33,7 @@ DRAIN_AFTER_FAILED_BENCHMARK=no
 
 ## ── Recovering drains Slurm set itself ────────────────────────────────────
 RECOVER_SLURM_DRAINS=yes
-RECOVER_REASONS="prolog|epilog|rogue ?process|batch job complete failure|Kill task failed|node unexpectedly rebooted"
+RECOVER_REASONS="prolog|epilog|rogue ?process|batch job complete failure|Kill task failed|node unexpectedly rebooted|duplicate jobid|gres/gpu count"
 RECOVER_EMPTY_REASON=yes
 RECOVER_SETTERS="slurm root"
 RECOVER_MAX_ATTEMPTS=3

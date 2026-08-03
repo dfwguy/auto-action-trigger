@@ -364,7 +364,7 @@ into one of four classes:
 |-------|-----------------|---------------|
 | `marker` | it carries `DRAIN_MARKER` — this framework drained the node over a benchmark | `launch_job.sh`, once the benchmarks pass |
 | `health` | it is a list of check names — `node_health.sh` drained the node | `node_health.sh`, on a clean run |
-| `machine` | it matches `RECOVER_REASONS` (prolog, epilog, rogue process, failed launch, unexpected reboot), or it is empty | the recovery, subject to the gates below |
+| `machine` | it matches `RECOVER_REASONS` (prolog, epilog, rogue process, failed launch, unexpected reboot, duplicate jobid, GRES count mismatch), or it is empty | the recovery, subject to the gates below |
 | `operator` | anything else | nobody, ever |
 
 **Operator drains are never cleared by anything in this tree**, and that is the
