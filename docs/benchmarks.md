@@ -111,11 +111,12 @@ generic header would get wrong.
   KILL for one that will not go. `timeout` reports 124 when the command took the
   TERM and exited, and 137 when the KILL had to fire — and ignoring a TERM is
   exactly what a wedged diagnostic does, so both count as an overrun.
-- **`llm-pretrain` is not ready to enable.** Its `LLMB_SCALE` is 8 while the
-  allocation asks for 4 GPUs, because the recipe is still TBD (see
-  `incubation/TTM_Single_Node_Workload_MOP.md` in the validation-mops repo).
-  Set both from the GPU count of the platform under test, and only then add it
-  to `BENCHMARKS`.
+- **`llm-pretrain` is not an `.sbatch` and is not enabled yet.** `llmb-run`
+  submits its own Slurm job, so the job is a host launcher — `llm-pretrain.sh`,
+  run on the node rather than submitted — and it needs an install that
+  `build_llmb.sh` puts on the head node. Its `--scale 4` matches the nvl72
+  node's four GPUs; on another platform both move together. The steps to enable
+  it, in order, are in [llmb.md#enabling-it](llmb.md#enabling-it).
 - **`nvsm` is not a container job.** It is installed on the host alongside
   `dcgmi`, refuses to run as anyone but root, and a batch task has no tty for a
   password prompt — so it needs a NOPASSWD sudoers grant on every compute node

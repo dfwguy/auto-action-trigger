@@ -22,17 +22,67 @@ the same way, but not counted as a rejected attempt by `status-check.sh`.
 
 `totalRuns` is read out of the job file with `grep` — first line that mentions
 it, everything right of the `=`, whitespace stripped — and never by sourcing it.
-A `.sbatch` is a job script, and sourcing one here would run its body in the
+A job file is a script, and sourcing one here would run its body in the
 sequencer's own shell, as root, on every node on every monitoring cycle. A value
 that is not a positive integer falls back to `1` rather than to nothing, so a
 typo costs coverage rather than the whole job.
 
-A name in `BENCHMARKS` or `BURNIN` with no `$JOBS_DIR/<name>.sbatch` behind it
-drops out of the sweep entirely: it never goes pending, so it never blocks the
-node and never surfaces as missing. That is the silent-nothing this tree exists
-to prevent, so the survey traces `skip <job>: no <path>` for it, and `--all`
-re-queues from what the survey found rather than from the configured list — a
-forced sweep cannot pend a job that has nothing to submit.
+A name in `BENCHMARKS` or `BURNIN` with no launcher behind it drops out of the
+sweep entirely: it never goes pending, so it never blocks the node and never
+surfaces as missing. That is the silent-nothing this tree exists to prevent, so
+the survey traces `skip <job>: no <path>` for it, and `--all` re-queues from
+what the survey found rather than from the configured list — a forced sweep
+cannot pend a job that has nothing to submit.
+
+## Host-launched jobs
+
+Almost every job is a `.sbatch` the sequencer submits. A job whose tool does its
+own submitting is a `.sh` the sequencer *runs on the node* instead, and
+`llm-pretrain` is the only one — see [llmb.md](llmb.md) for why `llmb-run`
+cannot be a batch payload.
+
+`job_launcher()` resolves a name to one or the other, `.sbatch` first. Both
+present is traced as a `NOTE` naming the winner rather than silently dropping
+one, because two launchers for one name is a half-finished conversion.
+
+A `.sh` is only a job if it carries a line reading exactly:
+
+```bash
+job_launch=host
+```
+
+`JOBS_DIR` also holds sourced helpers — `nccl-hca.sh` — so a bare `*.sh` glob
+would offer those as benchmarks and `--test` would list them. The marker is read
+with `grep`, never by sourcing, for the same reason `totalRuns` is. A `.sh`
+without it is traced by name (`has no 'job_launch=host' line`) rather than
+skipped as missing: the file is there, so "no such job" would send the reader
+looking in the wrong place.
+
+What the sequencer hands a host launcher, in place of the `-J` and `--output` it
+would pass `sbatch`:
+
+```
+SBATCH_JOB_NAME=<bringup|burnin>-<node> RESULT_FILE=<file> \
+  LLMB_INSTALL=... LLMB_SBATCH_PASSTHROUGH=... [<JOB_ENV>] bash <job>.sh
+```
+
+`SBATCH_JOB_NAME` is a real `sbatch` default, so the launcher's own submission
+comes out under the name this node's queue gates match on. There is no
+`SBATCH_OUTPUT` and no nodelist equivalent, so pinning the job to this node and
+redirecting its output are the launcher's job — and its refusal to guess is
+documented in [llmb.md#pinning-the-submission](llmb.md#pinning-the-submission).
+
+The `LLMB_*` values go through the same allowlist as `JOB_ENV`, and for the same
+reason: the submission is a string run by `su - $JOB_USER -c`, so an
+unvalidated `SETTINGS` value would run as root on every node. See
+[settings.md#what-is-rejected](settings.md#what-is-rejected).
+
+Success is **not** taken from the launcher's exit status. A tool can exit `0`
+having submitted nothing, and one that passes its own `--job-name` overrides
+`SBATCH_JOB_NAME` and leaves a job every gate on the node reads as somebody
+else's. So after running a `.sh` the sequencer asks `squeue` whether a job under
+the expected name appeared, and traces `SUBMIT FAILED` with the launcher's exit
+status and output when it did not.
 
 A run is skipped at submit time when `verdict()` returns `DONE` for its result
 file. What makes that skip safe is that the verdict is derived from the log on
@@ -179,8 +229,9 @@ node is expected to pass and what the daily report calls a hole.
 pdsh -w ink50-dh01-h02-11 '/home/cmods/bringup/actions/launch_job.sh -t ethr -v'
 ```
 
-The name must have an `.sbatch` behind it in `JOBS_DIR` or the run is refused
-with `exit 2` and the list of names that do — unlike a bad `BENCHMARKS` entry,
+The name must have a launcher behind it in `JOBS_DIR` — an `.sbatch`, or a `.sh`
+carrying `job_launch=host` — or the run is refused with `exit 2` and the list of
+names that do — unlike a bad `BENCHMARKS` entry,
 which is traced and skipped. The operator is standing there, and a typo that
 swept nothing would otherwise be indistinguishable from a healthy idle cycle.
 

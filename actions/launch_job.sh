@@ -30,6 +30,34 @@ tracelog="$logs/trigger.log"
 JOB_NAME_BENCH="bringup-$HOSTNAME"
 JOB_NAME_BURNIN="burnin-$HOSTNAME"
 
+## A job is either a `.sbatch` this script submits, or a `.sh` it runs on the
+## node so the job's own tool submits. `.sbatch` wins when both exist.
+##
+## The `job_launch=host` line is what makes a `.sh` a job: JOBS_DIR also holds
+## sourced helpers like nccl-hca.sh, and a bare *.sh glob would offer those as
+## benchmarks. See docs/sequencer.md#host-launched-jobs.
+job_launcher() {
+    local job="$1"
+    [[ -f "$JOBS_DIR/$job.sbatch" ]] && { printf '%s\n' "$JOBS_DIR/$job.sbatch"; return 0; }
+    [[ -f "$JOBS_DIR/$job.sh" ]] &&
+        grep -qE '^[[:space:]]*job_launch=host[[:space:]]*$' "$JOBS_DIR/$job.sh" && {
+            printf '%s\n' "$JOBS_DIR/$job.sh"; return 0; }
+    return 1
+}
+
+## The listing --test and the survey offer. Same rule as job_launcher, so a
+## name that appears here is a name that resolves.
+job_list() {
+    local f
+    for f in "$JOBS_DIR"/*.sbatch; do
+        [[ -f "$f" ]] && { f=${f##*/}; printf '%s\n' "${f%.sbatch}"; }
+    done
+    for f in "$JOBS_DIR"/*.sh; do
+        [[ -f "$f" ]] && grep -qE '^[[:space:]]*job_launch=host[[:space:]]*$' "$f" &&
+            { f=${f##*/}; printf '%s\n' "${f%.sh}"; }
+    done
+}
+
 ## ── Tracing ───────────────────────────────────────────────────────────────
 ##
 ## Every gate below can end the run with a plain `exit 0`, and a node that has
@@ -97,13 +125,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 ## Fatal rather than traced and skipped, unlike a bad BENCHMARKS entry: the
-## operator is standing there, and a name that resolves to no .sbatch would
+## operator is standing there, and a name that resolves to no launcher would
 ## otherwise sweep nothing and exit looking like a healthy idle cycle.
 ## See docs/sequencer.md#running-a-job-that-is-not-in-the-list.
 for _job in $TEST_LIST; do
-    [[ -f "$JOBS_DIR/$_job.sbatch" ]] || {
-        echo "ERROR: --test $_job: no $JOBS_DIR/$_job.sbatch -- nothing was swept." >&2
-        echo "       Available: $(cd "$JOBS_DIR" 2>/dev/null && ls ./*.sbatch 2>/dev/null | sed 's#^\./##;s#\.sbatch$##' | tr '\n' ' ')" >&2
+    job_launcher "$_job" >/dev/null || {
+        echo "ERROR: --test $_job: no $JOBS_DIR/$_job.sbatch or $JOBS_DIR/$_job.sh -- nothing was swept." >&2
+        echo "       Available: $(job_list | sort -u | tr '\n' ' ')" >&2
         exit 2
     }
 done
@@ -156,7 +184,11 @@ force_note=""
 ## run through `su - $JOB_USER -c`, so a plausible typo like `NCCL_X=0;id` would
 ## run as root on 200+ nodes. Commas are out because --export is itself
 ## comma-separated. See docs/settings.md#what-is-rejected.
+## Two forms of the same allowlisted list: a comma-separated one for sbatch
+## --export, and a space-separated one for the `NAME=VALUE ... bash launcher`
+## prefix a host-launched job gets instead. See docs/sequencer.md#host-launched-jobs.
 JOB_ENV_ARGS=""
+JOB_ENV_PAIRS=()
 JOB_ENV_NAMES=()
 ## Unquoted on purpose -- this is the list-in-a-string convention BENCHMARKS
 ## and CONTAINERS already use, and word splitting is how it is read.
@@ -167,7 +199,23 @@ for _pair in $JOB_ENV; do
         continue
     fi
     JOB_ENV_ARGS+=",$_pair"
+    JOB_ENV_PAIRS+=("$_pair")
     JOB_ENV_NAMES+=("${_pair%%=*}")
+done
+unset _pair
+
+## A host launcher needs the llmb settings, and they reach it the same way
+## JOB_ENV does -- through a string run by `su - $JOB_USER -c`. So they get the
+## same allowlist, for the same reason: unvalidated, either one would run as
+## root on 200+ nodes. See docs/settings.md#what-is-rejected.
+LLMB_ARGS=""
+for _pair in "LLMB_INSTALL=${LLMB_INSTALL:-}" "LLMB_SBATCH_PASSTHROUGH=${LLMB_SBATCH_PASSTHROUGH:-}"; do
+    [[ "$_pair" == *= ]] && continue         # unset; the launcher diagnoses it
+    if [[ ! "$_pair" =~ ^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_.:/+@%=-]*$ ]]; then
+        trace "WARNING: ${_pair%%=*} contains characters outside [A-Za-z0-9_.:/+@%=-] -- dropped, and a host-launched job will refuse rather than run without it."
+        continue
+    fi
+    LLMB_ARGS+=" $_pair"
 done
 unset _pair
 
@@ -536,10 +584,18 @@ survey() {
     swept=1
 
 for job in $list; do
-    launch="$JOBS_DIR/$job.sbatch"
-    ## A listed benchmark with no sbatch behind it drops out of the sweep
-    ## entirely and would otherwise never show up as missing. Worth a line.
-    [[ -f "$launch" ]] || { trace "skip $job: no $launch"; continue; }
+    ## A listed benchmark with no launcher behind it drops out of the sweep
+    ## entirely and would otherwise never show up as missing. Worth a line --
+    ## including the case where the .sh is there but carries no job_launch=host,
+    ## which looks identical from the outside and is the likelier mistake.
+    launch=$(job_launcher "$job") || {
+        if [[ -f "$JOBS_DIR/$job.sh" ]]; then
+            trace "skip $job: $JOBS_DIR/$job.sh has no 'job_launch=host' line -- a .sh without it is read as a sourced helper, not a job."
+        else
+            trace "skip $job: no $JOBS_DIR/$job.sbatch or $JOBS_DIR/$job.sh"
+        fi
+        continue
+    }
     ## What --all can re-queue. Built here rather than from $list, so a forced
     ## sweep cannot pend a job that has nothing to submit.
     surveyed_jobs+=("$job")
@@ -783,21 +839,24 @@ resume_node
 ## decides only *what* to submit. See docs/benchmarks.md#queue-priority.
 submit_list() {
     local jname="$1"; shift
-    local job launch totalRuns r file submit out kind name
+    local job launch totalRuns r file submit out rc kind name
 
     for job in "$@"; do
-    launch="$JOBS_DIR/$job.sbatch"
+    launch=$(job_launcher "$job") || continue     # already traced by survey
     totalRuns=${job_runs["$job"]}
+
+    ## Two launchers for one name is a half-finished conversion, and the loser
+    ## is otherwise dropped in silence. See docs/sequencer.md#host-launched-jobs.
+    [[ "$launch" == *.sbatch && -f "$JOBS_DIR/$job.sh" ]] &&
+        trace "NOTE: $job has both a .sbatch and a .sh -- the .sbatch is what runs."
 
     ## The job file wins when both name a variable, which is right -- but the
     ## override was invisible, so a SETTINGS line that did nothing looked exactly
     ## like one that worked. See docs/settings.md#the-job-file-wins.
-    if [[ -f "$launch" ]]; then
-        for name in "${JOB_ENV_NAMES[@]}"; do
-            grep -qE "^[[:space:]]*export[[:space:]]+$name=" "$launch" &&
-                trace "NOTE: JOB_ENV sets $name, but $job.sbatch exports its own -- the job file's value is what runs."
-        done
-    fi
+    for name in "${JOB_ENV_NAMES[@]}"; do
+        grep -qE "^[[:space:]]*export[[:space:]]+$name=" "$launch" &&
+            trace "NOTE: JOB_ENV sets $name, but ${launch##*/} exports its own -- the job file's value is what runs."
+    done
 
     for ((r = 1; r <= totalRuns; r++)); do
         file=$(result_file "$job" "$r" "$totalRuns")
@@ -819,9 +878,24 @@ submit_list() {
         ## our own queued-but-unplaced jobs, and what tells a burn-in from a
         ## benchmark. It must be passed here, not as an #SBATCH line -- those are
         ## comments, not shell, and would not expand $HOSTNAME.
-        submit="source /etc/profile.d/modules.sh; module load slurm; \
+        ## A host-launched job submits itself, so what -J and --output carry for
+        ## a .sbatch has to reach it another way. SBATCH_JOB_NAME is a real
+        ## sbatch default and carries the name the queue gates match on; there
+        ## is no SBATCH_OUTPUT and no nodelist equivalent, so the launcher is
+        ## handed RESULT_FILE and HOSTNAME and is responsible for pinning and
+        ## redirecting its own submission. Success is confirmed against squeue
+        ## below rather than taken from an exit status, because an explicit flag
+        ## inside the job's own tool beats SBATCH_JOB_NAME.
+        ## See docs/sequencer.md#host-launched-jobs.
+        if [[ "$launch" == *.sh ]]; then
+            submit="source /etc/profile.d/modules.sh; module load slurm; \
+mkdir -p $logs && SBATCH_JOB_NAME=$jname RESULT_FILE=$file$LLMB_ARGS \
+${JOB_ENV_PAIRS[*]} bash $launch"
+        else
+            submit="source /etc/profile.d/modules.sh; module load slurm; \
 mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
 --export=ALL,RESULT_FILE=$file$JOB_ENV_ARGS --output=$file $launch"
+        fi
 
         if [[ "$EXPLAIN" -eq 1 ]]; then
             trace "WOULD SUBMIT $job run $r$([[ -f "$file" ]] && printf ' (existing %s result kept as .%s<N>.txt)' "$VERDICT_STATUS" "$kind"): $([[ "$EUID" -eq 0 ]] && printf 'su - %s -c ' "$JOB_USER")\"$submit\""
@@ -839,13 +913,26 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
         ## `su` authenticates for anyone but root, and a hand-run over pdsh has
         ## no terminal to be asked on. See docs/sequencer.md#running-it-by-hand.
         if [[ "$EUID" -eq 0 ]]; then
-            out=$(su - "$JOB_USER" -c "$submit" 2>&1)
+            out=$(su - "$JOB_USER" -c "$submit" 2>&1); rc=$?
         elif [[ "$(id -un)" == "$JOB_USER" ]]; then
-            out=$(bash -lc "$submit" 2>&1)
+            out=$(bash -lc "$submit" 2>&1); rc=$?
         else
             trace "SUBMIT FAILED $job run $r: running as $(id -un), which is neither root nor $JOB_USER -- 'su - $JOB_USER' would ask for a password. Run as root or as $JOB_USER."
             continue
         fi
+        ## A host launcher's exit status says its tool ran, not that anything
+        ## was queued -- and a tool that submits under its own job name leaves a
+        ## job this node's gates will read as somebody else's, forever. So the
+        ## queue is asked directly. See docs/sequencer.md#host-launched-jobs.
+        if [[ "$launch" == *.sh ]]; then
+            if squeue -h -n "$jname" -o '%i' 2>/dev/null | grep -q .; then
+                trace "submitted $job run $r (host-launched): $(squeue -h -n "$jname" -o '%i %T' 2>/dev/null | tr '\n' ' ')${JOB_ENV_ARGS:+ (JOB_ENV:${JOB_ENV_ARGS//,/ })}"
+            else
+                trace "SUBMIT FAILED $job run $r: $launch exited $rc with no job named $jname in the queue -- if it submitted under its own name, that job is invisible to this node's gates and has to be scancelled by hand. Output: ${out:-<none>}"
+            fi
+            continue
+        fi
+
         if [[ "$out" == *"Submitted batch job"* ]]; then
             ## The environment goes in the trace, not just the job id: when a
             ## result is questioned weeks later, SETTINGS says whatever it says

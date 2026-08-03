@@ -123,7 +123,8 @@ Jobs are organized by AI Factory Testing Plan (SNT) tier:
 | `ethr` | North-south management + storage NIC | Exhaustive |
 | `nvloom` | MNNVL fabric — optional / exploratory | Exhaustive |
 | `mnubergemm` | Burn-in | Hybrid / Exhaustive |
-| `llm-pretrain` | Single-node LLM pre-training workload gate | Hybrid / Exhaustive |
+| `llm-pretrain` | Single-node LLM pre-training workload gate — host-launched, see [llmb.md](llmb.md) | Hybrid / Exhaustive |
+| `llm-pretrain-solo` | 4 independent 1-GPU pre-training copies; finds *which* GPU is slow — see [llmb.md](llmb.md) | Hybrid / Exhaustive |
 | `hpl` `cublasmatmul` | Remediation-only single-node GEMM — run by hand | Remediation |
 
 ### Choosing a `BENCHMARKS` list
@@ -967,3 +968,31 @@ invokes them with no working directory to infer one from and they have to find
 `settings.sh` before they can read anything from it. Deploying elsewhere means
 editing `home=` at the top of both, and this setting to match. Every other
 script resolves its own location and ignores it.
+
+## llmb-run
+
+Only the `llm-pretrain` job reads these. A site not running it needs neither.
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `LLMB_INSTALL` | `/home/cmods/llmb` | Where `build_llmb.sh` installs the collection, image, tokenizer and dataset. Empty means no install |
+| `LLMB_SBATCH_PASSTHROUGH` | *(empty)* | The flag this `llmb-run` build uses to forward arguments to its own `sbatch`. Empty is a refusal |
+
+`LLMB_INSTALL` is deliberately outside `BRINGUP_HOME`, and `build_llmb.sh`
+refuses to install into it or below it. A tarball drop replaces that tree, and
+what is under here is a multi-GB image and a staged dataset rather than
+framework code.
+
+`LLMB_SBATCH_PASSTHROUGH` has no default because there is no safe one. `sbatch`
+takes `-w` and `--output` on the command line only, so pinning the submission to
+this node and landing its output in `results/<node>/` both depend on this flag
+being right. A guess that is wrong produces a job on some other node whose
+result is filed against this one — so `llm-pretrain.sh` refuses to launch and
+writes the reason into its result file instead. Confirm the flag against
+`llmb-run ... --dryrun`; see
+[llmb.md#pinning-the-submission](llmb.md#pinning-the-submission).
+
+Both are handed to the launcher through the same allowlist as `JOB_ENV`, for the
+same reason — see [What is rejected](#what-is-rejected). A value containing
+anything outside `[A-Za-z0-9_.:/+@%=-]` is dropped with a `WARNING` in the
+trace, and the job then refuses rather than running without it.
