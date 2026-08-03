@@ -80,6 +80,7 @@ the traces have gone stale.
 │       ├── nvloom.sbatch              # MNNVL fabric health (optional/exploratory)
 │       ├── mnubergemm.sbatch          # GPU burn-in (single node per the plan)
 │       ├── llm-pretrain.sh            # Single-node LLM pre-training; host-launched via llmb-run
+│       ├── llm-pretrain-solo.sbatch   # 4 independent 1-GPU pre-training copies; per-GPU step times
 │       ├── hpl.sbatch                 # HPL (Linpack), GB200 remediation-only GEMM
 │       ├── cublasmatmul.sbatch        # GB300 remediation-only single-node GEMM
 │       └── hpl/

@@ -51,6 +51,7 @@ asked when a node misbehaves and nothing drained it:
 | `nvloom` | MNNVL fabric validation per node: bandwidth uniformity across CE and SM engines, outlier detection, thermal behaviour under sustained collective load. Incubation tool, not a required gate in any variant |
 | `mnubergemm` | GPU burn-in — sustained mixed GEMM load for hours, the 24–72 hour row of the plan |
 | `llm-pretrain` | end-to-end pre-training scoped to one node. The only job that exercises the whole stack together: framework, container, data pipeline, checkpointing and intra-node collectives |
+| `llm-pretrain-solo` | the same workload at 8B, run as four independent single-GPU copies. No collectives at all: every GPU does identical work, so an outlier step time names a slow device rather than a slow node |
 | `hpl`, `cublasmatmul` | single-node GEMM, for isolating one suspect node during remediation. GB300/B300 uses `cublasmatmul` (GB300 MOP 7.5.2); GB200 uses `hpl` |
 
 Three single-node plan rows have no `.sbatch` file because they are not Slurm
@@ -117,6 +118,13 @@ generic header would get wrong.
   `build_llmb.sh` puts on the head node. Its `--scale 4` matches the nvl72
   node's four GPUs; on another platform both move together. The steps to enable
   it, in order, are in [llmb.md#enabling-it](llmb.md#enabling-it).
+- **`llm-pretrain-solo` runs 8B, not 56B, and that is not a typo.** One GPU
+  cannot pre-train 56B: Adam's fp32 master weights and two moments are ~16 bytes
+  per parameter, so the state alone is near 900 GB against a GPU's ~186 GB. The
+  56B recipe needs all four GPUs, which is what `llm-pretrain` is for. It also
+  ships with its training command unfilled and refuses to run until it is set
+  from `llmb-run --dryrun`. See
+  [llmb.md#filling-in-the-solo-training-command](llmb.md#filling-in-the-solo-training-command).
 - **`nvsm` is not a container job.** It is installed on the host alongside
   `dcgmi`, refuses to run as anyone but root, and a batch task has no tty for a
   password prompt — so it needs a NOPASSWD sudoers grant on every compute node
