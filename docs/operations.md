@@ -364,7 +364,7 @@ into one of four classes:
 |-------|-----------------|---------------|
 | `marker` | it carries `DRAIN_MARKER` — this framework drained the node over a benchmark | `launch_job.sh`, once the benchmarks pass |
 | `health` | it is a list of check names — `node_health.sh` drained the node | `node_health.sh`, on a clean run |
-| `machine` | it matches `RECOVER_REASONS` (prolog, epilog, rogue process, failed launch, unexpected reboot, duplicate jobid, GRES count mismatch), or it is empty | the recovery, subject to the gates below |
+| `machine` | it matches `RECOVER_REASONS` (prolog, epilog, rogue process, failed launch, reboot or power-off, duplicate jobid, GRES or CPU count mismatch), or it is empty | the recovery, subject to the gates below |
 | `operator` | anything else | nobody, ever |
 
 **Operator drains are never cleared by anything in this tree**, and that is the
@@ -381,8 +381,22 @@ from a named admin account is left alone whatever its text says, and so are
 `tests/recover-test.sh` holds a case for each of them.
 
 A `machine` drain is still only cleared once the condition behind it is gone —
-`slurmd` answering, no compute processes left holding the GPUs, no job still
-assigned. A node put back while still broken is re-drained within the minute,
+the node finished booting, `slurmd` answering, no compute processes left holding
+the GPUs, no job still assigned. A `rogueprocess` drain goes further and reads
+BCM's pre-job check log for the process it actually objected to — often an `sshd`
+login session, which holds no GPU and so is invisible to the test above — and
+holds the node while that process is still running rather than resuming into the
+same failing check. A `slurmd` that is dead or `failed` — the usual
+state of a node rebooted out from under Slurm — is `reset-failed` and restarted
+rather than waited on, which is what makes the `Node was stopped by` drains clear
+themselves. The two count drains go further and are checked
+against the hardware itself: a node drained for a GRES or CPU count that
+`nvidia-smi -L` and `slurmd -C` now contradict has its `slurmd` restarted before
+the resume, because `slurmctld` holds the count from the registration that
+drained it and a resume does not ask for a new one; a node whose counts are
+genuinely short is held with the numbers in the log and spends no attempt. See
+[settings.md](settings.md#a-count-drain-is-checked-against-the-hardware).
+A node put back while still broken is re-drained within the minute,
 and it is capped at `RECOVER_MAX_ATTEMPTS` inside `RECOVER_WINDOW_HOURS` for
 that reason. Past the cap the drain is left exactly as Slurm set it rather than
 re-drained under our own marker, which would only start the flapping again by
@@ -401,6 +415,7 @@ cycle.
 PAUSE_JOBS=yes             # no benchmarks submitted; queued ones cancelled
 PAUSE_HEALTH_CHECKS=yes    # no health checks run; Slurm untouched
 PAUSE_CONTAINER_COPY=yes   # no new rsync into /tmp/containers
+PAUSE_RECOVERY=yes         # no drain Slurm set itself is cleared
 ```
 
 What that leaves running, in order of how long it takes to stop:
@@ -423,10 +438,17 @@ What that leaves running, in order of how long it takes to stop:
   hard stop; it is not a failure of the node.
 - **A detached `rsync` from an earlier cycle finishes.** It reads NFS into a
   local cache, holds no node and blocks no job.
-- **Existing drains stay.** A pause neither drains nor resumes anything, so a
-  node the sequencer drained before the pause stays drained, marker and all,
-  and is picked up again when the pause lifts. Resume by hand if you need it
-  back sooner.
+- **Our own drains stay.** `PAUSE_JOBS` drains nothing and clears nothing
+  carrying `DRAIN_MARKER`, so a node the sequencer drained before the pause stays
+  drained, marker and all, and is picked up again when the pause lifts. Resume by
+  hand if you need it back sooner.
+- **Drains Slurm set itself are still cleared**, unless `PAUSE_RECOVERY=yes`.
+  That switch is separate on purpose — stopping the sweep and leaving every drain
+  in place are different decisions. See
+  [settings.md](settings.md#pause-switches).
+
+`launch_job.sh --explain` still works while paused, and is the way to see what a
+sweep *would* do on a node before lifting one.
 
 Nothing is lost. Results stay on disk and the sweep resumes rather than
 restarting, and a `refresh` set by `node-health-refresh.sh` is held through the

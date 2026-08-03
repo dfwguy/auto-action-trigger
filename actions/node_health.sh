@@ -160,7 +160,10 @@ if command -v /cm/local/apps/slurm/current/bin/scontrol >/dev/null 2>&1; then
     ## reasons this script writes itself -- it is the only caller with that
     ## evidence -- plus `machine`. Everything else is left alone.
     ## See docs/settings.md#recovering-drains-slurm-set-itself.
-    if [[ -f "$home/slurm-recovery.sh" ]]; then
+    if setting_enabled "$PAUSE_RECOVERY"; then
+      echo "########INFO: PAUSE_RECOVERY=${PAUSE_RECOVERY} in ${SETTINGS_FILE:-<none>}" \
+           "-- ${node_name} passed every check but its drain is left where it is"
+    elif [[ -f "$home/slurm-recovery.sh" ]]; then
       recover_log() { printf '########INFO: %s\n' "$*"; }
       RECOVER_ACCEPT="machine health"
       RECOVER_LOG="$home/results/${node_name}/recover.log"

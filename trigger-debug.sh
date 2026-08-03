@@ -58,7 +58,8 @@ else
     ## a choice someone made. See docs/settings.md#pause-switches.
     for spec in "PAUSE_JOBS:benchmarks:$PAUSE_JOBS" \
                 "PAUSE_HEALTH_CHECKS:health checks:$PAUSE_HEALTH_CHECKS" \
-                "PAUSE_CONTAINER_COPY:container copy:$PAUSE_CONTAINER_COPY"; do
+                "PAUSE_CONTAINER_COPY:container copy:$PAUSE_CONTAINER_COPY" \
+                "PAUSE_RECOVERY:drain recoveries:$PAUSE_RECOVERY"; do
         var="${spec%%:*}"; rest="${spec#*:}"; what="${rest%%:*}"; val="${rest#*:}"
         if setting_enabled "$val"; then
             printf '  ** %s=%s -- %s are paused; this is why nothing is running\n' "$var" "$val" "$what"
@@ -73,6 +74,8 @@ else
     if [[ ! -f "$home/slurm-recovery.sh" ]]; then
         bad "slurm-recovery.sh is missing from $home -- this tree predates it"
         note "  nodes drained by Slurm itself (prolog, rogue process, no reason) will never be resumed"
+    elif setting_enabled "$PAUSE_RECOVERY"; then
+        note "PAUSE_RECOVERY=$PAUSE_RECOVERY -- drains are left in place whatever RECOVER_SLURM_DRAINS says"
     elif setting_enabled "$RECOVER_SLURM_DRAINS"; then
         note "RECOVER_SLURM_DRAINS=$RECOVER_SLURM_DRAINS -> clears drains matching '$RECOVER_REASONS' set by [$RECOVER_SETTERS], max $RECOVER_MAX_ATTEMPTS per ${RECOVER_WINDOW_HOURS}h"
     else

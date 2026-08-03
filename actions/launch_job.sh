@@ -227,11 +227,58 @@ for tool in sinfo squeue scontrol sbatch; do
     }
 done
 
+## Check if node is in slurm; if not - quit
+state=$(sinfo -N -n "$HOSTNAME" -h -o '%T')
+if [[ -z "$state" ]]; then
+    trace "EXIT: $HOSTNAME not known to slurm (sinfo -N -n returned nothing)"
+    exit 0
+fi
+trace "state=$(printf '%s' "$state" | tr '\n' ',') explain=$EXPLAIN"
+
+## ── Drains Slurm set itself ───────────────────────────────────────────────
+##
+## Only the `machine` class -- every other drain belongs to whoever set it.
+## Above the PAUSE_JOBS gate and governed by PAUSE_RECOVERY instead: putting a
+## node back is not putting work on it. The state is re-read rather than
+## assumed. See docs/settings.md#pause-switches.
+## --explain reads through this the same way it reads through PAUSE_JOBS: a
+## dry-run recovery issues no scontrol, restarts no slurmd and records no
+## attempt, so the pause has nothing to protect it from.
+recovery_paused=0
+if setting_enabled "$PAUSE_RECOVERY"; then
+    if [[ "$EXPLAIN" -eq 1 ]]; then
+        trace "PAUSE_RECOVERY=$PAUSE_RECOVERY in ${SETTINGS_FILE:-<none>} -- explaining anyway; nothing below would be resumed while it is set"
+    else
+        trace "recovery paused: PAUSE_RECOVERY=$PAUSE_RECOVERY in ${SETTINGS_FILE:-<none>} -- drains Slurm set itself are left exactly where they are"
+        recovery_paused=1
+    fi
+fi
+
+if [[ "$recovery_paused" -eq 1 ]]; then
+    :
+elif [[ -f "$home/slurm-recovery.sh" ]]; then
+    recover_log() { trace "$@"; }
+    RECOVER_ACCEPT="machine"
+    RECOVER_LOG="$logs/recover.log"
+    RECOVER_DRY_RUN="$EXPLAIN"
+    source "$home/slurm-recovery.sh"
+    if slurm_recover_node "$HOSTNAME"; then
+        [[ "$EXPLAIN" -eq 1 ]] || state=$(sinfo -N -n "$HOSTNAME" -h -o '%T')
+        ensure_file_owned "$RECOVER_LOG"
+        trace "state after recovery=$(printf '%s' "$state" | tr '\n' ',')"
+    fi
+else
+    ## Named rather than skipped quietly: the tell for a deployment predating
+    ## the file, whose absence is otherwise invisible -- nodes just stay drained.
+    trace "WARNING: $home/slurm-recovery.sh is missing -- drains set by Slurm itself (prolog, rogue process, no reason) will not be cleared. Stale deployment?"
+fi
+
 ## ── Pause ─────────────────────────────────────────────────────────────────
 ##
 ## A pause has to reach the queue too, or it is not a pause: pending jobs are
 ## cancelled, a running one is left to finish, and only our two job names are
-## ever touched. See docs/settings.md#pause-switches.
+## ever touched. `--explain` reads through it -- see
+## docs/settings.md#pause-switches.
 if setting_enabled "$PAUSE_JOBS"; then
     paused_queue=$( { squeue -h -n "$JOB_NAME_BENCH"  -o '%i %T %M' 2>/dev/null
                       squeue -h -n "$JOB_NAME_BURNIN" -o '%i %T %M' 2>/dev/null
@@ -250,15 +297,26 @@ if setting_enabled "$PAUSE_JOBS"; then
         fi
     fi
 
-    while read -r id state elapsed; do
-        [[ "$state" == "RUNNING" ]] || continue
-        trace "PAUSE_JOBS: job $id still RUNNING for $elapsed -- left to finish; 'scancel $id' to stop it now"
+    ## Its own names, not `state`: this loop is at the top level, and `$state`
+    ## is the node's, read above and relied on by the drain gate further down.
+    ## Reading through this block under --explain is what made that reachable.
+    while read -r paused_id paused_state paused_elapsed; do
+        [[ "$paused_state" == "RUNNING" ]] || continue
+        trace "PAUSE_JOBS: job $paused_id still RUNNING for $paused_elapsed -- left to finish; 'scancel $paused_id' to stop it now"
     done <<<"$paused_queue"
 
     [[ "$FORCE" -eq 1 ]] &&
         trace "--force does not override PAUSE_JOBS: it is a site switch, not a timing gate. Set PAUSE_JOBS=no in ${SETTINGS_FILE:-SETTINGS} to sweep."
-    trace "EXIT: PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE:-<no settings file found>} -- no submissions, no drains, no resumes"
-    exit 0
+
+    ## --explain reads on: every write below it is already guarded, and the
+    ## question it answers -- what would a sweep do here -- is one worth being
+    ## able to ask precisely when the sweep is stopped.
+    if [[ "$EXPLAIN" -eq 1 ]]; then
+        trace "PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE:-<no settings file found>} -- explaining anyway; nothing below would run while it is set"
+    else
+        trace "EXIT: PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE:-<no settings file found>} -- no submissions, no drains"
+        exit 0
+    fi
 fi
 
 ## Result file for run $2 of job $1. Single-run jobs use <job>.txt.
@@ -321,37 +379,6 @@ resume_node() {
     [[ "$EXPLAIN" -eq 1 ]] && return 0
     scontrol update nodename="$HOSTNAME" state=RESUME
 }
-
-## Check if node is in slurm; if not - quit
-state=$(sinfo -N -n "$HOSTNAME" -h -o '%T')
-if [[ -z "$state" ]]; then
-    trace "EXIT: $HOSTNAME not known to slurm (sinfo -N -n returned nothing)"
-    exit 0
-fi
-trace "state=$(printf '%s' "$state" | tr '\n' ',') explain=$EXPLAIN"
-
-## ── Drains Slurm set itself ───────────────────────────────────────────────
-##
-## Cleared before any gate below reads the node state, and only the `machine`
-## class -- every other drain belongs to whoever set it. After the PAUSE_JOBS
-## gate on purpose: a resume is touching Slurm. The state is re-read rather than
-## assumed. See docs/sequencer.md#drains-slurm-set-itself.
-if [[ -f "$home/slurm-recovery.sh" ]]; then
-    recover_log() { trace "$@"; }
-    RECOVER_ACCEPT="machine"
-    RECOVER_LOG="$logs/recover.log"
-    RECOVER_DRY_RUN="$EXPLAIN"
-    source "$home/slurm-recovery.sh"
-    if slurm_recover_node "$HOSTNAME"; then
-        [[ "$EXPLAIN" -eq 1 ]] || state=$(sinfo -N -n "$HOSTNAME" -h -o '%T')
-        ensure_file_owned "$RECOVER_LOG"
-        trace "state after recovery=$(printf '%s' "$state" | tr '\n' ',')"
-    fi
-else
-    ## Named rather than skipped quietly: the tell for a deployment predating
-    ## the file, whose absence is otherwise invisible -- nodes just stay drained.
-    trace "WARNING: $home/slurm-recovery.sh is missing -- drains set by Slurm itself (prolog, rogue process, no reason) will not be cleared. Stale deployment?"
-fi
 
 ## Wait if anything of ours is queued for this node. Asked per list by name and
 ## once by node, and why each query is load-bearing:

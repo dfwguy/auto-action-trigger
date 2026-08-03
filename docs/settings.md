@@ -304,16 +304,53 @@ this setting, and naming images as arguments overrides it.
 ## Pause switches
 
 ```bash
-PAUSE_JOBS=no             # launch_job.sh: submit nothing, drain nothing, resume nothing
+PAUSE_JOBS=no             # launch_job.sh: submit nothing, drain nothing
 PAUSE_HEALTH_CHECKS=no    # node_health.sh: run no checks, touch Slurm in neither direction
 PAUSE_CONTAINER_COPY=no   # file_copy.sh: start no new rsync into /tmp/containers
+PAUSE_RECOVERY=no         # both actions: clear no drains Slurm set itself
 ```
 
-All three ship off, and read the same way as the drain switches — `yes`, `true`,
+All four ship off, and read the same way as the drain switches — `yes`, `true`,
 `1` and `on` pause, everything else, including a typo and including empty, does
 not. A `SETTINGS` written before these existed leaves them empty and keeps
 running, which is the right way round: an unreadable value must not stop a
 fleet.
+
+`PAUSE_RECOVERY` is **independent of `PAUSE_JOBS`**, and the two answer different
+questions. Stopping the sweep is "put no more work on this cluster"; stopping the
+recovery is "leave every drain where it is". Those are separate decisions and
+usually made for separate reasons — during a bring-up you often want the drains
+cleared while nothing is being submitted, and during an investigation you want
+the opposite. So the recovery runs above the `PAUSE_JOBS` gate in
+`launch_job.sh`, governed only by its own switch: putting a node back is not
+putting work on it.
+
+`node_health.sh` honours `PAUSE_RECOVERY` too, though its own recovery is
+reachable only after a clean check run — so `PAUSE_HEALTH_CHECKS=yes` stops that
+one as a side effect, for want of the evidence rather than for want of
+permission.
+
+### `--explain` reads through a pause
+
+`launch_job.sh --explain` is stopped by **neither** `PAUSE_JOBS` nor
+`PAUSE_RECOVERY`. It writes nothing to Slurm and nothing to disk beyond its own
+trace, and "what would this do on this node" is a question worth being able to
+ask *precisely* when the thing is stopped — while you are looking at a list of
+drained nodes deciding whether to lift the pause. It reports each pause it
+passes, then carries on:
+
+```
+PAUSE_RECOVERY=yes in /home/cmods/bringup/SETTINGS -- explaining anyway; nothing below would be resumed while it is set
+PAUSE_JOBS=yes in /home/cmods/bringup/SETTINGS -- explaining anyway; nothing below would run while it is set
+WOULD RECOVER ink50-dh01-h03-16: drained 'Prolog error' (machine, set by slurm) -- attempt 1/3 in 24h
+```
+
+Under `--explain` the recovery runs with `RECOVER_DRY_RUN=1`, which issues no
+`scontrol`, restarts no `slurmd`, and records no attempt against
+`RECOVER_MAX_ATTEMPTS` — so `PAUSE_RECOVERY` has nothing to protect it from.
+
+`--force` is refused instead, and that asymmetry is the point: `--force` would
+touch the cluster, `--explain` cannot.
 
 These stop the framework *doing* things without unregistering it from BCM. The
 triggers keep firing and each action still runs — it reads its switch, does
@@ -371,12 +408,17 @@ and which one to turn on first — is in
 
 ```bash
 RECOVER_SLURM_DRAINS=yes
-RECOVER_REASONS="prolog|epilog|rogue ?process|batch job complete failure|Kill task failed|node unexpectedly rebooted|duplicate jobid|gres/gpu count"
+RECOVER_REASONS="prolog|epilog|rogue ?process|batch job complete failure|Kill task failed|node unexpectedly rebooted|node was stopped|not responding|duplicate jobid|gres/gpu count|low socket|low cpus"
 RECOVER_EMPTY_REASON=yes
 RECOVER_SETTERS="slurm root"
 RECOVER_MAX_ATTEMPTS=3
 RECOVER_WINDOW_HOURS=24
-RECOVER_RESTART_SLURMD=no
+RECOVER_RESTART_SLURMD=yes
+RECOVER_REREGISTER=yes
+RECOVER_SLURMD_WAIT=30
+RECOVER_MIN_UPTIME_SECS=300
+RECOVER_PREJOB_LOGS=/cm/local/apps/slurm/var/pre-post-job-logs/failed-pre-jobs
+RECOVER_PREJOB_SLACK_SECS=900
 ```
 
 Slurm drains nodes for things that are not faults of the node: a prolog that
@@ -389,9 +431,16 @@ framework is the one for drains carrying `DRAIN_MARKER`. Nodes accumulated in
 on every cycle, and somebody had to run `scontrol update ... state=RESUME` by
 hand, per node, indefinitely.
 
-Two of the shipped patterns are registration failures rather than job failures,
-and both are worth spelling out because they look like hardware faults and are
-usually not:
+Some of the shipped patterns are not job failures at all, and they are worth
+spelling out because they look like hardware faults and are usually not:
+
+- **`Node was stopped by <user>`** and **`Not responding`.** Somebody rebooted or
+  power-cycled the node, and Slurm drained it for going away. These arrive in
+  racks at a time, because that is how people reboot. The node is fine once it is
+  back; what it needs is a resume, and often a `slurmd` restart first — see
+  [Restarting slurmd](#restarting-slurmd). The one thing that makes this safe to
+  automate is that **the recovery runs on the node itself**: a node that is still
+  off, or still booting, is not running the action that would resume it.
 
 - **`Duplicate jobid`.** `slurmd` registered with `slurmctld` carrying a job the
   controller believes is finished, or belongs elsewhere — a job record left in
@@ -402,18 +451,12 @@ usually not:
   gone. If a node earns this repeatedly, the stale spool file is the thing to
   look at — the recovery will not delete it, and the attempt cap is what stops
   the loop.
-- **`gres/gpu count reported by slurmd (n) lower than configured (m)`.**
-  `slurmd` counted the GPUs before the driver finished coming up, so it
-  registered with a count that was true for a few seconds after boot and is not
-  true now. This is the one shipped pattern that *can* also mean a genuinely
-  missing GPU, and the recovery does not attempt to tell the two apart: it
-  resumes, `slurmd` re-registers, and a node that really is short a GPU is
-  drained again immediately with the same reason. That costs one attempt of
-  `RECOVER_MAX_ATTEMPTS`, three times, and then the node stays drained with
-  Slurm's own reason on it. The check that names a missing GPU as a hardware
-  fault is `14-nvidia-smi-cuuid.sh`, which compares against
-  `valid-config/default` and drains under the `health` class — a different
-  class, cleared by a different caller, and unaffected by this.
+- **`gres/gpu count reported by slurmd (n) lower than configured (m)`** and
+  **`Low socket*core*thread count, Low CPUs`.** `slurmd` counted the GPUs or the
+  CPUs before they had all finished coming up, so it registered a number that
+  was true for a few seconds after boot and is not true now. These two are the
+  patterns that can *also* mean genuinely absent hardware, so they are not taken
+  on trust — see below.
 
 `slurm-recovery.sh` is what clears them, and both actions use it:
 `launch_job.sh` on every monitoring cycle, `node_health.sh` after a clean check
@@ -427,12 +470,41 @@ run.
 | `RECOVER_SETTERS` | `slurm root` | Only drains set by these accounts are ever cleared |
 | `RECOVER_MAX_ATTEMPTS` | `3` | Recoveries allowed per node inside the window |
 | `RECOVER_WINDOW_HOURS` | `24` | The window, counted from `results/<node>/recover.log` |
-| `RECOVER_RESTART_SLURMD` | `no` | Restart a dead `slurmd` before resuming a `down*` node |
+| `RECOVER_RESTART_SLURMD` | `yes` | Restart a `slurmd` that is not running before resuming the node |
+| `RECOVER_REREGISTER` | `yes` | Restart a *live* `slurmd` to replace a stale registered count, once the hardware has proved it wrong |
+| `RECOVER_SLURMD_WAIT` | `30` | Seconds to wait for `slurmd` to come back from either restart |
+| `RECOVER_MIN_UPTIME_SECS` | `300` | Judge nothing on a node that has been up for less than this. `0` disables the floor |
+| `RECOVER_PREJOB_LOGS` | BCM's `failed-pre-jobs` | Where the pre-job check writes what it objected to. Empty skips that check |
+| `RECOVER_PREJOB_SLACK_SECS` | `900` | How far before the drain a pre-job log may be written and still count as its cause |
 
 Unlike the two drain switches above, this one ships **on**. Those take nodes out
 of service, so an unreadable value has to mean "don't"; this one puts them back,
 and the cost of it being off is the silence the rest of the framework is built
 to prevent — a node drained for a failed prolog, testing nothing, forever.
+
+### Reasons Slurm appends to
+
+Slurm does not always replace a drain reason. When a node stops answering it
+**appends to whatever was already there** and signs the result as its own:
+
+```
+BF3 TEST BY AIC : Not responding        [slurm@2026-07-30T23:48:16]
+AIC UPDATE PXE BIOS : Not responding    [slurm@2026-07-31T04:54:51]
+Prolog error : Not responding           [slurm@2026-08-03T11:48:28]
+```
+
+The first two are somebody's deliberate arrangement — a node taken for BF3
+testing, a node mid-BIOS-update — and they arrive here set by `slurm`, which is
+in `RECOVER_SETTERS`, with text ending in a pattern `RECOVER_REASONS` matches.
+Both discriminators that normally protect an operator's drain are defeated at
+once, by Slurm, without the operator doing anything unusual.
+
+So classification runs on the reason **as it was before the append**: the text
+up to ` : Not responding` if there is any, and the whole thing if there is not.
+`BF3 TEST BY AIC` is prose and classifies `operator`; `Prolog error` classifies
+`machine` as it should; a bare `Not responding` still classifies `machine`. The
+same base reason is what the readiness checks are told about, so a count or
+rogue-process drain is still recognised underneath an append.
 
 ### How an operator's drain is protected
 
@@ -464,21 +536,251 @@ drains as root with free-text reasons loses nothing; a site that types the word
 `RECOVER_SETTERS`, or turn `RECOVER_EMPTY_REASON` off if bare drains are how
 operators take nodes out there.
 
+### A rogue process drain names its process
+
+The drain reason is `rogueprocess` and stops there. The thing it objected to is
+written down in one place only — BCM's pre-job health check log. There are two
+directories and only one of them is the right one:
+
+```
+pre-post-job-logs/all-pre-jobs/job.114250.tmp    # every run, pass or fail
+pre-post-job-logs/failed-pre-jobs/job.114250.log # only the failures
+```
+
+`RECOVER_PREJOB_LOGS` points at the second, and the newest `job.*.log` in it is
+what gets read:
+
+```
+rogueprocess is FAIL, /usr/sbin/sshd (cmods)/* 503852 */
+rogueprocess is FAIL, /usr/bin/bash (nvis-ib), /usr/sbin/sshd (nvis-ib)/* 14533, 14535 */
+dmesg is FAIL, /* 4790 */ matches for regex: hardware error
+```
+
+Three things about that format, each of which has to be handled or the check is
+worse than useless:
+
+- **Several commands share one pid list.** The second line names two commands and
+  two pids, and they are not paired — a longer list may carry four pids for two
+  commands. So the two are matched as *sets*: any listed pid that is still alive
+  and matches any listed command counts.
+- **`/* … */` does not always hold pids.** The `dmesg` check puts its *match
+  count* between the same markers. Reading `4790` as a pid would hold a node over
+  whatever process happened to inherit that number, so only lines from the
+  `rogueprocess` check are read for processes at all.
+- **Most of these drains do not say `rogueprocess`.** They say `Prolog error`,
+  because the prolog is what runs the check and Slurm records only that the
+  prolog failed. Both reasons trigger this.
+
+That is a **login session**, and it holds no GPU, so the readiness test below —
+which looks only at GPU compute processes, deliberately — cannot see it. Without
+reading this log the recovery resumes the node, the next job's pre-job check
+finds the same session, Slurm drains it again, and that repeats until
+`RECOVER_MAX_ATTEMPTS` is spent. `recover.log` would say "resumed" three times
+and never name the thing that was actually blocking the node.
+
+The drain reason for one of these usually does not say `rogueprocess` at all —
+it says **`Prolog error`**, because the pre-job check is what the prolog runs and
+Slurm only records that the prolog failed. Both spellings trigger this check, and
+`Prolog error` is the one that fires in practice.
+
+So the drain reads the newest log in that directory, takes the command, user and
+pid out of each `FAIL` line, and asks whether that process is still there:
+
+- **Gone.** Resume, which is the common case — the session ended and the drain is
+  stale.
+- **Still running.** Hold, with `sshd (cmods) pid 503852, named by
+  job.114250.log` in the trace, and **spend no attempt**. The node comes back on
+  its own the cycle after the session ends. It would have been re-drained anyway;
+  the difference is that the reason is now visible instead of showing up as three
+  silent resumes.
+
+Two things stop this holding a node over something unrelated, and both matter
+because **nothing prunes `failed-pre-jobs/`** — the newest log there can be a
+record of an incident that ended weeks ago:
+
+- **The log has to be from around this drain.** Its mtime must be no earlier than
+  the drain timestamp less `RECOVER_PREJOB_SLACK_SECS` (900). An older log is a
+  different incident and is not read as this one's cause.
+- **The pid *and* the user have to match.** Pids get reused, and the flagged
+  command is often one the node runs anyway — matching `/usr/sbin/sshd` alone
+  would match the `sshd` daemon itself, on every node, forever. So the user has
+  to place it too: either it owns the process, or it appears in the arguments, as
+  it does in `sshd: cmods [priv]`.
+
+Both failures are deliberately one-sided. If either check says no, the node is
+resumed exactly as it was before this existed — the worst case is the flap we
+started with, not a good node held out of service on a bad match.
+
+This does mean a long-lived `cmods` session keeps its node drained. That is the
+honest outcome: BCM's check will fail every job on that node until the session
+goes away, so the node is not usable either way. Set `RECOVER_PREJOB_LOGS=` to
+skip the check and go back to resuming regardless.
+
+### What failed is written down either way
+
+Whatever the outcome, the checks that failed go into the trace:
+
+```
+recover note: the pre-job check that drained ink50-dh01-h20-35 failed on [dmesg];
+nothing it named is still running, so this is a resume rather than a hold.
+Repeats here are that check failing again, not this.
+```
+
+Only `rogueprocess` can be re-evaluated from outside — a `dmesg` flood or a
+failed IB check cannot be, and holding on one would be a deadlock, since a
+drained node never runs another prolog to prove itself clear. So those resume,
+and the attempt cap is what stops the flapping.
+
+What the note buys is that the flapping is no longer anonymous. A node drained
+three times in a day whose reason only ever reads `Prolog error` looks like a
+recovery that will not settle; the same node saying `failed on [dmesg]` is a
+hardware fault with a ticket to open. The recovery is not the thing to fix in
+that case, and the log now says so.
+
+### Restarting slurmd
+
+Two different conditions here are repaired by restarting `slurmd`, and both go
+through the same path:
+
+- **`slurmd` is not running**, which is why the node is `down*`. On a node that
+  was rebooted out from under Slurm this is usually not "stopped" but
+  **`failed`** — `slurmd` tried to start too early or too often on the way up and
+  systemd gave up on it. `RECOVER_RESTART_SLURMD` governs this.
+- **`slurmd` is running but registered the wrong counts**, above.
+  `RECOVER_REREGISTER` governs this.
+
+`systemctl reset-failed slurmd` runs before the restart, always. A unit that has
+tripped systemd's start limit **refuses `restart` outright** until that counter
+is cleared — `Start request repeated too quickly` — so a plain restart is exactly
+the thing that does not work on the node that needs it most. Then it polls up to
+`RECOVER_SLURMD_WAIT` seconds for the unit to come back, and only resumes if it
+does. If it does not, the node is held, the unit state goes into the trace, and
+the log names `journalctl -u slurmd -n 50` as the next step.
+
+The `slurmd` repair runs **before** the "no jobs assigned" and "no compute
+processes" gates, which is deliberate and is the one ordering here worth knowing.
+A job assigned to a node whose `slurmd` died needs that `slurmd` back to carry on
+— `slurmstepd` survives the restart and the job continues — and waiting for the
+job to clear first would mean waiting on a job that cannot progress. The *resume*
+still waits: the node stays drained until the job is gone, and comes back on a
+later cycle. Only the restart jumps the queue.
+
+`RECOVER_RESTART_SLURMD` used to ship **off**, on the grounds that BCM owns that
+unit. It now ships **on**, because the restart is only ever reached on a node
+that has already passed every gate above it: up long enough to have finished
+booting, drained, no jobs assigned, no compute processes on the GPUs, and a drain
+reason that classified as `machine`. Restarting `slurmd` on a node in that state
+is what an operator does by hand, and it was being done by hand, per node, across
+whole racks. A site that would rather it were not can set it back to `no`; the
+trace then names the node and says what it would have done.
+
+### Nothing is judged mid-boot
+
+Every number below is read off the node, and on a node that is still coming up
+every one of them is still moving. A GPU count taken forty seconds into boot is
+not evidence of anything, and restarting `slurmd` underneath a boot that has not
+finished is a second race laid over the first one.
+
+So the first readiness check is whether the node has finished booting at all,
+and it gates *every* class, not just the count drains:
+
+- **Uptime is at least `RECOVER_MIN_UPTIME_SECS`** (default 300), read from
+  `/proc/uptime`. Set it to `0` to disable the floor.
+- **`systemctl is-system-running` is not `initializing`, `starting`,
+  `stopping` or `maintenance`.** This outlasts any uptime guess on a slow boot —
+  a node still bringing up its GPU driver at eight minutes is caught by this and
+  not by the floor. `degraded` counts as up: some unit failed, but boot is over,
+  and that is a health check's business rather than this. Anything systemd
+  cannot answer is not read as "still booting".
+
+Neither is a failure. The node is held with the reason written to
+`recover.log`, **no attempt is spent**, and the next monitoring cycle picks it up
+a few minutes later, by which time the numbers have stopped moving.
+
+### A count drain is checked against the hardware
+
+The GRES and CPU count drains are the only ones where the node can prove the
+drain wrong, because the thing in dispute is a number it can go and read. So
+these two are not resumed on the strength of the reason text alone, the way
+every other `machine` reason is:
+
+| Source | GPUs | CPUs |
+|--------|------|------|
+| What the node has now | `nvidia-smi -L` | `slurmd -C`, falling back to `nproc --all` |
+| What the config asks for | the configured count in Slurm's own reason, else `Gres=` from `scontrol show node` | `CPUTot=` from `scontrol show node` |
+
+The GRES reason has two spellings in the field and both are read:
+
+```
+gres/gpu count reported by slurmd (7) lower than configured (8)
+gres/gpu count reported lower than configured (0 < 4)
+```
+
+`slurmd -C` is used rather than `lscpu` because it is precisely what `slurmd`
+*would* register, which is the number under argument.
+
+Two outcomes, and the split is the whole point:
+
+- **The hardware is short.** The drain is currently correct and a resume would
+  only earn it again on the next registration. The node is held, the counts go
+  into the trace (`only 7 of 8 GPUs are present`), and **no attempt is spent**.
+  Before this, a node genuinely missing a GPU burned all three of its
+  `RECOVER_MAX_ATTEMPTS` discovering that, three times, and the log said only
+  that it had been resumed and drained again. Naming a missing GPU as a
+  *hardware fault* is still `14-nvidia-smi-cuuid.sh`'s job, under the `health`
+  class — a different class, cleared by a different caller, untouched by this.
+- **The hardware is all there.** Then `slurmctld` is holding a count from a
+  registration taken before it was, and **a resume does not ask for a new one**
+  — which is why these nodes came back to `idle` and drained again on the spot.
+  What replaces the cached count is a `slurmd` restart, so `RECOVER_REREGISTER`
+  restarts it, waits up to `RECOVER_SLURMD_WAIT` for it to come back, and
+  only then resumes. Restart before resume, not after: a registration carrying
+  the old number arriving after the resume would simply re-drain the node.
+
+Unlike `RECOVER_RESTART_SLURMD`, this one ships **on**. That switch restarts a
+`slurmd` that is merely *not answering*, which is a guess about a unit BCM owns;
+this one only ever fires on an idle, drained node whose own hardware has
+contradicted the count that drained it — and the drain it clears cannot clear
+itself. Turning it off leaves the resume in place without the re-registration,
+which is the old behaviour, and the trace says so on every cycle.
+
+The restart needs no separate rate limit: it only happens on the path that ends
+in a resume, and that path is already capped at `RECOVER_MAX_ATTEMPTS` inside
+`RECOVER_WINDOW_HOURS`.
+
+Three answers are kept apart here, and conflating any two of them gets a node
+wrong:
+
+- **A count of zero is a count.** `(0 < 4)` is the common spelling on this fleet
+  — `slurmd` registered with no GPUs at all — and if the driver is still down,
+  `nvidia-smi -L` reports zero and *means* it. That is a short count, and it
+  holds.
+- **`nvidia-smi` failing is the node agreeing with the drain.** Not an absence of
+  evidence: the tool is there and cannot enumerate anything, which is precisely
+  what the drain complains about. Holds, and names it.
+- **The tool not being installed proves nothing.** No `nvidia-smi`, no
+  `scontrol`, no configured count to compare against — the recovery falls back
+  to what it did before any of this existed and resumes on the reason text,
+  rather than holding a node out of service over a number it could not get.
+
 ### Why a resume is not enough on its own
 
 A node put back while still broken is re-drained within the minute, and a script
 that does that in a loop is worse than one that does nothing. So a recovery also
 has to show the condition cleared:
 
+- The node has finished booting, as above.
 - `slurmd` is active on the node — resuming a node whose `slurmd` is dead only
-  puts it straight back into `down*`. This is the one condition that can be
-  repaired here, and only when `RECOVER_RESTART_SLURMD=yes`; it ships off
-  because BCM owns that unit.
-- No compute processes hold the GPUs. This is the direct test for the
-  rogue-process drain. Only GPU processes are looked at — a general "no
-  processes owned by `$JOB_USER`" test reads a login shell as a rogue process
-  and the node never comes back.
+  puts it straight back into `down*`. Repaired here when
+  `RECOVER_RESTART_SLURMD=yes`, which is the default; see
+  [Restarting slurmd](#restarting-slurmd).
+- No compute processes hold the GPUs. Only GPU processes are looked at — a
+  general "no processes owned by `$JOB_USER`" test reads a login shell as a rogue
+  process and the node never comes back. What the pre-job check *did* object to
+  is read from its own log instead, [above](#a-rogue-process-drain-names-its-process).
 - No jobs are still assigned to the node.
+- A count drain is contradicted by the hardware, as above — checked last, so a
+  `slurmd` restart can never happen under a live job or a busy GPU.
 
 And it is rate-limited: at most `RECOVER_MAX_ATTEMPTS` recoveries inside
 `RECOVER_WINDOW_HOURS`, counted from `results/<node>/recover.log`, which is the
