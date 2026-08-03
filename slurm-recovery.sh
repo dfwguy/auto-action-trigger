@@ -192,16 +192,25 @@ recover_counts_ready() {
 ## docs/settings.md#a-rogue-process-drain-names-its-process
 RECOVER_ROGUE=""
 recover_rogue_still_running() {
-    local dir="${RECOVER_PREJOB_LOGS:-}" log line cmd user pid args
+    local when="$1"
+    local dir="${RECOVER_PREJOB_LOGS:-}" log line cmd user pid args owner drained mtime
     ## `rogueprocess is FAIL, /usr/sbin/sshd (cmods)/* 503852 */`
     local pat='FAIL,[[:space:]]*(.+)\(([^)]*)\)/\*[[:space:]]*([0-9]+)[[:space:]]*\*/'
     RECOVER_ROGUE=""
     [[ -n "$dir" && -d "$dir" ]] || return 1
 
+    ## Only failures land here, one file per job, and nothing prunes them.
     # shellcheck disable=SC2012  # sorting by mtime is the point; these are
                                  # job.<id>.log and cannot contain a newline
     log=$(ls -1t "$dir"/job.*.log 2>/dev/null | head -1)
     [[ -n "$log" && -r "$log" ]] || return 1
+
+    ## So the newest log can be a record of an incident that is long over. Only
+    ## one written around this drain can be the one that caused it.
+    if [[ -n "$when" ]] && drained=$(date -d "$when" +%s 2>/dev/null); then
+        mtime=$(stat -c %Y "$log" 2>/dev/null || printf 0)
+        [[ "$mtime" -ge $(( drained - RECOVER_PREJOB_SLACK_SECS )) ]] || return 1
+    fi
 
     while IFS= read -r line; do
         [[ "$line" =~ $pat ]] || continue
@@ -209,9 +218,18 @@ recover_rogue_still_running() {
         cmd="${cmd%"${cmd##*[![:space:]]}"}"
         args=$(ps -p "$pid" -o args= 2>/dev/null)
         [[ -n "$args" ]] || continue
-        ## A pid on its own is not proof after a reboot's worth of pid reuse;
-        ## the command has to still be the one that was flagged.
+
+        ## A pid is not proof on its own -- pids are reused, and the flagged
+        ## command is often one the node runs anyway. `sshd` alone would match
+        ## the sshd daemon, so the user has to place it too: either it owns the
+        ## process, or it is named in the args, as `sshd: cmods [priv]` is.
         [[ "$args" == *"${cmd##*/}"* ]] || continue
+        if [[ -n "$user" ]]; then
+            owner=$(ps -p "$pid" -o user= 2>/dev/null)
+            owner="${owner//[[:space:]]/}"
+            [[ "$owner" == "$user" || "$args" == *"$user"* ]] || continue
+        fi
+
         RECOVER_ROGUE="$cmd (${user:-?}) pid $pid, named by ${log##*/}"
         return 0
     done < "$log"
@@ -289,7 +307,7 @@ recover_boot_settled() {
 ## to why. docs/settings.md#why-a-resume-is-not-enough-on-its-own
 RECOVER_NOT_READY=""
 recover_node_ready() {
-    local node="$1" reason="$2" pids jobs
+    local node="$1" reason="$2" when="$3" pids jobs
     RECOVER_NOT_READY=""
 
     ## First: a node still booting cannot answer any of the questions below,
@@ -321,7 +339,7 @@ recover_node_ready() {
 
     ## The GPU test above cannot see what drained this one: the pre-job check
     ## objects to processes that hold no GPU, a login shell among them.
-    if [[ "${reason,,}" =~ rogue[[:space:]]?process ]] && recover_rogue_still_running; then
+    if [[ "${reason,,}" =~ rogue[[:space:]]?process ]] && recover_rogue_still_running "$when"; then
         RECOVER_NOT_READY="the process the pre-job check objected to is still running -- $RECOVER_ROGUE. Resuming would only fail the next job's pre-job check the same way"
         return 1
     fi
@@ -424,7 +442,7 @@ slurm_recover_node() {
         return 1
     fi
 
-    if ! recover_node_ready "$node" "$reason"; then
+    if ! recover_node_ready "$node" "$reason" "$when"; then
         recover_log "recover held: $node is $state ('${reason:-<empty>}', $class) but $RECOVER_NOT_READY"
         RECOVER_RESULT="not-ready"
         return 1

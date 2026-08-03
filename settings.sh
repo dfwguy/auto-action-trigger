@@ -64,6 +64,7 @@ fi
 ## a rogueprocess drain names its process. Empty disables that check.
 ## See docs/settings.md#a-rogue-process-drain-names-its-process.
 : "${RECOVER_PREJOB_LOGS:=/cm/local/apps/slurm/var/pre-post-job-logs/failed-pre-jobs}"
+: "${RECOVER_PREJOB_SLACK_SECS:=900}"
 ## `=` not `:=`, like CONTAINERS: empty is the shipped answer and a real one --
 ## it means "one worker per core". See docs/settings.md#reporting.
 : "${SCAN_JOBS=}"

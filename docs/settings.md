@@ -381,6 +381,7 @@ RECOVER_REREGISTER=yes
 RECOVER_SLURMD_WAIT=30
 RECOVER_MIN_UPTIME_SECS=300
 RECOVER_PREJOB_LOGS=/cm/local/apps/slurm/var/pre-post-job-logs/failed-pre-jobs
+RECOVER_PREJOB_SLACK_SECS=900
 ```
 
 Slurm drains nodes for things that are not faults of the node: a prolog that
@@ -437,6 +438,7 @@ run.
 | `RECOVER_SLURMD_WAIT` | `30` | Seconds to wait for `slurmd` to come back from either restart |
 | `RECOVER_MIN_UPTIME_SECS` | `300` | Judge nothing on a node that has been up for less than this. `0` disables the floor |
 | `RECOVER_PREJOB_LOGS` | BCM's `failed-pre-jobs` | Where the pre-job check writes what it objected to. Empty skips that check |
+| `RECOVER_PREJOB_SLACK_SECS` | `900` | How far before the drain a pre-job log may be written and still count as its cause |
 
 Unlike the two drain switches above, this one ships **on**. Those take nodes out
 of service, so an unreadable value has to mean "don't"; this one puts them back,
@@ -476,8 +478,16 @@ operators take nodes out there.
 ### A rogue process drain names its process
 
 The drain reason is `rogueprocess` and stops there. The thing it objected to is
-written down in one place only — BCM's pre-job health check log, at
-`RECOVER_PREJOB_LOGS`:
+written down in one place only — BCM's pre-job health check log. There are two
+directories and only one of them is the right one:
+
+```
+pre-post-job-logs/all-pre-jobs/job.114250.tmp    # every run, pass or fail
+pre-post-job-logs/failed-pre-jobs/job.114250.log # only the failures
+```
+
+`RECOVER_PREJOB_LOGS` points at the second, and the newest `job.*.log` in it is
+what gets read:
 
 ```
 HealthCheckForWlmJob healthchecks for: 114250
@@ -505,10 +515,22 @@ still there:
   the difference is that the reason is now visible instead of showing up as three
   silent resumes.
 
-The pid alone is not taken as proof. Pids get reused, particularly across a
-reboot, so the command has to still match the one that was flagged — otherwise
-this holds nodes over an unrelated process that happens to have inherited the
-number.
+Two things stop this holding a node over something unrelated, and both matter
+because **nothing prunes `failed-pre-jobs/`** — the newest log there can be a
+record of an incident that ended weeks ago:
+
+- **The log has to be from around this drain.** Its mtime must be no earlier than
+  the drain timestamp less `RECOVER_PREJOB_SLACK_SECS` (900). An older log is a
+  different incident and is not read as this one's cause.
+- **The pid *and* the user have to match.** Pids get reused, and the flagged
+  command is often one the node runs anyway — matching `/usr/sbin/sshd` alone
+  would match the `sshd` daemon itself, on every node, forever. So the user has
+  to place it too: either it owns the process, or it appears in the arguments, as
+  it does in `sshd: cmods [priv]`.
+
+Both failures are deliberately one-sided. If either check says no, the node is
+resumed exactly as it was before this existed — the worst case is the flap we
+started with, not a good node held out of service on a bad match.
 
 This does mean a long-lived `cmods` session keeps its node drained. That is the
 honest outcome: BCM's check will fail every job on that node until the session

@@ -96,16 +96,23 @@ fi
 exit 0
 EOF
 
-## `ps -p <pid> -o args=`: alive only for STUB_LIVE_PID, so a case decides
-## whether the flagged process is still there.
+## `ps -p <pid> -o args=` and `-o user=`: alive only for STUB_LIVE_PID, so a
+## case decides whether the flagged process is still there and who owns it.
 cat > "$stub/ps" <<'EOF'
 #!/bin/bash
-want=""
+want=""; field=""
 for ((i = 1; i <= $#; i++)); do
-    [[ "${!i}" == "-p" ]] && { j=$((i + 1)); want="${!j}"; }
+    case "${!i}" in
+        -p)     j=$((i + 1)); want="${!j}" ;;
+        args=)  field="args" ;;
+        user=)  field="user" ;;
+    esac
 done
-[[ -n "$want" && "$want" == "$STUB_LIVE_PID" ]] &&
-    printf '%s\n' "${STUB_LIVE_ARGS:-sshd: cmods@notty}"
+[[ -n "$want" && "$want" == "$STUB_LIVE_PID" ]] || exit 0
+case "$field" in
+    args) printf '%s\n' "${STUB_LIVE_ARGS:-sshd: cmods@notty}" ;;
+    user) printf '%s\n' "${STUB_LIVE_USER:-cmods}" ;;
+esac
 exit 0
 EOF
 
@@ -140,7 +147,7 @@ run_case() {
         ## otherwise exercises the short-count path.
         export STUB_GPUS="8" STUB_CPUS="72" STUB_CFG_GPUS="8" STUB_CFG_CPUS="72"
         export STUB_SYSTEM_STATE="running" STUB_SLURMD_STATE="failed"
-        export STUB_LIVE_PID="" STUB_LIVE_ARGS=""
+        export STUB_LIVE_PID="" STUB_LIVE_ARGS="" STUB_LIVE_USER="cmods"
         ## Off unless a case points it at the fixture below: the shipped path
         ## is a BCM one that does not exist on a test host.
         RECOVER_PREJOB_LOGS=""
@@ -219,6 +226,22 @@ grep -q "job.114250.log" "$CASE_DIR/trace" ||
 run_case "rogue process, pid reused by something else" resumed \
     STUB_REASON="rogueprocess" RECOVER_PREJOB_LOGS="$work/prejob" \
     STUB_LIVE_PID="503852" STUB_LIVE_ARGS="/usr/bin/python3 /opt/monitor.py"
+
+## And the command is not proof either: `sshd` matches the sshd daemon, which
+## is running on every node all the time. The user has to place it too.
+run_case "rogue process, pid reused by the sshd daemon" resumed \
+    STUB_REASON="rogueprocess" RECOVER_PREJOB_LOGS="$work/prejob" \
+    STUB_LIVE_PID="503852" STUB_LIVE_USER="root" \
+    STUB_LIVE_ARGS="/usr/sbin/sshd -D [listener] 0 of 10-100 startups"
+
+## Nothing prunes failed-pre-jobs/, so a log from a previous incident is still
+## the newest one. It must not be read as this drain's cause.
+mkdir -p "$work/prejob-stale"
+cp "$work/prejob/job.114250.log" "$work/prejob-stale/"
+touch -d '2026-06-11 14:56:00' "$work/prejob-stale/job.114250.log"
+run_case "rogue process, log predates the drain" resumed \
+    STUB_REASON="rogueprocess" RECOVER_PREJOB_LOGS="$work/prejob-stale" \
+    STUB_LIVE_PID="503852" STUB_LIVE_ARGS="sshd: cmods@pts/0"
 
 run_case "rogue process, no pre-job logs on this node" resumed \
     STUB_REASON="rogueprocess" RECOVER_PREJOB_LOGS="$work/nonexistent" \
