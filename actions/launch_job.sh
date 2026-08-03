@@ -284,9 +284,12 @@ if setting_enabled "$PAUSE_JOBS"; then
         fi
     fi
 
-    while read -r id state elapsed; do
-        [[ "$state" == "RUNNING" ]] || continue
-        trace "PAUSE_JOBS: job $id still RUNNING for $elapsed -- left to finish; 'scancel $id' to stop it now"
+    ## Its own names, not `state`: this loop is at the top level, and `$state`
+    ## is the node's, read above and relied on by the drain gate further down.
+    ## Reading through this block under --explain is what made that reachable.
+    while read -r paused_id paused_state paused_elapsed; do
+        [[ "$paused_state" == "RUNNING" ]] || continue
+        trace "PAUSE_JOBS: job $paused_id still RUNNING for $paused_elapsed -- left to finish; 'scancel $paused_id' to stop it now"
     done <<<"$paused_queue"
 
     [[ "$FORCE" -eq 1 ]] &&
