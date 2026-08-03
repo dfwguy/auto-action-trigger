@@ -87,6 +87,7 @@ EOF
 cat > "$stub/nvidia-smi" <<'EOF'
 #!/bin/bash
 if [[ "$1" == "-L" ]]; then
+    [[ -n "$STUB_SMI_FAIL" ]] && exit 9
     for ((i = 0; i < ${STUB_GPUS:-8}; i++)); do
         printf 'GPU %d: NVIDIA GB200 (UUID: GPU-stub-%d)\n' "$i" "$i"
     done
@@ -146,6 +147,7 @@ run_case() {
         ## A node whose hardware is all present, so only a case that says
         ## otherwise exercises the short-count path.
         export STUB_GPUS="8" STUB_CPUS="72" STUB_CFG_GPUS="8" STUB_CFG_CPUS="72"
+        export STUB_SMI_FAIL=""
         export STUB_SYSTEM_STATE="running" STUB_SLURMD_STATE="failed"
         export STUB_LIVE_PID="" STUB_LIVE_ARGS="" STUB_LIVE_USER="cmods"
         ## Off unless a case points it at the fixture below: the shipped path
@@ -246,6 +248,16 @@ run_case "rogue process, log predates the drain" resumed \
 run_case "rogue process, no pre-job logs on this node" resumed \
     STUB_REASON="rogueprocess" RECOVER_PREJOB_LOGS="$work/nonexistent" \
     STUB_LIVE_PID="503852"
+
+## What the drain reason actually says on a node the pre-job check failed: the
+## prolog is what runs it, and only its log knows a rogue process was why.
+run_case "prolog error, the rogue process is still there" not-ready \
+    STUB_REASON="Prolog error" RECOVER_PREJOB_LOGS="$work/prejob" \
+    STUB_LIVE_PID="503852" STUB_LIVE_ARGS="sshd: cmods@pts/0"
+resumed_node && bad "  ... and it resumed into the same failing pre-job check"
+
+run_case "prolog error, nothing left running" resumed \
+    STUB_REASON="Prolog error" RECOVER_PREJOB_LOGS="$work/prejob"
 run_case "failed batch launch"     resumed STUB_REASON="batch job complete failure"
 run_case "kill task failed"        resumed STUB_REASON="Kill task failed"
 run_case "unexpected reboot"       resumed STUB_REASON="node unexpectedly rebooted"
@@ -327,6 +339,19 @@ grep -q "only 36 of 72 CPUs" "$CASE_DIR/trace" ||
 run_case "gres reason wins over scontrol" not-ready \
     STUB_REASON="$gres_short" STUB_GPUS="7" STUB_CFG_GPUS="4"
 
+## The other spelling, reported first: `(0 < 4)`. Asserted on the message,
+## because a parse that missed would fall back to scontrol's 8 and still hold.
+run_case "gres count, the reported-first spelling" not-ready \
+    STUB_REASON="gres/gpu count reported lower than configured (0 < 4)" \
+    STUB_GPUS="0"
+grep -q "only 0 of 4 GPUs" "$CASE_DIR/trace" ||
+    bad "  ... and the configured count did not come from the reason"
+
+run_case "gres count reported as 0, GPUs all back" resumed \
+    STUB_REASON="gres/gpu count reported lower than configured (0 < 4)"
+grep -q '^restart' "$CASE_DIR/systemctl.calls" 2>/dev/null ||
+    bad "  ... but slurmd was never restarted, so slurmctld kept the 0"
+
 run_case "re-registration switched off" resumed \
     STUB_REASON="$gres_short" RECOVER_REREGISTER="no"
 [[ -s "$CASE_DIR/systemctl.calls" ]] &&
@@ -340,10 +365,16 @@ run_case "count drain, dry run" resumed \
 grep -q "WOULD RESTART" "$CASE_DIR/trace" ||
     bad "  ... and --explain did not say it would"
 
+## Zero is a count and a real one, but nvidia-smi *failing* is the node saying
+## the thing the drain complains about -- not an absence of evidence.
+run_case "nvidia-smi will not answer" not-ready \
+    STUB_REASON="$gres_short" STUB_SMI_FAIL="1"
+resumed_node && bad "  ... and it resumed a node whose GPU stack is not up"
+
 ## No count to read is not a count that is wrong: the behaviour before any of
 ## this existed, rather than a node held on a number we could not get.
-run_case "count unreadable, resumed as before" resumed \
-    STUB_REASON="$gres_short" STUB_GPUS="0"
+run_case "configured count unreadable, resumed as before" resumed \
+    STUB_REASON="$cpu_short" STUB_CFG_CPUS="none" STUB_CPUS="36"
 
 echo "== no reason at all =="
 
@@ -351,7 +382,41 @@ run_case "empty reason, opted in"  resumed     STUB_REASON="none"
 run_case "empty reason, opted out" class       STUB_REASON="none" RECOVER_EMPTY_REASON="no"
 run_case "literally empty reason"  resumed     STUB_REASON=""
 
+echo "== reasons Slurm appends to =="
+
+## Slurm appends " : Not responding" to the reason already on the node and
+## signs the result itself, so an operator's drain arrives set by slurm. What
+## was there first is what decides. docs/settings.md#reasons-slurm-appends-to
+run_case "operator reason, then it stopped responding" class \
+    STUB_REASON="BF3 TEST BY AIC : Not responding"
+resumed_node && bad "  ... and it resumed a node somebody had taken for testing"
+
+run_case "operator reason with a ticket, then not responding" class \
+    STUB_REASON="AIC UPDATE PXE BIOS : Not responding"
+resumed_node && bad "  ... and it resumed a node mid-BIOS-update"
+
+run_case "machine reason, then it stopped responding" resumed \
+    STUB_REASON="Prolog error : Not responding"
+
+run_case "not responding on its own" resumed STUB_REASON="Not responding"
+
 echo "== drains we must not clear =="
+
+## Hardware tickets, whoever files them. `nvis` and `executor` are not in
+## RECOVER_SETTERS; `root` is, so HW231 has to fail on its text alone.
+run_case "hardware ticket, set by a named account" class \
+    STUB_REASON="HW227" STUB_SETTER="nvis"
+resumed_node && bad "  ... and it resumed a node with an open hardware ticket"
+
+run_case "hardware ticket, set by executor" class \
+    STUB_REASON="HW231" STUB_SETTER="executor"
+
+run_case "hardware ticket, set by root" class \
+    STUB_REASON="HW233" STUB_SETTER="root"
+resumed_node && bad "  ... and root's ticket was not protected by its text"
+
+run_case "hardware ticket with prose, set by root" class \
+    STUB_REASON="HW221 - node installer stuck, needs reset" STUB_SETTER="root"
 
 run_case "operator prose" class \
     STUB_REASON="bad NVLink, do not use" STUB_SETTER="breese"

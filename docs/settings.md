@@ -445,6 +445,30 @@ of service, so an unreadable value has to mean "don't"; this one puts them back,
 and the cost of it being off is the silence the rest of the framework is built
 to prevent — a node drained for a failed prolog, testing nothing, forever.
 
+### Reasons Slurm appends to
+
+Slurm does not always replace a drain reason. When a node stops answering it
+**appends to whatever was already there** and signs the result as its own:
+
+```
+BF3 TEST BY AIC : Not responding        [slurm@2026-07-30T23:48:16]
+AIC UPDATE PXE BIOS : Not responding    [slurm@2026-07-31T04:54:51]
+Prolog error : Not responding           [slurm@2026-08-03T11:48:28]
+```
+
+The first two are somebody's deliberate arrangement — a node taken for BF3
+testing, a node mid-BIOS-update — and they arrive here set by `slurm`, which is
+in `RECOVER_SETTERS`, with text ending in a pattern `RECOVER_REASONS` matches.
+Both discriminators that normally protect an operator's drain are defeated at
+once, by Slurm, without the operator doing anything unusual.
+
+So classification runs on the reason **as it was before the append**: the text
+up to ` : Not responding` if there is any, and the whole thing if there is not.
+`BF3 TEST BY AIC` is prose and classifies `operator`; `Prolog error` classifies
+`machine` as it should; a bare `Not responding` still classifies `machine`. The
+same base reason is what the readiness checks are told about, so a count or
+rogue-process drain is still recognised underneath an append.
+
 ### How an operator's drain is protected
 
 Every reason falls into one of four classes, and only two are ever recoverable:
@@ -503,9 +527,13 @@ finds the same session, Slurm drains it again, and that repeats until
 `RECOVER_MAX_ATTEMPTS` is spent. `recover.log` would say "resumed" three times
 and never name the thing that was actually blocking the node.
 
-So a `rogueprocess` drain reads the newest log in that directory, takes the
-command, user and pid out of each `FAIL` line, and asks whether that process is
-still there:
+The drain reason for one of these usually does not say `rogueprocess` at all —
+it says **`Prolog error`**, because the pre-job check is what the prolog runs and
+Slurm only records that the prolog failed. Both spellings trigger this check, and
+`Prolog error` is the one that fires in practice.
+
+So the drain reads the newest log in that directory, takes the command, user and
+pid out of each `FAIL` line, and asks whether that process is still there:
 
 - **Gone.** Resume, which is the common case — the session ended and the drain is
   stale.
@@ -607,7 +635,14 @@ every other `machine` reason is:
 | Source | GPUs | CPUs |
 |--------|------|------|
 | What the node has now | `nvidia-smi -L` | `slurmd -C`, falling back to `nproc --all` |
-| What the config asks for | the `configured (m)` in Slurm's own reason, else `Gres=` from `scontrol show node` | `CPUTot=` from `scontrol show node` |
+| What the config asks for | the configured count in Slurm's own reason, else `Gres=` from `scontrol show node` | `CPUTot=` from `scontrol show node` |
+
+The GRES reason has two spellings in the field and both are read:
+
+```
+gres/gpu count reported by slurmd (7) lower than configured (8)
+gres/gpu count reported lower than configured (0 < 4)
+```
 
 `slurmd -C` is used rather than `lscpu` because it is precisely what `slurmd`
 *would* register, which is the number under argument.
@@ -641,10 +676,20 @@ The restart needs no separate rate limit: it only happens on the path that ends
 in a resume, and that path is already capped at `RECOVER_MAX_ATTEMPTS` inside
 `RECOVER_WINDOW_HOURS`.
 
-If a count cannot be read at all — no `nvidia-smi`, no `scontrol` — nothing is
-inferred from the absence. The recovery falls back to what it did before any of
-this existed and resumes on the reason text, rather than holding a node out of
-service over a number it could not get.
+Three answers are kept apart here, and conflating any two of them gets a node
+wrong:
+
+- **A count of zero is a count.** `(0 < 4)` is the common spelling on this fleet
+  — `slurmd` registered with no GPUs at all — and if the driver is still down,
+  `nvidia-smi -L` reports zero and *means* it. That is a short count, and it
+  holds.
+- **`nvidia-smi` failing is the node agreeing with the drain.** Not an absence of
+  evidence: the tool is there and cannot enumerate anything, which is precisely
+  what the drain complains about. Holds, and names it.
+- **The tool not being installed proves nothing.** No `nvidia-smi`, no
+  `scontrol`, no configured count to compare against — the recovery falls back
+  to what it did before any of this existed and resumes on the reason text,
+  rather than holding a node out of service over a number it could not get.
 
 ### Why a resume is not enough on its own
 

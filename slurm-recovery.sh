@@ -54,6 +54,21 @@ recover_reason_is_health() {
     return 1
 }
 
+## Slurm appends " : Not responding" to whatever reason the node already had,
+## and signs the result itself -- so an operator's drain arrives set by slurm,
+## reading `BF3 TEST BY AIC : Not responding`. Everything downstream judges
+## what was there first. docs/settings.md#reasons-slurm-appends-to
+recover_base_reason() {
+    local reason="$1" base
+    if [[ "${reason,,}" =~ ^(.*[^[:space:]])[[:space:]]*:[[:space:]]*not[[:space:]]responding[[:space:]]*$ ]]; then
+        ## Sliced by length rather than used directly: BASH_REMATCH is off the
+        ## lowercased copy, and the reason is shown to people.
+        base="${reason:0:${#BASH_REMATCH[1]}}"
+        [[ -n "$base" ]] && { printf '%s' "$base"; return 0; }
+    fi
+    printf '%s' "$reason"
+}
+
 ## marker | health | machine | operator, most specific first: a benchmark drain
 ## whose text happens to contain "prolog" must not be read as Slurm's.
 ## docs/settings.md#how-an-operators-drain-is-protected
@@ -109,14 +124,15 @@ recover_count_reason() {
     return 1
 }
 
-## What the node has now, read on the node itself. A count that cannot be read
-## is left empty and must not be treated as a count that is wrong.
+## What the node has now, read on the node itself. Three answers, not two:
+## 0 is a count and a real one -- a node whose driver is down reports zero GPUs
+## and means it. 2 is the tool being absent, which proves nothing either way;
+## 1 is the tool failing, which is itself the node saying it is not ready.
 recover_visible_gpus() {
-    local n
-    command -v nvidia-smi >/dev/null 2>&1 || return 1
-    n=$(nvidia-smi -L 2>/dev/null | grep -c '^GPU [0-9]')
-    [[ "$n" -gt 0 ]] || return 1
-    printf '%s' "$n"
+    local out
+    command -v nvidia-smi >/dev/null 2>&1 || return 2
+    out=$(nvidia-smi -L 2>/dev/null) || return 1
+    printf '%s' "$(grep -c '^GPU [0-9]' <<<"$out")"
 }
 
 ## `slurmd -C` is what slurmd would register, which is the number that matters
@@ -128,7 +144,7 @@ recover_visible_cpus() {
         n="${n#CPUs=}"
     fi
     [[ -n "$n" ]] || n=$(nproc --all 2>/dev/null)
-    [[ "${n:-0}" -gt 0 ]] 2>/dev/null || return 1
+    [[ "${n:-0}" -gt 0 ]] 2>/dev/null || return 2
     printf '%s' "$n"
 }
 
@@ -137,6 +153,11 @@ recover_visible_cpus() {
 ## registered ones, so it is the fallback and the only source for CPUs.
 recover_configured_gpus() {
     local node="$1" reason="$2" raw n
+    ## Two spellings in the wild: `... lower than configured (4)` and
+    ## `... reported lower than configured (0 < 4)`, reported first.
+    if [[ "$reason" =~ \([0-9]+[[:space:]]*\<[[:space:]]*([0-9]+)[[:space:]]*\) ]]; then
+        printf '%s' "${BASH_REMATCH[1]}"; return 0
+    fi
     if [[ "$reason" =~ configured[[:space:]]*\(([0-9]+)\) ]]; then
         printf '%s' "${BASH_REMATCH[1]}"; return 0
     fi
@@ -165,17 +186,25 @@ recover_configured_cpus() {
 ## that was true for a few seconds after boot, which a resume does not refresh.
 RECOVER_STALE_COUNT=0
 recover_counts_ready() {
-    local node="$1" reason="$2" kind want have
+    local node="$1" reason="$2" kind want have rc
     RECOVER_STALE_COUNT=0
     kind=$(recover_count_reason "$reason") || return 0
 
     case "$kind" in
-        gpu) want=$(recover_configured_gpus "$node" "$reason"); have=$(recover_visible_gpus) ;;
-        cpu) want=$(recover_configured_cpus "$node");           have=$(recover_visible_cpus) ;;
+        gpu) want=$(recover_configured_gpus "$node" "$reason")
+             have=$(recover_visible_gpus); rc=$? ;;
+        cpu) want=$(recover_configured_cpus "$node")
+             have=$(recover_visible_cpus); rc=$? ;;
     esac
+
+    ## The tool answering with an error is not the same as it not being there.
+    if [[ "$rc" -eq 1 ]]; then
+        RECOVER_NOT_READY="the ${kind^^} inventory cannot be read at all on $node, which is the drain's own complaint -- a resume would earn it again"
+        return 1
+    fi
     ## No proof either way: carry on as this did before either count was read,
     ## rather than holding a node on a number we could not get.
-    [[ -n "$want" && -n "$have" ]] || return 0
+    [[ "$rc" -eq 0 && -n "$want" && -n "$have" ]] || return 0
 
     if [[ "$have" -lt "$want" ]]; then
         RECOVER_NOT_READY="only $have of $want ${kind^^}s are present, so the drain is currently right -- a resume would earn it again on the next registration"
@@ -338,8 +367,11 @@ recover_node_ready() {
     fi
 
     ## The GPU test above cannot see what drained this one: the pre-job check
-    ## objects to processes that hold no GPU, a login shell among them.
-    if [[ "${reason,,}" =~ rogue[[:space:]]?process ]] && recover_rogue_still_running "$when"; then
+    ## objects to processes that hold no GPU, a login shell among them. Keyed on
+    ## `prolog` as well, because that is what the drain reason usually says --
+    ## the pre-job check is what the prolog runs, and only its own log records
+    ## that the failure was a rogue process.
+    if [[ "${reason,,}" =~ (rogue[[:space:]]?process|prolog) ]] && recover_rogue_still_running "$when"; then
         RECOVER_NOT_READY="the process the pre-job check objected to is still running -- $RECOVER_ROGUE. Resuming would only fail the next job's pre-job check the same way"
         return 1
     fi
@@ -396,7 +428,7 @@ recover_attempts_in_window() {
 RECOVER_RESULT=""
 slurm_recover_node() {
     local node="${1:-$HOSTNAME}"
-    local line state setter when reason class now attempts out
+    local line state setter when reason base class now attempts out
     RECOVER_RESULT=""
 
     if ! setting_enabled "$RECOVER_SLURM_DRAINS"; then
@@ -416,13 +448,14 @@ slurm_recover_node() {
     reason="${line#*|}"
     [[ "$setter" == "none" ]] && setter=""
     recover_reason_empty "$reason" && reason=""
+    base=$(recover_base_reason "$reason")
 
     if ! recover_state_recoverable "$state"; then
         RECOVER_RESULT="not-drained"
         return 1
     fi
 
-    class=$(recover_classify "$reason" "$setter")
+    class=$(recover_classify "$base" "$setter")
     if [[ " $RECOVER_ACCEPT " != *" $class "* ]]; then
         ## Named, not silent: "nothing happened" and "an operator drained this
         ## and we respected it" look identical from outside.
@@ -442,7 +475,7 @@ slurm_recover_node() {
         return 1
     fi
 
-    if ! recover_node_ready "$node" "$reason" "$when"; then
+    if ! recover_node_ready "$node" "$base" "$when"; then
         recover_log "recover held: $node is $state ('${reason:-<empty>}', $class) but $RECOVER_NOT_READY"
         RECOVER_RESULT="not-ready"
         return 1
