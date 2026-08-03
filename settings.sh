@@ -45,12 +45,21 @@ fi
 ## and must stay narrow -- it is the only discriminator left when an admin
 ## drains as root. See docs/settings.md#recovering-drains-slurm-set-itself.
 : "${RECOVER_SLURM_DRAINS:=yes}"
-: "${RECOVER_REASONS:=prolog|epilog|rogue ?process|batch job complete failure|Kill task failed|node unexpectedly rebooted|duplicate jobid|gres/gpu count}"
+: "${RECOVER_REASONS:=prolog|epilog|rogue ?process|batch job complete failure|Kill task failed|node unexpectedly rebooted|node was stopped|not responding|duplicate jobid|gres/gpu count|low socket|low cpus}"
 : "${RECOVER_EMPTY_REASON:=yes}"
 : "${RECOVER_SETTERS:=slurm root}"
 : "${RECOVER_MAX_ATTEMPTS:=3}"
 : "${RECOVER_WINDOW_HOURS:=24}"
-: "${RECOVER_RESTART_SLURMD:=no}"
+## Both restarts ship on: the code only reaches them on a node that is up,
+## drained and idle, and neither drain they clear can clear itself.
+## See docs/settings.md#restarting-slurmd.
+: "${RECOVER_RESTART_SLURMD:=yes}"
+: "${RECOVER_REREGISTER:=yes}"
+: "${RECOVER_SLURMD_WAIT:=30}"
+## Nothing is judged mid-boot: every count below is a moving number until the
+## node has finished coming up. 0 disables the uptime floor.
+## See docs/settings.md#nothing-is-judged-mid-boot.
+: "${RECOVER_MIN_UPTIME_SECS:=300}"
 ## `=` not `:=`, like CONTAINERS: empty is the shipped answer and a real one --
 ## it means "one worker per core". See docs/settings.md#reporting.
 : "${SCAN_JOBS=}"

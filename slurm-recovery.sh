@@ -98,30 +98,183 @@ recover_state_recoverable() {
     esac
 }
 
+## ── Count drains ──────────────────────────────────────────────────────────
+##
+## The two reasons that mean slurmd registered before the hardware was ready.
+## docs/settings.md#a-count-drain-is-checked-against-the-hardware
+recover_count_reason() {
+    local reason="${1,,}"
+    [[ "$reason" == *"gres/gpu count"* ]] && { printf 'gpu'; return 0; }
+    [[ "$reason" == *"low socket"* || "$reason" == *"low cpus"* ]] && { printf 'cpu'; return 0; }
+    return 1
+}
+
+## What the node has now, read on the node itself. A count that cannot be read
+## is left empty and must not be treated as a count that is wrong.
+recover_visible_gpus() {
+    local n
+    command -v nvidia-smi >/dev/null 2>&1 || return 1
+    n=$(nvidia-smi -L 2>/dev/null | grep -c '^GPU [0-9]')
+    [[ "$n" -gt 0 ]] || return 1
+    printf '%s' "$n"
+}
+
+## `slurmd -C` is what slurmd would register, which is the number that matters
+## here; nproc is the fallback when slurmd is not on this caller's PATH.
+recover_visible_cpus() {
+    local n=""
+    if command -v slurmd >/dev/null 2>&1; then
+        n=$(slurmd -C 2>/dev/null | grep -o 'CPUs=[0-9]*' | head -1)
+        n="${n#CPUs=}"
+    fi
+    [[ -n "$n" ]] || n=$(nproc --all 2>/dev/null)
+    [[ "${n:-0}" -gt 0 ]] 2>/dev/null || return 1
+    printf '%s' "$n"
+}
+
+## What the config asks for. Slurm states it in the GRES reason itself, which is
+## better than any lookup; scontrol reports the configured values, never the
+## registered ones, so it is the fallback and the only source for CPUs.
+recover_configured_gpus() {
+    local node="$1" reason="$2" raw n
+    if [[ "$reason" =~ configured[[:space:]]*\(([0-9]+)\) ]]; then
+        printf '%s' "${BASH_REMATCH[1]}"; return 0
+    fi
+    command -v scontrol >/dev/null 2>&1 || return 1
+    ## Typed GRES is `gpu:gb200:4`, untyped `gpu:4`; the count is the last
+    ## field, and a topology suffix like `(S:0-3)` trails it.
+    raw=$(scontrol show node "$node" 2>/dev/null | grep -o 'Gres=[^ ]*' | head -1)
+    raw="${raw#Gres=}"
+    n="${raw##*:}"; n="${n%%[!0-9]*}"
+    [[ -n "$n" ]] || return 1
+    printf '%s' "$n"
+}
+
+recover_configured_cpus() {
+    local node="$1" n
+    command -v scontrol >/dev/null 2>&1 || return 1
+    n=$(scontrol show node "$node" 2>/dev/null | grep -o 'CPUTot=[0-9]*' | head -1)
+    n="${n#CPUTot=}"
+    [[ -n "$n" ]] || return 1
+    printf '%s' "$n"
+}
+
+## A count drain is the one class the node can prove wrong: the hardware is
+## either there now or it is not. Short means hold, with the numbers -- no
+## resume, and no attempt spent. Present means slurmctld is holding a count
+## that was true for a few seconds after boot, which a resume does not refresh.
+RECOVER_STALE_COUNT=0
+recover_counts_ready() {
+    local node="$1" reason="$2" kind want have
+    RECOVER_STALE_COUNT=0
+    kind=$(recover_count_reason "$reason") || return 0
+
+    case "$kind" in
+        gpu) want=$(recover_configured_gpus "$node" "$reason"); have=$(recover_visible_gpus) ;;
+        cpu) want=$(recover_configured_cpus "$node");           have=$(recover_visible_cpus) ;;
+    esac
+    ## No proof either way: carry on as this did before either count was read,
+    ## rather than holding a node on a number we could not get.
+    [[ -n "$want" && -n "$have" ]] || return 0
+
+    if [[ "$have" -lt "$want" ]]; then
+        RECOVER_NOT_READY="only $have of $want ${kind^^}s are present, so the drain is currently right -- a resume would earn it again on the next registration"
+        return 1
+    fi
+    RECOVER_STALE_COUNT=1
+    return 0
+}
+
+## The one restart path, for both of the reasons this library has to use one.
+## `reset-failed` first: a slurmd that tripped systemd's start limit refuses
+## `restart` until that counter is cleared, and it is the state an unevenly
+## rebooted node is most often found in. docs/settings.md#restarting-slurmd
+recover_slurmd_restart() {
+    local node="$1" why="$2" waited=0
+    command -v systemctl >/dev/null 2>&1 || return 0
+
+    if [[ "$RECOVER_DRY_RUN" -eq 1 ]]; then
+        recover_log "WOULD RESTART slurmd on $node: $why"
+        return 0
+    fi
+
+    recover_log "restarting slurmd on $node: $why"
+    systemctl reset-failed slurmd 2>/dev/null
+    systemctl restart slurmd 2>/dev/null
+    while ! systemctl is-active --quiet slurmd 2>/dev/null; do
+        if [[ "$waited" -ge "${RECOVER_SLURMD_WAIT:-0}" ]]; then
+            RECOVER_NOT_READY="slurmd is $(systemctl is-active slurmd 2>/dev/null) ${RECOVER_SLURMD_WAIT}s after a restart -- resuming would only put $node back into down*. 'journalctl -u slurmd -n 50' on the node"
+            return 1
+        fi
+        sleep 2
+        waited=$((waited + 2))
+    done
+    return 0
+}
+
+## slurmctld keeps the counts from the registration that drained the node, and
+## a resume does not ask for a new one. Restarting slurmd does. Only ever
+## reached once the hardware has proved the cached count wrong.
+recover_reregister() {
+    local node="$1"
+    if ! setting_enabled "$RECOVER_REREGISTER"; then
+        recover_log "recover note: $node has the hardware its config asks for, but slurmctld still holds the count slurmd registered without it. RECOVER_REREGISTER=$RECOVER_REREGISTER, so nothing re-registers it and Slurm is likely to drain $node again."
+        return 0
+    fi
+    recover_slurmd_restart "$node" \
+        "the hardware its config asks for is present, and slurmctld is holding the count slurmd registered before it was"
+}
+
+## Still coming up? Every count read below is a moving number until boot
+## finishes, so nothing is judged before then -- the node is simply left for
+## the next cycle. docs/settings.md#nothing-is-judged-mid-boot
+recover_boot_settled() {
+    local node="$1" up state
+    if [[ "${RECOVER_MIN_UPTIME_SECS:-0}" -gt 0 && -r /proc/uptime ]]; then
+        read -r up _ < /proc/uptime
+        up="${up%%.*}"
+        if [[ "${up:-0}" -lt "$RECOVER_MIN_UPTIME_SECS" ]]; then
+            RECOVER_NOT_READY="$node has been up ${up}s, under RECOVER_MIN_UPTIME_SECS=$RECOVER_MIN_UPTIME_SECS -- what it reports is still changing, so it is left for the next cycle"
+            return 1
+        fi
+    fi
+    ## systemd's own answer, which outlasts any uptime guess on a slow boot.
+    ## Anything it cannot answer is not read as "still booting".
+    if command -v systemctl >/dev/null 2>&1; then
+        state=$(systemctl is-system-running 2>/dev/null)
+        case "$state" in
+            initializing|starting|stopping|maintenance)
+                RECOVER_NOT_READY="systemd on $node is '$state', not finished -- $node is left for the next cycle"
+                return 1 ;;
+        esac
+    fi
+    return 0
+}
+
 ## Has the condition actually cleared? Deliberately narrow -- a check that
 ## cannot be satisfied is a node that never comes back. Sets RECOVER_NOT_READY
 ## to why. docs/settings.md#why-a-resume-is-not-enough-on-its-own
 RECOVER_NOT_READY=""
 recover_node_ready() {
-    local node="$1" pids jobs
+    local node="$1" reason="$2" pids jobs
     RECOVER_NOT_READY=""
 
+    ## First: a node still booting cannot answer any of the questions below,
+    ## and restarting its slurmd mid-boot is its own race.
+    recover_boot_settled "$node" || return 1
+
+    ## Before the two gates below, deliberately: a job assigned to a node whose
+    ## slurmd is dead needs the slurmd back to carry on, and the resume still
+    ## waits for the job. docs/settings.md#restarting-slurmd
     if command -v systemctl >/dev/null 2>&1; then
         if ! systemctl is-active --quiet slurmd 2>/dev/null; then
+            local unit; unit=$(systemctl is-active slurmd 2>/dev/null)
             if ! setting_enabled "$RECOVER_RESTART_SLURMD"; then
-                RECOVER_NOT_READY="slurmd is not active on $node and RECOVER_RESTART_SLURMD=$RECOVER_RESTART_SLURMD -- 'systemctl restart slurmd' on the node, or set it to yes"
+                RECOVER_NOT_READY="slurmd is '$unit' on $node and RECOVER_RESTART_SLURMD=$RECOVER_RESTART_SLURMD -- 'systemctl restart slurmd' on the node, or set it to yes"
                 return 1
             fi
-            if [[ "$RECOVER_DRY_RUN" -eq 1 ]]; then
-                recover_log "WOULD RESTART slurmd on $node (RECOVER_RESTART_SLURMD=$RECOVER_RESTART_SLURMD)"
-            else
-                recover_log "restarting slurmd on $node (RECOVER_RESTART_SLURMD=$RECOVER_RESTART_SLURMD)"
-                systemctl restart slurmd 2>/dev/null
-                if ! systemctl is-active --quiet slurmd 2>/dev/null; then
-                    RECOVER_NOT_READY="slurmd did not come back after a restart -- resuming would only put $node back into down*"
-                    return 1
-                fi
-            fi
+            recover_slurmd_restart "$node" \
+                "slurmd is '$unit', and a node whose slurmd is not running does not come back without it" || return 1
         fi
     fi
 
@@ -139,6 +292,13 @@ recover_node_ready() {
             RECOVER_NOT_READY="$jobs job(s) still assigned to $node"
             return 1
         fi
+    fi
+
+    ## Last, so a slurmd restart can never happen under a job or a live GPU
+    ## process. docs/settings.md#a-count-drain-is-checked-against-the-hardware
+    recover_counts_ready "$node" "$reason" || return 1
+    if [[ "$RECOVER_STALE_COUNT" -eq 1 ]]; then
+        recover_reregister "$node" || return 1
     fi
     return 0
 }
@@ -224,7 +384,7 @@ slurm_recover_node() {
         return 1
     fi
 
-    if ! recover_node_ready "$node"; then
+    if ! recover_node_ready "$node" "$reason"; then
         recover_log "recover held: $node is $state ('${reason:-<empty>}', $class) but $RECOVER_NOT_READY"
         RECOVER_RESULT="not-ready"
         return 1
