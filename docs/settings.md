@@ -332,15 +332,22 @@ permission.
 
 ### `--explain` reads through a pause
 
-`launch_job.sh --explain` is not stopped by `PAUSE_JOBS`. It writes nothing to
-Slurm and nothing to disk beyond its own trace, and "what would a sweep do on
-this node" is a question worth being able to ask *precisely* when the sweep is
-stopped — while you are looking at a list of drained nodes deciding whether to
-lift the pause. It reports the pause, then carries on explaining:
+`launch_job.sh --explain` is stopped by **neither** `PAUSE_JOBS` nor
+`PAUSE_RECOVERY`. It writes nothing to Slurm and nothing to disk beyond its own
+trace, and "what would this do on this node" is a question worth being able to
+ask *precisely* when the thing is stopped — while you are looking at a list of
+drained nodes deciding whether to lift the pause. It reports each pause it
+passes, then carries on:
 
 ```
+PAUSE_RECOVERY=yes in /home/cmods/bringup/SETTINGS -- explaining anyway; nothing below would be resumed while it is set
 PAUSE_JOBS=yes in /home/cmods/bringup/SETTINGS -- explaining anyway; nothing below would run while it is set
+WOULD RECOVER ink50-dh01-h03-16: drained 'Prolog error' (machine, set by slurm) -- attempt 1/3 in 24h
 ```
+
+Under `--explain` the recovery runs with `RECOVER_DRY_RUN=1`, which issues no
+`scontrol`, restarts no `slurmd`, and records no attempt against
+`RECOVER_MAX_ATTEMPTS` — so `PAUSE_RECOVERY` has nothing to protect it from.
 
 `--force` is refused instead, and that asymmetry is the point: `--force` would
 touch the cluster, `--explain` cannot.

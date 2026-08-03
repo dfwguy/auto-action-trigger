@@ -241,8 +241,21 @@ trace "state=$(printf '%s' "$state" | tr '\n' ',') explain=$EXPLAIN"
 ## Above the PAUSE_JOBS gate and governed by PAUSE_RECOVERY instead: putting a
 ## node back is not putting work on it. The state is re-read rather than
 ## assumed. See docs/settings.md#pause-switches.
+## --explain reads through this the same way it reads through PAUSE_JOBS: a
+## dry-run recovery issues no scontrol, restarts no slurmd and records no
+## attempt, so the pause has nothing to protect it from.
+recovery_paused=0
 if setting_enabled "$PAUSE_RECOVERY"; then
-    trace "recovery paused: PAUSE_RECOVERY=$PAUSE_RECOVERY in ${SETTINGS_FILE:-<none>} -- drains Slurm set itself are left exactly where they are"
+    if [[ "$EXPLAIN" -eq 1 ]]; then
+        trace "PAUSE_RECOVERY=$PAUSE_RECOVERY in ${SETTINGS_FILE:-<none>} -- explaining anyway; nothing below would be resumed while it is set"
+    else
+        trace "recovery paused: PAUSE_RECOVERY=$PAUSE_RECOVERY in ${SETTINGS_FILE:-<none>} -- drains Slurm set itself are left exactly where they are"
+        recovery_paused=1
+    fi
+fi
+
+if [[ "$recovery_paused" -eq 1 ]]; then
+    :
 elif [[ -f "$home/slurm-recovery.sh" ]]; then
     recover_log() { trace "$@"; }
     RECOVER_ACCEPT="machine"
