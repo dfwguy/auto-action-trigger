@@ -366,7 +366,11 @@ from a named admin account is left alone whatever its text says, and so are
 
 A `machine` drain is still only cleared once the condition behind it is gone —
 the node finished booting, `slurmd` answering, no compute processes left holding
-the GPUs, no job still assigned. A `slurmd` that is dead or `failed` — the usual
+the GPUs, no job still assigned. A `rogueprocess` drain goes further and reads
+BCM's pre-job check log for the process it actually objected to — often an `sshd`
+login session, which holds no GPU and so is invisible to the test above — and
+holds the node while that process is still running rather than resuming into the
+same failing check. A `slurmd` that is dead or `failed` — the usual
 state of a node rebooted out from under Slurm — is `reset-failed` and restarted
 rather than waited on, which is what makes the `Node was stopped by` drains clear
 themselves. The two count drains go further and are checked

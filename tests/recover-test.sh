@@ -96,6 +96,19 @@ fi
 exit 0
 EOF
 
+## `ps -p <pid> -o args=`: alive only for STUB_LIVE_PID, so a case decides
+## whether the flagged process is still there.
+cat > "$stub/ps" <<'EOF'
+#!/bin/bash
+want=""
+for ((i = 1; i <= $#; i++)); do
+    [[ "${!i}" == "-p" ]] && { j=$((i + 1)); want="${!j}"; }
+done
+[[ -n "$want" && "$want" == "$STUB_LIVE_PID" ]] &&
+    printf '%s\n' "${STUB_LIVE_ARGS:-sshd: cmods@notty}"
+exit 0
+EOF
+
 cat > "$stub/slurmd" <<'EOF'
 #!/bin/bash
 [[ "$1" == "-C" ]] && printf 'NodeName=testnode CPUs=%s Boards=1\n' "${STUB_CPUS:-72}"
@@ -127,6 +140,10 @@ run_case() {
         ## otherwise exercises the short-count path.
         export STUB_GPUS="8" STUB_CPUS="72" STUB_CFG_GPUS="8" STUB_CFG_CPUS="72"
         export STUB_SYSTEM_STATE="running" STUB_SLURMD_STATE="failed"
+        export STUB_LIVE_PID="" STUB_LIVE_ARGS=""
+        ## Off unless a case points it at the fixture below: the shipped path
+        ## is a BCM one that does not exist on a test host.
+        RECOVER_PREJOB_LOGS=""
         ## /proc/uptime is the one input here that cannot be stubbed, so the
         ## floor is off unless a case is testing it.
         RECOVER_MIN_UPTIME_SECS="0"
@@ -173,6 +190,39 @@ resumed_node || bad "  ... but no scontrol update was issued"
 run_case "epilog failure"          resumed STUB_REASON="Epilog error"
 run_case "rogue process"           resumed STUB_REASON="rogueprocess"
 run_case "rogue process, spelled with a space" resumed STUB_REASON="rogue process detected"
+
+## The pre-job check's own log, verbatim from a drained node: the drain reason
+## says "rogueprocess" and nothing else, so this is the only place the process
+## is named. docs/settings.md#a-rogue-process-drain-names-its-process
+mkdir -p "$work/prejob"
+cat > "$work/prejob/job.114250.log" <<'EOF'
+HealthCheckForWlmJob healthchecks for: 114250
+========= ink50-dh01-h03-16 ========
+rogueprocess is FAIL, /usr/sbin/sshd (cmods)/* 503852 */
+Pre-job health checks have failed
+EOF
+
+run_case "rogue process, the flagged one is gone" resumed \
+    STUB_REASON="rogueprocess" RECOVER_PREJOB_LOGS="$work/prejob"
+
+run_case "rogue process, still logged in" not-ready \
+    STUB_REASON="rogueprocess" RECOVER_PREJOB_LOGS="$work/prejob" \
+    STUB_LIVE_PID="503852" STUB_LIVE_ARGS="sshd: cmods@pts/0"
+resumed_node && bad "  ... and it resumed into the same failing pre-job check"
+grep -q "pid 503852" "$CASE_DIR/trace" ||
+    bad "  ... and the trace did not name the process holding the node"
+grep -q "job.114250.log" "$CASE_DIR/trace" ||
+    bad "  ... and the trace did not say where that came from"
+[[ -f "$CASE_DIR/recover.log" ]] && bad "  ... and it spent an attempt on a hold"
+
+## A pid on its own is not proof once pids have been reused.
+run_case "rogue process, pid reused by something else" resumed \
+    STUB_REASON="rogueprocess" RECOVER_PREJOB_LOGS="$work/prejob" \
+    STUB_LIVE_PID="503852" STUB_LIVE_ARGS="/usr/bin/python3 /opt/monitor.py"
+
+run_case "rogue process, no pre-job logs on this node" resumed \
+    STUB_REASON="rogueprocess" RECOVER_PREJOB_LOGS="$work/nonexistent" \
+    STUB_LIVE_PID="503852"
 run_case "failed batch launch"     resumed STUB_REASON="batch job complete failure"
 run_case "kill task failed"        resumed STUB_REASON="Kill task failed"
 run_case "unexpected reboot"       resumed STUB_REASON="node unexpectedly rebooted"

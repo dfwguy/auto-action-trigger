@@ -380,6 +380,7 @@ RECOVER_RESTART_SLURMD=yes
 RECOVER_REREGISTER=yes
 RECOVER_SLURMD_WAIT=30
 RECOVER_MIN_UPTIME_SECS=300
+RECOVER_PREJOB_LOGS=/cm/local/apps/slurm/var/pre-post-job-logs/failed-pre-jobs
 ```
 
 Slurm drains nodes for things that are not faults of the node: a prolog that
@@ -435,6 +436,7 @@ run.
 | `RECOVER_REREGISTER` | `yes` | Restart a *live* `slurmd` to replace a stale registered count, once the hardware has proved it wrong |
 | `RECOVER_SLURMD_WAIT` | `30` | Seconds to wait for `slurmd` to come back from either restart |
 | `RECOVER_MIN_UPTIME_SECS` | `300` | Judge nothing on a node that has been up for less than this. `0` disables the floor |
+| `RECOVER_PREJOB_LOGS` | BCM's `failed-pre-jobs` | Where the pre-job check writes what it objected to. Empty skips that check |
 
 Unlike the two drain switches above, this one ships **on**. Those take nodes out
 of service, so an unreadable value has to mean "don't"; this one puts them back,
@@ -470,6 +472,48 @@ drains as root with free-text reasons loses nothing; a site that types the word
 `prolog` into a drain reason by hand should add its own convention to
 `RECOVER_SETTERS`, or turn `RECOVER_EMPTY_REASON` off if bare drains are how
 operators take nodes out there.
+
+### A rogue process drain names its process
+
+The drain reason is `rogueprocess` and stops there. The thing it objected to is
+written down in one place only — BCM's pre-job health check log, at
+`RECOVER_PREJOB_LOGS`:
+
+```
+HealthCheckForWlmJob healthchecks for: 114250
+========= ink50-dh01-h03-16 ========
+rogueprocess is FAIL, /usr/sbin/sshd (cmods)/* 503852 */
+Pre-job health checks have failed
+```
+
+That is a **login session**, and it holds no GPU, so the readiness test below —
+which looks only at GPU compute processes, deliberately — cannot see it. Without
+reading this log the recovery resumes the node, the next job's pre-job check
+finds the same session, Slurm drains it again, and that repeats until
+`RECOVER_MAX_ATTEMPTS` is spent. `recover.log` would say "resumed" three times
+and never name the thing that was actually blocking the node.
+
+So a `rogueprocess` drain reads the newest log in that directory, takes the
+command, user and pid out of each `FAIL` line, and asks whether that process is
+still there:
+
+- **Gone.** Resume, which is the common case — the session ended and the drain is
+  stale.
+- **Still running.** Hold, with `sshd (cmods) pid 503852, named by
+  job.114250.log` in the trace, and **spend no attempt**. The node comes back on
+  its own the cycle after the session ends. It would have been re-drained anyway;
+  the difference is that the reason is now visible instead of showing up as three
+  silent resumes.
+
+The pid alone is not taken as proof. Pids get reused, particularly across a
+reboot, so the command has to still match the one that was flagged — otherwise
+this holds nodes over an unrelated process that happens to have inherited the
+number.
+
+This does mean a long-lived `cmods` session keeps its node drained. That is the
+honest outcome: BCM's check will fail every job on that node until the session
+goes away, so the node is not usable either way. Set `RECOVER_PREJOB_LOGS=` to
+skip the check and go back to resuming regardless.
 
 ### Restarting slurmd
 
@@ -591,10 +635,10 @@ has to show the condition cleared:
   puts it straight back into `down*`. Repaired here when
   `RECOVER_RESTART_SLURMD=yes`, which is the default; see
   [Restarting slurmd](#restarting-slurmd).
-- No compute processes hold the GPUs. This is the direct test for the
-  rogue-process drain. Only GPU processes are looked at — a general "no
-  processes owned by `$JOB_USER`" test reads a login shell as a rogue process
-  and the node never comes back.
+- No compute processes hold the GPUs. Only GPU processes are looked at — a
+  general "no processes owned by `$JOB_USER`" test reads a login shell as a rogue
+  process and the node never comes back. What the pre-job check *did* object to
+  is read from its own log instead, [above](#a-rogue-process-drain-names-its-process).
 - No jobs are still assigned to the node.
 - A count drain is contradicted by the hardware, as above — checked last, so a
   `slurmd` restart can never happen under a live job or a busy GPU.

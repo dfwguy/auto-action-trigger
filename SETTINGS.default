@@ -42,6 +42,7 @@ RECOVER_RESTART_SLURMD=yes
 RECOVER_REREGISTER=yes
 RECOVER_SLURMD_WAIT=30
 RECOVER_MIN_UPTIME_SECS=300
+RECOVER_PREJOB_LOGS=/cm/local/apps/slurm/var/pre-post-job-logs/failed-pre-jobs
 
 ## ── Retry and drain policy ────────────────────────────────────────────────
 RETRY_INTERVAL_HOURS=1

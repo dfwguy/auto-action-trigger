@@ -185,6 +185,39 @@ recover_counts_ready() {
     return 0
 }
 
+## ── Rogue processes ───────────────────────────────────────────────────────
+##
+## The drain reason says `rogueprocess` and stops there; the process it
+## objected to is only ever written down in the pre-job check's own log.
+## docs/settings.md#a-rogue-process-drain-names-its-process
+RECOVER_ROGUE=""
+recover_rogue_still_running() {
+    local dir="${RECOVER_PREJOB_LOGS:-}" log line cmd user pid args
+    ## `rogueprocess is FAIL, /usr/sbin/sshd (cmods)/* 503852 */`
+    local pat='FAIL,[[:space:]]*(.+)\(([^)]*)\)/\*[[:space:]]*([0-9]+)[[:space:]]*\*/'
+    RECOVER_ROGUE=""
+    [[ -n "$dir" && -d "$dir" ]] || return 1
+
+    # shellcheck disable=SC2012  # sorting by mtime is the point; these are
+                                 # job.<id>.log and cannot contain a newline
+    log=$(ls -1t "$dir"/job.*.log 2>/dev/null | head -1)
+    [[ -n "$log" && -r "$log" ]] || return 1
+
+    while IFS= read -r line; do
+        [[ "$line" =~ $pat ]] || continue
+        cmd="${BASH_REMATCH[1]}"; user="${BASH_REMATCH[2]}"; pid="${BASH_REMATCH[3]}"
+        cmd="${cmd%"${cmd##*[![:space:]]}"}"
+        args=$(ps -p "$pid" -o args= 2>/dev/null)
+        [[ -n "$args" ]] || continue
+        ## A pid on its own is not proof after a reboot's worth of pid reuse;
+        ## the command has to still be the one that was flagged.
+        [[ "$args" == *"${cmd##*/}"* ]] || continue
+        RECOVER_ROGUE="$cmd (${user:-?}) pid $pid, named by ${log##*/}"
+        return 0
+    done < "$log"
+    return 1
+}
+
 ## The one restart path, for both of the reasons this library has to use one.
 ## `reset-failed` first: a slurmd that tripped systemd's start limit refuses
 ## `restart` until that counter is cleared, and it is the state an unevenly
@@ -284,6 +317,13 @@ recover_node_ready() {
             RECOVER_NOT_READY="compute processes still on the GPUs (pids ${pids% })"
             return 1
         fi
+    fi
+
+    ## The GPU test above cannot see what drained this one: the pre-job check
+    ## objects to processes that hold no GPU, a login shell among them.
+    if [[ "${reason,,}" =~ rogue[[:space:]]?process ]] && recover_rogue_still_running; then
+        RECOVER_NOT_READY="the process the pre-job check objected to is still running -- $RECOVER_ROGUE. Resuming would only fail the next job's pre-job check the same way"
+        return 1
     fi
 
     if command -v squeue >/dev/null 2>&1; then

@@ -60,6 +60,10 @@ fi
 ## node has finished coming up. 0 disables the uptime floor.
 ## See docs/settings.md#nothing-is-judged-mid-boot.
 : "${RECOVER_MIN_UPTIME_SECS:=300}"
+## Where the pre-job health check writes what it objected to -- the only place
+## a rogueprocess drain names its process. Empty disables that check.
+## See docs/settings.md#a-rogue-process-drain-names-its-process.
+: "${RECOVER_PREJOB_LOGS:=/cm/local/apps/slurm/var/pre-post-job-logs/failed-pre-jobs}"
 ## `=` not `:=`, like CONTAINERS: empty is the shipped answer and a real one --
 ## it means "one worker per core". See docs/settings.md#reporting.
 : "${SCAN_JOBS=}"
