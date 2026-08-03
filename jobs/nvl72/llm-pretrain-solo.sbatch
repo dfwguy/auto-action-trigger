@@ -16,9 +16,13 @@
 
 ## Four INDEPENDENT copies of a single-GPU pre-training run, one per GPU, so the
 ## four step times can be compared against each other and a slow GPU names
-## itself. The sibling job llm-pretrain runs ONE model across all four with
-## parallelism and exercises the collectives instead; this one deliberately has
-## no collectives in it at all. See docs/llmb.md#the-two-llm-jobs.
+## itself. The sibling job llm-pretrain runs the SAME recipe 4-way data
+## parallel and exercises the gradient all-reduce; this one deliberately has no
+## collectives in it at all. See docs/llmb.md#the-two-llm-jobs.
+##
+## Not launched through llmb-run: four scale-1 submissions would be four Slurm
+## jobs, and they cannot co-schedule on an --exclusive node. The training
+## command comes out of `llmb-run submit ... --scale 1 --dry-run` instead.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 # shellcheck disable=SC2034
@@ -47,28 +51,29 @@ srun --ntasks=1 bash -c '
 ## file_copy.sh like every other image. Node-local first, NFS as fallback: four
 ## ranks opening a multi-GB squashfs over NFS at once is the case this avoids.
 ## See docs/llmb.md#getting-the-image-to-the-nodes.
-IMG=$(cd /tmp/containers 2>/dev/null && ls nemotron-h*.sqsh 2>/dev/null | head -1)
+IMG=$(cd /tmp/containers 2>/dev/null && ls llama3.1*.sqsh 2>/dev/null | head -1)
 CONT=/tmp/containers/$IMG
 if [[ -z "$IMG" || ! -f "$CONT" ]]; then
-    IMG=$(cd /home/cmods/bringup/containers 2>/dev/null && ls nemotron-h*.sqsh 2>/dev/null | head -1)
+    IMG=$(cd /home/cmods/bringup/containers 2>/dev/null && ls llama3.1*.sqsh 2>/dev/null | head -1)
     CONT=/home/cmods/bringup/containers/$IMG
 fi
 ## Named rather than globbed-and-hoped: an empty glob would otherwise reach srun
 ## as --container-image= and fail as something else entirely.
 [[ -n "$IMG" && -f "$CONT" ]] || {
-    echo "no nemotron-h image in /tmp/containers or /home/cmods/bringup/containers"
+    echo "no llama3.1 image in /tmp/containers or /home/cmods/bringup/containers"
     echo "run ./build_llmb.sh on the head node -- see docs/llmb.md"
     echo "exit status: 1"
     echo FAIL
     exit 0
 }
 
-## 8B, not the 56B its sibling runs: one GPU cannot hold 56B for PRE-TRAINING.
-## Weights are the small part -- Adam keeps fp32 master weights and two moments,
-## roughly 16 bytes per parameter, which puts 56B near 900 GB against a GPU's
-## ~186 GB. That is the whole reason this job exists as a different model rather
-## than as a flag on the other one. See docs/llmb.md#why-the-solo-job-is-a-smaller-model.
+## The same recipe its sibling runs, at scale 1 instead of 4. Llama 3.1 8B on
+## GB200 is pure data parallel -- TP=1, PP=1, CP=1, FSDP=False, DP=GPUs -- so
+## every rank already holds a whole replica and one GPU is a valid
+## configuration, even though it is below the recipe's characterised floor of 8.
+## See docs/llmb.md#running-below-the-characterised-scale.
 LLMB_INSTALL=${LLMB_INSTALL:-/home/cmods/llmb}
+WORKLOAD=pretrain_llama3.1
 MODEL_SIZE=8b
 DTYPE=fp8
 
@@ -104,10 +109,12 @@ srun --time="$STEP_TIMELIMIT" --label --export=ALL \
     export CUDA_DEVICE_MAX_CONNECTIONS=1
     echo "gpu $SLURM_PROCID: $(nvidia-smi --query-gpu=uuid --format=csv,noheader)"
     ## ---------------------------------------------------------------------
-    ## TRAINING COMMAND -- fill this in from `llmb-run ... --dryrun` on the
-    ## head node, which is where the recipe for '"$MODEL_SIZE"' '"$DTYPE"' at
-    ## scale 1 is generated. It must be a SINGLE-PROCESS invocation: no
-    ## torchrun, no srun, no distributed launcher. See
+    ## TRAINING COMMAND -- fill this in from
+    ##   llmb-run submit -w '"$WORKLOAD"' -s '"$MODEL_SIZE"' --dtype '"$DTYPE"' \
+    ##                   --scale 1 --force --dry-run
+    ## run on the head node. Take the training invocation out of the generated
+    ## script, not the sbatch wrapper around it. It must be a SINGLE-PROCESS
+    ## invocation: no torchrun, no srun, no distributed launcher. See
     ## docs/llmb.md#filling-in-the-solo-training-command.
     ## ---------------------------------------------------------------------
     echo "llm-pretrain-solo: no training command configured -- see docs/llmb.md#filling-in-the-solo-training-command" >&2

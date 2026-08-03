@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Single-node LLM pre-training, launched from the compute node rather than
+# Single-tray LLM pre-training, launched from the compute node rather than
 # submitted as a batch script. `llmb-run` builds and submits its own Slurm job,
 # so this file's whole purpose is to hand it the node, the job name and the
 # result path the sequencer expects, and to fail loudly if it cannot.
@@ -21,8 +21,8 @@ job_name=llm-pretrain
 ## RESULT_FILE is where the verdict is read from, and SBATCH_JOB_NAME is what
 ## this node's queue gates match on. Both come from launch_job.sh; a hand-run
 ## has to supply them.
-: "${RESULT_FILE:?RESULT_FILE is not set -- run this through actions/launch_job.sh, or set it by hand}"
 ## No apostrophes in a :? message: bash parses it as a quote even inside "".
+: "${RESULT_FILE:?RESULT_FILE is not set -- run this through actions/launch_job.sh, or set it by hand}"
 : "${SBATCH_JOB_NAME:?SBATCH_JOB_NAME is not set -- the submitted job would be invisible to the gates on this node}"
 
 ## Refusals are written where the report reads, not just to stdout: this script
@@ -36,18 +36,16 @@ refuse() {
 
 ## ------------- the recipe ------------- ##
 
-## Four GPUs is the nvl72 node, and --scale must agree with what the submitted
-## job asks for or the run dies allocating devices it was not given.
-LLMB_WORKLOAD=pretrain_nemotron-h
-LLMB_MODEL_SIZE=56b
-LLMB_DTYPE=fp8
-LLMB_SCALE=4
-
-## Wall limit for llmb-run's own submission. SBATCH_TIMELIMIT is a real sbatch
-## default, unlike --output and -w below.
-export SBATCH_TIMELIMIT=2:10:00
-export SBATCH_PARTITION="${SBATCH_PARTITION:-defq}"
-#export SBATCH_ACCOUNT=
+## Llama 3.1 8B rather than Nemotron-H 56B: 56B has a minimum scale of 32 GPUs,
+## which is eight trays, and this is a per-node gate. 8B is the smallest
+## pre-training recipe in the collection.
+WORKLOAD=pretrain_llama3.1
+MODEL_SIZE=8b
+DTYPE=fp8
+## Four GPUs is the tray. Below the recipe's characterised floor of 8, so
+## --force is required -- see docs/llmb.md#running-below-the-characterised-scale
+## for why that is sound here and what it costs.
+SCALE=4
 
 ## ------------- the install ------------- ##
 
@@ -59,9 +57,11 @@ export LLMB_INSTALL="${LLMB_INSTALL:?LLMB_INSTALL is not set -- settings.sh deri
 command -v llmb-run >/dev/null 2>&1 ||
     refuse "llmb-run is not on PATH -- see docs/llmb.md#what-build_llmb.sh-leaves-behind"
 
-## Compute nodes have no route off the cluster. Without these three, a cache
-## miss is a silent stall that eats the wall limit and reports as a training
-## failure rather than as a missing download. See docs/llmb.md#running-offline.
+## Llama is a GATED Hugging Face repo, so unlike synthetic-data workloads this
+## one needs a real tokenizer cache. Compute nodes have no route off the
+## cluster: without these three, a cache miss is a silent stall that eats the
+## wall limit and reports as a training failure.
+## See docs/llmb.md#running-offline.
 export HF_HOME="$LLMB_INSTALL/hf"
 export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
@@ -70,30 +70,36 @@ export TRANSFORMERS_OFFLINE=1
 [[ -d "$HF_HOME" ]] ||
     refuse "no pre-staged $HF_HOME -- the node cannot download it; re-run ./build_llmb.sh -d on the head node"
 
-## ------------- pinning the submission to this node ------------- ##
-
-## sbatch takes -w and --output on the command line only -- there is no
-## SBATCH_NODELIST and no SBATCH_OUTPUT -- so they have to reach sbatch through
-## llmb-run. LLMB_SBATCH_PASSTHROUGH names the flag this llmb-run build uses to
-## forward them; confirm it against `llmb-run ... --dryrun` and set it in
-## SETTINGS. Unset is a refusal rather than a guess: an unpinned submission runs
-## on some other node and reports its result as this one's.
-## See docs/llmb.md#pinning-the-submission.
-[[ -n "${LLMB_SBATCH_PASSTHROUGH:-}" ]] ||
-    refuse "LLMB_SBATCH_PASSTHROUGH is not set -- without it the submission is not pinned to $HOSTNAME and its output does not land in $RESULT_FILE. See docs/llmb.md#pinning-the-submission."
-
 cd "$LLMB_INSTALL" || refuse "cannot cd to $LLMB_INSTALL"
 
 ## ------------- launch ------------- ##
 
+## llmb-run submits a SECOND Slurm job for post-processing unless this is set.
+## That job carries neither of this node's two job names, so the foreign-job
+## gate in launch_job.sh would read it as somebody else's work and leave the
+## node alone every cycle for as long as it existed.
+## See docs/llmb.md#the-post-processing-job.
+export LLMB_SKIP_PP=1
+
+## --nodelist, --nice and --slurm-arg are llmb-run's own flags, and they are how
+## the three things an .sbatch would get from `sbatch -w -J --output` reach the
+## submission. --slurm-arg takes KEY=VALUE with no leading dashes, and refuses
+## the keys that have dedicated flags (nodelist, exclude, reservation, segment,
+## nice). --nice 20 is the sweep's tier, matching every .sbatch in this
+## directory. See docs/llmb.md#pinning-the-submission.
+##
 ## Returns as soon as the job is queued. Anything that blocks here holds the
 ## BCM action open for the length of the training run.
-out=$(llmb-run single \
-        -w "$LLMB_WORKLOAD" \
-        -s "$LLMB_MODEL_SIZE" \
-        --dtype "$LLMB_DTYPE" \
-        --scale "$LLMB_SCALE" \
-        "$LLMB_SBATCH_PASSTHROUGH=-w $HOSTNAME --output=$RESULT_FILE" 2>&1)
+out=$(llmb-run submit \
+        -w "$WORKLOAD" \
+        -s "$MODEL_SIZE" \
+        --dtype "$DTYPE" \
+        --scale "$SCALE" \
+        --force \
+        --nodelist "$HOSTNAME" \
+        --nice 20 \
+        --slurm-arg "job-name=$SBATCH_JOB_NAME" \
+        --slurm-arg "output=$RESULT_FILE" 2>&1)
 rc=$?
 
 echo "$out"

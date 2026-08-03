@@ -63,16 +63,21 @@ would pass `sbatch`:
 
 ```
 SBATCH_JOB_NAME=<bringup|burnin>-<node> RESULT_FILE=<file> \
-  LLMB_INSTALL=... LLMB_SBATCH_PASSTHROUGH=... [<JOB_ENV>] bash <job>.sh
+  LLMB_INSTALL=... [<JOB_ENV>] bash <job>.sh
 ```
 
-`SBATCH_JOB_NAME` is a real `sbatch` default, so the launcher's own submission
-comes out under the name this node's queue gates match on. There is no
-`SBATCH_OUTPUT` and no nodelist equivalent, so pinning the job to this node and
-redirecting its output are the launcher's job — and its refusal to guess is
-documented in [llmb.md#pinning-the-submission](llmb.md#pinning-the-submission).
+`SBATCH_JOB_NAME` is a real `sbatch` default, and it is also the name the
+launcher is expected to put on its own submission — the queue gates on this node
+match on it, so a job submitted under any other name is invisible to them.
 
-The `LLMB_*` values go through the same allowlist as `JOB_ENV`, and for the same
+There is no `SBATCH_OUTPUT` and no nodelist equivalent among the `SBATCH_*`
+defaults, so pinning the job to this node and redirecting its output cannot be
+handed over in the environment. They are the launcher's job, using whatever its
+own tool provides; `llm-pretrain` does it with `llmb-run`'s `--nodelist` and
+`--slurm-arg`. See
+[llmb.md#pinning-the-submission](llmb.md#pinning-the-submission).
+
+`LLMB_INSTALL` goes through the same allowlist as `JOB_ENV`, and for the same
 reason: the submission is a string run by `su - $JOB_USER -c`, so an
 unvalidated `SETTINGS` value would run as root on every node. See
 [settings.md#what-is-rejected](settings.md#what-is-rejected).

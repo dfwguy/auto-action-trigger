@@ -2,30 +2,58 @@
 
 ## The two LLM jobs
 
-The tree runs one LLM, Nemotron-H, in two deliberately different shapes:
+The tree runs one LLM, **Llama 3.1 8B FP8**, in two deliberately different
+shapes:
 
 | | `llm-pretrain` | `llm-pretrain-solo` |
 |---|---|---|
-| Launch | host-launched `.sh` via `llmb-run` | ordinary `.sbatch` |
-| Shape | 56B across all 4 GPUs, with parallelism | 4 independent copies, one GPU each |
-| Exercises | framework, container, data pipeline, checkpointing **and intra-node collectives**, together | per-device compute only — no collectives at all |
+| Launch | host-launched `.sh` via `llmb-run submit` | ordinary `.sbatch` |
+| Shape | one run, 4-way data parallel across the tray | 4 independent copies, one GPU each |
+| Exercises | framework, container, data pipeline **and the gradient all-reduce**, together | per-device compute only — no collectives at all |
 | Answers | is this node able to train | *which GPU* on it is slow |
 | Gate | training stepped at all | four ranks stepped, and they agree with each other |
 
 They are not two settings of one job, and the section below is why.
 
-### Why the solo job is a smaller model
+### Why not Nemotron-H
 
-56B cannot be pre-trained on one GPU. Weights are the small part: Adam keeps
-fp32 master weights and two moment tensors, roughly 16 bytes per parameter, so
-56B needs on the order of 900 GB of optimizer and gradient state before any
-activations. A GB200 Blackwell GPU has ~186 GB. Four of them is ~744 GB, which
-is why the 56B recipe is a `--scale 4` parallel one in the first place — it
-needs the whole node, and that is the point of `llm-pretrain`.
+The obvious pick is wrong. `pretrain_nemotron-h` ships at **56B only**, and its
+minimum scale is **32 GPUs** — eight trays. It is a cluster benchmark, not a
+per-node gate, and nothing about it fits here.
 
-So the per-GPU job runs 8B, the largest size that leaves room for activations on
-one GPU. Comparing four 8B runs against each other is still a valid per-device
-comparison: every GPU is doing identical work, and only the hardware differs.
+Llama 3.1 8B is the smallest pre-training recipe in the collection, and the only
+one that a 4-GPU tray can hold.
+
+### Running below the characterised scale
+
+Llama 3.1 8B is characterised at **8–128 GPUs**. A tray is 4, so both jobs pass
+`--force`, which bypasses `llmb-run`'s scale validation.
+
+That is sound here rather than a hack, and the recipe table is why. On GB200 at
+FP8 the 8B configuration is:
+
+| TP | PP | CP | FSDP | DP | MBS | GBS | GA |
+|----|----|----|------|----|-----|-----|-----|
+| 1 | 1 | 1 | False | GPUs | 2 | GPUs×16 | 8 |
+
+**Pure data parallel.** Every rank holds a complete replica of the model and its
+optimizer state; nothing is sharded across ranks, so there is no parallelism
+plan to violate by using fewer of them. Every derived quantity is a function of
+the GPU count — `GBS = MBS × GA × DP = 2 × 8 × GPUs`, exactly the `GPUs×16` in
+the table — and that identity holds at 4 and at 1 just as it does at 8.
+
+8B replicated per GPU is roughly 128 GB of Adam state against a GB200's ~186 GB.
+It fits, which is why the recipe shards nothing in the first place.
+
+**What it costs.** Numbers from a forced 4-GPU run are *not* comparable to
+NVIDIA's published 8-GPU figures: different global batch size, uncharacterised
+configuration. For a bringup gate that is the right trade — the question is
+whether node 3 matches node 40 and the fleet median, not whether either matches
+a spec sheet. Every other floor in `verdict.sh` is an observed band off this
+hardware for the same reason; `VERDICT_MIN_PEAK_BW_ALLREDUCE=683` is measured,
+not published.
+
+Do not quote these numbers as Llama 3.1 8B benchmark results.
 
 The rest of this page is about `llm-pretrain` and the install both jobs share.
 `llm-pretrain-solo` has its own two sections at the end.
@@ -90,11 +118,24 @@ LLMB_REF=<tag> ./build_llmb.sh
 ./build_llmb.sh -l                # what is present, what is not
 ```
 
-It leaves `$LLMB_INSTALL/src` (the pinned collection), the installer's venv and
-workload layout, `$LLMB_INSTALL/images/*.sqsh`, and `$LLMB_INSTALL/hf` holding
-the tokenizer and dataset.
+It leaves `$LLMB_INSTALL/src` (the pinned collection), `bin/`, `venvs/`,
+`workloads/`, `datasets/`, `images/*.sqsh`, a `cluster_config.yaml`, and
+`$LLMB_INSTALL/hf` holding the tokenizer cache.
 
-`-d` re-stages the tokenizer and dataset only; `-i` re-imports the image only.
+The collection's `install.sh` **prompts** — for cluster settings, workload
+selection and `HF_TOKEN` — so the first run is interactive, not unattended. It
+is passed `-i "$LLMB_INSTALL/images"` so repeat installs share one image
+directory instead of re-importing.
+
+There is no dataset staging subcommand: the installer fetches what a selected
+workload needs. `-d` therefore **checks** that `$HF_HOME` is populated rather
+than fetching it — an empty cache is a two-hour failure on a node with no route
+out, and it is worth catching on the head node instead. `-i` re-stages the image
+into `containers/` only.
+
+`cluster_config.yaml` (schema v2) is where `llmb_install`, `gpu_type` and the
+`slurm` settings live — not environment variables. Set `gpu_type: gb200` and the
+tray's GPU count there.
 
 ### Getting the image to the nodes
 
@@ -113,6 +154,12 @@ credential ever reaches a compute node.
 Both LLM jobs export `HF_HOME=$LLMB_INSTALL/hf`, `HF_HUB_OFFLINE=1`,
 `HF_DATASETS_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1`.
 
+This matters for Llama specifically. Llama is a **gated** Hugging Face repo, so
+it needs a real tokenizer cache and an access approval on the account behind
+`HF_TOKEN` — approval is per-account and is not carried by the token. (Had we
+gone with Nemotron-H, none of this would apply: it trains on synthetic data and
+stages nothing.)
+
 Those three are not tidiness. Without them a cache miss on a node with no route
 out is a silent stall that eats the two-hour wall limit and is then reported as
 a training failure — a hardware verdict for a staging mistake. With them the
@@ -124,38 +171,35 @@ head node.
 
 ## Pinning the submission
 
-This is the part that needs confirming against your `llmb-run` build before the
-job is enabled.
+`llmb-run` has native flags for everything an `.sbatch` would get from `sbatch
+-w -J --output`, so nothing has to be guessed:
 
-`sbatch` reads a number of `SBATCH_*` environment variables as defaults, and
-`SBATCH_JOB_NAME` is one of them — that is how `llmb-run`'s own submission comes
-out named `bringup-<node>`, which is what the queue gates in
-`actions/launch_job.sh` match on. But **there is no `SBATCH_OUTPUT` and no
-nodelist equivalent**. `-w` and `--output` exist on the command line only, so
-they have to reach `sbatch` through `llmb-run`.
+| What | Flag |
+|---|---|
+| Pin to this node | `--nodelist "$HOSTNAME"` |
+| Sweep priority tier | `--nice 20` |
+| Job name the gates match | `--slurm-arg "job-name=$SBATCH_JOB_NAME"` |
+| Where the result lands | `--slurm-arg "output=$RESULT_FILE"` |
 
-`LLMB_SBATCH_PASSTHROUGH` in `SETTINGS` names the flag this build uses to
-forward arguments to its own `sbatch`. Find it with:
+`--slurm-arg` takes `KEY=VALUE` with **no leading dashes** and is repeatable. It
+refuses the keys that have dedicated flags — `nodelist`, `exclude`,
+`reservation`, `segment`, `nice` — so those must use their own flag. `job-name`
+and `output` are not on that list, which is what makes this work.
 
-```bash
-llmb-run single -w pretrain_nemotron-h -s 56b --dtype fp8 --scale 4 --dryrun
-```
+`launch_job.sh` does not take the launcher's word for it. After running a `.sh`
+job it asks `squeue` whether a job named `bringup-<node>` actually appeared, and
+traces `SUBMIT FAILED` naming the launcher and its exit status if not.
 
-and read the generated submission. Set the flag name in `SETTINGS`; the single
-line that composes it is at the end of `jobs/nvl72/llm-pretrain.sh`, and is the
-one place to adjust if the calling convention differs.
+### The post-processing job
 
-Unset is a refusal, not a default. An unpinned submission lands on whatever node
-the scheduler picks and writes its output where `results/<this node>/` is read —
-reporting another node's training run as this one's, which is worse than not
-running at all.
+`llmb-run` submits a **second** Slurm job for post-processing. Both jobs set
+`LLMB_SKIP_PP=1` to stop it.
 
-`launch_job.sh` does not take the launcher's word for it either. After running a
-`.sh` job it asks `squeue` whether a job named `bringup-<node>` actually
-appeared, and traces `SUBMIT FAILED` naming the launcher and its exit status if
-not. That is what catches an `llmb-run` build that passes its own `--job-name`
-and overrides `SBATCH_JOB_NAME`: the submitted job would otherwise be read as
-somebody else's work by every gate on the node, forever.
+That job would carry neither of this node's two job names, so the foreign-job
+gate in `launch_job.sh` would read it as somebody else's work and leave the node
+alone — every cycle, for as long as it existed. The node would go quiet with a
+correct-looking trace line, which is the exact failure mode the trace design is
+meant to prevent.
 
 ## When the launch is refused
 
@@ -170,14 +214,15 @@ design exists to prevent. See `CLAUDE.md`, *Silence is the enemy*.
 
 The refusals, in order: no `RESULT_FILE` or `SBATCH_JOB_NAME` (run by hand
 rather than through the sequencer), no install at `$LLMB_INSTALL`, no `llmb-run`
-on `PATH`, no pre-staged `$HF_HOME`, and no `LLMB_SBATCH_PASSTHROUGH`.
+on `PATH`, and no pre-staged `$HF_HOME`.
 
 ## Enabling it
 
 In order, because each step is checkable on its own:
 
 1. `LLMB_REF=<tag> ./build_llmb.sh` on the head node, then `-l` to confirm.
-2. `llmb-run ... --dryrun`, set `LLMB_SBATCH_PASSTHROUGH` in `SETTINGS`.
+2. `llmb-run submit ... --scale 4 --force --dry-run`, and confirm the generated
+   submission is what you expect.
 3. `actions/launch_job.sh --test llm-pretrain --explain` on one node — it prints
    the launch it would run without running it.
 4. Drop `--explain` on that one node and read
@@ -186,7 +231,7 @@ In order, because each step is checkable on its own:
    `_v_gate_llm_pretrain` with `./tests/verdict-test.sh`.
 6. Only then add `llm-pretrain` to `BENCHMARKS`.
 
-`--scale 4` and the node's four GPUs have to agree; both are set for `nvl72` in
+`--scale` and the tray's GPU count have to agree; both are set for `nvl72` in
 `jobs/nvl72/llm-pretrain.sh`. On a platform with a different GPU count, both
 move together. See [benchmarks.md](benchmarks.md).
 
@@ -199,7 +244,7 @@ non-zero rather than appearing to work.
 Get the command from the head node:
 
 ```bash
-llmb-run single -w pretrain_nemotron-h -s 8b --dtype fp8 --scale 1 --dryrun
+llmb-run submit -w pretrain_llama3.1 -s 8b --dtype fp8 --scale 1 --force --dry-run
 ```
 
 Take the training invocation out of the generated script, not the `sbatch`

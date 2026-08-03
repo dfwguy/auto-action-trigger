@@ -18,11 +18,13 @@ source "$home/settings.sh"
 
 ## Pinned rather than tracking a branch: a benchmark whose recipe moves under it
 ## is not a benchmark. See docs/llmb.md#pinning-the-collection.
-LLMB_REPO="${LLMB_REPO:-https://github.com/NVIDIA/LLMBenchmarks.git}"
+LLMB_REPO="${LLMB_REPO:-https://github.com/NVIDIA/dgxc-benchmarking.git}"
 LLMB_REF="${LLMB_REF:-}"
 
-WORKLOAD=pretrain_nemotron-h
-MODEL_SIZE=56b
+## Llama 3.1 8B: the smallest pre-training recipe in the collection, and the
+## only one that fits a 4-GPU tray. See docs/llmb.md#the-two-llm-jobs.
+WORKLOAD=pretrain_llama3.1
+MODEL_SIZE=8b
 DTYPE=fp8
 
 usage() { sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; }
@@ -65,7 +67,7 @@ if [[ "$LIST_ONLY" -eq 1 ]]; then
         "tokenizer+data"  "$(state "$hf_home")" \
         "enroot creds"    "$(state "${ENROOT_CONFIG_PATH:-$HOME/.config/enroot}/.credentials")" \
         "HF_TOKEN"        "$([[ -n "${HF_TOKEN:-}" ]] && echo set || echo 'unset -- needed to stage the tokenizer')" \
-        "passthrough"     "${LLMB_SBATCH_PASSTHROUGH:-unset -- llm-pretrain will refuse to launch}"
+        "cluster config"  "$(state "$LLMB_INSTALL/cluster_config.yaml")"
     exit 0
 fi
 
@@ -93,9 +95,12 @@ if [[ "$DO_INSTALL" -eq 1 ]]; then
     git -C "$src" checkout --quiet "$LLMB_REF" || die "no such ref '$LLMB_REF' in $LLMB_REPO"
     echo "collection at $LLMB_REF in $src"
 
-    ## The installer owns the venv and the workload layout; this script owns
-    ## only where they land and whether the result is usable offline.
-    ( cd "$src" && LLMB_INSTALL="$LLMB_INSTALL" ./install.sh ) ||
+    ## The installer owns the venv, the workload layout and cluster_config.yaml;
+    ## this script owns only where they land and whether the result is usable
+    ## offline. It prompts -- for the cluster settings, the workload selection
+    ## and HF_TOKEN -- so this is not an unattended step the first time.
+    ## -i shares the image directory across installs rather than re-importing.
+    ( cd "$src" && LLMB_INSTALL="$LLMB_INSTALL" ./install.sh -i "$images" ) ||
         die "the collection installer failed -- see its output above"
 fi
 
@@ -130,22 +135,25 @@ if [[ "$DO_DATA" -eq 1 ]]; then
         die "HF_TOKEN is unset -- the tokenizer is gated, and the compute nodes cannot fetch it later. Export it for this run only; it is never written to a node."
 
     mkdir -p "$hf_home"
-    ## Fetched here and read offline there. The job sets HF_HUB_OFFLINE=1, so
-    ## anything missing from this cache is a failed run, not a slow one.
+    ## There is no staging subcommand: the installer fetches what a workload
+    ## needs when the workload is selected, into this HF_HOME. So this step is a
+    ## CHECK, not a fetch -- it proves the cache the nodes will read offline is
+    ## actually populated, because the failure otherwise surfaces two hours into
+    ## a training run on a node with no route out.
     ## See docs/llmb.md#running-offline.
-    HF_HOME="$hf_home" "$LLMB_INSTALL/src/llmb-run" prepare \
-        -w "$WORKLOAD" -s "$MODEL_SIZE" --dtype "$DTYPE" ||
-        die "dataset and tokenizer staging failed -- see the output above"
+    if [[ -z "$(ls -A "$hf_home" 2>/dev/null)" ]]; then
+        die "$hf_home is empty -- re-run the installer and select $WORKLOAD, with HF_TOKEN set and Llama access approved on your HF account. Llama is a GATED repo; approval is per-account and is not part of the token."
+    fi
 
-    echo "tokenizer and dataset staged in $hf_home"
+    echo "tokenizer cache present in $hf_home"
 fi
 
 ## ── What is still needed ──────────────────────────────────────────────────
 
-[[ -n "$LLMB_SBATCH_PASSTHROUGH" ]] ||
-    echo "NEXT: LLMB_SBATCH_PASSTHROUGH is unset in ${SETTINGS_FILE:-the defaults}, so llm-pretrain refuses to launch.
-      Run 'llmb-run single -w $WORKLOAD -s $MODEL_SIZE --dtype $DTYPE --scale 4 --dryrun',
-      read which flag forwards arguments to sbatch, and set it in SETTINGS.
-      See docs/llmb.md#pinning-the-submission."
+echo "NEXT: confirm the recipe accepts a 4-GPU tray, which is below its
+      characterised floor of 8 and needs --force:
+        llmb-run submit -w $WORKLOAD -s $MODEL_SIZE --dtype $DTYPE --scale 4 --force --dry-run
+      and take llm-pretrain-solo's training command from the same at --scale 1.
+      See docs/llmb.md#running-below-the-characterised-scale."
 
 echo "done. './build_llmb.sh -l' for the state of the install."

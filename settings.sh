@@ -86,8 +86,6 @@ fi
 ## `=` not `:=`: empty means "no llmb install", which is the shipped answer.
 ## See docs/llmb.md#where-the-install-lives.
 : "${LLMB_INSTALL=/home/cmods/llmb}"
-## Empty is a refusal rather than a guess -- see docs/llmb.md#pinning-the-submission.
-: "${LLMB_SBATCH_PASSTHROUGH=}"
 
 ## The only place these paths are built; no caller should rebuild them by hand.
 ## See docs/settings.md#which-set-of-things-to-run.

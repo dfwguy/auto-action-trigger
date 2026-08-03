@@ -204,20 +204,20 @@ for _pair in $JOB_ENV; do
 done
 unset _pair
 
-## A host launcher needs the llmb settings, and they reach it the same way
-## JOB_ENV does -- through a string run by `su - $JOB_USER -c`. So they get the
-## same allowlist, for the same reason: unvalidated, either one would run as
-## root on 200+ nodes. See docs/settings.md#what-is-rejected.
+## A host launcher needs LLMB_INSTALL, and it reaches the launcher the same way
+## JOB_ENV does -- through a string run by `su - $JOB_USER -c`. So it gets the
+## same allowlist, for the same reason: unvalidated, a SETTINGS value would run
+## as root on 200+ nodes. See docs/settings.md#what-is-rejected.
+##
+## Empty is left to the launcher to diagnose: it knows whether it needs one.
 LLMB_ARGS=""
-for _pair in "LLMB_INSTALL=${LLMB_INSTALL:-}" "LLMB_SBATCH_PASSTHROUGH=${LLMB_SBATCH_PASSTHROUGH:-}"; do
-    [[ "$_pair" == *= ]] && continue         # unset; the launcher diagnoses it
-    if [[ ! "$_pair" =~ ^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_.:/+@%=-]*$ ]]; then
-        trace "WARNING: ${_pair%%=*} contains characters outside [A-Za-z0-9_.:/+@%=-] -- dropped, and a host-launched job will refuse rather than run without it."
-        continue
+if [[ -n "${LLMB_INSTALL:-}" ]]; then
+    if [[ "$LLMB_INSTALL" =~ ^[A-Za-z0-9_.:/+@%=-]+$ ]]; then
+        LLMB_ARGS=" LLMB_INSTALL=$LLMB_INSTALL"
+    else
+        trace "WARNING: LLMB_INSTALL contains characters outside [A-Za-z0-9_.:/+@%=-] -- dropped, and a host-launched job will refuse rather than run without it."
     fi
-    LLMB_ARGS+=" $_pair"
-done
-unset _pair
+fi
 
 ## Without this line, results appearing off-cadence -- or a passing job suddenly
 ## re-running -- reads as the sequencer misbehaving rather than as a human.

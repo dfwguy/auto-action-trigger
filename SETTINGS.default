@@ -69,8 +69,3 @@ BRINGUP_HOME=/home/cmods/bringup
 ## Built by ./build_llmb.sh on the head node. Outside BRINGUP_HOME so a tarball
 ## drop does not land on the images and dataset. See docs/llmb.md.
 LLMB_INSTALL=/home/cmods/llmb
-## How this llmb-run build forwards flags to its own sbatch. Empty until
-## confirmed against `llmb-run ... --dryrun`; llm-pretrain refuses to launch
-## without it, because an unpinned submission reports another node's result as
-## this one. See docs/llmb.md#pinning-the-submission.
-LLMB_SBATCH_PASSTHROUGH=
