@@ -74,6 +74,7 @@ fi
 : "${RETRY_INTERVAL_HOURS:=1}"
 : "${MAX_JOB_HOURS:=7}"
 : "${DRAIN_WINDOW_MINUTES:=15}"
+: "${INFLIGHT_GRACE_MINUTES:=30}"
 : "${DRAIN_MARKER:=auto-retry}"
 ## `=` not `:=`, like CONTAINERS: empty is the shipped answer and a real one.
 ## Deliberately not exported -- launch_job.sh is the only reader and hands it

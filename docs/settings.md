@@ -805,9 +805,10 @@ cat results/<node>/recover.log                       # one line per recovery
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `RETRY_INTERVAL_HOURS` | `1` | Hours between sweeps, measured from the newest result file on the node |
+| `RETRY_INTERVAL_HOURS` | `1` | Hours before a job may run again, measured from that job's own result file |
 | `MAX_JOB_HOURS` | `7` | A benchmark `RUNNING` longer than this drains the node |
 | `DRAIN_WINDOW_MINUTES` | `15` | Only failures newer than this drain |
+| `INFLIGHT_GRACE_MINUTES` | `30` | Added to a job's own walltime before a submitted job that never started is treated as stale |
 | `DRAIN_MARKER` | `auto-retry` | Written into every drain reason this framework issues; only drains carrying it are ever cleared automatically |
 
 `DRAIN_WINDOW_MINUTES` has to sit above the BCM monitoring interval or the
@@ -815,6 +816,18 @@ drain is missed entirely, and well below `RETRY_INTERVAL_HOURS`. Its purpose is
 that without it, `launch_job.sh` would re-drain from stale result files on every
 monitoring cycle — a node an operator had just resumed would be pulled straight
 back out of service.
+
+`RETRY_INTERVAL_HOURS` is per job, not per node: it is measured from that job's
+own result file, so eight different benchmarks are all eligible at once and a
+sweep advances as fast as jobs finish. What it bounds is one job re-running.
+
+`INFLIGHT_GRACE_MINUTES` is how long a submitted job is allowed to sit without
+starting before the sequencer asks the controller what became of it — the job's
+own `#SBATCH -t` plus this. Too low and a node queued behind somebody else's
+long job gets asked about every cycle; too high and a job that died leaves the
+node idle for that much longer. It is the only setting that trades those two
+against each other. See
+[sequencer.md](sequencer.md#when-a-marker-goes-stale).
 
 `MAX_JOB_HOURS` has to clear the longest single run in `BENCHMARKS` **and**
 `BURNIN`, not the longest sweep — each run is submitted as its own job, so what
