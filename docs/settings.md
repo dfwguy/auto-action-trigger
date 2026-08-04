@@ -206,13 +206,14 @@ with `NCCL_ALGO` pinned, which costs a little bandwidth, so its floor sits below
 `allreduce`'s rather than tracking it; and the `-nonvlink` pair crosses the
 compute-plane HCAs instead of NVLink.
 
-They are settings and not parser constants because the last of those is a
-property of the hardware, not of the software. The `-nonvlink` floors follow the
-compute-plane link speed — **93 and 83 for a 100 GB/s plane**, and roughly half
-those on a 50 GB/s one — and a site should not have to edit a tracked file, or
-carry a patch across a tarball drop, to say which it has. The NVLink three were read off known-good runs on
-this platform and are the ones to revisit as more platforms are learned; the
-eventual answer for a platform that differs in more than a number is a parser
+They are settings and not parser constants because all five are read off
+known-good runs, and what counts as known-good is a property of the hardware,
+not of the software. The `-nonvlink` pair — **93 and 83, measured on a 100 GB/s
+compute plane** — is the clearest case: a site on a different link speed has
+different numbers, and should not have to edit a tracked file, or carry a patch
+across a tarball drop, to say so. All five are the ones to revisit as more
+platforms are learned; the eventual answer for a platform that differs in more
+than a number is a parser
 directory of its own (`nvl72-gb200`, `nvl72-gb300`) selected by `PARSERS`.
 
 The rest of the gates — dcgmi, nvbandwidth stability, STREAM, the llm-pretrain

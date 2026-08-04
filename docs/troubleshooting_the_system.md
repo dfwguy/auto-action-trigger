@@ -178,10 +178,10 @@ whole-cluster failure that looked like a fleet-wide hardware event.
    the definition of correct BIOS, kernel params, IMEX and NVLink for the whole
    fleet.
 3. **A floor is wrong for this platform.** The `-nonvlink` floors, 93 and 83
-   GB/s, are spec figures for a 100 GB/s compute plane, not ones read off a
-   known-good run here, and they sit above every IB-scope result captured so
-   far. A handful of nodes under a floor is a finding; every node far below it
-   is the floor — check the link speed first, since it is what they follow.
+   GB/s, were measured on a 100 GB/s compute plane, and every IB-scope result
+   captured as a fixture sits below them. A handful of nodes under a floor is a
+   finding; every node far below it is the floor — check the link speed first,
+   since that is what the pair was measured against.
 4. **The gate is matching the tool's healthy output.** The failure mode that cost
    the most so far. Check whether the string being matched appears in a *passing*
    run — `benchmarks.md` has both the `nvbandwidth` diagonal case and the
