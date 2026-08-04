@@ -302,24 +302,71 @@ a query:
 
 | Marker | Job running here | Result file | What happens | Controller |
 |---|---|---|---|---|
-| absent | — | — | pick the next eligible job and submit it | 3 |
+| absent | — | — | pick the next eligible job and submit it | 2 |
 | present | yes | — | leave it alone | **0** |
 | present | no | ends in a marker | job finished; clear and advance next cycle | **0** |
 | present | no | no end marker, inside its window | not started yet; wait | **0** |
 | present | no | no end marker, past its window | [stale](#when-a-marker-goes-stale) | 1 |
 
-"Job running here" is `scontrol listjobs`, which is documented as contacting
-*the local slurmstepd processes only, and not slurmctld* — so it is free as far
-as the controller is concerned. It has no documented output format, so the job
-id is matched as a whole word rather than against a layout that may change
-between releases. That imprecision is deliberately harmless: an inconclusive
-answer reads as **still running**, never as gone, and only the stale branch
-below is allowed to conclude a job has ended — which it does by asking the
-controller outright.
+"Job running here" is `scontrol listjobs`, which contacts the local slurmstepd
+processes and not slurmctld — see [what the node can answer by
+itself](#what-the-node-can-answer-by-itself). An inconclusive answer reads as
+**still running**, never as gone: only the stale branch below may conclude a job
+has ended, and it asks the controller outright.
 
 The result file is not evidence on its own. `sbatch --output` creates it when
 the job *starts*, so its existence says nothing; what says the job ended is an
 end marker in it, which is the same thing `verdict.sh` reads.
+
+### What the node can answer by itself
+
+Almost everything this script needs is knowable on the node. `scontrol` has a
+family of subcommands documented as contacting *the local slurmstepd processes
+only, and not slurmctld*:
+
+| Command | Answers |
+|---|---|
+| `listjobs` | every job running on this node — ours **and** everyone else's |
+| `liststeps` | the steps within them |
+| `listpids`, `pidinfo` | processes, and which job they belong to |
+| `show slurmd` | the local daemon's own statistics |
+
+`listjobs` prints a `JOBID` header and then one bare id per line. That single
+command answers both questions the sequencer used to spend `squeue` on:
+
+- **is our job still going** — is the marker's id in the list
+- **is somebody else on this node** — is any *other* id in the list
+
+The second used to be `squeue -w <node>`, which asked slurmctld for something
+slurmd already knew.
+
+**The exception is node state.** `State=IDLE|DRAIN|DOWN` and the drain `Reason`
+live in slurmctld, not in slurmd — a node genuinely does not know it has been
+drained, and no local command reports it. So it is fetched lazily, cached for
+the cycle, and only by the paths that actually need it: issuing a drain,
+clearing our own, and recovery. A healthy cycle never asks. When it is asked, it
+is `scontrol show node <node>` rather than `sinfo -n <node>`: a single-node RPC
+against a whole-table fetch filtered client-side.
+
+Two things follow from that, and both remove work rather than adding it:
+
+- **Nothing checks for a drain before submitting.** That check existed because
+  submitting the whole list behind an operator's drain would dump it on the node
+  the moment they resumed. One job is not a dump. A job submitted to a drained
+  node simply pends, and the [stale branch](#when-a-marker-goes-stale) is what
+  notices and reports the reason.
+- **Recovery runs on the stale branch, not every cycle.** A drain Slurm set
+  itself stops our jobs starting — which is exactly the symptom the stale branch
+  fires on. So a node that is drained submits, waits out its grace, asks once,
+  and recovers itself; a node that is fine never pays for the check.
+
+The whole cost, per node per cycle:
+
+| Cycle | Controller calls |
+|---|---|
+| job running, waiting, or nothing eligible | **0** |
+| advancing to the next job | 2 — `scontrol show node`, then `sbatch` |
+| marker gone stale | 1 — `squeue -j`, plus recovery if it fires |
 
 ### Cadence is per job, not per node
 

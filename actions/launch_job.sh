@@ -195,11 +195,6 @@ if [[ -f "$tracelog" ]] && [[ "$(stat -c %s "$tracelog" 2>/dev/null || echo 0)" 
     tail -2000 "$tracelog" > "$tracelog.tmp" && mv "$tracelog.tmp" "$tracelog"
 fi
 
-## Appended to the gates a forced run does NOT open, so the trace answers "I
-## ran it with --force and nothing happened" where the operator is reading.
-force_note=""
-[[ "$FORCE" -eq 1 ]] && force_note=" --force does not override that."
-
 ## ── Extra environment for the jobs ────────────────────────────────────────
 ##
 ## An allowlist rather than a blocklist: the submission is built as a string and
@@ -352,12 +347,16 @@ job_walltime_secs() {
     printf '%s' $(( 10#${d:-0} * 86400 + 10#${h:-0} * 3600 + 10#${m:-0} * 60 + 10#${s:-0} ))
 }
 
-## Local only -- no slurmctld. Matched as a whole word because `scontrol
-## listjobs` has no documented layout, so an inconclusive answer must read as
-## "still running"; only the stale path may conclude otherwise, and it asks the
-## controller. See docs/sequencer.md#one-job-at-a-time.
+## Every job running here, ours and everyone else's, from the local slurmstepds
+## rather than slurmctld. `listjobs` prints a JOBID header then one bare id per
+## line. See docs/sequencer.md#what-the-node-can-answer-by-itself.
+local_job_ids() {
+    scontrol listjobs 2>/dev/null | awk '/^[0-9]+$/ { print }'
+}
 job_running_locally() {
-    scontrol listjobs 2>/dev/null | grep -qw "$1"
+    local id
+    for id in $(local_job_ids); do [[ "$id" == "$1" ]] && return 0; done
+    return 1
 }
 
 ## Whether the result file has been finished off, which is what says the job
@@ -424,6 +423,9 @@ if inflight_read; then
     else
         ## The one place the controller is asked on a quiet node, and the only
         ## thing that can tell "queued behind a long job" from "gone".
+        ## Reaching here means a job of ours did not start, which is what an
+        ## unexpected drain looks like from the node. Recovery below keys on it.
+        inflight_stale=1
         ## %r last: a Slurm reason is free text with spaces in it.
         if_queued=$(squeue -h -j "$IF_JOBID" -o '%T %r' 2>/dev/null)
         if [[ -n "$if_queued" ]]; then
@@ -450,13 +452,25 @@ if inflight_read; then
     fi
 fi
 
-## Check if node is in slurm; if not - quit
-state=$(sinfo -N -n "$HOSTNAME" -h -o '%T')
-if [[ -z "$state" ]]; then
-    trace "EXIT: $HOSTNAME not known to slurm (sinfo -N -n returned nothing)"
-    exit 0
-fi
-trace "state=$(printf '%s' "$state" | tr '\n' ',') explain=$EXPLAIN"
+## ── Node state, and only when something needs it ──────────────────────────
+##
+## The one thing a node cannot answer about itself: State and Reason live in
+## slurmctld. Fetched lazily and cached, so a healthy cycle never asks.
+## See docs/sequencer.md#what-the-node-can-answer-by-itself.
+NODE_INFO=""
+state=""
+node_info() {
+    [[ -n "$NODE_INFO" ]] && return 0
+    NODE_INFO=$(scontrol show node "$HOSTNAME" 2>/dev/null)
+    [[ -n "$NODE_INFO" ]] || return 1
+    state=$(grep -oE 'State=[^ ]+' <<<"$NODE_INFO" | head -1 | cut -d= -f2)
+    return 0
+}
+## Reason is free text with spaces, and runs to the end of its line.
+node_reason() {
+    node_info || return 1
+    grep -oE 'Reason=.*' <<<"$NODE_INFO" | head -1 | cut -d= -f2-
+}
 
 
 ## ── Drains Slurm set itself ───────────────────────────────────────────────
@@ -480,6 +494,12 @@ fi
 
 if [[ "$recovery_paused" -eq 1 ]]; then
     :
+elif [[ "${inflight_stale:-0}" -eq 0 && "$FORCE" -eq 0 ]]; then
+    ## A drain stops our jobs starting, and the stale branch above is where that
+    ## shows up -- so recovery runs there rather than on every cycle, and a
+    ## healthy node never pays for it.
+    ## See docs/sequencer.md#what-the-node-can-answer-by-itself.
+    :
 elif [[ -f "$home/slurm-recovery.sh" ]]; then
     recover_log() { trace "$@"; }
     RECOVER_ACCEPT="machine"
@@ -487,7 +507,7 @@ elif [[ -f "$home/slurm-recovery.sh" ]]; then
     RECOVER_DRY_RUN="$EXPLAIN"
     source "$home/slurm-recovery.sh"
     if slurm_recover_node "$HOSTNAME"; then
-        [[ "$EXPLAIN" -eq 1 ]] || state=$(sinfo -N -n "$HOSTNAME" -h -o '%T')
+        [[ "$EXPLAIN" -eq 1 ]] || { NODE_INFO=""; node_info; }
         ensure_file_owned "$RECOVER_LOG"
         trace "state after recovery=$(printf '%s' "$state" | tr '\n' ',')"
     fi
@@ -558,8 +578,9 @@ drain_node() {
         trace "drain suppressed by DRAIN_AFTER_FAILED_BENCHMARK=$DRAIN_AFTER_FAILED_BENCHMARK: $reason"
         return 0
     }
+    node_info
     case "$state" in
-        *drain*|*down*|*fail*|*maint*) trace "drain skipped, already $state: $reason"; return 0 ;;
+        *DRAIN*|*DOWN*|*FAIL*|*MAINT*) trace "drain skipped, already $state: $reason"; return 0 ;;
     esac
     trace "DRAIN: $reason"
     [[ "$EXPLAIN" -eq 1 ]] && return 0
@@ -569,7 +590,7 @@ drain_node() {
 ## Clear only our own drain — the marker is what makes this safe.
 resume_node() {
     local current
-    current=$(sinfo -n "$HOSTNAME" -h -o '%E' 2>/dev/null | head -1)
+    current=$(node_reason)
     [[ "$current" == *"$DRAIN_MARKER"* ]] || return 0
     trace "RESUME: clearing own drain ($current)"
     [[ "$EXPLAIN" -eq 1 ]] && return 0
@@ -584,15 +605,13 @@ if [[ -n "${inflight_overrun:-}" ]]; then
     exit 0
 fi
 
-## Nothing of ours is asked of the queue here any more: the in-flight marker
-## above is what says whether this node has a job out, and it costs no query.
-## What is still worth asking about is somebody else's work, and only on the
-## cycle we are about to submit on. See docs/sequencer.md#one-job-at-a-time.
-foreign=$(squeue -h -w "$HOSTNAME" -o '%i %T %M %j' 2>/dev/null |
-          awk -v a="$JOB_NAME_BENCH" -v b="$JOB_NAME_BURNIN" '$4 != a && $4 != b')
+## Anything running here that is not our own marker's id is somebody else's.
+## `squeue -w` was asking slurmctld for what slurmd already knew.
+foreign=$(local_job_ids | grep -vx "${IF_JOBID:--}" | tr '\n' ' ')
+foreign="${foreign% }"
 
 if [[ -n "$foreign" ]]; then
-    trace "EXIT: $(wc -l <<<"$foreign") job(s) not ours on $HOSTNAME -- leaving the node to them"
+    trace "EXIT: job(s) not ours running on $HOSTNAME ($foreign) -- leaving the node to them"
     exit 0
 fi
 
@@ -865,19 +884,10 @@ next_eligible() {
 
 ## ── Queue every non-passing job, in listed order ──────────────────────────
 
-## Queueing behind an operator's drain would dump the whole batch on the node
-## the moment they resume it, so nothing is submitted unless the drain carries
-## our own marker. --force and --all move the *schedule*, not this.
-drain_reason=$(sinfo -n "$HOSTNAME" -h -o '%E' 2>/dev/null | head -1)
-case "$state" in
-    *drain*|*down*|*fail*|*maint*)
-        if [[ "$drain_reason" != *"$DRAIN_MARKER"* ]]; then
-            trace "EXIT: node is $state for a reason that is not ours -- '${drain_reason:-<empty>}' does not carry '$DRAIN_MARKER'.${force_note} scontrol update nodename=$HOSTNAME state=RESUME to release it."
-            exit 0
-        fi
-        ;;
-esac
-
+## No drain check here any more: it existed to stop a whole list landing on a
+## node the moment an operator resumed it, and one job is not a dump. A job sent
+## to a drained node pends, and the stale branch says why.
+## See docs/sequencer.md#what-the-node-can-answer-by-itself.
 resume_node
 
 ## Queue priority is NOT set here: each job carries its own `#SBATCH --nice`, so
