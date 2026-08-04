@@ -200,15 +200,23 @@ on a normal cycle, and each one traces that `--force` did not override it:
 
 - **`PAUSE_JOBS=yes`** — nothing is submitted. It is a site switch, not a
   timing gate; set it back to `no` to sweep.
-- **A drained, down or maintenance node** — nothing is submitted, and nothing
-  is added to `squeue` on its behalf, unless the drain is one of ours (it
-  carries `DRAIN_MARKER`), which is the ordinary retry loop. An operator's
-  drain still has to be released by an operator.
-- **Another user's job on the node** — the node is left to them.
-- **Our own batch already queued** — skipped, per list. Forcing on top of a
-  queued batch is how a node ends up running the same benchmark twice; the
-  trace names the `scancel -n bringup-<node>` / `-n burnin-<node>` to run first
-  if that is really what is wanted.
+- **`NODE_FILTER` not matching this node** — nothing is submitted. Also a site
+  switch, and the one most likely to be forced over by accident: `-f` is
+  normally issued across a whole rack over `pdsh`, which must not quietly test
+  nodes the site took out. `--test` opens it; `--force` does not. See
+  [settings.md](settings.md#restricting-which-nodes-run-jobs).
+- **Another user's job on the node** — the node is left to them. Read from
+  `scontrol listjobs`, so this costs the controller nothing.
+- **A job of ours already out** — whether the in-flight marker says so, or the
+  [submission guard](#the-guard-before-a-submission) finds one queued with no
+  marker. Forcing on top of one is how a node ends up running the same
+  benchmark twice; the trace names the `scancel` to run first if that is really
+  what is wanted.
+
+A drain is *not* among them any more, in either direction: with one job at a
+time there is no batch to dump on a node the moment it is resumed, so a job
+submitted to a drained node simply pends. See
+[what the node can answer by itself](#what-the-node-can-answer-by-itself).
 
 `--all` does not turn burn-in on: with `RUN_BURNIN=no` the `BURNIN` list is not
 surveyed and not queued. It also does not invent or clear failures — the drain
@@ -253,10 +261,14 @@ trace:
 - **`quick-view.txt` is left alone.** It describes the `BENCHMARKS` and `BURNIN`
   columns, which this run has not surveyed; rewriting it would report every real
   column as `QUEUED`.
-- **The gates that decide whether the node should get work at all still
-  apply** — `PAUSE_JOBS`, another user's job, a drain that is not ours, and our
-  own batch already queued. `--test` is a choice of *what* to submit, and the
-  list above is about *whether* to.
+- **Most gates that decide whether the node should get work at all still
+  apply** — `PAUSE_JOBS`, another user's job, and a job of ours already out.
+  `--test` is a choice of *what* to submit, and those are about *whether* to.
+  The exception is `NODE_FILTER`, which `--test` opens: naming a job and running
+  the command on a particular node is already a deliberate statement about that
+  node, and refusing would mean widening the site's filter to check one suspect
+  machine. The trace says the node is outside the swept set, so a result the
+  reports do not cover is explained where it happened.
 
 The batch is submitted under the ordinary `bringup-<node>` job name, so a test
 in flight is counted, cancelled and waited on exactly like any other benchmark,
@@ -682,7 +694,8 @@ two per monitoring cycle, forever.
 | `WARNING: <dir> is owned by <user>, not <JOB_USER>, and we are not root` | The same problem seen from a hand-run, which can diagnose it but not fix it |
 | `WARNING: JOB_ENV entry '<pair>' is not NAME=VALUE …  -- dropped` | A rejected `JOB_ENV` entry. The sweep still runs, and the reason it ran without your variable is written next to it — see [settings.md](settings.md#what-is-rejected) |
 | `EXIT: <tool> not on PATH after 'module load slurm' (PATH=…)` | No Slurm client tools; every check below would have read as a healthy idle node |
-| `EXIT: NODE_FILTER='<globs>' … does not match <node> -- no jobs submitted here` | This node is outside the set being tested — see [settings.md](settings.md#restricting-which-nodes-run-jobs). Written every cycle on purpose: "why is this node not testing" has to be answerable from the node's own trace |
+| `EXIT: NODE_FILTER='<globs>' … does not match <node> -- no jobs submitted here` | This node is outside the set being tested — see [settings.md](settings.md#restricting-which-nodes-run-jobs). Written every cycle on purpose: "why is this node not testing" has to be answerable from the node's own trace. Names `--force` when it was passed, so the flag does not look ignored |
+| `NODE_FILTER='<globs>' does not match <node>, but --test <jobs> names this node … -- testing anyway` | `--test` opens the filter where `--force` does not. Says the node is outside the swept set, so a result the reports do not cover is explained where it happened |
 | `state=<node state> explain=<0\|1>` | The ordinary first line of a working cycle |
 
 ### Pause and recovery

@@ -839,9 +839,20 @@ time instead — see the commented example at the bottom of
 `pre-post/create-action-trigger.sh`.
 
 Like the [pause switches](#pause-switches) it is a site switch rather than a
-timing gate, so `--force` does not open it and neither does `--test`; `--explain`
-reads through it and reports what a real cycle would have done. To sweep a node
-outside the set, widen `NODE_FILTER`.
+timing gate, and `--force` does not open it. That is the point of the
+distinction: a forced sweep is normally issued over `pdsh` across a whole rack,
+and it must not quietly test nodes the site took out. The trace says so when
+`--force` was passed, rather than looking like the flag was ignored.
+
+`--test` **does** open it. Naming a job and running the command on a particular
+node is already a deliberate statement about that node, which `-f` across a rack
+is not, and refusing would mean widening the site's `NODE_FILTER` to check one
+suspect machine. The run traces that it went ahead and that the node is outside
+the swept set, so a result on a node the reports do not cover has an explanation
+next to it — nothing there will be re-run on a cadence.
+
+`--explain` reads through and reports what a real cycle would have done. To
+sweep a node outside the set on a cadence, widen `NODE_FILTER`.
 
 ## Retry and drain policy
 

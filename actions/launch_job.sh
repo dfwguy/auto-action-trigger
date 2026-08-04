@@ -297,12 +297,16 @@ node_in_scope() {
 }
 
 if ! node_in_scope; then
-    ## A site switch, not a timing gate, so --force does not open it -- the same
-    ## rule PAUSE_JOBS follows. --explain reads through, as it does there.
-    if [[ "$EXPLAIN" -eq 1 ]]; then
+    ## --test names both a job and, by running here, a node, so it opens this;
+    ## --force does not. A forced sweep is normally issued over pdsh across a
+    ## whole rack, and that must not quietly test nodes the site excluded.
+    ## See docs/settings.md#restricting-which-nodes-run-jobs.
+    if [[ -n "$TEST_LIST" ]]; then
+        trace "NODE_FILTER='$NODE_FILTER' does not match $HOSTNAME, but --test $TEST_LIST names this node by running on it -- testing anyway. This node is outside the set the sequencer sweeps, so nothing here will be re-run on a cadence."
+    elif [[ "$EXPLAIN" -eq 1 ]]; then
         trace "NODE_FILTER='$NODE_FILTER' does not match $HOSTNAME -- explaining anyway; a real cycle would stop here"
     else
-        trace "EXIT: NODE_FILTER='$NODE_FILTER' in ${SETTINGS_FILE:-<no settings file found>} does not match $HOSTNAME -- no jobs submitted here. Health checks and reporting are unaffected."
+        trace "EXIT: NODE_FILTER='$NODE_FILTER' in ${SETTINGS_FILE:-<no settings file found>} does not match $HOSTNAME -- no jobs submitted here.$([[ "$FORCE" -eq 1 ]] && printf ' --force does not override it: a forced sweep is usually a whole rack over pdsh, and this node is not in the set.') Health checks and reporting are unaffected."
         exit 0
     fi
 fi
