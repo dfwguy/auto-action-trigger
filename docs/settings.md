@@ -904,6 +904,7 @@ sweep a node outside the set on a cadence, widen `NODE_FILTER`.
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
+| `MAX_QUEUED_JOBS` | `500` | Ceiling on jobs this framework has queued or running across the whole fleet. `0` is no cap |
 | `RETRY_INTERVAL_HOURS` | `1` | Hours before a job may run again, measured from that job's own result file |
 | `MAX_JOB_HOURS` | `7` | A benchmark `RUNNING` longer than this drains the node |
 | `DRAIN_WINDOW_MINUTES` | `15` | Only failures newer than this drain |
@@ -915,6 +916,51 @@ drain is missed entirely, and well below `RETRY_INTERVAL_HOURS`. Its purpose is
 that without it, `launch_job.sh` would re-drain from stale result files on every
 monitoring cycle — a node an operator had just resumed would be pulled straight
 back out of service.
+
+### The fleet-wide cap
+
+`MAX_QUEUED_JOBS` is the only setting that bounds the framework's total load on
+`slurmctld`. Everything else here bounds one node: the marker allows one job per
+node at a time, and `RETRY_INTERVAL_HOURS` bounds how often one job re-runs.
+Neither says anything about how many nodes do that at once, so on a large fleet
+the sequencer's peak is *one job per node*, arrived at within a couple of
+monitoring cycles. On a 2,000-node cluster that is 2,000 submissions, and a
+saturated controller then [returns nothing rather than an
+error](sequencer.md#when-the-controller-does-not-answer), which is the failure
+mode the rest of the design works hardest to avoid.
+
+Set it to what the controller can comfortably hold. The number that matters is
+the one below which `squeue` stays responsive under everything else the cluster
+is doing, not a fraction of the node count.
+
+It ships as `500`, which is below the point where this was observed to bite —
+`slurmctld` pegged at a full core with over a thousand of our jobs out — and
+above what a single rack's sweep will ever ask for. It is a ceiling, not a
+target: a fleet small enough never to reach it is unaffected, which is why the
+default is a number rather than `0`. Sites that have measured their own
+controller should set their own; `0` disables the cap entirely and restores the
+behaviour this framework had before the setting existed.
+
+```bash
+MAX_QUEUED_JOBS=200
+```
+
+It counts jobs in `PENDING` and `RUNNING` whose name begins `bringup-` or
+`burnin-` — this framework's own work on every node, not the cluster's total
+queue, and not anything submitted by hand under another name.
+
+What a closed cap does is *defer*, not skip: the job stays eligible and is
+offered again on the next monitoring cycle, so the sweep runs at the cap's rate
+instead of all at once. Nothing is lost, and no result is judged differently.
+The trade is wall-clock — a full sweep of a large fleet takes
+`nodes × benchmarks ÷ MAX_QUEUED_JOBS` job slots' worth of time rather than
+finishing as fast as the scheduler will take work.
+
+`--force` does not override it, for the same reason it does not override
+`PAUSE_JOBS`: it is a site switch about what the cluster can take, not a timing
+gate about when a job is next due. A value that is not a whole number is traced
+and ignored, leaving the cycle uncapped — an unreadable setting carries on
+rather than stopping the fleet, as the pause switches do.
 
 `RETRY_INTERVAL_HOURS` is per job, not per node: it is measured from that job's
 own result file, so eight different benchmarks are all eligible at once and a

@@ -897,20 +897,26 @@ if [[ "${#failed_jobs_actionable[@]}" -gt 0 && \
     drain_node "${label}${failed_jobs_actionable[*]} FAIL${first_reason:+: $first_reason} ($DRAIN_MARKER)"
 fi
 
-## Every job of ours the controller is holding, in one call and returning one
-## column. Both names, because either would stop us submitting. The default
-## state filter is pending and running, which is exactly the question.
+## Every job of ours the controller is holding, in one call: this node's two
+## names gate the submission below, and the fleet-wide count of both prefixes
+## gates it against MAX_QUEUED_JOBS. Still one query, which is the number that
+## costs. See docs/sequencer.md#the-guard-before-a-submission.
 ##
 ## Sets QUEUED_OURS rather than printing it, and so must never be called as
 ## $(queued_ours) -- a subshell would cache the answer in a child and ask again.
 ## Same reason verdict() works the way it does.
-## See docs/sequencer.md#the-guard-before-a-submission.
 QUEUED_OURS=""
+QUEUED_FLEET=0
 QUEUED_ASKED=0
 queued_ours() {
     [[ "$QUEUED_ASKED" -eq 1 ]] && return 0
     QUEUED_ASKED=1
-    QUEUED_OURS=$(squeue -h -o '%i' -n "$JOB_NAME_BENCH,$JOB_NAME_BURNIN" 2>/dev/null | sort -u)
+    local queue
+    queue=$(squeue -h -o '%i %j' 2>/dev/null)
+    QUEUED_OURS=$(awk -v b="$JOB_NAME_BENCH" -v u="$JOB_NAME_BURNIN" \
+                      '$2 == b || $2 == u { print $1 }' <<<"$queue" | sort -u)
+    QUEUED_FLEET=$(awk -v p="${JOB_NAME_BENCH%"$HOSTNAME"}" -v q="${JOB_NAME_BURNIN%"$HOSTNAME"}" \
+                       '$2 ~ "^(" p "|" q ")" { n++ } END { print n+0 }' <<<"$queue")
 }
 
 ## ── The next job, and only the next one ───────────────────────────────────
@@ -1082,6 +1088,30 @@ if [[ -n "$submit_target" && "$EXPLAIN" -eq 0 ]]; then
         trace "EXIT: no marker, but $(grep -c . <<<"$QUEUED_OURS") job(s) of ours are already queued ($queued_list) -- not submitting $NEXT_JOB on top of one. Untracked, so it is left to finish; 'scancel $queued_list' to clear it."
         write_quickview
         exit 0
+    fi
+fi
+
+## The fleet-wide ceiling. The gate above bounds this node to one job; nothing
+## bounded every node holding one at once, which is what saturates slurmctld.
+## See docs/sequencer.md#the-fleet-wide-cap.
+if [[ -n "$submit_target" && -n "${MAX_QUEUED_JOBS// /}" && "$MAX_QUEUED_JOBS" != 0 ]]; then
+    if [[ ! "$MAX_QUEUED_JOBS" =~ ^[0-9]+$ ]]; then
+        trace "WARNING: MAX_QUEUED_JOBS='$MAX_QUEUED_JOBS' in ${SETTINGS_FILE:-<no settings file found>} is not a whole number -- ignored, and this cycle submits as if uncapped."
+    else
+        queued_ours
+        if [[ "$QUEUED_FLEET" -ge "$MAX_QUEUED_JOBS" ]]; then
+            cap_msg="MAX_QUEUED_JOBS=$MAX_QUEUED_JOBS reached -- $QUEUED_FLEET of our jobs are queued or running fleet-wide, so $NEXT_JOB run $NEXT_RUN stays eligible and is offered again next cycle."
+            [[ "$FORCE" -eq 1 ]] && cap_msg="$cap_msg --force does not override it: it is a site switch, not a timing gate."
+            if [[ "$EXPLAIN" -eq 1 ]]; then
+                trace "$cap_msg -- explaining anyway; a real cycle would stop here"
+            else
+                trace "EXIT: $cap_msg"
+                write_quickview
+                exit 0
+            fi
+        else
+            trace "fleet cap open: $QUEUED_FLEET of $MAX_QUEUED_JOBS jobs of ours queued or running"
+        fi
     fi
 fi
 
