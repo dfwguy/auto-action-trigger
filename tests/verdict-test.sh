@@ -15,9 +15,8 @@
 ## captures. A site that switches PARSERS wants its own fixture set.
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-## The floors come from SETTINGS at runtime, and are pinned here to the shipped
-## values instead of sourced: a site that re-floors a job must not change what
-## these fixtures assert. `shipped floors` below is what checks the two agree.
+## Pinned, not sourced from SETTINGS: a site that re-floors a job must not
+## change what these fixtures assert. `shipped floors` below checks they agree.
 ##
 ## SC2034: read by verdict.sh, sourced below, which shellcheck cannot see from
 ## here. Repeated because it covers only the next assignment.
@@ -149,9 +148,8 @@ fi
 ## Restored so nothing below sees a band the tree does not ship.
 VERDICT_MAX_COV_LLM_SOLO="$_solo_cov_saved"
 
-## A floor reaching the gate empty means settings.sh was not sourced, and used
-## to skip the bandwidth check on a fixture that clears every other one -- a
-## silent pass. See docs/settings.md#benchmark-pass-floors.
+## An empty floor used to skip the bandwidth check -- a silent pass on a
+## fixture that clears every other one.
 _ar_saved="$VERDICT_MIN_PEAK_BW_ALLREDUCE"
 VERDICT_MIN_PEAK_BW_ALLREDUCE=""
 verdict "allreduce" "$home/tests/fixtures/allreduce__good-nvlink.txt"
@@ -177,10 +175,8 @@ else
     ((fail++))
 fi
 
-## settings.sh backfills what the settings file did not set, so the two ship the
-## same five numbers and drift silently: a floor corrected in one and not the
-## other applies at every site but this one's fixtures. Compared against the
-## values pinned at the top, which is what the fixtures below were judged with.
+## SETTINGS.default and settings.sh ship the same five numbers and drift
+## silently. Checked against the values pinned at the top.
 drift=""
 _floors=("${!VERDICT_MIN_PEAK_BW_@}")
 for _f in "${_floors[@]}"; do

@@ -261,10 +261,8 @@ _scan_cache_file() {
         "$SCAN_RESULTS_DIR" "${SCAN_ARCHIVES:-0}" "${SCAN_METRICS:-0}"
 }
 
-## The floors are named, not catted: they live in SETTINGS now, so hashing
-## verdict.sh alone would replay a stale verdict after a site re-floored a job.
-## Every VERDICT_MIN_PEAK_BW_*, so a floor added later is covered without an
-## edit here. See docs/settings.md#benchmark-pass-floors.
+## The floors are named rather than catted: they live in SETTINGS.
+## See docs/settings.md#benchmark-pass-floors.
 _scan_cache_key() {
     local v
     { cat "$PARSERS_DIR/verdict.sh" "$SCAN_LIB" 2>/dev/null

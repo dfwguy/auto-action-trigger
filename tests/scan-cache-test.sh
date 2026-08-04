@@ -91,9 +91,8 @@ fi
 
 # ── The key covers the gate: the case this suite exists for ──────────────────
 
-## The floors are a setting, so the edit goes to whichever file settings.sh will
-## read, appended rather than substituted: a site's SETTINGS may not name the
-## key at all, and a sed that matched nothing would pass this case silently.
+## Appended to whichever file settings.sh reads, not substituted: a site's
+## SETTINGS may not name the key, and a sed matching nothing would pass here.
 sf="$tree/SETTINGS"
 [[ -f "$sf" ]] || sf="$tree/SETTINGS.default"
 cp "$sf" "$tmp/settings.orig"

@@ -9,8 +9,7 @@
 # ending in DONE are legacy and are re-judged here rather than trusted.
 # See docs/benchmarks.md#where-a-pass-is-decided.
 
-## The five NCCL bandwidth floors are set in SETTINGS, not here, and reach this
-## file through settings.sh -- every caller sources that first.
+## The five NCCL bandwidth floors are set in SETTINGS and arrive via settings.sh.
 ## See docs/settings.md#benchmark-pass-floors.
 
 ## Floors for the non-NCCL jobs, here rather than in each sbatch for the same
@@ -194,8 +193,7 @@ _v_gate_nccl() {
     ## once. The bandwidth floor catches the gross case meanwhile.
 
     ## Bandwidth last, and only the largest-size figure. An empty floor is a
-    ## caller that did not source settings.sh, not a job without a floor, and is
-    ## reported rather than passed. See docs/settings.md#benchmark-pass-floors.
+    ## missing setting, not a job without one. See docs/settings.md#benchmark-pass-floors.
     if [[ -z "$peak_min" ]]; then
         VERDICT_REASON="bandwidth floor is not set -- check SETTINGS"
         VERDICT_DETAIL=""

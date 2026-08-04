@@ -25,9 +25,8 @@ fi
 : "${HEALTHCHECKS:=nvl72}"
 : "${PARSERS:=nvl72}"
 : "${BENCHMARKS:=dcgmi-r1 dcgmi-r3 nvbandwidth allreduce allreduce-forcesharp alltoall allreduce-nonvlink alltoall-nonvlink}"
-## NCCL bandwidth floors, GB/s. Here rather than in the parser because a site
-## re-floors these without editing a tracked file; the rest of the gates stay in
-## parsers/$PARSERS/verdict.sh. See docs/settings.md#benchmark-pass-floors.
+## NCCL bandwidth floors, GB/s. Every other gate stays in the parser.
+## See docs/settings.md#benchmark-pass-floors.
 : "${VERDICT_MIN_PEAK_BW_ALLREDUCE:=683}"
 : "${VERDICT_MIN_PEAK_BW_ALLREDUCE_FORCESHARP:=665}"
 : "${VERDICT_MIN_PEAK_BW_ALLTOALL:=623}"

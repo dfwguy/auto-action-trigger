@@ -20,11 +20,6 @@ NODE_FILTER=""
 BENCHMARKS="dcgmi-r1 dcgmi-r3 nvbandwidth allreduce allreduce-forcesharp alltoall allreduce-nonvlink alltoall-nonvlink"
 
 ## ── Benchmark pass floors ─────────────────────────────────────────────────
-## GB/s, out-of-place busbw at the largest message size -- the figure
-## daily-report.sh prints, so a cell and a floor compare directly. Per job:
-## allreduce and alltoall are not comparable, and the -nonvlink pair crosses the
-## compute-plane HCAs rather than NVLink, so its floor follows the link speed
-## (80 for a 100 GB/s plane, 43 for 50). See docs/settings.md#benchmark-pass-floors.
 VERDICT_MIN_PEAK_BW_ALLREDUCE=683
 VERDICT_MIN_PEAK_BW_ALLREDUCE_FORCESHARP=665
 VERDICT_MIN_PEAK_BW_ALLTOALL=623
@@ -70,8 +65,7 @@ INFLIGHT_GRACE_MINUTES=30
 DRAIN_MARKER="auto-retry"
 
 ## ── Reporting ─────────────────────────────────────────────────────────────
-## Worker processes status-check.sh and daily-report.sh judge the fleet with.
-## Empty or 0 means one per core. See docs/settings.md#reporting.
+## See docs/settings.md#reporting.
 SCAN_JOBS=
 
 ## ── Extra environment for every benchmark job ─────────────────────────────
