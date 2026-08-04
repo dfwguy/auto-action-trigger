@@ -667,6 +667,35 @@ the fleet is judged on; the result has no column in the reports and is read with
 Each node also keeps a running trace at `results/<node>/trigger.log`, one line
 per monitoring cycle recording what it did or why it stopped.
 
+### A queue full of pending jobs
+
+The opposite symptom, and usually not a fault. The sweep submits one job per
+node, so a fleet mid-sweep holds on the order of one pending job per node, and
+anything large in the queue — a multi-node benchmark, somebody else's training
+run, *or one of ours* — keeps them there. A big job that cannot start yet is
+given a start reservation, and a single-node job is only backfilled ahead of it
+if it would finish before that reservation opens, so ours sit at
+`ReqNodeNotAvail, May be reserved for other job` with nothing drained and
+nothing broken. Slurm assigns no node to a pending job, so `%N` is empty and the
+node it wants is the job name's suffix, or `%n`:
+
+```bash
+squeue -t PENDING -o '%.10i %24j %20n %44r %S' | grep -E 'bringup-|burnin-'
+squeue --start -o '%.10i %24j %20n %S'            # when the backfiller expects to start them
+squeue -w ink50-dh01-h20-11 -o '%.10i %.10u %.9T %j'   # who is holding the node one of them wants
+```
+
+The sequencer treats this as legitimate and says so: queued behind a foreign
+job is left alone, and its `trigger.log` line names the reason. See
+[sequencer.md](sequencer.md#when-a-marker-goes-stale).
+
+`launch failed requeued held` in the same column is a different state and is
+worth reading separately — a held job sits at priority 0 and never starts, so
+it will not clear when the queue drains. The sequencer cancels those and
+resubmits, but only once the marker goes stale, which is that job's own
+walltime plus `INFLIGHT_GRACE_MINUTES`. One outliving that window by a good
+margin is a real problem; one inside it is the mechanism working.
+
 ## Debugging IB visibility
 
 ```bash
