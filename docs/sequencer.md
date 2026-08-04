@@ -433,14 +433,17 @@ of ours is already out, and nothing is submitted: the orphan is untracked, so it
 is left to finish rather than cancelled, and the trace names it and the `scancel`
 that would clear it.
 
-It returns one column and both names in one call. Worth being precise about what
-that buys: `-o '%i'` narrows what `squeue` **prints**, not what it fetches, and
-`-n` filtering is not established to happen controller-side. What is genuinely
-controlled is the number of invocations, which is why the two names go in one
-call and why the host-launched path reuses the cached answer for its
-[before-and-after id snapshot](#getting-the-job-id-right) rather than asking
-again. SchedMD's own guidance is to limit `squeue` calls to the minimum
-necessary, not to filter them harder.
+It returns id and name in one call, and that one answer serves two gates — this
+node's own jobs, and the [fleet-wide cap](#the-fleet-wide-cap). Worth being
+precise about what that buys: `-o` narrows what `squeue` **prints**, not what it
+fetches, and `-n` filtering is not established to happen controller-side. What
+is genuinely controlled is the number of invocations, which is why both
+questions go in one call and why the host-launched path reuses the cached answer
+for its [before-and-after id snapshot](#getting-the-job-id-right) rather than
+asking again. SchedMD's own guidance is to limit `squeue` calls to the minimum
+necessary, not to filter them harder. Dropping `-n` to see the whole queue
+therefore costs output to parse, not controller work, and it is what makes the
+cap free.
 
 The default state filter is pending and running, which is exactly the question
 being asked, so no `-t` is passed.
@@ -448,6 +451,44 @@ being asked, so no `-t` is passed.
 This is the third call on an advance cycle, after `scontrol show node` and
 before `sbatch` — and it is per job, not per monitoring cycle. A node with a job
 running still costs nothing.
+
+### The fleet-wide cap
+
+Every gate described above is per node, and that is the gap `MAX_QUEUED_JOBS`
+closes. One node submits one job at a time; two hundred nodes submit two hundred
+jobs, within a couple of monitoring cycles of the sequencer being enabled, and
+nothing in the design noticed. The controller does — over a thousand of our jobs
+is enough to peg `slurmctld`, which is single-threaded for scheduling and does
+not shed load gracefully. It goes quiet instead, and a quiet controller is the
+input every other gate here is careful not to believe.
+
+So immediately after the per-node guard, and from the same `squeue` answer, the
+count of queued and running jobs named `bringup-*` or `burnin-*` is compared
+against `MAX_QUEUED_JOBS`. At or above it, nothing is submitted and the trace
+says so with the count. The default is `500`, and `0` disables the cap; the
+setting is documented in [settings.md](settings.md#the-fleet-wide-cap).
+
+The cap defers rather than skips. `next_eligible` is not consulted again — the
+job it picked stays eligible, because nothing about its result file changed, and
+the next cycle offers the same one. The sweep is rate-limited, not shortened.
+Two consequences worth being explicit about:
+
+- **It is racy between nodes, deliberately.** Each node reads the count and
+  decides for itself, so two nodes can both see 199 of a 200 cap and both
+  submit. Overshoot is bounded by the number of nodes cycling at once and costs
+  a job or two above the line, which is not what saturates a controller. The
+  alternative is a fleet-wide lock, and a lock on NFS that can be held by a node
+  that reboots is a worse failure than a cap that is occasionally off by one.
+- **A blocked node asks every cycle.** It stays eligible rather than becoming
+  busy, so it reaches the `squeue` call once per monitoring cycle instead of
+  once per job. That is the one way the cap *adds* controller traffic, and it
+  is much the cheaper half of the trade: a query costs the controller far less
+  than the job it prevents, and the count scales with blocked nodes, not with
+  the fleet. Worth knowing before setting the cap very low on a large fleet.
+- **There is no fairness between nodes.** Whoever asks while there is room gets
+  the slot. Over a few cycles this evens out, because a node that submitted is
+  then busy and out of the running, but a cap set very low against a large fleet
+  will leave some nodes waiting noticeably longer than others.
 
 ### When the controller does not answer
 
@@ -783,6 +824,9 @@ two per monitoring cycle, forever.
 | `hourly gate open (newest result age=<n>s, -1 means no results on disk)` | The hourly gate, open on its own |
 | `EXIT: node is <state> for a reason that is not ours -- '<reason>' does not carry 'auto-retry'.` | An operator's drain. Names the `scontrol … state=RESUME` that releases it |
 | `NOTE: JOB_ENV sets <name>, but <job>.sbatch exports its own` | The job file wins. Without the line, a `SETTINGS` entry that does nothing looks exactly like one that works |
+| `EXIT: MAX_QUEUED_JOBS=<n> reached -- <n> of our jobs are queued or running fleet-wide, so <job> run <n> stays eligible…` | The [fleet-wide cap](#the-fleet-wide-cap), closed. Expected on a large fleet, and not a fault |
+| `fleet cap open: <n> of <n> jobs of ours queued or running` | The cap, open. The count is what to watch when tuning it |
+| `WARNING: MAX_QUEUED_JOBS='<value>' … is not a whole number -- ignored` | A typo in `SETTINGS`. The cycle runs uncapped rather than stopping the fleet |
 | `WOULD SUBMIT <job> run <n>[ (existing <STATUS> result kept as .<fail\|prev><N>.txt)]: <command>` | `--explain` only |
 | `submitted <job> run <n>: Submitted batch job <id> [(JOB_ENV: …)]` | Work went out |
 | `SUBMIT FAILED <job> run <n>: <sbatch output>` | Work did not go out, and `sbatch` says why |
