@@ -449,6 +449,37 @@ This is the third call on an advance cycle, after `scontrol show node` and
 before `sbatch` — and it is per job, not per monitoring cycle. A node with a job
 running still costs nothing.
 
+### When the controller does not answer
+
+A saturated slurmctld does not return an error; it returns **nothing**. `sinfo`
+exits 0 with empty output, `scontrol show node` prints nothing, and `sbatch`
+fails with `Socket timed out on send/recv operation`. This is observed, not
+hypothetical — a fleet of ~2,000 nodes each asking five times a minute produced
+981 nodes concluding `not known to slurm (sinfo -N -n returned nothing)` in a
+day, which is a node deciding it had been removed from the cluster because the
+controller was busy.
+
+The rule is that **no answer is never treated as an answer**. Every query that
+can come back empty has a caller that fails closed:
+
+- **The node state behind a drain.** If `scontrol show node` returns nothing,
+  `drain_node` refuses and traces why. Draining on an unknown state takes a node
+  out on no information, and overwrites whatever reason an operator put there
+  with ours.
+- **The local running check.** An inconclusive `scontrol listjobs` reads as
+  *still running*, never as gone — see [one job at a time](#one-job-at-a-time).
+- **The stale branch.** `squeue -j` returning nothing is the one case where
+  empty *is* the answer, which is why that branch is only reached after the
+  job's own walltime plus `INFLIGHT_GRACE_MINUTES` have passed, rather than on
+  the first cycle a job is not seen.
+
+`NODE_ASKED` separates "not fetched yet" from "fetched and got nothing", so a
+run that hit a timeout does not ask again on every subsequent call.
+
+This is a large part of why the call count matters at all. The load and the
+wrong answers are the same problem: the queries that saturate the controller are
+the queries that then come back empty and get believed.
+
 ### Cadence is per job, not per node
 
 A job is eligible when it has not passed and its own result file is missing or

@@ -488,14 +488,18 @@ fi
 ## The one thing a node cannot answer about itself: State and Reason live in
 ## slurmctld. Fetched lazily and cached, so a healthy cycle never asks.
 ## See docs/sequencer.md#what-the-node-can-answer-by-itself.
+## NODE_ASKED separates "not fetched yet" from "fetched and got nothing", so a
+## controller that timed out is not asked again on every call in the same run.
 NODE_INFO=""
+NODE_ASKED=0
 state=""
 node_info() {
-    [[ -n "$NODE_INFO" ]] && return 0
+    [[ "$NODE_ASKED" -eq 1 ]] && { [[ -n "$NODE_INFO" ]]; return; }
+    NODE_ASKED=1
     NODE_INFO=$(scontrol show node "$HOSTNAME" 2>/dev/null)
     [[ -n "$NODE_INFO" ]] || return 1
     state=$(grep -oE 'State=[^ ]+' <<<"$NODE_INFO" | head -1 | cut -d= -f2)
-    return 0
+    [[ -n "$state" ]]
 }
 ## Reason is free text with spaces, and runs to the end of its line.
 node_reason() {
@@ -609,7 +613,15 @@ drain_node() {
         trace "drain suppressed by DRAIN_AFTER_FAILED_BENCHMARK=$DRAIN_AFTER_FAILED_BENCHMARK: $reason"
         return 0
     }
-    node_info
+    ## No answer is not an answer. A busy controller returns nothing, and draining
+    ## on that would take out a node on no information -- and overwrite an
+    ## operator's drain reason with ours. The failure this guards against is real
+    ## and observed: under load the same query makes `sinfo -N -n` return empty.
+    ## See docs/sequencer.md#when-the-controller-does-not-answer.
+    if ! node_info; then
+        trace "drain skipped, the controller did not answer 'scontrol show node $HOSTNAME' -- not draining on an unknown state: $reason"
+        return 0
+    fi
     case "$state" in
         *DRAIN*|*DOWN*|*FAIL*|*MAINT*) trace "drain skipped, already $state: $reason"; return 0 ;;
     esac
