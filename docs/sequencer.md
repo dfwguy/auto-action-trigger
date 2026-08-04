@@ -137,7 +137,7 @@ burn-in sitting in the queue for three days would block every benchmark retry
 behind it.
 
 Ordering between them is Slurm priority — `#SBATCH --nice` in each job file,
-`1` for the dcgmi gates, `20` for the rest of the sweep, `100000` for burn-in.
+`1`-`4` for the dcgmi gates, `20` for the rest of the sweep, `100000` for burn-in.
 See [benchmarks.md](benchmarks.md#queue-priority). Priority reorders what has
 not started; it does not preempt what has, because every job is `--exclusive`.
 So a benchmark queued during a burn-in waits out the run on the node (up to

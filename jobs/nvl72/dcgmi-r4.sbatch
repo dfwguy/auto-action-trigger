@@ -7,9 +7,9 @@
 ## See docs/benchmarks.md#the-allocation-header.
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=1
-#SBATCH --nice=1
-## Ahead of the sweep it gates, behind a hand-submitted job, which defaults to
-## 0; higher --nice is later. See docs/benchmarks.md#queue-priority.
+#SBATCH --nice=4
+## Matches the -r level, so the gates run in order; ahead of the sweep they gate,
+## behind a hand-submitted job, which defaults to 0. See docs/benchmarks.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/dcgmi-r4.txt
 
 ## DCGM diagnostics at run level 4. The four dcgmi-r* jobs differ only in the

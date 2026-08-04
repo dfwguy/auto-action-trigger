@@ -235,13 +235,15 @@ priority, so **higher is later** and `0` is the front of the queue. Four tiers:
 | `--nice` | Jobs | Why |
 |---|---|---|
 | `0` | nothing in this tree | left free for a job queued by hand, which is what `sbatch` defaults to |
-| `1` | the four `dcgmi-r*` gates | fast, and they decide whether the rest of the sweep is worth running at all |
+| `1`-`4` | the `dcgmi-r*` gates, one per `-r` level | fast, and they decide whether the rest of the sweep is worth running at all |
 | `20` | every other benchmark | the sweep's own tier |
 | `100000` | `mnubergemm` | burn-in, always last |
 
-The gates sit at `1` rather than `0` so that anything queued by hand goes in
+The gates start at `1` rather than `0` so that anything queued by hand goes in
 front of them: a bare `sbatch` with no `--nice` lands at `0`, and `0` is now
-left empty for exactly that.
+left empty for exactly that. Each gate then takes its own `-r` level as its nice
+value — `dcgmi-r1` at `1` through `dcgmi-r4` at `4` — so the levels run in
+ascending order and the cheap gate is not left waiting behind the long one.
 
 This is what lets the burn-in list be queued at the same time as the sweep
 rather than gated behind it: a benchmark submitted while a burn-in is on the
