@@ -49,9 +49,9 @@ It fits, which is why the recipe shards nothing in the first place.
 NVIDIA's published 8-GPU figures: different global batch size, uncharacterised
 configuration. For a bringup gate that is the right trade — the question is
 whether node 3 matches node 40 and the fleet median, not whether either matches
-a spec sheet. Every other floor in `verdict.sh` is an observed band off this
-hardware for the same reason; `VERDICT_MIN_PEAK_BW_ALLREDUCE=683` is measured,
-not published.
+a spec sheet. Every other floor is an observed band off this hardware for the
+same reason; `VERDICT_MIN_PEAK_BW_ALLREDUCE=683`, in
+[SETTINGS](settings.md#benchmark-pass-floors), is measured, not published.
 
 Do not quote these numbers as Llama 3.1 8B benchmark results.
 

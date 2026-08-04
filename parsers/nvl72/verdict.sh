@@ -9,25 +9,9 @@
 # ending in DONE are legacy and are re-judged here rather than trusted.
 # See docs/benchmarks.md#where-a-pass-is-decided.
 
-## Bandwidth floors, GB/s, on the LARGEST-MESSAGE-SIZE out-of-place busbw --
-## the same figure daily-report.sh prints, so report and floor compare directly.
-## The `# Avg bus bandwidth` line is required below as evidence the run finished
-## but is not judged. Per job because alltoall and allreduce are not comparable
-## and NVLink and IB are different fabrics: 683/665/623 are NVLink figures; 43
-## is the compute-plane HCA spec figure and sits above every IB-scope result
-## captured so far, so suspect it, not the fabric, if every node fails in the
-## thirties. See docs/benchmarks.md#host-hcas-are-not-container-hcas.
-VERDICT_MIN_PEAK_BW_ALLREDUCE=683
-VERDICT_MIN_PEAK_BW_ALLTOALL=623
-VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK=43
-VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK=43
-## A second check on a node that runs SHARP slowly, not the thing that finds a
-## node lacking it -- without NVLS the job dies in ncclCommInitRank first. 665
-## rather than allreduce's 683 because pinning NCCL_ALGO costs a little
-## bandwidth; it is the bottom of the healthy band on ink50 (665.0-673.3) and
-## clears it only just, so suspect this floor first if isolated nodes fail by a
-## fraction of a GB/s. See docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says.
-VERDICT_MIN_PEAK_BW_ALLREDUCE_FORCESHARP=665
+## The five NCCL bandwidth floors are set in SETTINGS, not here, and reach this
+## file through settings.sh -- every caller sources that first.
+## See docs/settings.md#benchmark-pass-floors.
 
 ## Floors for the non-NCCL jobs, here rather than in each sbatch for the same
 ## reason the NCCL floors are -- see the header. A floor of 0 means one has not
@@ -209,9 +193,15 @@ _v_gate_nccl() {
     ## confirm NCCL never uses it, and a wrong forbid drains the whole cluster at
     ## once. The bandwidth floor catches the gross case meanwhile.
 
-    ## Bandwidth last, and only the largest-size figure -- see the floors at the
-    ## top of this file.
-    [[ -n "$peak_min" ]] && { _v_min_peak_bw "$file" "$peak_min" || return 1; }
+    ## Bandwidth last, and only the largest-size figure. An empty floor is a
+    ## caller that did not source settings.sh, not a job without a floor, and is
+    ## reported rather than passed. See docs/settings.md#benchmark-pass-floors.
+    if [[ -z "$peak_min" ]]; then
+        VERDICT_REASON="bandwidth floor is not set -- check SETTINGS"
+        VERDICT_DETAIL=""
+        return 1
+    fi
+    _v_min_peak_bw "$file" "$peak_min" || return 1
     return 0
 }
 

@@ -14,6 +14,23 @@
 ## Pinned to parsers/nvl72 rather than $PARSERS: the fixtures are nvl72
 ## captures. A site that switches PARSERS wants its own fixture set.
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+## The floors come from SETTINGS at runtime, and are pinned here to the shipped
+## values instead of sourced: a site that re-floors a job must not change what
+## these fixtures assert. `shipped floors` below is what checks the two agree.
+##
+## SC2034: read by verdict.sh, sourced below, which shellcheck cannot see from
+## here. Repeated because it covers only the next assignment.
+VERDICT_MIN_PEAK_BW_ALLREDUCE=683
+# shellcheck disable=SC2034
+VERDICT_MIN_PEAK_BW_ALLREDUCE_FORCESHARP=665
+# shellcheck disable=SC2034
+VERDICT_MIN_PEAK_BW_ALLTOALL=623
+# shellcheck disable=SC2034
+VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK=80
+# shellcheck disable=SC2034
+VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK=80
+
 source "$home/parsers/nvl72/verdict.sh"
 
 ## fixture | expected status | expected reason (empty for DONE)
@@ -25,13 +42,13 @@ cases=(
   ## the log carries, not the TCP fallback that is its consequence.
   "alltoall-nonvlink__socket-legacy-done|FAIL|no IB device visible to NCCL"
   ## Every IB transport check clears here; bandwidth alone rejects it. Stands in
-  ## for a DONE case -- no captured -nonvlink run reaches the 43 GB/s floor.
-  "alltoall-nonvlink__ib-below-floor-32|FAIL|peak busbw below floor 43 GB/s"
+  ## for a DONE case -- no captured -nonvlink run reaches the 80 GB/s floor.
+  "alltoall-nonvlink__ib-below-floor-32|FAIL|peak busbw below floor 80 GB/s"
   ## Host list complete, container sees nothing. See
   ## docs/benchmarks.md#host-hcas-are-not-container-hcas.
   "alltoall-nonvlink__container-blind|FAIL|no HCA visible inside the container"
   ## Largest-size busbw is judged; the `# Avg bus bandwidth` line is not.
-  "allreduce-nonvlink__ib-below-floor|FAIL|peak busbw below floor 43 GB/s"
+  "allreduce-nonvlink__ib-below-floor|FAIL|peak busbw below floor 80 GB/s"
   "alltoall__truncated|INCOMPLETE|no end marker -- job died before finishing"
   "allreduce__fell-to-socket|FAIL|collective left NVLink for the network"
   ## Real h20-36: a healthy 220.837 GB/s NVLink run that still logs `Using
@@ -132,6 +149,23 @@ fi
 ## Restored so nothing below sees a band the tree does not ship.
 VERDICT_MAX_COV_LLM_SOLO="$_solo_cov_saved"
 
+## A floor reaching the gate empty means settings.sh was not sourced, and used
+## to skip the bandwidth check on a fixture that clears every other one -- a
+## silent pass. See docs/settings.md#benchmark-pass-floors.
+_ar_saved="$VERDICT_MIN_PEAK_BW_ALLREDUCE"
+VERDICT_MIN_PEAK_BW_ALLREDUCE=""
+verdict "allreduce" "$home/tests/fixtures/allreduce__good-nvlink.txt"
+if [[ "$VERDICT_STATUS" == "FAIL" &&
+      "$VERDICT_REASON" == "bandwidth floor is not set -- check SETTINGS" ]]; then
+    printf 'ok       %-42s FAIL -- %s\n' "(floor unset)" "$VERDICT_REASON"
+    ((pass++))
+else
+    printf 'FAIL     %-42s want the unset-floor reason, got %s / %s\n' \
+        "(floor unset)" "$VERDICT_STATUS" "$VERDICT_REASON"
+    ((fail++))
+fi
+VERDICT_MIN_PEAK_BW_ALLREDUCE="$_ar_saved"
+
 ## A result file that is not one of ours -- missing, empty, a directory -- must
 ## be neither a pass nor an error.
 verdict "allreduce" "$home/tests/fixtures/does-not-exist.txt"
@@ -140,6 +174,24 @@ if [[ "$VERDICT_STATUS" == "NOT_RUN" ]]; then
     ((pass++))
 else
     printf 'FAIL     %-42s want NOT_RUN, got %s\n' "(missing file)" "$VERDICT_STATUS"
+    ((fail++))
+fi
+
+## settings.sh backfills what the settings file did not set, so the two ship the
+## same five numbers and drift silently: a floor corrected in one and not the
+## other applies at every site but this one's fixtures. Compared against the
+## values pinned at the top, which is what the fixtures below were judged with.
+drift=""
+_floors=("${!VERDICT_MIN_PEAK_BW_@}")
+for _f in "${_floors[@]}"; do
+    grep -qx "$_f=${!_f}" "$home/SETTINGS.default"        || drift+=" SETTINGS.default:$_f"
+    grep -qx ": \"\${$_f:=${!_f}}\"" "$home/settings.sh"  || drift+=" settings.sh:$_f"
+done
+if [[ -z "$drift" ]]; then
+    printf 'ok       %-42s %s floors agree\n' "(shipped floors)" "${#_floors[@]}"
+    ((pass++))
+else
+    printf 'FAIL     %-42s disagree with the fixtures:%s\n' "(shipped floors)" "$drift"
     ((fail++))
 fi
 
