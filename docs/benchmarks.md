@@ -50,7 +50,8 @@ asked when a node misbehaves and nothing drained it:
 | `ethr` | north-south throughput and latency on the in-band management and storage NICs (ConnectX / BlueField). Deliberately not the same traffic as NCCL or perftest, which are east-west RDMA — these paths are otherwise never exercised |
 | `nvloom` | MNNVL fabric validation per node: bandwidth uniformity across CE and SM engines, outlier detection, thermal behaviour under sustained collective load. Incubation tool, not a required gate in any variant |
 | `mnubergemm` | GPU burn-in — sustained mixed GEMM load for hours, the 24–72 hour row of the plan |
-| `llm-pretrain` | end-to-end pre-training scoped to one node. The only job that exercises the whole stack together: framework, container, data pipeline, checkpointing and intra-node collectives |
+| `llm-pretrain` | end-to-end Llama 3.1 8B pre-training scoped to one tray, 4-way data parallel. The only job that exercises the whole stack together: framework, container, data pipeline, checkpointing and intra-node collectives |
+| `llm-pretrain-solo` | the same recipe at scale 1, run as four independent single-GPU copies. No collectives at all: every GPU does identical work, so an outlier step time names a slow device rather than a slow node |
 | `hpl`, `cublasmatmul` | single-node GEMM, for isolating one suspect node during remediation. GB300/B300 uses `cublasmatmul` (GB300 MOP 7.5.2); GB200 uses `hpl` |
 
 Three single-node plan rows have no `.sbatch` file because they are not Slurm
@@ -111,11 +112,24 @@ generic header would get wrong.
   KILL for one that will not go. `timeout` reports 124 when the command took the
   TERM and exited, and 137 when the KILL had to fire — and ignoring a TERM is
   exactly what a wedged diagnostic does, so both count as an overrun.
-- **`llm-pretrain` is not ready to enable.** Its `LLMB_SCALE` is 8 while the
-  allocation asks for 4 GPUs, because the recipe is still TBD (see
-  `incubation/TTM_Single_Node_Workload_MOP.md` in the validation-mops repo).
-  Set both from the GPU count of the platform under test, and only then add it
-  to `BENCHMARKS`.
+- **`llm-pretrain` is not an `.sbatch` and is not enabled yet.** `llmb-run`
+  submits its own Slurm job, so the job is a host launcher — `llm-pretrain.sh`,
+  run on the node rather than submitted — and it needs an install that
+  `build_llmb.sh` puts on the head node. Its `--scale 4` matches the nvl72
+  node's four GPUs; on another platform both move together. The steps to enable
+  it, in order, are in [llmb.md#enabling-it](llmb.md#enabling-it).
+- **Both LLM jobs run below the recipe's characterised scale, with `--force`.**
+  Llama 3.1 8B is characterised at 8-128 GPUs and a tray is 4. Its GB200 FP8
+  configuration is pure data parallel -- TP=1, PP=1, CP=1, FSDP=False, DP=GPUs
+  -- so every rank already holds a whole replica and nothing is sharded across a
+  count that changed. The numbers are good for comparing nodes to each other,
+  and are **not** comparable to NVIDIA's published 8-GPU figures. The obvious
+  pick, `pretrain_nemotron-h`, is 56B-only at a minimum scale of 32 GPUs -- a
+  cluster benchmark, not a per-node gate. See
+  [llmb.md#running-below-the-characterised-scale](llmb.md#running-below-the-characterised-scale).
+- **`llm-pretrain-solo` ships with its training command unfilled** and refuses
+  to run until it is set from `llmb-run submit ... --scale 1 --force --dry-run`.
+  See [llmb.md#filling-in-the-solo-training-command](llmb.md#filling-in-the-solo-training-command).
 - **`nvsm` is not a container job.** It is installed on the host alongside
   `dcgmi`, refuses to run as anyone but root, and a batch task has no tty for a
   password prompt — so it needs a NOPASSWD sudoers grant on every compute node

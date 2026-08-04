@@ -64,3 +64,5 @@ JOB_ENV=""
 ## ── Accounts and paths ────────────────────────────────────────────────────
 JOB_USER=cmods
 BRINGUP_HOME=/home/cmods/bringup
+LLMB_INSTALL=/home/cmods/llmb
+LLMB_REF=v26.06.01

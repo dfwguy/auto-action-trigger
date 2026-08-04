@@ -37,6 +37,22 @@ VERDICT_MIN_TRIAD_MBS=400000        ## STREAM Triad, MB/s
 VERDICT_MIN_TFLOPS_GEMM=0           ## cublasmatmul per-GPU TFLOPS -- not set
 VERDICT_MIN_TFLOPS_READINGS=1       ## one TFLOPS figure per GPU is expected
 
+## llm-pretrain-solo: how far apart the four per-GPU step times may be, as a
+## coefficient of variation across the four ranks -- the same measure and the
+## same shape as VERDICT_MAX_COV_NVBANDWIDTH below.
+##
+## 0 means no band has been established on this platform yet, so the spread
+## check is SKIPPED rather than passing everything: four ranks that ran are
+## still required, and the figures are still printed by the report. Set it from
+## the spread a healthy node actually shows -- a floor invented here would
+## either drain the fleet on day one or never fire. See
+## docs/llmb.md#judging-the-four-step-times.
+VERDICT_MAX_COV_LLM_SOLO=0
+## One rank per GPU has to report timings; three reporting and one silent is the
+## failure this catches, and it is invisible to a check that only requires the
+## pattern to appear at all.
+VERDICT_MIN_LLM_SOLO_RANKS=4
+
 ## nvbandwidth run-to-run instability, from MOP section 6.2. Set above the MOP's
 ## 0.02: the one_to_all and host_to_all families print 0.01-0.04 on healthy
 ## nodes, where the spread is real topology rather than instability. 0.08 clears
@@ -459,6 +475,80 @@ _v_gate_llm_pretrain() {
     return 0
 }
 
+## llm-pretrain-solo. Four independent copies, one per GPU, so the evidence is
+## four sets of step timings and the finding is which of the four disagrees.
+##
+## `srun --label` prefixes each line with its task id, and that prefix is the
+## only thing tying a step time to a GPU. Ranks are counted DISTINCT: one rank
+## printing forty timings while three print none is exactly the failure being
+## looked for, and a plain count of matching lines would pass it.
+_v_llm_solo_ranks() {
+    local file="$1" min="$2" n
+    n=$(grep -oE '^[0-9]+:.*(train_step_timing|reduced_train_loss)' "$file" 2>/dev/null |
+        cut -d: -f1 | sort -u | grep -c .)
+    [[ "$n" -ge "$min" ]] && return 0
+    VERDICT_REASON="fewer than $min GPUs reported step timings"
+    VERDICT_DETAIL="reported: $(grep -oE '^[0-9]+:.*train_step_timing' "$file" 2>/dev/null |
+        cut -d: -f1 | sort -u | paste -sd, )"
+    return 1
+}
+
+## Median per rank, then the coefficient of variation across the four medians.
+## Median rather than mean because the first steps of a training run are warmup
+## and are legitimately slower on every GPU; one outlier step must not read as
+## an outlier device. DETAIL names the slowest GPU -- that is the actionable
+## part -- while REASON stays identical across nodes so dshbak keeps them in one
+## block. See docs/llmb.md#judging-the-four-step-times.
+_v_llm_solo_spread() {
+    local file="$1" max="$2" hit
+    ## 0 means no band established for this platform; skip rather than pass all.
+    awk -v m="$max" 'BEGIN { exit !(m + 0 > 0) }' || return 0
+    ## Flat SUBSEP keys, not arrays of arrays -- the latter is a gawk extension
+    ## and this has to run under whatever awk the node has.
+    hit=$(awk -v max="$max" '
+        match($0, /^[0-9]+:/) && match($0, /train_step_timing[^0-9]*[0-9]+\.?[0-9]*/) {
+            rank = $1 + 0
+            v = substr($0, RSTART, RLENGTH)
+            sub(/train_step_timing[^0-9]*/, "", v)
+            n[rank]++
+            t[rank, n[rank]] = v + 0
+        }
+        END {
+            k = 0
+            for (r in n) {
+                c = n[r]
+                ## Insertion sort: c is a few dozen steps at most.
+                for (i = 2; i <= c; i++) {
+                    x = t[r, i]
+                    for (j = i - 1; j >= 1 && t[r, j] > x; j--) t[r, j+1] = t[r, j]
+                    t[r, j+1] = x
+                }
+                med[r] = (c % 2) ? t[r, (c+1)/2] : (t[r, c/2] + t[r, c/2+1]) / 2
+                sum += med[r]; k++
+                if (med[r] > worst) { worst = med[r]; worstr = r }
+            }
+            if (k < 2) exit 0
+            mean = sum / k
+            for (r in med) sq += (med[r] - mean) ^ 2
+            cov = sqrt(sq / k) / mean
+            if (cov > max + 0)
+                printf "cov %.3f, slowest gpu %d at %.4fs vs %.4fs mean", cov, worstr, worst, mean
+        }' "$file" 2>/dev/null)
+    [[ -z "$hit" ]] && return 0
+    VERDICT_REASON="per-GPU step times disagree -- spread above ${max}"
+    VERDICT_DETAIL="$hit"
+    return 1
+}
+
+_v_gate_llm_pretrain_solo() {
+    local file="$1"
+    _v_llm_solo_ranks  "$file" "$VERDICT_MIN_LLM_SOLO_RANKS" || return 1
+    _v_forbid   "$file" "run error"        "$VERDICT_RUN_ERRORS" || return 1
+    _v_forbid_i "$file" "training aborted" 'traceback|cuda error|nccl error|out of memory' || return 1
+    _v_llm_solo_spread "$file" "$VERDICT_MAX_COV_LLM_SOLO" || return 1
+    return 0
+}
+
 ## mnubergemm is an internal tool with no documented success banner, so there
 ## is no positive marker to require beyond the file being non-empty: a
 ## container that starts, runs nothing and exits 0 produces an empty file and a
@@ -567,6 +657,8 @@ _v_dispatch_gate() {
             _v_gate_hpl "$file" ;;
         llm-pretrain)
             _v_gate_llm_pretrain "$file" ;;
+        llm-pretrain-solo)
+            _v_gate_llm_pretrain_solo "$file" ;;
         mnubergemm)
             _v_gate_mnubergemm "$file" ;;
         nvsm)

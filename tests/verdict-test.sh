@@ -54,6 +54,12 @@ cases=(
   ## about, and it still has to be caught.
   "nvbandwidth__missing-peer|FAIL|missing peer transfer -- N/A off the matrix diagonal"
   "nvbandwidth__unstable|FAIL|bandwidth unstable -- coefficient of variation above 0.08"
+  ## Synthetic; replace with captures once a node has run it. See docs/llmb.md.
+  "llm-pretrain-solo__good|DONE|"
+  "llm-pretrain-solo__missing-rank|FAIL|fewer than 4 GPUs reported step timings"
+  ## DONE because the shipped VERDICT_MAX_COV_LLM_SOLO=0 skips the spread check.
+  ## The assertion below is what proves that check works. See docs/llmb.md#judging-the-four-step-times.
+  "llm-pretrain-solo__slow-gpu|DONE|"
   "example__good|DONE|"
   ## Non-zero `exit status:` line, paired with example__good at 0: between them
   ## they hold that line to a wording no gate reacts to. Reported as the run
@@ -106,6 +112,25 @@ for level in 1 2 3 4; do
         ((fail++))
     fi
 done
+
+## Shipping 0 and shipping a broken spread check look identical above, so set a
+## band and require the outlier to be caught AND named.
+## See docs/llmb.md#judging-the-four-step-times.
+_solo_cov_saved="$VERDICT_MAX_COV_LLM_SOLO"
+VERDICT_MAX_COV_LLM_SOLO=0.05
+verdict "llm-pretrain-solo" "$home/tests/fixtures/llm-pretrain-solo__slow-gpu.txt"
+if [[ "$VERDICT_STATUS" == "FAIL" &&
+      "$VERDICT_REASON" == "per-GPU step times disagree -- spread above 0.05" &&
+      "$VERDICT_DETAIL" == *"slowest gpu 2"* ]]; then
+    printf 'ok       %-42s FAIL -- %s\n' "(solo spread, band set)" "$VERDICT_DETAIL"
+    ((pass++))
+else
+    printf 'FAIL     %-42s want FAIL naming gpu 2, got %s / %s / %s\n' \
+        "(solo spread, band set)" "$VERDICT_STATUS" "$VERDICT_REASON" "$VERDICT_DETAIL"
+    ((fail++))
+fi
+## Restored so nothing below sees a band the tree does not ship.
+VERDICT_MAX_COV_LLM_SOLO="$_solo_cov_saved"
 
 ## A result file that is not one of ours -- missing, empty, a directory -- must
 ## be neither a pass nor an error.

@@ -88,7 +88,9 @@ active_benchmarks="$BENCHMARKS"
 setting_enabled "$RUN_BURNIN" && active_benchmarks="$BENCHMARKS $BURNIN"
 
 for job in $active_benchmarks; do
+    ## See docs/sequencer.md#host-launched-jobs.
     sbatch="$jobs_dir/$job.sbatch"
+    [[ -f "$sbatch" ]] || sbatch="$jobs_dir/$job.sh"
     [[ -f "$sbatch" ]] || continue
     if grep -Fq "totalRuns" "$sbatch"; then
         runs=$(grep -F totalRuns "$sbatch" | awk -F= '{print $2}' | tr -d '[:space:]')

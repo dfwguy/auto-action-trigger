@@ -79,7 +79,8 @@ the traces have gone stale.
 │       ├── ethr.sbatch                # North-south management + storage NIC
 │       ├── nvloom.sbatch              # MNNVL fabric health (optional/exploratory)
 │       ├── mnubergemm.sbatch          # GPU burn-in (single node per the plan)
-│       ├── llm-pretrain.sbatch        # Single-node LLM pre-training workload gate
+│       ├── llm-pretrain.sh            # Single-node LLM pre-training; host-launched via llmb-run
+│       ├── llm-pretrain-solo.sbatch   # 4 independent 1-GPU pre-training copies; per-GPU step times
 │       ├── hpl.sbatch                 # HPL (Linpack), GB200 remediation-only GEMM
 │       ├── cublasmatmul.sbatch        # GB300 remediation-only single-node GEMM
 │       └── hpl/
@@ -91,6 +92,7 @@ the traces have gone stale.
 ├── tests/                         # Offline suites; stub Slurm, need no cluster
 ├── .gitlab-ci.yml                 # CI: the tests, plus the conventions in CLAUDE.md
 ├── build_containers.sh            # Build job container images into containers/
+├── build_llmb.sh                  # Install llmb-run + image + tokenizer for the LLM jobs
 ├── set-valid-default.sh           # Capture a validated node as the health baseline
 ├── health-check.sh                # Cluster-wide health summary: who is drained and why
 ├── node-health-refresh.sh         # Trigger a re-health-check on one or more nodes

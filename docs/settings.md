@@ -123,7 +123,8 @@ Jobs are organized by AI Factory Testing Plan (SNT) tier:
 | `ethr` | North-south management + storage NIC | Exhaustive |
 | `nvloom` | MNNVL fabric — optional / exploratory | Exhaustive |
 | `mnubergemm` | Burn-in | Hybrid / Exhaustive |
-| `llm-pretrain` | Single-node LLM pre-training workload gate | Hybrid / Exhaustive |
+| `llm-pretrain` | Single-node LLM pre-training workload gate — host-launched, see [llmb.md](llmb.md) | Hybrid / Exhaustive |
+| `llm-pretrain-solo` | 4 independent 1-GPU pre-training copies; finds *which* GPU is slow — see [llmb.md](llmb.md) | Hybrid / Exhaustive |
 | `hpl` `cublasmatmul` | Remediation-only single-node GEMM — run by hand | Remediation |
 
 ### Choosing a `BENCHMARKS` list
@@ -967,3 +968,26 @@ invokes them with no working directory to infer one from and they have to find
 `settings.sh` before they can read anything from it. Deploying elsewhere means
 editing `home=` at the top of both, and this setting to match. Every other
 script resolves its own location and ignores it.
+
+## llmb-run
+
+Only the `llm-pretrain` job reads these. A site not running it needs neither.
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `LLMB_INSTALL` | `/home/cmods/llmb` | Where `build_llmb.sh` installs the collection, image and tokenizer cache. Empty means no install |
+| `LLMB_REF` | `v26.06.01` | The `dgxc-benchmarking` tag `build_llmb.sh` installs. A tag rather than a branch so a reinstall is the same install |
+
+`LLMB_INSTALL` is deliberately outside `BRINGUP_HOME`, and `build_llmb.sh`
+refuses to install into it or below it. A tarball drop replaces that tree, and
+what is under here is a multi-GB image and a staged tokenizer rather than
+framework code.
+
+It is handed to a host launcher through the same allowlist as `JOB_ENV`, for the
+same reason — see [What is rejected](#what-is-rejected). A value containing
+anything outside `[A-Za-z0-9_.:/+@%=-]` is dropped with a `WARNING` in the
+trace, and the job then refuses rather than running without it.
+
+Everything else `llmb-run` needs lives in `cluster_config.yaml` inside the
+install, written by the collection's own installer — not in `SETTINGS`. See
+[llmb.md](llmb.md).

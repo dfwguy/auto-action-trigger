@@ -35,12 +35,46 @@ Three things are exempt, and only these:
 
 - `# shellcheck disable` directives, which carry their reason inline. That is
   what they are for, and the reason has to sit with the warning it suppresses.
-- The five `--help` header blocks, which *are* the help text — see below.
-- `.sbatch` files and `health-checks/*/NN-*.sh`, which are read on their own by
-  people who will not have the docs open.
+- The six `--help` header blocks, which *are* the help text — see below.
+- `.sbatch` files, `jobs/*/*.sh` host launchers and `health-checks/*/NN-*.sh`,
+  which are read on their own by people who will not have the docs open.
 
 This is not licence to delete reasoning. Moving an explanation into `docs/` and
 dropping it look identical in a diff and are not the same thing.
+
+The exemptions are permission to be self-contained, not to be verbose. They do
+not raise the density ceiling below.
+
+### Match the file you are editing
+
+A patch should not read differently from the file around it. Before adding a
+comment, look at what the neighbouring lines got: if the twenty settings above
+yours are bare assignments under a section header, yours is too. `SETTINGS.default`
+is the sharpest case and has been got wrong — a setting there gets a line only
+when the *value* is non-obvious, never to explain why the feature exists.
+
+Three questions, and a no to any of them means the comment is not earned:
+
+1. Does it say something the code does not already say? `## Node-local first,
+   NFS as fallback` above a line that reads exactly that is noise.
+2. Is it one or two lines? Longer means the explanation wants a `docs/` section
+   and a reference to it.
+3. Would a human skimming for the code thank you for it?
+
+The failure mode this guards against: a file where every line is annotated is
+searchable but not readable. Nobody scrolls past a screen of prose to find four
+lines of shell, so the comments get skimmed, then trusted, then stale.
+
+Cheap check on a branch before committing — added comment lines against added
+code lines, per file. Anything much above the file's own ratio is a rewrite, not
+a judgement call:
+
+```bash
+git diff main...HEAD --unified=0 -- '*.sh' '*.sbatch' |
+awk '/^\+\+\+ /{f=$2} /^\+[^+]/{l=substr($0,2); sub(/^[ \t]+/,"",l);
+     if (l ~ /^#/) c[f]++; else if (l != "") k[f]++}
+     END {for (x in c) printf "%-40s %d/%d\n", x, c[x], k[x]}'
+```
 
 ## Executable bits are load-bearing, and not uniform
 
@@ -53,6 +87,7 @@ is:
 | `644` | Sourced libraries: `settings.sh`, `reason-map.sh`, `slurm-recovery.sh`, `verdict-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is also *run*, but as `bash verdict-scan.sh` from its own `xargs`, like the health checks below |
 | `644` | `health-checks/*/NN-*.sh` | `node_health.sh` runs each as `bash "$check_file"` — deliberately, so one check's `exit 1` cannot truncate the set of 38 |
 | `644` | `jobs/*/*.sbatch`, including `example.sbatch` | `sbatch` reads them; it does not exec them. `example.sbatch` is a template that gets `cp`'d, so a stray `755` propagates into every new job |
+| `644` | `jobs/*/*.sh` — host launchers like `llm-pretrain.sh`, and the sourced `nccl-hca.sh` | `launch_job.sh` runs a host launcher as `bash "$launch"`, like the health checks. A launcher is told apart from a sourced helper by a `job_launch=host` line, not by its mode or name — see `docs/sequencer.md#host-launched-jobs` |
 
 Check the whole tree with:
 
@@ -131,11 +166,12 @@ tree — it changes the environment every sourcing script and Slurm job runs in.
 Keep the tree listing in `docs/architecture.md` in step with the files — it has
 drifted twice by adding a top-level script and not listing it.
 
-## Five scripts print their own header as `--help`
+## Six scripts print their own header as `--help`
 
-`status-check.sh`, `health-check.sh`, `daily-report.sh`, `sync-check.sh` and
-`trigger-log.sh` implement `-h` as `sed -n '2,NNp'` over themselves. The line
-range is hardcoded, so in those five files **comment length is runtime
+`status-check.sh`, `health-check.sh`, `daily-report.sh`, `sync-check.sh`,
+`trigger-log.sh` and `build_llmb.sh` implement `-h` as `sed -n '2,NNp'` over
+themselves. The line
+range is hardcoded, so in those six files **comment length is runtime
 behaviour**: shortening a header truncates `--help`, and adding prose below the
 block starts printing shell source at whoever typed it. Both pass a
 "comments only" review, because that is what they are.
