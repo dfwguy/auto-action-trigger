@@ -91,9 +91,14 @@ fi
 
 # ── The key covers the gate: the case this suite exists for ──────────────────
 
+## Appended to whichever file settings.sh reads, not substituted: a site's
+## SETTINGS may not name the key, and a sed matching nothing would pass here.
+sf="$tree/SETTINGS"
+[[ -f "$sf" ]] || sf="$tree/SETTINGS.default"
+cp "$sf" "$tmp/settings.orig"
+
 before=$(grep -c 'allreduce: DONE' <<<"$warm")
-sed -i 's/^VERDICT_MIN_PEAK_BW_ALLREDUCE=683/VERDICT_MIN_PEAK_BW_ALLREDUCE=700/' \
-    "$tree/parsers/nvl72/verdict.sh"
+printf 'VERDICT_MIN_PEAK_BW_ALLREDUCE=700\n' >> "$sf"
 after_edit=$(run)
 after=$(grep -c 'allreduce: DONE' <<<"$after_edit")
 rejected=$(grep -c 'allreduce: FAIL -- peak busbw below floor 700 GB/s' <<<"$after_edit")
@@ -105,8 +110,7 @@ else
         "raising a floor left $after DONE and rejected $rejected -- the cache is STALE"
 fi
 
-sed -i 's/^VERDICT_MIN_PEAK_BW_ALLREDUCE=700/VERDICT_MIN_PEAK_BW_ALLREDUCE=683/' \
-    "$tree/parsers/nvl72/verdict.sh"
+cp "$tmp/settings.orig" "$sf"
 if [[ "$(run)" == "$warm" ]]; then
     ok "restoring the gate restores the report" "no residue from the edited run"
 else

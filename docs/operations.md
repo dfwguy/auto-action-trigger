@@ -113,7 +113,7 @@ those columns means there was no figure to print instead: the job never ran
 (`FAIL`). Which cells passed is the `job (pass/fail)` block below, not the cell.
 
 That matters for reading a slow node: a `-nonvlink` cell at 41 GB/s and one at
-2.2 both fail the 43 GB/s floor, and they are a slow fabric and a socket
+2.2 both fail the 80 GB/s floor, and they are a slow fabric and a socket
 fallback. The floors are in `parsers/nvl72/verdict.sh` and are stated against
 the same number these columns print, so the two can be compared directly.
 
@@ -206,10 +206,13 @@ on a large fleet.
 This is the only thing in the tree that comes near storing a judgement, and what
 makes it legitimate is what is in the key:
 
-- **The gate.** `verdict.sh` and `verdict-scan.sh` are hashed in, so editing a
-  floor invalidates every entry at once and the fleet is re-judged. Floors move
-  here as the platform is learned; without this, those commits would change
-  nothing and no output would say so.
+- **The gate.** `verdict.sh` and `verdict-scan.sh` are hashed in, and every
+  `VERDICT_MIN_PEAK_BW_*` is added by name and value, so editing a floor
+  invalidates every entry at once and the fleet is re-judged. Floors move as the
+  platform is learned, and the bandwidth ones live in `SETTINGS`
+  ([settings.md#benchmark-pass-floors](settings.md#benchmark-pass-floors)) where
+  hashing the parser cannot see them; without that, re-flooring a job would
+  change nothing and no output would say so.
 - **Every result file under the node** — name, size and mtime, archives
   included. A new, changed or deleted result re-judges that node and no other.
   Size alone would miss a rewrite of equal length, so mtime is in there too.

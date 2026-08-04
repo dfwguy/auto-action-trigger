@@ -25,6 +25,13 @@ fi
 : "${HEALTHCHECKS:=nvl72}"
 : "${PARSERS:=nvl72}"
 : "${BENCHMARKS:=dcgmi-r1 dcgmi-r3 nvbandwidth allreduce allreduce-forcesharp alltoall allreduce-nonvlink alltoall-nonvlink}"
+## NCCL bandwidth floors, GB/s. Every other gate stays in the parser.
+## See docs/settings.md#benchmark-pass-floors.
+: "${VERDICT_MIN_PEAK_BW_ALLREDUCE:=683}"
+: "${VERDICT_MIN_PEAK_BW_ALLREDUCE_FORCESHARP:=665}"
+: "${VERDICT_MIN_PEAK_BW_ALLTOALL:=623}"
+: "${VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK:=80}"
+: "${VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK:=80}"
 ## `=` not `:=`: an empty BURNIN means "no burn-in" and is a real answer.
 ## See docs/settings.md#burn-in.
 : "${RUN_BURNIN:=no}"

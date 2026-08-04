@@ -19,6 +19,13 @@ NODE_FILTER=""
 ## ── Benchmark list ────────────────────────────────────────────────────────
 BENCHMARKS="dcgmi-r1 dcgmi-r3 nvbandwidth allreduce allreduce-forcesharp alltoall allreduce-nonvlink alltoall-nonvlink"
 
+## ── Benchmark pass floors ─────────────────────────────────────────────────
+VERDICT_MIN_PEAK_BW_ALLREDUCE=683
+VERDICT_MIN_PEAK_BW_ALLREDUCE_FORCESHARP=665
+VERDICT_MIN_PEAK_BW_ALLTOALL=623
+VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK=80
+VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK=80
+
 ## ── Burn-in ───────────────────────────────────────────────────────────────
 RUN_BURNIN=no
 BURNIN="mnubergemm"
@@ -58,8 +65,7 @@ INFLIGHT_GRACE_MINUTES=30
 DRAIN_MARKER="auto-retry"
 
 ## ── Reporting ─────────────────────────────────────────────────────────────
-## Worker processes status-check.sh and daily-report.sh judge the fleet with.
-## Empty or 0 means one per core. See docs/settings.md#reporting.
+## See docs/settings.md#reporting.
 SCAN_JOBS=
 
 ## ── Extra environment for every benchmark job ─────────────────────────────

@@ -18,9 +18,20 @@ must not overwrite one cluster's node list and drain switches with another's.
 
 ## Comments point at the docs; they do not contain them
 
-One or two lines and a reference. The reasoning goes in `docs/`, where it can be
-read in order, linked to, and found by someone who is not already staring at
-that line.
+**The default is no comment.** Write the code, then add a comment only if you
+can say which of the three questions below it passes. This rule is broken more
+often than any other here, and always the same way: a subtle fix lands, the
+reasoning behind it feels too valuable to lose, and it goes in above the line
+instead of into `docs/`. That instinct is right about the value and wrong about
+the destination.
+
+**A comment is at most two lines, and a diff must not add more comment lines
+than code lines** — per file, checked with the snippet below. Over either
+number, the explanation wants a `docs/` section; write it there and leave one
+line pointing at it.
+
+`docs/` is where reasoning can be read in order, linked to, and found by someone
+who is not already staring at that line. So: one or two lines and a reference.
 
 ```bash
 ## Not a tab: `read` collapses runs of IFS whitespace and eats empty fields.
@@ -66,8 +77,8 @@ searchable but not readable. Nobody scrolls past a screen of prose to find four
 lines of shell, so the comments get skimmed, then trusted, then stale.
 
 Cheap check on a branch before committing — added comment lines against added
-code lines, per file. Anything much above the file's own ratio is a rewrite, not
-a judgement call:
+code lines, per file. More comment than code fails; anything above the file's
+own ratio is a rewrite, not a judgement call:
 
 ```bash
 git diff main...HEAD --unified=0 -- '*.sh' '*.sbatch' |
@@ -152,6 +163,10 @@ Read `docs/operations.md#the-verdict-cache` before touching any of it.
 bash -n <changed script>       # these scripts run as root on 200+ nodes
 shellcheck -S warning <changed script>   # CI gates on this; see below
 ```
+
+Run the comment-ratio check from the section above as well, and act on it: a
+file over its ratio gets the explanation moved into `docs/` and a reference left
+behind, before the commit, not in a follow-up that never comes.
 
 The tree is clean at `severity=warning` and CI keeps it that way. A good deal of
 what shellcheck flags here is deliberate, so the existing `# shellcheck disable`

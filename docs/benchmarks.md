@@ -599,10 +599,12 @@ first would report the whole cluster as `collective carried over TCP`, which is
 true, and would send someone to look at the fabric instead of at a missing bind
 mount. Keep new checks in causal order.
 
-Bandwidth floors live in `VERDICT_MIN_PEAK_BW_*` at the top of
-`parsers/nvl72/verdict.sh` — 683, 665 and 623 GB/s for the NVLink-scope
-`allreduce`, `allreduce-forcesharp` and `alltoall`, and 43 GB/s for each of the
-`-nonvlink` pair. They
+The five NCCL bandwidth floors are `VERDICT_MIN_PEAK_BW_*`, set in `SETTINGS`
+rather than in the parser — 683, 665 and 623 GB/s for the NVLink-scope
+`allreduce`, `allreduce-forcesharp` and `alltoall`, and 80 GB/s for each of the
+`-nonvlink` pair. The table and the reasoning for keeping them per job are in
+[settings.md#benchmark-pass-floors](settings.md#benchmark-pass-floors); every
+other gate stays in `parsers/nvl72/verdict.sh`. They
 all read the same number: out-of-place busbw at the
 largest message size actually run. That is also the figure `daily-report.sh`
 prints in those columns, so a value in the report can be compared against the
@@ -614,12 +616,14 @@ out roughly half the largest-size figure on the same run, so a floor stated
 against it could not be checked against anything an operator is looking at.
 
 The `allreduce` and `alltoall` floors were set from known-good runs on this
-platform. The `-nonvlink` 43 was not: it is what the compute-plane HCAs are
-expected to sustain, and it sits above every IB-scope result captured so far — the fixture
-that used to be `alltoall-nonvlink__good-ib` measures 32.35 and is now a
-below-floor case. Read a full `daily-report.sh` before acting on drains from
-these two jobs. A handful of nodes under the floor is a fabric problem; every
-node landing in the thirties is the floor being wrong.
+platform. The `-nonvlink` 80 was not: it is what the compute-plane HCAs are
+expected to sustain, and it follows the link speed — 80 for a 100 GB/s plane,
+and 43, which it replaced, for 50 GB/s. Both sit above every IB-scope result
+captured so far — the fixture that used to be `alltoall-nonvlink__good-ib`
+measures 32.35 and is now a below-floor case. Read a full `daily-report.sh`
+before acting on drains from these two jobs. A handful of nodes under the floor
+is a fabric problem; every node landing far below it is the floor being wrong,
+and on these two the first thing to check is the compute plane's link speed.
 
 Run `tests/verdict-test.sh` after changing a gate. It checks
 `parsers/nvl72/verdict.sh` against captured result files, including a real
