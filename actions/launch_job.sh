@@ -58,6 +58,28 @@ job_list() {
     done
 }
 
+## How many runs a job wants. Read from the launcher rather than SETTINGS, and
+## used by both the cadence gate and the survey -- two readings of `totalRuns`
+## would drift, and the gate would key on a file the survey never looks at.
+job_total_runs() {
+    local launch="$1" total=1
+    if grep -Fq "totalRuns" "$launch"; then
+        total=$(grep -F totalRuns "$launch" | head -1 | awk -F= '{print $2}' | tr -d '[:space:]')
+    fi
+    [[ "$total" =~ ^[0-9]+$ ]] && [[ "$total" -gt 0 ]] || total=1
+    printf '%s' "$total"
+}
+
+## Result file for run $2 of job $1. Single-run jobs use <job>.txt.
+result_file() {
+    local job="$1" run="$2" total="$3"
+    if [[ "$total" -eq 1 ]]; then
+        echo "$logs/$job.txt"
+    else
+        echo "$logs/$job-run${run}.txt"
+    fi
+}
+
 ## ── Tracing ───────────────────────────────────────────────────────────────
 ##
 ## Every gate below can end the run with a plain `exit 0`, and a node that has
@@ -263,6 +285,52 @@ ensure_owned "$logs"
 ensure_file_owned "$tracelog"
 ensure_file_owned "$quickview"
 
+## ── Cadence, asked before Slurm is ────────────────────────────────────────
+##
+## Everything below this point talks to slurmctld, and on a fleet the size of
+## this one that traffic is the scarce resource, not the wall-clock. The gate
+## that decides whether this cycle does anything at all reads mtimes off disk
+## and needs no scheduler, so it is asked here rather than at the bottom.
+## See docs/sequencer.md#the-cadence-gate-comes-first.
+newest_result_mtime() {
+    local list="$1" job launch total r file mtime newest=0
+    for job in $list; do
+        launch=$(job_launcher "$job") || continue
+        total=$(job_total_runs "$launch")
+        for ((r = 1; r <= total; r++)); do
+            file=$(result_file "$job" "$r" "$total")
+            mtime=$(stat -c %Y "$file" 2>/dev/null) || continue
+            [[ "$mtime" -gt "$newest" ]] && newest=$mtime
+        done
+    done
+    printf '%s' "$newest"
+}
+
+## --force and --test are the operator saying the cadence is not the question.
+if [[ "$FORCE" -eq 0 ]]; then
+    pre_newest=$(newest_result_mtime "$BENCHMARKS")
+    if setting_enabled "$RUN_BURNIN"; then
+        pre_burn=$(newest_result_mtime "$BURNIN")
+        [[ "$pre_burn" -gt "$pre_newest" ]] && pre_newest=$pre_burn
+    fi
+    if [[ "$pre_newest" -gt 0 ]]; then
+        pre_age=$(( $(date +%s) - pre_newest ))
+        if [[ "$pre_age" -ge 0 && "$pre_age" -lt $(( RETRY_INTERVAL_HOURS * 3600 )) ]]; then
+            ## --explain reads on, as it does through the pause switches: the
+            ## question it answers is what a sweep would do here, and a dry run
+            ## is one operator rather than the fleet on a timer.
+            if [[ "$EXPLAIN" -eq 1 ]]; then
+                trace "cadence gate shut (newest result ${pre_age}s old, next sweep in $(( RETRY_INTERVAL_HOURS * 3600 - pre_age ))s) -- explaining anyway; a real cycle would ask slurm nothing and stop here"
+            else
+                ## Named because this exit now skips the drain recovery and the
+                ## queue checks as well, not just the submissions.
+                trace "EXIT: newest result is ${pre_age}s old, next sweep in $(( RETRY_INTERVAL_HOURS * 3600 - pre_age ))s -- nothing asked of slurm this cycle$(setting_enabled "$PAUSE_JOBS" && printf ' (PAUSE_JOBS=%s; pending jobs are cancelled on the next open cycle)' "$PAUSE_JOBS")"
+                exit 0
+            fi
+        fi
+    fi
+fi
+
 source /etc/profile.d/modules.sh
 module load slurm
 
@@ -366,16 +434,6 @@ if setting_enabled "$PAUSE_JOBS"; then
         exit 0
     fi
 fi
-
-## Result file for run $2 of job $1. Single-run jobs use <job>.txt.
-result_file() {
-    local job="$1" run="$2" total="$3"
-    if [[ "$total" -eq 1 ]]; then
-        echo "$logs/$job.txt"
-    else
-        echo "$logs/$job-run${run}.txt"
-    fi
-}
 
 ## Move a result aside so the slot is free for the next attempt; the archives
 ## double as the attempt history. Two suffixes because status-check.sh reads the
@@ -600,12 +658,7 @@ for job in $list; do
     ## sweep cannot pend a job that has nothing to submit.
     surveyed_jobs+=("$job")
 
-    if grep -Fq "totalRuns" "$launch"; then
-        totalRuns=$(grep -F totalRuns "$launch" | head -1 | awk -F= '{print $2}' | tr -d '[:space:]')
-    else
-        totalRuns=1
-    fi
-    [[ "$totalRuns" =~ ^[0-9]+$ ]] && [[ "$totalRuns" -gt 0 ]] || totalRuns=1
+    totalRuns=$(job_total_runs "$launch")
     job_runs["$job"]=$totalRuns
 
     passed=0

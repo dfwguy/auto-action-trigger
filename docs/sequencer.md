@@ -283,6 +283,35 @@ from files already on disk: the newest result file's mtime is when the last
 sweep ran, and the archived `.fail<N>.txt` files are the attempt history. There
 is no state file to keep in sync.
 
+### The cadence gate comes first
+
+That gate is the first thing the script asks, above `module load slurm` and
+above every query in the file. It reads mtimes off disk and needs no scheduler,
+so a cycle it shuts costs slurmctld nothing at all.
+
+This matters because of the arithmetic. BCM fires the trigger on every
+monitoring cycle — roughly once a minute — while the gate opens once an hour, so
+about 59 cycles in 60 have nothing to do. With the gate at the bottom of the
+script, each of those still ran two `sinfo` and three `squeue` before deciding
+that. Across 200 nodes that is on the order of a thousand client invocations a
+minute, and `sinfo -n <node>` and `squeue -n <name>` each pull the **whole** node
+or job table from slurmctld and filter it client-side. The cost grows with the
+fleet and with queue depth, neither of which the trigger controls.
+
+The order is therefore load-bearing, not tidiness: nothing that talks to Slurm
+may be hoisted above the gate. The price is that four things which used to be
+checked every minute are now checked once an hour — drains Slurm set itself, a
+foreign job appearing on the node, a held job needing reaping, and a job running
+past `MAX_JOB_HOURS`. Each is an hour later to be noticed than it was. That was
+judged the right trade for a chain that stops crashing the scheduler; if one of
+them needs to be prompt again, give it its own shorter cadence rather than
+moving it back above the gate.
+
+`--force` and `--test` skip the gate, as they always did. `--explain` reads
+*through* it and carries on — a dry run is one operator asking what a sweep
+would do, not the fleet on a timer — so it still costs the queries a real cycle
+would have made.
+
 The node is drained **only after a full sweep** — every benchmark has run at
 least once and something is still not passing. A single failure mid-sweep does
 not drain, so the rest of the sweep still runs and one bad test does not hide
