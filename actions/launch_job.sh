@@ -899,7 +899,7 @@ resume_node
 SUBMITTED_ID=""
 submit_one() {
     local jname="$1" job="$2" r="$3" totalRuns="$4"
-    local launch file submit out rc kind name
+    local launch file submit out rc kind name pre_ids extra
     SUBMITTED_ID=""
     launch=$(job_launcher "$job") || return 1
     file=$(result_file "$job" "$r" "$totalRuns")
@@ -938,6 +938,11 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
 --export=ALL,RESULT_FILE=$file$JOB_ENV_ARGS --output=$file $launch"
     fi
 
+    ## Snapshotted before the submission, so the id can be told apart from
+    ## anything already queued under the same name.
+    pre_ids=""
+    [[ "$launch" == *.sh ]] && pre_ids=$(squeue -h -n "$jname" -o '%i' 2>/dev/null | sort -u)
+
     if [[ "$EXPLAIN" -eq 1 ]]; then
         trace "WOULD SUBMIT $job run $r$([[ -f "$file" ]] && printf ' (existing %s result kept as .%s<N>.txt)' "$VERDICT_STATUS" "$kind"): $([[ "$EUID" -eq 0 ]] && printf 'su - %s -c ' "$JOB_USER")\"$submit\""
         return 1
@@ -958,7 +963,20 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
     fi
 
     if [[ "$launch" == *.sh ]]; then
-        SUBMITTED_ID=$(squeue -h -n "$jname" -o '%i' 2>/dev/null | head -1)
+        ## The id of what this launcher just submitted, by difference against
+        ## what was queued under the name a moment ago. `head -1` here picked
+        ## arbitrarily among everything sharing the name, which is how a stale
+        ## job's id ended up in the marker.
+        ## See docs/sequencer.md#getting-the-job-id-right.
+        SUBMITTED_ID=$(comm -13 <(printf '%s' "${pre_ids:+$pre_ids$'\n'}") \
+                                <(squeue -h -n "$jname" -o '%i' 2>/dev/null | sort -u))
+        ## More than one is a launcher that submitted twice, or a leftover the
+        ## snapshot missed. The extras are ours by name and unwanted either way.
+        if [[ "$(grep -c . <<<"$SUBMITTED_ID")" -gt 1 ]]; then
+            trace "WARNING: $launch left $(grep -c . <<<"$SUBMITTED_ID") jobs named $jname ($(tr '\n' ' ' <<<"$SUBMITTED_ID")) -- keeping the first and cancelling the rest, which would otherwise run this benchmark more than once"
+            for extra in $(tail -n +2 <<<"$SUBMITTED_ID"); do scancel "$extra" 2>/dev/null; done
+        fi
+        SUBMITTED_ID=$(head -1 <<<"$SUBMITTED_ID")
         if [[ -n "$SUBMITTED_ID" ]]; then
             trace "submitted $job run $r (host-launched): job $SUBMITTED_ID${JOB_ENV_ARGS:+ (JOB_ENV:${JOB_ENV_ARGS//,/ })}"
             return 0
@@ -968,7 +986,9 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
     fi
 
     if [[ "$out" == *"Submitted batch job"* ]]; then
-        SUBMITTED_ID=${out##*[!0-9]}
+        ## Not a trailing-digit strip: with -M the line ends "on cluster <name>",
+        ## and warnings can follow the success line.
+        SUBMITTED_ID=$(grep -oE 'Submitted batch job [0-9]+' <<<"$out" | tail -1 | grep -oE '[0-9]+$')
         ## The environment goes in the trace, not just the job id: when a result
         ## is questioned weeks later, SETTINGS says whatever it says then, so
         ## what the run was given has to be written down now.
@@ -994,8 +1014,16 @@ if [[ -n "$submit_target" ]]; then
     jname="$JOB_NAME_BENCH"
     [[ "$submit_target" == burnin ]] && jname="$JOB_NAME_BURNIN"
     if submit_one "$jname" "$NEXT_JOB" "$NEXT_RUN" "$NEXT_TOTAL"; then
-        inflight_write "$SUBMITTED_ID" "$NEXT_JOB" "$NEXT_RUN" "$NEXT_TOTAL" "$(date +%s)"
-        IN_FLIGHT_JOB="$NEXT_JOB"
+        ## Checked before it is written, not after it is read back. A marker
+        ## holding an unusable id is discarded next cycle, which leaves the node
+        ## looking idle while the job is still out -- and it submits a second
+        ## copy over the first. See docs/sequencer.md#getting-the-job-id-right.
+        if [[ "$SUBMITTED_ID" =~ ^[0-9]+$ ]]; then
+            inflight_write "$SUBMITTED_ID" "$NEXT_JOB" "$NEXT_RUN" "$NEXT_TOTAL" "$(date +%s)"
+            IN_FLIGHT_JOB="$NEXT_JOB"
+        else
+            trace "WARNING: $NEXT_JOB run $NEXT_RUN was submitted but its job id did not parse ('$SUBMITTED_ID') -- no marker written. It will read as somebody else's job once it starts and hold the node until it ends; 'scancel -n $jname' to clear it."
+        fi
     fi
 else
     trace "nothing eligible to submit: everything is passing or inside its own ${RETRY_INTERVAL_HOURS}h retry window"

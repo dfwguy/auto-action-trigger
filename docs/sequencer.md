@@ -371,6 +371,42 @@ The whole cost, per node per cycle:
 | advancing to the next job | 2 — `scontrol show node`, then `sbatch` |
 | marker gone stale | 1 — `squeue -j`, plus recovery if it fires |
 
+### Getting the job id right
+
+The marker is only as good as the id in it, and there are two ways to learn one.
+
+For a `.sbatch`, `sbatch` says so: the id is read out of `Submitted batch job
+<n>`, matching that phrase rather than stripping trailing digits — with `-M` the
+line ends `on cluster <name>`, and warnings can follow it. This path has no race;
+the submitting command reports its own result.
+
+For a **host-launched** job the tool submits itself, so the id has to be found
+afterwards, and the job name is the only handle. `bringup-<node>` is shared by
+every submission this node ever makes, so "the job under that name" is not a
+unique answer: anything still queued from an earlier cycle matches too, and
+picking the first meant the marker could end up tracking a stale job instead of
+the one just launched. So the ids under the name are snapshotted immediately
+before the launcher runs and again after, and the id is the difference.
+
+If that difference holds more than one id, the launcher submitted twice. The
+extras are ours by name and unwanted by definition — they would run the same
+benchmark again on the same node — so they are cancelled and the fact is traced.
+
+**An id that does not parse is never written down.** A marker holding an
+unusable id is discarded on the next cycle by `inflight_read`, which leaves the
+node looking idle while its job is still out — and it submits a second copy on
+top of the first. So the id is checked before the marker is written, not after
+it is read back, and a submission whose id could not be determined is traced as
+a warning with the `scancel` that clears it. The node is not left silently
+double-submitting; the orphan reads as somebody else's job once it starts, which
+holds the node until it ends.
+
+Nothing confirms the id is *running* at submit time, and nothing should: a job
+is `PENDING` for anything from a second to hours after `sbatch` returns, so
+"not running yet" is the normal case rather than a fault. Confirmation is the
+next cycle's `listjobs`, and a job that never appears is caught by the
+[stale branch](#when-a-marker-goes-stale) once its walltime and grace are up.
+
 ### Cadence is per job, not per node
 
 A job is eligible when it has not passed and its own result file is missing or
