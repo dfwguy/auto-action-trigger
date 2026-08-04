@@ -42,6 +42,40 @@ Three things are exempt, and only these:
 This is not licence to delete reasoning. Moving an explanation into `docs/` and
 dropping it look identical in a diff and are not the same thing.
 
+The exemptions are permission to be self-contained, not to be verbose. They do
+not raise the density ceiling below.
+
+### Match the file you are editing
+
+A patch should not read differently from the file around it. Before adding a
+comment, look at what the neighbouring lines got: if the twenty settings above
+yours are bare assignments under a section header, yours is too. `SETTINGS.default`
+is the sharpest case and has been got wrong — a setting there gets a line only
+when the *value* is non-obvious, never to explain why the feature exists.
+
+Three questions, and a no to any of them means the comment is not earned:
+
+1. Does it say something the code does not already say? `## Node-local first,
+   NFS as fallback` above a line that reads exactly that is noise.
+2. Is it one or two lines? Longer means the explanation wants a `docs/` section
+   and a reference to it.
+3. Would a human skimming for the code thank you for it?
+
+The failure mode this guards against: a file where every line is annotated is
+searchable but not readable. Nobody scrolls past a screen of prose to find four
+lines of shell, so the comments get skimmed, then trusted, then stale.
+
+Cheap check on a branch before committing — added comment lines against added
+code lines, per file. Anything much above the file's own ratio is a rewrite, not
+a judgement call:
+
+```bash
+git diff main...HEAD --unified=0 -- '*.sh' '*.sbatch' |
+awk '/^\+\+\+ /{f=$2} /^\+[^+]/{l=substr($0,2); sub(/^[ \t]+/,"",l);
+     if (l ~ /^#/) c[f]++; else if (l != "") k[f]++}
+     END {for (x in c) printf "%-40s %d/%d\n", x, c[x], k[x]}'
+```
+
 ## Executable bits are load-bearing, and not uniform
 
 The split is deliberate. Before changing a mode, work out which of these a file

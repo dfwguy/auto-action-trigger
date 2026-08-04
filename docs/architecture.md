@@ -92,7 +92,7 @@ the traces have gone stale.
 ├── tests/                         # Offline suites; stub Slurm, need no cluster
 ├── .gitlab-ci.yml                 # CI: the tests, plus the conventions in CLAUDE.md
 ├── build_containers.sh            # Build job container images into containers/
-├── build_llmb.sh                  # Install llmb-run + image + dataset for llm-pretrain
+├── build_llmb.sh                  # Install llmb-run + image + tokenizer for the LLM jobs
 ├── set-valid-default.sh           # Capture a validated node as the health baseline
 ├── health-check.sh                # Cluster-wide health summary: who is drained and why
 ├── node-health-refresh.sh         # Trigger a re-health-check on one or more nodes

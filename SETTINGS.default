@@ -64,8 +64,4 @@ JOB_ENV=""
 ## ── Accounts and paths ────────────────────────────────────────────────────
 JOB_USER=cmods
 BRINGUP_HOME=/home/cmods/bringup
-
-## ── llmb-run (the llm-pretrain job) ───────────────────────────────────────
-## Built by ./build_llmb.sh on the head node. Outside BRINGUP_HOME so a tarball
-## drop does not land on the images and dataset. See docs/llmb.md.
 LLMB_INSTALL=/home/cmods/llmb

@@ -56,7 +56,9 @@ not published.
 Do not quote these numbers as Llama 3.1 8B benchmark results.
 
 The rest of this page is about `llm-pretrain` and the install both jobs share.
-`llm-pretrain-solo` has its own two sections at the end.
+`llm-pretrain-solo` has its own two sections at the end. For the tool rather
+than this tree's use of it — flags, `cluster_config.yaml`, minimum scales — see
+[llmb-run.md](llmb-run.md).
 
 ## Why `llm-pretrain` is not an `.sbatch`
 

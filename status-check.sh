@@ -99,7 +99,7 @@ select_test() {
 }
 
 for job in $active_benchmarks; do
-    ## Host-launched jobs are `.sh`; see docs/sequencer.md#host-launched-jobs.
+    ## See docs/sequencer.md#host-launched-jobs.
     sbatch="$jobs_dir/$job.sbatch"
     [[ -f "$sbatch" ]] || sbatch="$jobs_dir/$job.sh"
     [[ -f "$sbatch" ]] || continue

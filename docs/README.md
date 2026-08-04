@@ -14,5 +14,6 @@ handful of commands a bringup needs day to day. Everything else lives here.
 | [benchmarks.md](benchmarks.md) | The `jobs/$JOBS/` catalog, test-plan coverage, what to set before enabling a job, adding a new one |
 | [containers.md](containers.md) | `build_containers.sh` — why images are local, the two-pass source build, per-image notes |
 | [llmb.md](llmb.md) | Why `llm-pretrain` is launched from the node instead of submitted; what `build_llmb.sh` installs, and how the job runs with no route off the cluster |
+| [llmb-run.md](llmb-run.md) | The `llmb-run` tool itself — command surface, `cluster_config.yaml`, and the four behaviours that shaped the jobs: the second job it submits, characterised scales, minimum scales, gated models |
 | [nvsm.md](nvsm.md) | Why `jobs/nvl72/nvsm.sbatch` is DGX only and out of the default list; the sudoers grant and platform definition files it needs |
 | [operations.md](operations.md) | Full operator command reference — status, node state, drains, trigger debugging |

@@ -81,9 +81,7 @@ fi
 : "${JOB_ENV=}"
 : "${JOB_USER:=cmods}"
 : "${BRINGUP_HOME:=/home/cmods/bringup}"
-## Deliberately outside BRINGUP_HOME: it holds venvs, images, tokenizer and
-## dataset, and a tarball drop must not land on top of them.
-## `=` not `:=`: empty means "no llmb install", which is the shipped answer.
+## `=` not `:=`, like CONTAINERS: empty means no llmb install.
 ## See docs/llmb.md#where-the-install-lives.
 : "${LLMB_INSTALL=/home/cmods/llmb}"
 

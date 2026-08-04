@@ -54,15 +54,11 @@ cases=(
   ## about, and it still has to be caught.
   "nvbandwidth__missing-peer|FAIL|missing peer transfer -- N/A off the matrix diagonal"
   "nvbandwidth__unstable|FAIL|bandwidth unstable -- coefficient of variation above 0.08"
-  ## Synthetic, not captured -- the job has never run. Four ranks at ~0.40s,
-  ## one case with rank 3 silent, one with rank 2 ~18% slow. Replace all three
-  ## with real captures once a node has run it. See docs/llmb.md#enabling-it.
+  ## Synthetic; replace with captures once a node has run it. See docs/llmb.md.
   "llm-pretrain-solo__good|DONE|"
   "llm-pretrain-solo__missing-rank|FAIL|fewer than 4 GPUs reported step timings"
-  ## DONE at the shipped VERDICT_MAX_COV_LLM_SOLO=0, which SKIPS the spread
-  ## check because no healthy band is established yet. The assertion below is
-  ## what proves the check works once a band is set -- without it, shipping 0
-  ## and shipping a broken spread check are indistinguishable here.
+  ## DONE because the shipped VERDICT_MAX_COV_LLM_SOLO=0 skips the spread check.
+  ## The assertion below is what proves that check works. See docs/llmb.md#judging-the-four-step-times.
   "llm-pretrain-solo__slow-gpu|DONE|"
   "example__good|DONE|"
   ## Non-zero `exit status:` line, paired with example__good at 0: between them
@@ -117,11 +113,8 @@ for level in 1 2 3 4; do
     fi
 done
 
-## The llm-pretrain-solo spread check ships disabled (VERDICT_MAX_COV_LLM_SOLO=0)
-## because no healthy band is established. That makes the fixture above pass,
-## which is correct and also indistinguishable from a spread check that does not
-## work at all. So it is set here, against the same file, and the outlier must
-## be caught AND named -- the naming is the whole point of the job.
+## Shipping 0 and shipping a broken spread check look identical above, so set a
+## band and require the outlier to be caught AND named.
 ## See docs/llmb.md#judging-the-four-step-times.
 _solo_cov_saved="$VERDICT_MAX_COV_LLM_SOLO"
 VERDICT_MAX_COV_LLM_SOLO=0.05

@@ -8,26 +8,22 @@
 # Set up by ./build_llmb.sh on the head node, once per CPU architecture. This
 # script never reaches a registry or the internet: see docs/llmb.md.
 
-## Read by actions/launch_job.sh with grep, not by running this file. Without
-## the job_launch line the file is taken for a sourced helper -- like
-## nccl-hca.sh in this directory -- and is never launched.
-# shellcheck disable=SC2034  # read from outside; exporting would change every job's environment
+## Without job_launch the file reads as a sourced helper and is never launched.
+## See docs/sequencer.md#host-launched-jobs.
+# shellcheck disable=SC2034  # both read from outside, by grep
 job_launch=host
-# shellcheck disable=SC2034  # ditto -- the status line reads this out of the file
+# shellcheck disable=SC2034
 job_name=llm-pretrain
 
 ## ------------- what the sequencer handed us ------------- ##
 
-## RESULT_FILE is where the verdict is read from, and SBATCH_JOB_NAME is what
-## this node's queue gates match on. Both come from launch_job.sh; a hand-run
-## has to supply them.
+## Both come from launch_job.sh; a hand-run has to supply them.
 ## No apostrophes in a :? message: bash parses it as a quote even inside "".
 : "${RESULT_FILE:?RESULT_FILE is not set -- run this through actions/launch_job.sh, or set it by hand}"
 : "${SBATCH_JOB_NAME:?SBATCH_JOB_NAME is not set -- the submitted job would be invisible to the gates on this node}"
 
-## Refusals are written where the report reads, not just to stdout: this script
-## returns before the work starts, so a silent refusal is a node that simply
-## stops testing. See docs/llmb.md#when-the-launch-is-refused.
+## Written where the report reads, not just to stderr.
+## See docs/llmb.md#when-the-launch-is-refused.
 refuse() {
     printf '%s\n' "llm-pretrain: $1" "exit status: 1" FAIL > "$RESULT_FILE"
     echo "llm-pretrain: $1" >&2
@@ -36,15 +32,11 @@ refuse() {
 
 ## ------------- the recipe ------------- ##
 
-## Llama 3.1 8B rather than Nemotron-H 56B: 56B has a minimum scale of 32 GPUs,
-## which is eight trays, and this is a per-node gate. 8B is the smallest
-## pre-training recipe in the collection.
+## 8B, and SCALE below the recipe's characterised floor of 8, both explained in
+## docs/llmb.md#running-below-the-characterised-scale.
 WORKLOAD=pretrain_llama3.1
 MODEL_SIZE=8b
 DTYPE=fp8
-## Four GPUs is the tray. Below the recipe's characterised floor of 8, so
-## --force is required -- see docs/llmb.md#running-below-the-characterised-scale
-## for why that is sound here and what it costs.
 SCALE=4
 
 ## ------------- the install ------------- ##
@@ -57,10 +49,7 @@ export LLMB_INSTALL="${LLMB_INSTALL:?LLMB_INSTALL is not set -- settings.sh deri
 command -v llmb-run >/dev/null 2>&1 ||
     refuse "llmb-run is not on PATH -- see docs/llmb.md#what-build_llmb.sh-leaves-behind"
 
-## Llama is a GATED Hugging Face repo, so unlike synthetic-data workloads this
-## one needs a real tokenizer cache. Compute nodes have no route off the
-## cluster: without these three, a cache miss is a silent stall that eats the
-## wall limit and reports as a training failure.
+## A cache miss on a node with no route out must fail, not stall.
 ## See docs/llmb.md#running-offline.
 export HF_HOME="$LLMB_INSTALL/hf"
 export HF_HUB_OFFLINE=1
@@ -74,22 +63,15 @@ cd "$LLMB_INSTALL" || refuse "cannot cd to $LLMB_INSTALL"
 
 ## ------------- launch ------------- ##
 
-## llmb-run submits a SECOND Slurm job for post-processing unless this is set.
-## That job carries neither of this node's two job names, so the foreign-job
-## gate in launch_job.sh would read it as somebody else's work and leave the
-## node alone every cycle for as long as it existed.
-## See docs/llmb.md#the-post-processing-job.
+## Without this, llmb-run submits a second job that trips the foreign-job gate
+## on every cycle. See docs/llmb.md#the-post-processing-job.
 export LLMB_SKIP_PP=1
 
-## --nodelist, --nice and --slurm-arg are llmb-run's own flags, and they are how
-## the three things an .sbatch would get from `sbatch -w -J --output` reach the
-## submission. --slurm-arg takes KEY=VALUE with no leading dashes, and refuses
-## the keys that have dedicated flags (nodelist, exclude, reservation, segment,
-## nice). --nice 20 is the sweep's tier, matching every .sbatch in this
-## directory. See docs/llmb.md#pinning-the-submission.
+## What an .sbatch would get from `sbatch -w -J --output`, in llmb-run's flags.
+## See docs/llmb.md#pinning-the-submission.
 ##
-## Returns as soon as the job is queued. Anything that blocks here holds the
-## BCM action open for the length of the training run.
+## Must return once queued: anything blocking here holds the BCM action open for
+## the length of the training run.
 out=$(llmb-run submit \
         -w "$WORKLOAD" \
         -s "$MODEL_SIZE" \
@@ -104,6 +86,5 @@ rc=$?
 
 echo "$out"
 
-## launch_job.sh confirms the queue itself, so this only has to report. A
-## non-zero status with nothing queued is diagnosed there, against squeue.
+## launch_job.sh confirms against squeue; this only has to report.
 [[ "$rc" -eq 0 ]] || refuse "llmb-run exited $rc: ${out:-<no output>}"
