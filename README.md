@@ -157,7 +157,7 @@ RUN_BURNIN=no
 BURNIN="mnubergemm"
 ```
 
-`mnubergemm` is 12 runs of a ~6-hour step, one job at a time, so a node is under burn-in for about three days. It is not gated on the benchmarks passing — it is ordered behind them by `#SBATCH --nice` in the job files (the dcgmi gates at 0, the rest of the sweep at 20, burn-in at 100000), so a benchmark retry queued mid-burn-in goes ahead of the runs still waiting rather than behind all of them. It does not interrupt the run already on the node: every job is `--exclusive`.
+`mnubergemm` is 12 runs of a ~6-hour step, one job at a time, so a node is under burn-in for about three days. It is not gated on the benchmarks passing — it is ordered behind them by `#SBATCH --nice` in the job files (the dcgmi gates at 1-4, the rest of the sweep at 20, burn-in at 100000), so a benchmark retry queued mid-burn-in goes ahead of the runs still waiting rather than behind all of them. It does not interrupt the run already on the node: every job is `--exclusive`.
 
 `MAX_JOB_HOURS` ships at `7` to clear a single burn-in run — lower it and the sequencer drains healthy nodes mid-run for a timeout. The image is downloaded by default even though the list is off, so turning it on does not mean a fleet-wide failure while the image catches up. See [docs/settings.md](docs/settings.md#burn-in).
 

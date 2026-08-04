@@ -6,12 +6,13 @@ catalog above it lists every job in `jobs/$JOBS/` and which delivery
 methodology calls for it — see [benchmarks.md](benchmarks.md) and
 [settings.md](settings.md).
 
-Once an hour, every benchmark in that list without a passing result is queued in
-listed order, and Slurm runs them back to back on the node. A job passes when
-every one of its runs ends in `DONE`; anything else — `FAIL`, truncated output
-from a crashed node, or no result at all — is queued again on the next sweep.
-There is no retry limit: a node keeps being re-tested until it passes or an
-operator intervenes.
+One job at a time, in listed order: the node submits the first benchmark that
+has not passed and whose own last result is over an hour old, and submits
+nothing more until that job is done. A job passes when every one of its runs
+ends in `DONE`; anything else — `FAIL`, truncated output from a crashed node, or
+no result at all — is offered again once its hour is up. There is no retry
+limit: a node keeps being re-tested until it passes or an operator intervenes.
+See [one job at a time](#one-job-at-a-time).
 
 Benchmarks support multiple runs via `totalRuns=N` in the `.sbatch` file (see
 `mnubergemm.sbatch`, which uses 12). Result files are named `<job>.txt` (single
@@ -104,13 +105,12 @@ output rotated away is tested, and reading it as untested would hold the
 swept-clean condition on the drain below open indefinitely on exactly the node
 that keeps failing.
 
-What serializes the batch is `#SBATCH --exclusive` in every `jobs/*.sbatch`.
-Without serialization the whole batch is eligible at once and a GPU job landing
-on top of dcgmi's stress plugins fails on buffer allocation. Ordering follows the
-`BENCHMARKS` list in practice — the jobs are submitted in that order, carry
-equal priority, and a whole-node job leaves no backfill window for a later one
-to slip into — but that is a scheduling consequence, not a guarantee. No job
-should depend on an earlier one having finished.
+Serialization no longer depends on the scheduler: only one job of ours is ever
+out, so ordering *is* the `BENCHMARKS` list. `#SBATCH --exclusive` stays in every
+`jobs/*.sbatch` because it still does the other half of the work — it keeps
+other people's jobs off the node mid-benchmark, and a GPU job landing on top of
+dcgmi's stress plugins fails on buffer allocation. No job should depend on an
+earlier one having finished.
 
 This used to be `--dependency=singleton` over a shared job name. Singleton
 matches on name alone, cluster-wide, so the name had to carry the hostname or a
@@ -120,42 +120,42 @@ given once it ran. `--exclusive` states the real requirement — this job wants
 the whole node — and additionally keeps *other people's* jobs off the node
 mid-benchmark, which singleton never did.
 
-The shared job name `bringup-<node>` stays, for a different reason: `squeue -n
-bringup-<node>` is how the sequencer sees its own jobs while they are still
-queued and unplaced, which `squeue -w <node>` cannot show.
+The shared job name `bringup-<node>` stays, for a different reason: a
+host-launched job submits itself, so the name is how the sequencer finds the id
+of what it just launched. The foreign-job check does not use it — that matches
+on job **id**, against the one in the marker.
 
 ## Two lists
 
 `BENCHMARKS` is the sweep and always runs. `BURNIN` runs when `RUN_BURNIN` is
-on. Both are surveyed every cycle and both can be in the queue at the same
-time, each under its own job name — `bringup-<node>` and `burnin-<node>`.
+on. Both are surveyed every cycle, and both submit under their own job name —
+`bringup-<node>` and `burnin-<node>`.
 
-Those names are what make the two independent. "Is anything of ours already
-queued" is the question that stops the sequencer piling up duplicate
-submissions, and with two lists it has to be asked per list: otherwise a
-burn-in sitting in the queue for three days would block every benchmark retry
-behind it.
+The names no longer separate two queues, because there is no queue: with [one
+job at a time](#one-job-at-a-time) a node has a single slot, and the marker says
+whether it is taken. What they still do is label the submission — which is how a
+host-launched job's id is found, and how anyone reading `squeue` by hand tells a
+burn-in from a benchmark.
 
-Ordering between them is Slurm priority — `#SBATCH --nice` in each job file,
-`0` for the dcgmi gates, `20` for the rest of the sweep, `100000` for burn-in.
-See [benchmarks.md](benchmarks.md#queue-priority). Priority reorders what has
-not started; it does not preempt what has, because every job is `--exclusive`.
-So a benchmark queued during a burn-in waits out the run on the node (up to
-`MAX_JOB_HOURS`) and then goes ahead of the eleven still waiting.
+Ordering between the lists is now sequence rather than priority: `BENCHMARKS` is
+offered first, and `BURNIN` is considered only when no benchmark is eligible. A
+benchmark that comes due mid-burn-in therefore waits for the burn-in *run* in
+flight to finish — up to `MAX_JOB_HOURS` — and then goes next, rather than
+waiting out all twelve. That is the same guarantee the `--nice` tiers used to
+buy, arrived at without queueing anything.
 
-Burn-in used to be gated behind a clean sweep instead, which made the ordering
-absolute at the cost of making it rigid: a node failing one benchmark could
-never start burning in, and a node three days into a burn-in could not pick up a
-benchmark retry until it finished. Priority buys back both at the cost of the
-one thing it cannot do — a site that needs a benchmark to interrupt a *running*
-burn-in needs Slurm preemption (`PreemptType`/`PreemptMode`, with the two lists
-in different partitions or QOSes), which is scheduler configuration and not
-something this script can arrange.
+Burn-in used to be gated behind a clean sweep, which made the ordering absolute
+at the cost of making it rigid: a node failing one benchmark could never start
+burning in, and a node three days into a burn-in could not pick up a benchmark
+retry until it finished. Neither is true now. The one thing this cannot do is
+interrupt a *running* burn-in; that needs Slurm preemption
+(`PreemptType`/`PreemptMode`, with the two lists in different partitions or
+QOSes), which is scheduler configuration and not something this script can
+arrange.
 
-A list with jobs in the queue is not judged that cycle: its result files are
-being written right now, and a file with no end marker is a job in progress
-rather than one that died. Nothing from such a list is archived, requeued, or
-drained on until its queue is empty.
+A job in flight is not judged: its result file is being written right now, and a
+file with no end marker is a job in progress rather than one that died. Nothing
+is archived, requeued or drained on until the marker clears.
 
 With `RUN_BURNIN=no` — the default — nothing burns in, and `BURNIN` jobs appear
 in `quick-view.txt` as `BURN-IN OFF` so a burn-in that never ran cannot be
@@ -200,15 +200,23 @@ on a normal cycle, and each one traces that `--force` did not override it:
 
 - **`PAUSE_JOBS=yes`** — nothing is submitted. It is a site switch, not a
   timing gate; set it back to `no` to sweep.
-- **A drained, down or maintenance node** — nothing is submitted, and nothing
-  is added to `squeue` on its behalf, unless the drain is one of ours (it
-  carries `DRAIN_MARKER`), which is the ordinary retry loop. An operator's
-  drain still has to be released by an operator.
-- **Another user's job on the node** — the node is left to them.
-- **Our own batch already queued** — skipped, per list. Forcing on top of a
-  queued batch is how a node ends up running the same benchmark twice; the
-  trace names the `scancel -n bringup-<node>` / `-n burnin-<node>` to run first
-  if that is really what is wanted.
+- **`NODE_FILTER` not matching this node** — nothing is submitted. Also a site
+  switch, and the one most likely to be forced over by accident: `-f` is
+  normally issued across a whole rack over `pdsh`, which must not quietly test
+  nodes the site took out. `--test` opens it; `--force` does not. See
+  [settings.md](settings.md#restricting-which-nodes-run-jobs).
+- **Another user's job on the node** — the node is left to them. Read from
+  `scontrol listjobs`, so this costs the controller nothing.
+- **A job of ours already out** — whether the in-flight marker says so, or the
+  [submission guard](#the-guard-before-a-submission) finds one queued with no
+  marker. Forcing on top of one is how a node ends up running the same
+  benchmark twice; the trace names the `scancel` to run first if that is really
+  what is wanted.
+
+A drain is *not* among them any more, in either direction: with one job at a
+time there is no batch to dump on a node the moment it is resumed, so a job
+submitted to a drained node simply pends. See
+[what the node can answer by itself](#what-the-node-can-answer-by-itself).
 
 `--all` does not turn burn-in on: with `RUN_BURNIN=no` the `BURNIN` list is not
 surveyed and not queued. It also does not invent or clear failures — the drain
@@ -253,10 +261,14 @@ trace:
 - **`quick-view.txt` is left alone.** It describes the `BENCHMARKS` and `BURNIN`
   columns, which this run has not surveyed; rewriting it would report every real
   column as `QUEUED`.
-- **The gates that decide whether the node should get work at all still
-  apply** — `PAUSE_JOBS`, another user's job, a drain that is not ours, and our
-  own batch already queued. `--test` is a choice of *what* to submit, and the
-  list above is about *whether* to.
+- **Most gates that decide whether the node should get work at all still
+  apply** — `PAUSE_JOBS`, another user's job, and a job of ours already out.
+  `--test` is a choice of *what* to submit, and those are about *whether* to.
+  The exception is `NODE_FILTER`, which `--test` opens: naming a job and running
+  the command on a particular node is already a deliberate statement about that
+  node, and refusing would mean widening the site's filter to check one suspect
+  machine. The trace says the node is outside the swept set, so a result the
+  reports do not cover is explained where it happened.
 
 The batch is submitted under the ordinary `bringup-<node>` job name, so a test
 in flight is counted, cancelled and waited on exactly like any other benchmark,
@@ -282,6 +294,238 @@ cron and no second trigger — just a time gate. Retry state is derived entirely
 from files already on disk: the newest result file's mtime is when the last
 sweep ran, and the archived `.fail<N>.txt` files are the attempt history. There
 is no state file to keep in sync.
+
+### One job at a time
+
+A node has at most one job of ours out at any moment, and the record of it is a
+local file — `results/<node>/.in-flight`, tab separated: job id, job name, run
+number, total runs, submit epoch.
+
+That file exists so the question "has this node got work out" can be answered
+without asking slurmctld. It used to be answered with `squeue -n bringup-<node>`
+and `squeue -n burnin-<node>`, every node, every monitoring cycle. BCM fires the
+trigger about once a minute, so across 200 nodes that is on the order of a
+thousand client invocations a minute — and `squeue -n <name>` pulls the **whole**
+job table from slurmctld and filters it client-side, so the cost climbs with
+both the fleet and the queue depth. Submitting one job instead of eight cuts the
+depth as well: a fleet mid-sweep holds ~200 pending jobs where it used to hold
+~1,600, which makes every remaining query cheaper for everyone on the cluster,
+not just for this trigger.
+
+Each cycle reads the marker and takes one of four branches. Only the last costs
+a query:
+
+| Marker | Job running here | Result file | What happens | Controller |
+|---|---|---|---|---|
+| absent | — | — | pick the next eligible job and submit it | 3 |
+| present | yes | — | leave it alone | **0** |
+| present | no | ends in a marker | job finished; clear and advance next cycle | **0** |
+| present | no | no end marker, inside its window | not started yet; wait | **0** |
+| present | no | no end marker, past its window | [stale](#when-a-marker-goes-stale) | 1 |
+
+"Job running here" is `scontrol listjobs`, which contacts the local slurmstepd
+processes and not slurmctld — see [what the node can answer by
+itself](#what-the-node-can-answer-by-itself). An inconclusive answer reads as
+**still running**, never as gone: only the stale branch below may conclude a job
+has ended, and it asks the controller outright.
+
+The result file is not evidence on its own. `sbatch --output` creates it when
+the job *starts*, so its existence says nothing; what says the job ended is an
+end marker in it, which is the same thing `verdict.sh` reads.
+
+### What the node can answer by itself
+
+Almost everything this script needs is knowable on the node. `scontrol` has a
+family of subcommands documented as contacting *the local slurmstepd processes
+only, and not slurmctld*:
+
+| Command | Answers |
+|---|---|
+| `listjobs` | every job running on this node — ours **and** everyone else's |
+| `liststeps` | the steps within them |
+| `listpids`, `pidinfo` | processes, and which job they belong to |
+| `show slurmd` | the local daemon's own statistics |
+
+`listjobs` prints a `JOBID` header and then one bare id per line. That single
+command answers both questions the sequencer used to spend `squeue` on:
+
+- **is our job still going** — is the marker's id in the list
+- **is somebody else on this node** — is any *other* id in the list
+
+The second used to be `squeue -w <node>`, which asked slurmctld for something
+slurmd already knew.
+
+**The exception is node state.** `State=IDLE|DRAIN|DOWN` and the drain `Reason`
+live in slurmctld, not in slurmd — a node genuinely does not know it has been
+drained, and no local command reports it. So it is fetched lazily, cached for
+the cycle, and only by the paths that actually need it: issuing a drain,
+clearing our own, and recovery. A healthy cycle never asks. When it is asked, it
+is `scontrol show node <node>` rather than `sinfo -n <node>`: a single-node RPC
+against a whole-table fetch filtered client-side.
+
+Two things follow from that, and both remove work rather than adding it:
+
+- **Nothing checks for a drain before submitting.** That check existed because
+  submitting the whole list behind an operator's drain would dump it on the node
+  the moment they resumed. One job is not a dump. A job submitted to a drained
+  node simply pends, and the [stale branch](#when-a-marker-goes-stale) is what
+  notices and reports the reason.
+- **Recovery runs on the stale branch, not every cycle.** A drain Slurm set
+  itself stops our jobs starting — which is exactly the symptom the stale branch
+  fires on. So a node that is drained submits, waits out its grace, asks once,
+  and recovers itself; a node that is fine never pays for the check.
+
+The whole cost, per node per cycle:
+
+| Cycle | Controller calls |
+|---|---|
+| job running, waiting, or nothing eligible | **0** |
+| advancing to the next job | 3 — `scontrol show node`, the [submission guard](#the-guard-before-a-submission), `sbatch` |
+| marker gone stale | 1 — `squeue -j`, plus recovery if it fires |
+
+### Getting the job id right
+
+The marker is only as good as the id in it, and there are two ways to learn one.
+
+For a `.sbatch`, `sbatch` says so: the id is read out of `Submitted batch job
+<n>`, matching that phrase rather than stripping trailing digits — with `-M` the
+line ends `on cluster <name>`, and warnings can follow it. This path has no race;
+the submitting command reports its own result.
+
+For a **host-launched** job the tool submits itself, so the id has to be found
+afterwards, and the job name is the only handle. `bringup-<node>` is shared by
+every submission this node ever makes, so "the job under that name" is not a
+unique answer: anything still queued from an earlier cycle matches too, and
+picking the first meant the marker could end up tracking a stale job instead of
+the one just launched. So the ids under the name are snapshotted immediately
+before the launcher runs and again after, and the id is the difference.
+
+If that difference holds more than one id, the launcher submitted twice. The
+extras are ours by name and unwanted by definition — they would run the same
+benchmark again on the same node — so they are cancelled and the fact is traced.
+
+**An id that does not parse is never written down.** A marker holding an
+unusable id is discarded on the next cycle by `inflight_read`, which leaves the
+node looking idle while its job is still out — and it submits a second copy on
+top of the first. So the id is checked before the marker is written, not after
+it is read back, and a submission whose id could not be determined is traced as
+a warning with the `scancel` that clears it. The node is not left silently
+double-submitting; the orphan reads as somebody else's job once it starts, which
+holds the node until it ends.
+
+Nothing confirms the id is *running* at submit time, and nothing should: a job
+is `PENDING` for anything from a second to hours after `sbatch` returns, so
+"not running yet" is the normal case rather than a fault. Confirmation is the
+next cycle's `listjobs`, and a job that never appears is caught by the
+[stale branch](#when-a-marker-goes-stale) once its walltime and grace are up.
+
+### The guard before a submission
+
+The marker says whether a job is out, and the marker is a file. A file can be
+absent while a job is not: a cycle killed between `sbatch` returning and the
+marker being written leaves one, and so does a marker deleted by hand. At that
+moment the job is `PENDING` — invisible to `scontrol listjobs`, which sees only
+what is running — so the node looks idle and would submit a second copy.
+
+So immediately before submitting, and only then, one query asks what the
+controller is holding under our two job names. Anything at all means something
+of ours is already out, and nothing is submitted: the orphan is untracked, so it
+is left to finish rather than cancelled, and the trace names it and the `scancel`
+that would clear it.
+
+It returns one column and both names in one call. Worth being precise about what
+that buys: `-o '%i'` narrows what `squeue` **prints**, not what it fetches, and
+`-n` filtering is not established to happen controller-side. What is genuinely
+controlled is the number of invocations, which is why the two names go in one
+call and why the host-launched path reuses the cached answer for its
+[before-and-after id snapshot](#getting-the-job-id-right) rather than asking
+again. SchedMD's own guidance is to limit `squeue` calls to the minimum
+necessary, not to filter them harder.
+
+The default state filter is pending and running, which is exactly the question
+being asked, so no `-t` is passed.
+
+This is the third call on an advance cycle, after `scontrol show node` and
+before `sbatch` — and it is per job, not per monitoring cycle. A node with a job
+running still costs nothing.
+
+### When the controller does not answer
+
+A saturated slurmctld does not return an error; it returns **nothing**. `sinfo`
+exits 0 with empty output, `scontrol show node` prints nothing, and `sbatch`
+fails with `Socket timed out on send/recv operation`. This is observed, not
+hypothetical — a fleet of ~2,000 nodes each asking five times a minute produced
+981 nodes concluding `not known to slurm (sinfo -N -n returned nothing)` in a
+day, which is a node deciding it had been removed from the cluster because the
+controller was busy.
+
+The rule is that **no answer is never treated as an answer**. Every query that
+can come back empty has a caller that fails closed:
+
+- **The node state behind a drain.** If `scontrol show node` returns nothing,
+  `drain_node` refuses and traces why. Draining on an unknown state takes a node
+  out on no information, and overwrites whatever reason an operator put there
+  with ours.
+- **The local running check.** An inconclusive `scontrol listjobs` reads as
+  *still running*, never as gone — see [one job at a time](#one-job-at-a-time).
+- **The stale branch.** `squeue -j` returning nothing is the one case where
+  empty *is* the answer, which is why that branch is only reached after the
+  job's own walltime plus `INFLIGHT_GRACE_MINUTES` have passed, rather than on
+  the first cycle a job is not seen.
+
+`NODE_ASKED` separates "not fetched yet" from "fetched and got nothing", so a
+run that hit a timeout does not ask again on every subsequent call.
+
+This is a large part of why the call count matters at all. The load and the
+wrong answers are the same problem: the queries that saturate the controller are
+the queries that then come back empty and get believed.
+
+### Cadence is per job, not per node
+
+A job is eligible when it has not passed and its own result file is missing or
+older than `RETRY_INTERVAL_HOURS`. There is no node-wide gate any more.
+
+This is what lets one-at-a-time stay fast. Eight different benchmarks are each
+eligible the moment the node is free, so the sweep advances as quickly as jobs
+finish — one BCM cycle of idle between them, not one hour. Meanwhile no single
+job can re-run inside the hour, which is the property the node-wide gate existed
+to provide. A node failing everything still submits eight jobs an hour, exactly
+as before.
+
+Order comes from `BENCHMARKS` itself: the first eligible name in the list is the
+one submitted. `BURNIN` is considered only when nothing in `BENCHMARKS` is
+eligible. `#SBATCH --nice` no longer orders our own jobs against each other —
+there is only ever one — and now matters only against work submitted by hand or
+by other users. See [benchmarks.md](benchmarks.md#queue-priority).
+
+### When a marker goes stale
+
+A marker whose job is neither running here nor finished is either queued behind
+somebody else's work, held, cancelled, or gone with the node under it. Locally
+those are indistinguishable — all you see is a marker getting older — and
+guessing wrong is expensive in both directions: resubmit too eagerly and the
+node runs two copies of a job whose result is meant to judge the hardware; wait
+forever and the node is silently idle, which is the failure this whole tree is
+built to prevent.
+
+So the wait is bounded by the job's own `#SBATCH -t` plus
+`INFLIGHT_GRACE_MINUTES` (default 30). One fixed window could not serve both
+`dcgmi-r1` at 25 minutes and `mnubergemm` at six hours a run.
+
+Past that bound, and only then, one `squeue -j <id>` settles it:
+
+- **Still pending, held after a failed launch** — cancelled, and the next cycle
+  resubmits. A held job sits at priority 0 and never starts, so waiting on it
+  waits forever.
+- **Still pending otherwise** — left alone, and the trace names the reason and
+  the `scancel` that would give up on it. Queued behind a long foreign job is a
+  legitimate state, not a fault.
+- **Not in the queue** — gone without finishing. The partial result is archived
+  as `.fail<N>.txt` so the slot is free and the attempt is still on disk.
+
+`MAX_JOB_HOURS` is checked against the marker rather than against `squeue`: a
+job still running here past that limit drains the node, which is the one branch
+that reads on past the in-flight gate, because a drain needs the node state.
 
 The node is drained **only after a full sweep** — every benchmark has run at
 least once and something is still not passing. A single failure mid-sweep does
@@ -481,6 +725,8 @@ two per monitoring cycle, forever.
 | `WARNING: <dir> is owned by <user>, not <JOB_USER>, and we are not root` | The same problem seen from a hand-run, which can diagnose it but not fix it |
 | `WARNING: JOB_ENV entry '<pair>' is not NAME=VALUE …  -- dropped` | A rejected `JOB_ENV` entry. The sweep still runs, and the reason it ran without your variable is written next to it — see [settings.md](settings.md#what-is-rejected) |
 | `EXIT: <tool> not on PATH after 'module load slurm' (PATH=…)` | No Slurm client tools; every check below would have read as a healthy idle node |
+| `EXIT: NODE_FILTER='<globs>' … does not match <node> -- no jobs submitted here` | This node is outside the set being tested — see [settings.md](settings.md#restricting-which-nodes-run-jobs). Written every cycle on purpose: "why is this node not testing" has to be answerable from the node's own trace. Names `--force` when it was passed, so the flag does not look ignored |
+| `NODE_FILTER='<globs>' does not match <node>, but --test <jobs> names this node … -- testing anyway` | `--test` opens the filter where `--force` does not. Says the node is outside the swept set, so a result the reports do not cover is explained where it happened |
 | `state=<node state> explain=<0\|1>` | The ordinary first line of a working cycle |
 
 ### Pause and recovery

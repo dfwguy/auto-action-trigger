@@ -230,13 +230,20 @@ below. On a platform with a different count, change both together.
 ### Queue priority
 
 Every job states its own `#SBATCH --nice`. Slurm subtracts it from the job's
-priority, so **higher is later** and `0` is the front of the queue. Three tiers:
+priority, so **higher is later** and `0` is the front of the queue. Four tiers:
 
 | `--nice` | Jobs | Why |
 |---|---|---|
-| `0` | the four `dcgmi-r*` gates | fast, and they decide whether the rest of the sweep is worth running at all |
+| `0` | nothing in this tree | left free for a job queued by hand, which is what `sbatch` defaults to |
+| `1`-`4` | the `dcgmi-r*` gates, one per `-r` level | fast, and they decide whether the rest of the sweep is worth running at all |
 | `20` | every other benchmark | the sweep's own tier |
 | `100000` | `mnubergemm` | burn-in, always last |
+
+The gates start at `1` rather than `0` so that anything queued by hand goes in
+front of them: a bare `sbatch` with no `--nice` lands at `0`, and `0` is now
+left empty for exactly that. Each gate then takes its own `-r` level as its nice
+value — `dcgmi-r1` at `1` through `dcgmi-r4` at `4` — so the levels run in
+ascending order and the cheap gate is not left waiting behind the long one.
 
 This is what lets the burn-in list be queued at the same time as the sweep
 rather than gated behind it: a benchmark submitted while a burn-in is on the
@@ -248,6 +255,9 @@ same reason `-t` and `--exclusive` do — it is part of how this job wants to be
 scheduled, and stating it here means a job submitted **by hand** carries the
 same priority as one the sequencer submits. `hpl` and `cublasmatmul` are
 remediation jobs run by hand, and they still queue at `20` behind a dcgmi gate.
+So the empty `0` tier only helps a job submitted *without* a `--nice`; to push a
+job file from this tree to the front, override it on the command line:
+`sbatch --nice=0 hpl.sbatch`.
 
 Two limits worth knowing:
 
