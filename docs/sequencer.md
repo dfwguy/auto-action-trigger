@@ -120,8 +120,10 @@ given once it ran. `--exclusive` states the real requirement — this job wants
 the whole node — and additionally keeps *other people's* jobs off the node
 mid-benchmark, which singleton never did.
 
-The shared job name `bringup-<node>` stays, for a different reason: it is how
-the foreign-job check tells our work from somebody else's on the node.
+The shared job name `bringup-<node>` stays, for a different reason: a
+host-launched job submits itself, so the name is how the sequencer finds the id
+of what it just launched. The foreign-job check does not use it — that matches
+on job **id**, against the one in the marker.
 
 ## Two lists
 
@@ -131,8 +133,9 @@ on. Both are surveyed every cycle, and both submit under their own job name —
 
 The names no longer separate two queues, because there is no queue: with [one
 job at a time](#one-job-at-a-time) a node has a single slot, and the marker says
-whether it is taken. What the names still do is tell our work from somebody
-else's on the node, which is what the foreign-job check matches on.
+whether it is taken. What they still do is label the submission — which is how a
+host-launched job's id is found, and how anyone reading `squeue` by hand tells a
+burn-in from a benchmark.
 
 Ordering between the lists is now sequence rather than priority: `BENCHMARKS` is
 offered first, and `BURNIN` is considered only when no benchmark is eligible. A
