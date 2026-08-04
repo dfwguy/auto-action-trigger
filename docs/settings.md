@@ -801,6 +801,48 @@ cat results/<node>/recover.log                       # one line per recovery
 
 `launch_job.sh --explain` classifies and reports without resuming anything.
 
+## Restricting which nodes run jobs
+
+`NODE_FILTER` names the nodes the sequencer submits benchmarks on. Empty — the
+shipped default — means every node.
+
+```bash
+NODE_FILTER=""                          # every node
+NODE_FILTER="ink40-dh4-*"               # one rack
+NODE_FILTER="ink40-dh4-* ink41-dh4-*"   # two
+NODE_FILTER="ink40-dh4-0[1-9]"          # part of one
+```
+
+**These are shell globs, not regular expressions**, which is the one thing to
+get right about this setting. `*` means any run of characters, `?` any single
+one, `[0-9]` a range — the syntax node names are already written in for `pdsh`
+and `sbatch -w`. It is deliberately *not* an ERE, unlike `RECOVER_REASONS`:
+`ink40-dh4-*` as an ERE reads "`ink40-dh4` followed by zero or more hyphens",
+which matches no real node, and a `NODE_FILTER` matching no node stops the whole
+fleet testing. The syntax that looks obviously right has to be the syntax that
+is right.
+
+Patterns are separated by whitespace and a node matches if **any** of them
+matches. The comparison is against `$HOSTNAME` as Slurm and BCM know it, so it
+is the short name, not an FQDN.
+
+A node outside the set submits no benchmarks and no burn-in, and says so in its
+trace every cycle. That line is not noise: an operator asking why a node is not
+being tested has to be able to answer it from that node's own `trigger.log`,
+without knowing the setting exists.
+
+What it does **not** gate: health checks, reporting, container copy, and drain
+recovery all still run everywhere. A node you are not currently benchmarking is
+still one you want health results and `sinfo -R` recovery for. To take a node
+out of the framework entirely, use BCM's node execution filters at registration
+time instead — see the commented example at the bottom of
+`pre-post/create-action-trigger.sh`.
+
+Like the [pause switches](#pause-switches) it is a site switch rather than a
+timing gate, so `--force` does not open it and neither does `--test`; `--explain`
+reads through it and reports what a real cycle would have done. To sweep a node
+outside the set, widen `NODE_FILTER`.
+
 ## Retry and drain policy
 
 | Setting | Default | Meaning |

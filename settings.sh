@@ -71,6 +71,9 @@ fi
 ## `=` not `:=`, like CONTAINERS: empty is the shipped answer and a real one --
 ## it means "one worker per core". See docs/settings.md#reporting.
 : "${SCAN_JOBS=}"
+## Empty is a real answer here too: it means every node. See
+## docs/settings.md#restricting-which-nodes-run-jobs.
+: "${NODE_FILTER=}"
 : "${RETRY_INTERVAL_HOURS:=1}"
 : "${MAX_JOB_HOURS:=7}"
 : "${DRAIN_WINDOW_MINUTES:=15}"

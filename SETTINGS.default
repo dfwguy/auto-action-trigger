@@ -12,6 +12,10 @@ JOBS=nvl72
 HEALTHCHECKS=nvl72
 PARSERS=nvl72
 
+## ── Which nodes run jobs ──────────────────────────────────────────────────
+## Space-separated shell globs; empty means every node.
+NODE_FILTER=""
+
 ## ── Benchmark list ────────────────────────────────────────────────────────
 BENCHMARKS="dcgmi-r1 dcgmi-r3 nvbandwidth allreduce allreduce-forcesharp alltoall allreduce-nonvlink alltoall-nonvlink"
 

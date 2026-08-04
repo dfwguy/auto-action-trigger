@@ -280,6 +280,33 @@ ensure_owned "$logs"
 ensure_file_owned "$tracelog"
 ensure_file_owned "$quickview"
 
+## ── Which nodes this framework tests ──────────────────────────────────────
+##
+## Shell globs, not regexes: `ink40-dh4-*` is the form node names are written in
+## everywhere else, and as an ERE it would match nothing and quietly stop the
+## fleet. Empty means every node.
+## See docs/settings.md#restricting-which-nodes-run-jobs.
+node_in_scope() {
+    local pat
+    [[ -z "${NODE_FILTER// /}" ]] && return 0
+    for pat in $NODE_FILTER; do
+        # shellcheck disable=SC2053  # a glob on the right is the whole point here
+        [[ "$HOSTNAME" == $pat ]] && return 0
+    done
+    return 1
+}
+
+if ! node_in_scope; then
+    ## A site switch, not a timing gate, so --force does not open it -- the same
+    ## rule PAUSE_JOBS follows. --explain reads through, as it does there.
+    if [[ "$EXPLAIN" -eq 1 ]]; then
+        trace "NODE_FILTER='$NODE_FILTER' does not match $HOSTNAME -- explaining anyway; a real cycle would stop here"
+    else
+        trace "EXIT: NODE_FILTER='$NODE_FILTER' in ${SETTINGS_FILE:-<no settings file found>} does not match $HOSTNAME -- no jobs submitted here. Health checks and reporting are unaffected."
+        exit 0
+    fi
+fi
+
 ## The module load is local and contacts nothing, so it happens before the
 ## in-flight gate below -- which needs `scontrol`, and nothing else.
 source /etc/profile.d/modules.sh

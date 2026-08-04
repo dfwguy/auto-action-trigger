@@ -682,6 +682,7 @@ two per monitoring cycle, forever.
 | `WARNING: <dir> is owned by <user>, not <JOB_USER>, and we are not root` | The same problem seen from a hand-run, which can diagnose it but not fix it |
 | `WARNING: JOB_ENV entry '<pair>' is not NAME=VALUE …  -- dropped` | A rejected `JOB_ENV` entry. The sweep still runs, and the reason it ran without your variable is written next to it — see [settings.md](settings.md#what-is-rejected) |
 | `EXIT: <tool> not on PATH after 'module load slurm' (PATH=…)` | No Slurm client tools; every check below would have read as a healthy idle node |
+| `EXIT: NODE_FILTER='<globs>' … does not match <node> -- no jobs submitted here` | This node is outside the set being tested — see [settings.md](settings.md#restricting-which-nodes-run-jobs). Written every cycle on purpose: "why is this node not testing" has to be answerable from the node's own trace |
 | `state=<node state> explain=<0\|1>` | The ordinary first line of a working cycle |
 
 ### Pause and recovery
