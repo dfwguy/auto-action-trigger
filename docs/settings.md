@@ -205,7 +205,7 @@ separately: a burn-in sitting in the queue for three days must not block a
 benchmark retry behind it.
 
 What keeps them in order is priority, not a gate: `#SBATCH --nice` in each job
-file puts the dcgmi gates at `0`, the rest of the sweep at `20`, and burn-in at
+file puts the dcgmi gates at `1`, the rest of the sweep at `20`, and burn-in at
 `100000` — see [benchmarks.md](benchmarks.md#queue-priority). A benchmark
 queued while a burn-in is running goes ahead of the burn-in runs still waiting.
 It does **not** interrupt the run already on the node, because every job is
