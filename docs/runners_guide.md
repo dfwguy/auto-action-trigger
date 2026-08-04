@@ -119,7 +119,7 @@ The number in a cell is the same figure the pass/fail floor is stated against
 (out-of-place busbw at the largest message size), so you can compare a cell to a
 floor in `parsers/nvl72/verdict.sh` directly. That is the whole point of the
 column, and it is what makes "41 GB/s" and "2.2 GB/s" — both failures of the
-same 80 GB/s floor — legible as *a slow fabric* and *a socket fallback*.
+same `-nonvlink` floor — legible as *a slow fabric* and *a socket fallback*.
 
 The cell does not tell you whether it passed. The `job (pass/fail)` block at the
 bottom does.

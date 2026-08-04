@@ -26,9 +26,9 @@ VERDICT_MIN_PEAK_BW_ALLREDUCE_FORCESHARP=665
 # shellcheck disable=SC2034
 VERDICT_MIN_PEAK_BW_ALLTOALL=623
 # shellcheck disable=SC2034
-VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK=80
+VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK=93
 # shellcheck disable=SC2034
-VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK=80
+VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK=83
 
 source "$home/parsers/nvl72/verdict.sh"
 
@@ -41,13 +41,13 @@ cases=(
   ## the log carries, not the TCP fallback that is its consequence.
   "alltoall-nonvlink__socket-legacy-done|FAIL|no IB device visible to NCCL"
   ## Every IB transport check clears here; bandwidth alone rejects it. Stands in
-  ## for a DONE case -- no captured -nonvlink run reaches the 80 GB/s floor.
-  "alltoall-nonvlink__ib-below-floor-32|FAIL|peak busbw below floor 80 GB/s"
+  ## for a DONE case -- no captured -nonvlink run reaches its floor.
+  "alltoall-nonvlink__ib-below-floor-32|FAIL|peak busbw below floor 83 GB/s"
   ## Host list complete, container sees nothing. See
   ## docs/benchmarks.md#host-hcas-are-not-container-hcas.
   "alltoall-nonvlink__container-blind|FAIL|no HCA visible inside the container"
   ## Largest-size busbw is judged; the `# Avg bus bandwidth` line is not.
-  "allreduce-nonvlink__ib-below-floor|FAIL|peak busbw below floor 80 GB/s"
+  "allreduce-nonvlink__ib-below-floor|FAIL|peak busbw below floor 93 GB/s"
   "alltoall__truncated|INCOMPLETE|no end marker -- job died before finishing"
   "allreduce__fell-to-socket|FAIL|collective left NVLink for the network"
   ## Real h20-36: a healthy 220.837 GB/s NVLink run that still logs `Using

@@ -194,8 +194,8 @@ The five NCCL bandwidth gates, in GB/s:
 | `VERDICT_MIN_PEAK_BW_ALLREDUCE` | `683` | `allreduce` |
 | `VERDICT_MIN_PEAK_BW_ALLREDUCE_FORCESHARP` | `665` | `allreduce-forcesharp` |
 | `VERDICT_MIN_PEAK_BW_ALLTOALL` | `623` | `alltoall` |
-| `VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK` | `80` | `allreduce-nonvlink` |
-| `VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK` | `80` | `alltoall-nonvlink` |
+| `VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK` | `93` | `allreduce-nonvlink` |
+| `VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK` | `83` | `alltoall-nonvlink` |
 
 All five read the same number: out-of-place busbw at the largest message size
 actually run, which is also what `daily-report.sh` prints in those columns, so a
@@ -207,10 +207,10 @@ with `NCCL_ALGO` pinned, which costs a little bandwidth, so its floor sits below
 compute-plane HCAs instead of NVLink.
 
 They are settings and not parser constants because the last of those is a
-property of the hardware, not of the software. The `-nonvlink` floor follows the
-compute-plane link speed — **80 for a 100 GB/s plane, 43 for 50 GB/s** — and a
-site should not have to edit a tracked file, or carry a patch across a tarball
-drop, to say which one it has. The NVLink three were read off known-good runs on
+property of the hardware, not of the software. The `-nonvlink` floors follow the
+compute-plane link speed — **93 and 83 for a 100 GB/s plane**, and roughly half
+those on a 50 GB/s one — and a site should not have to edit a tracked file, or
+carry a patch across a tarball drop, to say which it has. The NVLink three were read off known-good runs on
 this platform and are the ones to revisit as more platforms are learned; the
 eventual answer for a platform that differs in more than a number is a parser
 directory of its own (`nvl72-gb200`, `nvl72-gb300`) selected by `PARSERS`.

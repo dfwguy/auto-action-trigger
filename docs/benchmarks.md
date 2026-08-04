@@ -601,8 +601,8 @@ mount. Keep new checks in causal order.
 
 The five NCCL bandwidth floors are `VERDICT_MIN_PEAK_BW_*`, set in `SETTINGS`
 rather than in the parser — 683, 665 and 623 GB/s for the NVLink-scope
-`allreduce`, `allreduce-forcesharp` and `alltoall`, and 80 GB/s for each of the
-`-nonvlink` pair. The table and the reasoning for keeping them per job are in
+`allreduce`, `allreduce-forcesharp` and `alltoall`, and 93 and 83 GB/s for
+`allreduce-nonvlink` and `alltoall-nonvlink`. The table and the reasoning for keeping them per job are in
 [settings.md#benchmark-pass-floors](settings.md#benchmark-pass-floors); every
 other gate stays in `parsers/nvl72/verdict.sh`. They
 all read the same number: out-of-place busbw at the
@@ -616,9 +616,9 @@ out roughly half the largest-size figure on the same run, so a floor stated
 against it could not be checked against anything an operator is looking at.
 
 The `allreduce` and `alltoall` floors were set from known-good runs on this
-platform. The `-nonvlink` 80 was not: it is what the compute-plane HCAs are
-expected to sustain, and it follows the link speed — 80 for a 100 GB/s plane,
-and 43, which it replaced, for 50 GB/s. Both sit above every IB-scope result
+platform. The `-nonvlink` 93 and 83 were not: they are what the compute-plane
+HCAs are expected to sustain on a 100 GB/s plane, and they follow the link
+speed. Both sit above every IB-scope result
 captured so far — the fixture that used to be `alltoall-nonvlink__good-ib`
 measures 32.35 and is now a below-floor case. Read a full `daily-report.sh`
 before acting on drains from these two jobs. A handful of nodes under the floor

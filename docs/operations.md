@@ -113,7 +113,7 @@ those columns means there was no figure to print instead: the job never ran
 (`FAIL`). Which cells passed is the `job (pass/fail)` block below, not the cell.
 
 That matters for reading a slow node: a `-nonvlink` cell at 41 GB/s and one at
-2.2 both fail the 80 GB/s floor, and they are a slow fabric and a socket
+2.2 both fail the `-nonvlink` floor, and they are a slow fabric and a socket
 fallback. The floors are in `parsers/nvl72/verdict.sh` and are stated against
 the same number these columns print, so the two can be compared directly.
 

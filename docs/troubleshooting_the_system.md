@@ -100,8 +100,8 @@ printed into every result file for exactly this reason. See
 
 ### Bandwidth, and what a number means
 
-A `-nonvlink` cell at 41 GB/s and one at 2.2 GB/s both fail the same 80 GB/s
-floor, and they are entirely different findings: the first is a slow fabric, the
+A `-nonvlink` cell at 41 GB/s and one at 2.2 GB/s both fail the same
+`-nonvlink` floor, and they are entirely different findings: the first is a slow fabric, the
 second is a socket fallback. Always read the number, not just the verdict.
 `daily-report.sh` prints the same figure the floor is stated against, so the
 comparison is direct.
@@ -177,11 +177,11 @@ whole-cluster failure that looked like a fleet-wide hardware event.
 2. **The baseline node was not actually good.** Whatever node you named became
    the definition of correct BIOS, kernel params, IMEX and NVLink for the whole
    fleet.
-3. **A floor is wrong for this platform.** The `-nonvlink` floor of 80 GB/s is a
-   spec figure for a 100 GB/s compute plane, not one read off a known-good run
-   here, and it sits above every IB-scope result captured so far. A handful of
-   nodes under a floor is a finding; every node far below it is the floor —
-   check the link speed first, since 43 is the same figure at 50 GB/s.
+3. **A floor is wrong for this platform.** The `-nonvlink` floors, 93 and 83
+   GB/s, are spec figures for a 100 GB/s compute plane, not ones read off a
+   known-good run here, and they sit above every IB-scope result captured so
+   far. A handful of nodes under a floor is a finding; every node far below it
+   is the floor — check the link speed first, since it is what they follow.
 4. **The gate is matching the tool's healthy output.** The failure mode that cost
    the most so far. Check whether the string being matched appears in a *passing*
    run — `benchmarks.md` has both the `nvbandwidth` diagonal case and the
