@@ -98,6 +98,7 @@ the traces have gone stale.
 ├── node-health-refresh.sh         # Trigger a re-health-check on one or more nodes
 ├── ib-visibility.sh               # Compare HCAs the host sees vs the container sees
 ├── single-node-purge.sh           # Clear benchmark results for a node
+├── kill-jobs.sh                   # Cancel our queued and running jobs; -p also pauses
 ├── status-check.sh                # Live per-node benchmark status (all nodes)
 ├── daily-report.sh                # Per-node table: slurm state, status, performance metrics
 ├── sync-check.sh                  # Diff a drained node's health output vs baseline
