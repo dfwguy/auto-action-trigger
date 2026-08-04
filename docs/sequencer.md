@@ -305,7 +305,7 @@ a query:
 
 | Marker | Job running here | Result file | What happens | Controller |
 |---|---|---|---|---|
-| absent | — | — | pick the next eligible job and submit it | 2 |
+| absent | — | — | pick the next eligible job and submit it | 3 |
 | present | yes | — | leave it alone | **0** |
 | present | no | ends in a marker | job finished; clear and advance next cycle | **0** |
 | present | no | no end marker, inside its window | not started yet; wait | **0** |
@@ -368,7 +368,7 @@ The whole cost, per node per cycle:
 | Cycle | Controller calls |
 |---|---|
 | job running, waiting, or nothing eligible | **0** |
-| advancing to the next job | 2 — `scontrol show node`, then `sbatch` |
+| advancing to the next job | 3 — `scontrol show node`, the [submission guard](#the-guard-before-a-submission), `sbatch` |
 | marker gone stale | 1 — `squeue -j`, plus recovery if it fires |
 
 ### Getting the job id right
@@ -406,6 +406,36 @@ is `PENDING` for anything from a second to hours after `sbatch` returns, so
 "not running yet" is the normal case rather than a fault. Confirmation is the
 next cycle's `listjobs`, and a job that never appears is caught by the
 [stale branch](#when-a-marker-goes-stale) once its walltime and grace are up.
+
+### The guard before a submission
+
+The marker says whether a job is out, and the marker is a file. A file can be
+absent while a job is not: a cycle killed between `sbatch` returning and the
+marker being written leaves one, and so does a marker deleted by hand. At that
+moment the job is `PENDING` — invisible to `scontrol listjobs`, which sees only
+what is running — so the node looks idle and would submit a second copy.
+
+So immediately before submitting, and only then, one query asks what the
+controller is holding under our two job names. Anything at all means something
+of ours is already out, and nothing is submitted: the orphan is untracked, so it
+is left to finish rather than cancelled, and the trace names it and the `scancel`
+that would clear it.
+
+It returns one column and both names in one call. Worth being precise about what
+that buys: `-o '%i'` narrows what `squeue` **prints**, not what it fetches, and
+`-n` filtering is not established to happen controller-side. What is genuinely
+controlled is the number of invocations, which is why the two names go in one
+call and why the host-launched path reuses the cached answer for its
+[before-and-after id snapshot](#getting-the-job-id-right) rather than asking
+again. SchedMD's own guidance is to limit `squeue` calls to the minimum
+necessary, not to filter them harder.
+
+The default state filter is pending and running, which is exactly the question
+being asked, so no `-t` is passed.
+
+This is the third call on an advance cycle, after `scontrol show node` and
+before `sbatch` — and it is per job, not per monitoring cycle. A node with a job
+running still costs nothing.
 
 ### Cadence is per job, not per node
 

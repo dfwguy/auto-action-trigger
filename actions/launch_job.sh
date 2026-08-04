@@ -854,6 +854,22 @@ if [[ "${#failed_jobs_actionable[@]}" -gt 0 && \
     drain_node "${label}${failed_jobs_actionable[*]} FAIL${first_reason:+: $first_reason} ($DRAIN_MARKER)"
 fi
 
+## Every job of ours the controller is holding, in one call and returning one
+## column. Both names, because either would stop us submitting. The default
+## state filter is pending and running, which is exactly the question.
+##
+## Sets QUEUED_OURS rather than printing it, and so must never be called as
+## $(queued_ours) -- a subshell would cache the answer in a child and ask again.
+## Same reason verdict() works the way it does.
+## See docs/sequencer.md#the-guard-before-a-submission.
+QUEUED_OURS=""
+QUEUED_ASKED=0
+queued_ours() {
+    [[ "$QUEUED_ASKED" -eq 1 ]] && return 0
+    QUEUED_ASKED=1
+    QUEUED_OURS=$(squeue -h -o '%i' -n "$JOB_NAME_BENCH,$JOB_NAME_BURNIN" 2>/dev/null | sort -u)
+}
+
 ## ── The next job, and only the next one ───────────────────────────────────
 ##
 ## Cadence is per job, not per node: eligible means not passed, and its own
@@ -938,10 +954,10 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
 --export=ALL,RESULT_FILE=$file$JOB_ENV_ARGS --output=$file $launch"
     fi
 
-    ## Snapshotted before the submission, so the id can be told apart from
-    ## anything already queued under the same name.
+    ## The guard above already asked what was queued under our names, and the
+    ## answer is cached -- this is the same question, not a second call.
     pre_ids=""
-    [[ "$launch" == *.sh ]] && pre_ids=$(squeue -h -n "$jname" -o '%i' 2>/dev/null | sort -u)
+    [[ "$launch" == *.sh ]] && { queued_ours; pre_ids="$QUEUED_OURS"; }
 
     if [[ "$EXPLAIN" -eq 1 ]]; then
         trace "WOULD SUBMIT $job run $r$([[ -f "$file" ]] && printf ' (existing %s result kept as .%s<N>.txt)' "$VERDICT_STATUS" "$kind"): $([[ "$EUID" -eq 0 ]] && printf 'su - %s -c ' "$JOB_USER")\"$submit\""
@@ -1008,6 +1024,22 @@ elif [[ -z "$TEST_LIST" ]] && setting_enabled "$RUN_BURNIN" && [[ -n "${BURNIN//
     submit_target=burnin
 else
     submit_target=""
+fi
+
+## Reaching here means no marker said a job was out. Asked once, immediately
+## before submitting, because a marker can be missing while a job is not: a cycle
+## killed between sbatch returning and the marker being written leaves one, and
+## so does a marker deleted by hand. The job is PENDING at that point, so it is
+## invisible to `scontrol listjobs` and only the controller knows.
+## See docs/sequencer.md#the-guard-before-a-submission.
+if [[ -n "$submit_target" && "$EXPLAIN" -eq 0 ]]; then
+    queued_ours
+    if [[ -n "$QUEUED_OURS" ]]; then
+        queued_list="${QUEUED_OURS//$'\n'/ }"
+        trace "EXIT: no marker, but $(grep -c . <<<"$QUEUED_OURS") job(s) of ours are already queued ($queued_list) -- not submitting $NEXT_JOB on top of one. Untracked, so it is left to finish; 'scancel $queued_list' to clear it."
+        write_quickview
+        exit 0
+    fi
 fi
 
 if [[ -n "$submit_target" ]]; then
