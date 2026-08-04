@@ -976,6 +976,7 @@ Only the `llm-pretrain` job reads these. A site not running it needs neither.
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | `LLMB_INSTALL` | `/home/cmods/llmb` | Where `build_llmb.sh` installs the collection, image and tokenizer cache. Empty means no install |
+| `LLMB_REF` | `v26.06.01` | The `dgxc-benchmarking` tag `build_llmb.sh` installs. A tag rather than a branch so a reinstall is the same install |
 
 `LLMB_INSTALL` is deliberately outside `BRINGUP_HOME`, and `build_llmb.sh`
 refuses to install into it or below it. A tarball drop replaces that tree, and

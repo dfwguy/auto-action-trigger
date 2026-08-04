@@ -84,6 +84,7 @@ fi
 ## `=` not `:=`, like CONTAINERS: empty means no llmb install.
 ## See docs/llmb.md#where-the-install-lives.
 : "${LLMB_INSTALL=/home/cmods/llmb}"
+: "${LLMB_REF:=v26.06.01}"
 
 ## The only place these paths are built; no caller should rebuild them by hand.
 ## See docs/settings.md#which-set-of-things-to-run.

@@ -104,10 +104,19 @@ running `llm-pretrain` needs none of this.
 
 ## Pinning the collection
 
-`LLMB_REF` has no default and `build_llmb.sh` refuses to run without one. A
-benchmark whose recipe moves under it between two nodes is not a benchmark —
-node 3 and node 40 have to be judged against the same recipe, and a branch does
-not promise that. Set it to the tag this cluster is validated against.
+`LLMB_REF` in `SETTINGS` is the git tag `build_llmb.sh` checks out after cloning
+`dgxc-benchmarking`. It ships as `v26.06.01`.
+
+It is a tag rather than `main` so that re-running `build_llmb.sh` reinstalls the
+same thing. The install is one shared directory on NFS, so every node is always
+running whatever is in it — the risk is not that two nodes disagree today, it is
+that a reinstall three months from now quietly swaps the recipe underneath a
+floor in `verdict.sh` that was set against the old one. Results either side of
+that would not be comparable, and nothing would say so.
+
+`./build_llmb.sh -l` prints both the ref `SETTINGS` asks for and the one
+actually checked out, so a drift between them is visible. A ref that does not
+exist lists the tags that do.
 
 ## What `build_llmb.sh` leaves behind
 
@@ -116,9 +125,11 @@ architecture-specific.
 
 ```bash
 export HF_TOKEN=hf_...            # this run only; never written to a node
-LLMB_REF=<tag> ./build_llmb.sh
+./build_llmb.sh                   # installs the LLMB_REF in SETTINGS
 ./build_llmb.sh -l                # what is present, what is not
 ```
+
+To move versions, edit `LLMB_REF` in `SETTINGS` and re-run.
 
 It leaves `$LLMB_INSTALL/src` (the pinned collection), `bin/`, `venvs/`,
 `workloads/`, `datasets/`, `images/*.sqsh`, a `cluster_config.yaml`, and
@@ -222,7 +233,7 @@ on `PATH`, and no pre-staged `$HF_HOME`.
 
 In order, because each step is checkable on its own:
 
-1. `LLMB_REF=<tag> ./build_llmb.sh` on the head node, then `-l` to confirm.
+1. `./build_llmb.sh` on the head node, then `-l` to confirm.
 2. `llmb-run submit ... --scale 4 --force --dry-run`, and confirm the generated
    submission is what you expect.
 3. `actions/launch_job.sh --test llm-pretrain --explain` on one node — it prints

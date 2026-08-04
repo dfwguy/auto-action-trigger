@@ -16,10 +16,8 @@ set -uo pipefail
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
 
-## Pinned rather than tracking a branch: a benchmark whose recipe moves under it
-## is not a benchmark. See docs/llmb.md#pinning-the-collection.
-LLMB_REPO="${LLMB_REPO:-https://github.com/NVIDIA/dgxc-benchmarking.git}"
-LLMB_REF="${LLMB_REF:-}"
+## LLMB_REF comes from SETTINGS. See docs/llmb.md#pinning-the-collection.
+LLMB_REPO=https://github.com/NVIDIA/dgxc-benchmarking.git
 
 ## Llama 3.1 8B: the smallest pre-training recipe in the collection, and the
 ## only one that fits a 4-GPU tray. See docs/llmb.md#the-two-llm-jobs.
@@ -62,6 +60,7 @@ state() { if [[ -e "$1" ]]; then echo "present"; else echo "MISSING"; fi; }
 if [[ "$LIST_ONLY" -eq 1 ]]; then
     printf '%-22s %s\n' \
         "install root"  "$LLMB_INSTALL ($(state "$LLMB_INSTALL"))" \
+        "collection ref"  "$LLMB_REF$([[ -d "$LLMB_INSTALL/src/.git" ]] && printf ' (checked out: %s)' "$(git -C "$LLMB_INSTALL/src" describe --tags --always 2>/dev/null)")" \
         "llmb-run"      "$(command -v llmb-run 2>/dev/null || echo 'MISSING from PATH')" \
         "images/ ($arch)" "$(state "$images")" \
         "tokenizer+data"  "$(state "$hf_home")" \
@@ -84,7 +83,7 @@ mkdir -p "$LLMB_INSTALL" || die "cannot create $LLMB_INSTALL"
 
 if [[ "$DO_INSTALL" -eq 1 ]]; then
     [[ -n "$LLMB_REF" ]] ||
-        die "LLMB_REF is unset -- set it to the collection tag this cluster is validated against, rather than tracking a branch. See docs/llmb.md#pinning-the-collection."
+        die "LLMB_REF is empty in ${SETTINGS_FILE:-the defaults} -- it names the collection tag to install. See docs/llmb.md#pinning-the-collection."
 
     src="$LLMB_INSTALL/src"
     if [[ -d "$src/.git" ]]; then
@@ -92,7 +91,9 @@ if [[ "$DO_INSTALL" -eq 1 ]]; then
     else
         git clone --quiet "$LLMB_REPO" "$src" || die "git clone $LLMB_REPO failed"
     fi
-    git -C "$src" checkout --quiet "$LLMB_REF" || die "no such ref '$LLMB_REF' in $LLMB_REPO"
+    git -C "$src" checkout --quiet "$LLMB_REF" ||
+        die "no such ref '$LLMB_REF' in $LLMB_REPO. Available:
+$(git -C "$src" tag | tail -8 | sed 's/^/          /')"
     echo "collection at $LLMB_REF in $src"
 
     ## The installer owns the venv, the workload layout and cluster_config.yaml;
