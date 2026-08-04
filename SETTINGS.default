@@ -13,7 +13,7 @@ HEALTHCHECKS=nvl72
 PARSERS=nvl72
 
 ## ── Which nodes run jobs ──────────────────────────────────────────────────
-## Space-separated shell globs; empty means every node.
+## Space-separated shell globs; empty means every node. * to match any, otherwise specific matching.
 NODE_FILTER=""
 
 ## ── Benchmark list ────────────────────────────────────────────────────────
