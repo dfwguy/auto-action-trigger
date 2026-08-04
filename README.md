@@ -81,6 +81,7 @@ The following scripts are run manually by an operator from the headnode and do n
 | `trigger-log.sh` | read access to `results/` and `logs/` |
 | `watch-rack.sh` | `sinfo` |
 | `single-node-purge.sh` | write access to `results/` |
+| `kill-jobs.sh` | `squeue`, `scancel` as `JOB_USER` or root; `-p` also needs write access to `SETTINGS` |
 | `set-valid-default.sh` | write access to `valid-config/` |
 | `pre-post/create-action-trigger.sh` | `cmsh` (BCM admin access) |
 | `pre-post/delete-action-trigger.sh` | `cmsh` (BCM admin access) |
@@ -215,7 +216,15 @@ PAUSE_HEALTH_CHECKS=yes    # no health checks run; Slurm untouched
 PAUSE_CONTAINER_COPY=yes   # no new rsync into /tmp/containers
 ```
 
-Nothing is lost — results stay, the sweep resumes where it stopped. One already-running benchmark per node is left to finish; `scancel -u cmods` empties the queue immediately if you cannot wait. See [docs/operations.md](docs/operations.md#pausing-everything).
+Nothing is lost — results stay, the sweep resumes where it stopped. One already-running benchmark per node is left to finish. To empty the queue now instead:
+
+```bash
+bash kill-jobs.sh -n                      # list what would be cancelled, change nothing
+bash kill-jobs.sh -p                      # pause, then cancel every job of ours
+bash kill-jobs.sh ink50-dh01-i01          # one node or glob; no -p, so the sweep resumes next cycle
+```
+
+`kill-jobs.sh` matches on our own job names rather than on the account, so it leaves anything else `cmods` owns alone, and it runs from any directory. See [docs/operations.md](docs/operations.md#pausing-everything) and [emptying the queue](docs/operations.md#emptying-the-queue).
 
 A drain reason containing `auto-retry` is the sequencer's own — it clears it on the next retry pass, so resuming by hand only starts the next sweep sooner. Any other reason is an operator drain, and the sequencer will neither clear it nor queue work behind it.
 
