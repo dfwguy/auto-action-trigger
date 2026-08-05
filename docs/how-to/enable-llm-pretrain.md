@@ -54,6 +54,27 @@ The NGC credentials are the ones `./build_containers.sh -L` already writes — s
 [build-containers.md#logging-in-to-ngc](build-containers.md#logging-in-to-ngc).
 No credential ever reaches a compute node.
 
+## 1b. Or adopt an install that already exists
+
+A cluster that already has an llmb-run install does not need a second one. Point
+`LLMB_INSTALL` at it and ask:
+
+```bash
+./build_llmb.sh -l                # exits non-zero if anything the jobs need is missing
+```
+
+The search does not assume this script's layout: it finds the `llmb-run`
+executable wherever it is — including a `llmb_venv/` *beside* the install root —
+the `cluster_config.yaml`, the images and the HF cache. Whatever it resolved by
+fallback is printed as `LLMB_BIN=` / `LLMB_CONFIG=` / `LLMB_IMAGES=` / `LLMB_HF=`
+lines. **Put those in `SETTINGS`**: the search ran here, and the jobs run on the
+compute nodes.
+
+Then set `LLMB_REF` to the version the report says the install actually is, or
+empty it to skip the gate — with the floors in `parsers/*/verdict.sh` re-read
+either way. See
+[explanation/llmb.md#adopting-an-existing-install](../explanation/llmb.md#adopting-an-existing-install).
+
 ## 2. Enable `llm-pretrain`
 
 In order, because each step is checkable on its own:

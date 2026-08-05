@@ -101,7 +101,14 @@ fi
 ## `=` not `:=`, like CONTAINERS: empty means no llmb install.
 ## See docs/explanation/llmb.md#where-the-install-lives.
 : "${LLMB_INSTALL=/home/cmods/llmb}"
-: "${LLMB_REF:=v26.06.01}"
+: "${LLMB_REF=v26.06.01}"
+## `=` not `:=`: empty means "search for it", which is how an install this tree
+## did not build is adopted. llmb_check.py owns the search order.
+## See docs/explanation/llmb.md#adopting-an-existing-install.
+: "${LLMB_BIN=}"
+: "${LLMB_CONFIG=}"
+: "${LLMB_IMAGES=}"
+: "${LLMB_HF=}"
 
 ## The only place these paths are built; no caller should rebuild them by hand.
 ## See docs/reference/settings.md#which-set-of-things-to-run.

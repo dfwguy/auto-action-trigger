@@ -114,6 +114,9 @@ permissions:
         check 100644 "$f"
       done
 
+      # Run as `python3 llmb_check.py`, never exec'd.
+      check 100644 llmb_check.py
+
       # node_health.sh runs each check as `bash "$check_file"`, deliberately.
       for f in $(git ls-files 'health-checks/*/[0-9][0-9]-*.sh'); do
         check 100644 "$f"
@@ -185,6 +188,14 @@ scan-cache:
   stage: test
   script:
     - ./tests/scan-cache-test.sh
+
+# An adopted llmb install is judged by llmb_check.py, and every way it can be
+# wrong looks like a working install until a job refuses on 200 nodes.
+llmb-check:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/llmb-check-test.sh
 
 # Five scripts print --help from their own header through a hardcoded line
 # range, so comment length is runtime behaviour there. This is the gate that

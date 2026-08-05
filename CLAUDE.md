@@ -136,6 +136,7 @@ is:
 |------|------|-----|
 | `755` | Entry points — anything a human or BCM invokes directly | Must be `exec`able. BCM registers an action against a path and runs it; a `644` action registers fine and silently runs nothing |
 | `644` | Sourced libraries: `settings.sh`, `reason-map.sh`, `slurm-recovery.sh`, `verdict-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is also *run*, but as `bash verdict-scan.sh` from its own `xargs`, like the health checks below |
+| `644` | `llmb_check.py` | `build_llmb.sh` runs it as `python3 llmb_check.py`, like the health checks below |
 | `644` | `health-checks/*/NN-*.sh` | `node_health.sh` runs each as `bash "$check_file"` — deliberately, so one check's `exit 1` cannot truncate the set of 38 |
 | `644` | `jobs/*/*.sbatch`, including `example.sbatch` | `sbatch` reads them; it does not exec them. `example.sbatch` is a template that gets `cp`'d, so a stray `755` propagates into every new job |
 | `644` | `jobs/*/*.sh` — host launchers like `llm-pretrain.sh`, and the sourced `nccl-hca.sh` | `launch_job.sh` runs a host launcher as `bash "$launch"`, like the health checks. A launcher is told apart from a sourced helper by a `job_launch=host` line, not by its mode or name — see `docs/explanation/sequencing.md#host-launched-jobs` |
@@ -200,6 +201,7 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/recover-test.sh        # drain classification in slurm-recovery.sh
 ./tests/help-text-test.sh      # --help blocks, if you touched a header comment
 ./tests/scan-cache-test.sh     # the report cache, if you touched a gate or verdict-scan.sh
+./tests/llmb-check-test.sh     # llmb install discovery, if you touched llmb_check.py
 ./tests/doc-links-test.sh      # every docs/ anchor the code points at, if you moved or retitled one
 bash -n <changed script>       # these scripts run as root on 200+ nodes
 shellcheck -S warning <changed script>   # CI gates on this; see below

@@ -5,9 +5,13 @@
 # Head node only, once per CPU architecture. See docs/explanation/llmb.md.
 #
 #   ./build_llmb.sh          # install, image, tokenizer and dataset
-#   ./build_llmb.sh -l       # what is present and what is not
+#   ./build_llmb.sh -l       # what is present and what is not; non-zero if
+#                            # anything the jobs need is missing
 #   ./build_llmb.sh -d       # re-stage the tokenizer and dataset only
 #   ./build_llmb.sh -i       # re-import the container image only
+#
+# An install this script did not build is adopted through LLMB_BIN, LLMB_CONFIG,
+# LLMB_IMAGES and LLMB_HF in SETTINGS; empty means search for it.
 #
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
 
@@ -25,7 +29,7 @@ WORKLOAD=pretrain_llama3.1
 MODEL_SIZE=8b
 DTYPE=fp8
 
-usage() { sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; }
+usage() { sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; }
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
@@ -49,26 +53,31 @@ case "$LLMB_INSTALL" in
         die "LLMB_INSTALL=$LLMB_INSTALL is inside BRINGUP_HOME. A tarball drop replaces that tree, images and dataset included. See docs/explanation/llmb.md#where-the-install-lives." ;;
 esac
 
-arch="$(uname -m)"
-hf_home="$LLMB_INSTALL/hf"
-images="$LLMB_INSTALL/images"
+command -v python3 >/dev/null 2>&1 ||
+    die "python3 is not on PATH -- llmb_check.py resolves the install layout. See docs/explanation/llmb.md#adopting-an-existing-install."
+
+## Named one by one, not exported: settings.sh assigns plain shell variables, so
+## nothing here reaches a child otherwise -- and the gate would skip in silence.
+llmb_env=(LLMB_INSTALL="$LLMB_INSTALL" LLMB_REF="$LLMB_REF" LLMB_BIN="$LLMB_BIN"
+          LLMB_CONFIG="$LLMB_CONFIG" LLMB_IMAGES="$LLMB_IMAGES" LLMB_HF="$LLMB_HF"
+          LLMB_WORKLOAD="$WORKLOAD")
 
 ## ── -l ────────────────────────────────────────────────────────────────────
-
-state() { if [[ -e "$1" ]]; then echo "present"; else echo "MISSING"; fi; }
+## Before the resolve below, so the report can tell an override apart from a
+## fallback. See docs/explanation/llmb.md#adopting-an-existing-install.
 
 if [[ "$LIST_ONLY" -eq 1 ]]; then
-    printf '%-22s %s\n' \
-        "install root"  "$LLMB_INSTALL ($(state "$LLMB_INSTALL"))" \
-        "collection ref"  "$LLMB_REF$([[ -d "$LLMB_INSTALL/src/.git" ]] && printf ' (checked out: %s)' "$(git -C "$LLMB_INSTALL/src" describe --tags --always 2>/dev/null)")" \
-        "llmb-run"      "$(command -v llmb-run 2>/dev/null || echo 'MISSING from PATH')" \
-        "images/ ($arch)" "$(state "$images")" \
-        "tokenizer+data"  "$(state "$hf_home")" \
-        "enroot creds"    "$(state "${ENROOT_CONFIG_PATH:-$HOME/.config/enroot}/.credentials")" \
-        "HF_TOKEN"        "$([[ -n "${HF_TOKEN:-}" ]] && echo set || echo 'unset -- needed to stage the tokenizer')" \
-        "cluster config"  "$(state "$LLMB_INSTALL/cluster_config.yaml")"
-    exit 0
+    env "${llmb_env[@]}" python3 "$home/llmb_check.py" --report
+    exit $?
 fi
+
+## Resolved once; no step below rebuilds one of these paths by hand.
+resolved="$(env "${llmb_env[@]}" python3 "$home/llmb_check.py" --resolve)" ||
+    die "llmb_check.py could not resolve $LLMB_INSTALL"
+eval "$resolved"
+
+hf_home="$LLMB_HF"
+images="$LLMB_IMAGES"
 
 ## ── Preflight ─────────────────────────────────────────────────────────────
 

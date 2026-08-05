@@ -357,7 +357,18 @@ Only the `llm-pretrain` job reads these. A site not running it needs neither.
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | `LLMB_INSTALL` | `/home/cmods/llmb` | Where `build_llmb.sh` installs the collection, image and tokenizer cache. Empty means no install |
-| `LLMB_REF` | `v26.06.01` | The `dgxc-benchmarking` tag `build_llmb.sh` installs. A tag rather than a branch so a reinstall is the same install |
+| `LLMB_REF` | `v26.06.01` | The `dgxc-benchmarking` tag `build_llmb.sh` installs, and the version `-l` gates on. Empty skips the gate |
+| `LLMB_BIN` | empty | Directory holding the `llmb-run` executable. Empty is searched for |
+| `LLMB_CONFIG` | empty | Path to `cluster_config.yaml`. Empty is searched for |
+| `LLMB_IMAGES` | empty | Directory holding the `.sqsh` images. Empty is searched for |
+| `LLMB_HF` | empty | The `HF_HOME` both LLM jobs read offline. Empty is searched for |
+
+The four empty ones exist to adopt an install this tree did not build, whose
+layout it cannot assume. `./build_llmb.sh -l` runs the search, prints what
+answered and exits non-zero if anything is missing; the assignments it reports
+belong in `SETTINGS`, because the search runs on the head node and the jobs run
+elsewhere. See
+[explanation/llmb.md#adopting-an-existing-install](../explanation/llmb.md#adopting-an-existing-install).
 
 `LLMB_INSTALL` is deliberately outside `BRINGUP_HOME`, and `build_llmb.sh`
 refuses to install into it or below it. It is handed to a host launcher through

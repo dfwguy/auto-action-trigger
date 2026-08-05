@@ -10,3 +10,6 @@ SETTINGS
 results/
 logs/
 reports/*.csv
+
+# Left behind by importing llmb_check.py, which the tests do.
+__pycache__/
