@@ -28,7 +28,7 @@ is the compass; the four entry points are:
 
 | If you are… | Start at |
 |------|--------|
-| new to this and want it working on one node | [docs/tutorials/first-bringup.md](docs/tutorials/first-bringup.md) |
+| new to this and want it working on one node | [docs/tutorials/](docs/tutorials/) — a first bringup, the trigger chain, reading the fleet through Slurm |
 | trying to get something specific done | [docs/how-to/](docs/how-to/) — enabling benchmarks, pausing, managing drains, diagnosing a failure |
 | looking up a setting, a flag, or what a trace line means | [docs/reference/](docs/reference/) — `SETTINGS`, the job catalog, the 38 health checks, every operator script |
 | trying to understand why it works this way | [docs/explanation/](docs/explanation/) — the sequencer, derived verdicts, drain recovery, containers |
@@ -87,7 +87,7 @@ The following scripts are run manually by an operator from the headnode and do n
 | `pre-post/create-action-trigger.sh` | `cmsh` (BCM admin access) |
 | `pre-post/delete-action-trigger.sh` | `cmsh` (BCM admin access) |
 
-Draining and resuming nodes needs Slurm privilege — see [docs/explanation/sequencing.md](docs/reference/layout.md#slurm-permissions).
+Draining and resuming nodes needs Slurm privilege — see [docs/reference/layout.md](docs/reference/layout.md#slurm-permissions).
 
 ## First-time setup
 
@@ -172,7 +172,7 @@ DRAIN_AFTER_FAILED_HEALTH_CHECK=no   # health check mismatched the baseline
 DRAIN_AFTER_FAILED_BENCHMARK=no      # benchmark sweep failed, or a job ran past MAX_JOB_HOURS
 ```
 
-Turn them on once the failures being reported are real ones. Health-check drains are the riskier half — a bad baseline drains the whole cluster on the first monitoring cycle — so bring that one up only after `bash health-check.sh --summary` reads clean. See [docs/reference/scripts.md](docs/how-to/manage-drains.md).
+Turn them on once the failures being reported are real ones. Health-check drains are the riskier half — a bad baseline drains the whole cluster on the first monitoring cycle — so bring that one up only after `bash health-check.sh --summary` reads clean. See [docs/how-to/manage-drains.md](docs/how-to/manage-drains.md).
 
 ## Operating a bringup
 
@@ -190,7 +190,7 @@ bash check_squeue.sh -j 121918            # one job, plus its nodes' state and a
 
 A job stuck at `ReqNodeNotAvail` is answered by `check_squeue.sh -j` — the
 reason names a condition, not the nodes behind it. See
-[docs/reference/scripts.md](docs/how-to/diagnose-nothing-running.md#reading-the-queue).
+[docs/how-to/diagnose-nothing-running.md](docs/how-to/diagnose-nothing-running.md#reading-the-queue).
 
 A node that has stopped testing:
 
@@ -231,7 +231,7 @@ bash kill-jobs.sh -p                      # pause, then cancel every job of ours
 bash kill-jobs.sh ink50-dh01-i01          # one node or glob; no -p, so the sweep resumes next cycle
 ```
 
-`kill-jobs.sh` matches on our own job names rather than on the account, so it leaves anything else `cmods` owns alone, and it runs from any directory. See [docs/reference/scripts.md](docs/how-to/pause-and-resume.md) and [emptying the queue](docs/how-to/pause-and-resume.md#emptying-the-queue-now).
+`kill-jobs.sh` matches on our own job names rather than on the account, so it leaves anything else `cmods` owns alone, and it runs from any directory. See [docs/how-to/pause-and-resume.md](docs/how-to/pause-and-resume.md) and [emptying the queue](docs/how-to/pause-and-resume.md#emptying-the-queue-now).
 
 A drain reason containing `auto-retry` is the sequencer's own — it clears it on the next retry pass, so resuming by hand only starts the next sweep sooner. Any other reason is an operator drain, and the sequencer will neither clear it nor queue work behind it.
 

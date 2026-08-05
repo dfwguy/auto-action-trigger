@@ -15,11 +15,15 @@ before any of this.
 
 ## Tutorials
 
-Learning-oriented. One guided path, no options.
+Learning-oriented. One guided path, no options, safe to follow on a live
+cluster. Read these when you have *no* problem — they build the model the how-to
+guides assume you already have.
 
 | Page | Covers |
 |------|--------|
 | [first-bringup.md](tutorials/first-bringup.md) | Fresh tree → one node → one passing benchmark → reading its result. Start here at a new site |
+| [understanding-the-triggers.md](tutorials/understanding-the-triggers.md) | Follow one BCM monitoring cycle end to end, and learn why "nothing happened" is written down |
+| [troubleshooting-with-slurm.md](tutorials/troubleshooting-with-slurm.md) | Move between what Slurm knows about a node and what `results/` knows. Read-only throughout |
 
 ## How-to guides
 
