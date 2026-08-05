@@ -175,15 +175,21 @@ and `*.sbatch`, `bash -n` over the same set, the `permissions` job described
 above, and `architecture-doc`, which fails if a top-level script is not named
 in this file's tree listing. `severity=warning` is the gate, not the ceiling:
 the info- and style-level findings below it are largely deliberate here. The
-`test` stage runs the five suites — `tests/verdict-test.sh`,
+`test` stage runs the six suites — `tests/verdict-test.sh`,
 `tests/health-runner-test.sh`, `tests/recover-test.sh`, `tests/help-text-test.sh`,
-`tests/scan-cache-test.sh` — as one job each, so a failure names the gate that
-broke without anyone opening a log.
+`tests/scan-cache-test.sh`, `tests/doc-links-test.sh` — as one job each, so a
+failure names the gate that broke without anyone opening a log.
 
 `scan-cache` is there for the same reason `help-text` is: a coupling that fails
 without saying so. Break the cache key and every report still prints, still
 looks right, and is wrong about nodes whose answer has changed. See
 [operations.md#the-verdict-cache](operations.md#the-verdict-cache).
+
+`doc-links` is there for the third silent coupling. The comment convention in
+`CLAUDE.md` puts reasoning in `docs/` and leaves a one-line pointer in the code,
+which makes several hundred anchors load-bearing and unrendered: retitle a
+heading and the pointer still resolves — to the top of the page — so the reader
+gets a document that does not answer what they clicked for.
 
 `help-text` is there for a coupling the rest of the tree does not have.
 `status-check.sh`, `health-check.sh`, `daily-report.sh`, `sync-check.sh` and

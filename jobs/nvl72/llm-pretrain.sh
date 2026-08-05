@@ -47,7 +47,7 @@ export LLMB_INSTALL="${LLMB_INSTALL:?LLMB_INSTALL is not set -- settings.sh deri
     refuse "no install at $LLMB_INSTALL -- run ./build_llmb.sh on the head node"
 
 command -v llmb-run >/dev/null 2>&1 ||
-    refuse "llmb-run is not on PATH -- see docs/llmb.md#what-build_llmb.sh-leaves-behind"
+    refuse "llmb-run is not on PATH -- see docs/llmb.md#what-build_llmbsh-leaves-behind"
 
 ## A cache miss on a node with no route out must fail, not stall.
 ## See docs/llmb.md#running-offline.

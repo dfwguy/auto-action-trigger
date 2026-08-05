@@ -160,6 +160,7 @@ Read `docs/operations.md#the-verdict-cache` before touching any of it.
 ./tests/recover-test.sh        # drain classification in slurm-recovery.sh
 ./tests/help-text-test.sh      # --help blocks, if you touched a header comment
 ./tests/scan-cache-test.sh     # the report cache, if you touched a gate or verdict-scan.sh
+./tests/doc-links-test.sh      # every docs/ anchor the code points at, if you moved or retitled one
 bash -n <changed script>       # these scripts run as root on 200+ nodes
 shellcheck -S warning <changed script>   # CI gates on this; see below
 ```

@@ -194,3 +194,11 @@ help-text:
   stage: test
   script:
     - ./tests/help-text-test.sh
+
+# The code points at docs/ by anchor and nothing renders those links, so a
+# reworded heading silently lands the reader on the wrong section.
+doc-links:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/doc-links-test.sh
