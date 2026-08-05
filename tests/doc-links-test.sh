@@ -31,10 +31,15 @@ trap 'rm -f "$anchors" "$refs"' EXIT
 ## Headings, skipping fenced blocks: docs/reference/health-checks.md documents a check
 ## file whose own lines start with `#`, and CLAUDE.md quotes shell comments.
 ## Duplicate slugs in one file take the -1, -2 suffixes the renderers assign.
+## No `{1,6}` here: mawk before 1.3.4-20240123 -- which is what Debian bookworm
+## ships, and what CI runs -- takes an interval expression literally and matches
+## no heading at all. `#+` with an explicit length test is portable.
 find_headings() {
     awk '
         /^(```|~~~)/ { fence = !fence; next }
-        !fence && /^#{1,6}[ \t]/ {
+        !fence && /^#+[ \t]/ {
+            match($0, /^#+/)
+            if (RLENGTH > 6) next
             line = $0
             sub(/^#+[ \t]+/, "", line)
             sub(/[ \t]+#*[ \t]*$/, "", line)
@@ -55,6 +60,14 @@ if [[ "${#pages[@]}" -eq 0 ]]; then
     exit 1
 fi
 find_headings "${pages[@]}" README.md CLAUDE.md | sort -u >"$anchors"
+
+## Every anchored reference fails identically when this file comes out empty, so
+## the one broken thing reads as several hundred broken things. Say which it is.
+if [[ ! -s "$anchors" ]]; then
+    echo "found no headings in ${#pages[@]} pages -- the heading match is broken," >&2
+    echo "not the links. Check awk: $(awk -W version 2>&1 | head -1)" >&2
+    exit 1
+fi
 
 ## Every reference, with the file it was written in, because resolving a
 ## relative link needs to know where the reader is standing.
