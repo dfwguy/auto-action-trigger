@@ -203,6 +203,53 @@ else
     bad "--resolve quotes paths with spaces" "got '$value'"
 fi
 
+## ── The indent the installer actually writes ──────────────────────────────
+## A block sequence sits at its key's own column as often as under it, and the
+## installer picks the first. Read as "no workloads installed", it condemns a
+## working install -- which is what it did the first time this ran on a cluster.
+
+flat="$work/flat"
+mkdir -p "$flat/images" "$flat/llmb_repo" "$flat/venvs/venv_f4496d246607"
+touch "$flat/images/a.sqsh"
+## A wrapper at the install root, which is where this layout keeps the CLI.
+printf '#!/bin/sh\n' > "$flat/llmb-run"
+chmod +x "$flat/llmb-run"
+printf "llmb_version: '26.06.00'\n" > "$flat/llmb_repo/release.yaml"
+cat > "$flat/cluster_config.yaml" <<EOF
+schema_version: 2
+llmb_repo: $flat/llmb_repo
+llmb_install: $flat
+gpu_type: gb300
+workloads:
+  installed:
+  - pretrain_nemotron-h
+  - microbenchmark_nccl
+  - pretrain_llama3.1
+  config:
+    microbenchmark_nccl:
+      venv_path: $flat/venvs/venv_f4496d246607
+      venv_type: uv
+    pretrain_llama3.1:
+      venv_path: $flat/venvs/venv_f4496d246607
+      venv_type: uv
+EOF
+
+out=$(LLMB_HF_OVERRIDE="$work/ws/hf" run "$flat" 26.06.00)
+rc=$?
+if grep -q "workloads  *ok  *pretrain_nemotron-h, microbenchmark_nccl, pretrain_llama3.1" <<<"$out"; then
+    ok "list at the key's own indent" "3 workloads read"
+else
+    bad "list at the key's own indent" "$(grep workloads <<<"$out")"
+fi
+
+## The key after the list has to survive it: a sequence that swallows its
+## sibling takes workloads.config with it and the venv row reads MISSING.
+if grep -q "venv for pretrain_llama3.1  *ok" <<<"$out" && [[ "$rc" -eq 0 ]]; then
+    ok "the key after a list is still read" "workloads.config"
+else
+    bad "the key after a list is still read" "rc=$rc $(grep venv <<<"$out")"
+fi
+
 ## ── SETTINGS reaches the checker ──────────────────────────────────────────
 ## settings.sh assigns plain shell variables, so build_llmb.sh has to name each
 ## one on the command that runs this file. When that broke, every gate read as

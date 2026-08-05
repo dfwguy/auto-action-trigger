@@ -74,8 +74,12 @@ def _block(lines, i, indent):
         if rest.strip() and not rest.strip().startswith("#"):
             node[key.strip()] = _scalar(rest)
             continue
-        ## Bare `key:` -- a child block if anything indents under it, else null.
-        if i < len(lines) and lines[i][0] > indent:
+        ## Bare `key:` -- a child block if anything follows under it, else null.
+        ## A list is written at the key's own indent as often as under it, and
+        ## the installer picks the first: `installed:` then `- name` at the same
+        ## column. See docs/explanation/llmb.md#reading-the-config-without-pyyaml.
+        if i < len(lines) and (lines[i][0] > indent
+                               or (lines[i][0] == indent and lines[i][1].startswith("- "))):
             node[key.strip()], i = _block(lines, i, lines[i][0])
         else:
             node[key.strip()] = None
