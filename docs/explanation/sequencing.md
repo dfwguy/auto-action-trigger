@@ -632,6 +632,44 @@ Under `--explain` the recovery runs with `RECOVER_DRY_RUN=1`, which issues no
 `--force` is refused instead, and that asymmetry is the point: `--force` would
 touch the cluster, `--explain` cannot.
 
+## The sweep is shaped like a backfill job, and that is load-bearing
+
+Nothing here sets out to be a good scheduling citizen, but three independent
+decisions add up to one: **every job is single-node, short, and low priority.**
+That is precisely the profile Slurm's backfill pass exists to place.
+
+| Decision | Made for | Backfill consequence |
+|---|---|---|
+| `-N 1 --exclusive` | a benchmark sharing a node measures the other job | fits gaps a multi-node job cannot |
+| `#SBATCH -t` derived, not padded | the step limit must fire before the job walltime, so a marker gets written | the limit is honest, so it fits real gaps |
+| `--nice=20` / `100000` | leave `0` free for a job submitted by hand | low priority is what makes a job *eligible* for backfill |
+
+Backfill starts a lower-priority job early when doing so does not delay the
+expected start of any higher-priority job. A 25-minute single-node benchmark
+slots into the idle time ahead of somebody's 32-node reservation without moving
+it, so the sweep progresses on a cluster that is nominally full.
+
+Two things follow, and both matter more than they look:
+
+- **The fleet cap is not the only thing bounding our impact.** Backfill means
+  most of what the sweep consumes is time nobody else could have used, which is
+  why a sweep can run under a busy cluster without a fairness complaint.
+  `MAX_QUEUED_JOBS` bounds the load on `slurmctld`, not the load on the nodes —
+  see [the fleet-wide cap](#the-fleet-wide-cap).
+- **Padding a walltime costs coverage, not just clock.** A job whose `-t` is
+  generous stops fitting gaps and starts waiting for reservations instead. That
+  is the second reason the limits in
+  [reference/jobs.md#what-each-jobs-limits-were-derived-from](../reference/jobs.md#what-each-jobs-limits-were-derived-from)
+  are derived per job rather than set to one safe large number — the first being
+  that `MAX_JOB_HOURS` has to clear the longest of them.
+
+It also explains a report that arrives periodically and is not a bug: a
+`burnin-*` job at `--nice=100000` starting while somebody's higher-priority job
+waits. Priority orders competition for a node that is free *now*; backfill fills
+a gap nobody is competing for. Both are working. The operator-facing version of
+this is
+[how-to/estimate-when-a-job-will-start.md](../how-to/estimate-when-a-job-will-start.md#6-why-our-jobs-start-ahead-of-yours-anyway).
+
 ## Site switches are not timing gates
 
 `--force` opens the hourly retry gate and nothing else. `PAUSE_JOBS`,

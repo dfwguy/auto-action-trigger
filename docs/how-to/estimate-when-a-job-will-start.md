@@ -126,7 +126,84 @@ pending job outranks every pending job of ours on the same partition.
 It does **not** get you past a job that is already running — see the rule at the
 top. If you are queued behind a running benchmark, priority is not the lever.
 
-## 6. When the wait is not about us at all
+And it does not stop our jobs starting before yours, which is the next section
+and is the thing most often reported as a bug.
+
+## 6. Why our jobs start ahead of yours anyway
+
+If you have watched a `bringup-*` job start while your higher-priority job sat
+`PENDING`, you saw **backfill**, and it was Slurm working correctly rather than
+the sweep jumping the queue.
+
+Slurm's scheduler is priority-ordered with a backfill pass. Backfill starts a
+lower-priority job early **if doing so does not delay the expected start time of
+any higher-priority job** — that is, if it fits entirely inside a gap that was
+going to be idle anyway.
+
+Our jobs fit that gap almost perfectly, and it is worth seeing why, because
+every property that makes them good backfill candidates is one you can read off
+the job file:
+
+| Property | Value | Effect on backfill |
+|---|---|---|
+| Node count | `-N 1` | Fits gaps a multi-node job cannot |
+| Walltime | 25–50 min on the default list | Fits short gaps, and the limit is honest rather than padded |
+| Priority | `--nice=20`, burn-in `100000` | Low — which is *why* it is eligible for backfill rather than blocking |
+
+So the common shape is: your 32-node, 8-hour job is waiting for 32 nodes to come
+free at once, and Slurm has given it a start reservation for 14:00. It is 13:20.
+One node is idle now. Our 25-minute single-node benchmark finishes at 13:45,
+comfortably before 14:00, so starting it costs your job nothing — and Slurm
+starts it.
+
+**The critical consequence: this did not delay you.** Backfill is defined by not
+delaying the reserved job. The node your benchmark used was idle time your job
+could not have consumed, because your job needed 32 nodes and could not start
+until 14:00 regardless.
+
+That is also why the `--nice` table in step 5 reads as if it were being ignored.
+Both things are true at once: `--nice` decides who gets a node when several jobs
+are competing for one *now*, and backfill decides who gets to use a gap that
+nobody is competing for. Burn-in at `--nice=100000` is last in every queue it is
+in, and still starts inside gaps all day long.
+
+### Confirming that is what happened
+
+```bash
+squeue --start -j <your-jobid>
+scontrol show config | grep -iE 'SchedulerType|SchedulerParameters'
+```
+
+If `SchedulerType` is `sched/backfill` — the default, and near-universal — this
+is the mechanism. `SchedulerParameters` carries its tuning; the defaults worth
+knowing are `bf_window` (how far ahead it plans, default one day),
+`bf_interval` (how often it runs, default 30s) and `bf_max_job_test` (how many
+pending jobs it considers, default 100). A site that has tuned these down will
+backfill less, not differently.
+
+If your job has a `START_TIME` from that first command and jobs keep starting
+before it *without* that time moving later, backfill is doing its job. If the
+time keeps sliding out, that is a different problem and is not backfill.
+
+### What this means for your own job
+
+The lever backfill gives you is **an honest walltime**, and it is a much bigger
+lever than priority:
+
+- A job asking for 7 days will never be backfilled into a 2-hour gap, even if it
+  would have finished in 90 minutes. Slurm places jobs by their `-t`, not by
+  what they actually take.
+- Trimming `-t` to something realistic can move a job from "waits for the
+  reservation" to "starts in the next gap", which on a busy cluster is the
+  difference between hours and minutes.
+- The risk is the obvious one: a job that overruns its `-t` is killed. This is
+  the same trade the benchmarks make, and why their limits are derived rather
+  than guessed — see
+  [reference/jobs.md#two-time-limits-and-the-order-they-fire-in](../reference/jobs.md#two-time-limits-and-the-order-they-fire-in).
+
+Asking for fewer nodes has the same effect for the same reason.
+
+## 7. When the wait is not about us at all
 
 Before blaming the sweep, check whether the node is even available:
 
@@ -148,7 +225,7 @@ them.
   is broken.
 - **Neither** — the node is busy, and step 2 says with what.
 
-## 7. If you need the nodes now
+## 8. If you need the nodes now
 
 Ask whoever runs the bringup; these change fleet state and are not yours to run
 casually. The framework can be stopped in two ways, and the difference matters:

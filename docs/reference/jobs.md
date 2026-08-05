@@ -221,13 +221,18 @@ So the empty `0` tier only helps a job submitted *without* a `--nice`; to push a
 job file from this tree to the front, override it on the command line:
 `sbatch --nice=0 hpl.sbatch`.
 
-Two limits worth knowing:
+Three limits worth knowing:
 
 - **Nice does not preempt.** Every job is `--exclusive`, so whatever is already
   running keeps the node until it finishes. Priority only reorders what has not
   started. Interrupting a running burn-in needs Slurm preemption
   (`PreemptType`/`PreemptMode`, with the lists in different partitions or
   QOSes), which is scheduler configuration.
+- **Nice does not stop a job being backfilled.** A low `--nice` is what makes a
+  job *eligible* to start early in a gap ahead of higher-priority work, so
+  `mnubergemm` at `100000` is last in every queue and still starts inside gaps
+  all day. That is Slurm working, not the tier being ignored — see
+  [explanation/sequencing.md#the-sweep-is-shaped-like-a-backfill-job-and-that-is-load-bearing](../explanation/sequencing.md#the-sweep-is-shaped-like-a-backfill-job-and-that-is-load-bearing).
 - **`100000` is deliberately large.** Under `priority/basic`, priority is
   derived from the job id, so a nice value only outranks jobs submitted within
   that many ids. A small number would work on a quiet cluster and silently stop
