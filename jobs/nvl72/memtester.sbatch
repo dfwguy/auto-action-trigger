@@ -6,12 +6,12 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH -t 4:10:00
 #SBATCH --nice=20
-## nice 20 is the sweep's tier. See docs/benchmarks.md#queue-priority.
+## nice 20 is the sweep's tier. See docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/memtester.txt
 
 ## No --gres: this job never touches a GPU. --mem=0 is load-bearing -- the test
 ## size below is 80% of MemAvailable. No --cpus-per-task, it implies --exact.
-## See docs/benchmarks.md#the-allocation-header.
+## See docs/reference/jobs.md#the-allocation-header.
 
 ## DRAM integrity and ECC behaviour; paired with stream.sbatch, which covers
 ## bandwidth. AI Factory Testing Plan SNT2 (Exhaustive).
@@ -21,14 +21,14 @@ job_name=memtester
 
 ## 2x the plan's ~1-2 hr STREAM + Memtester row, upper end. The step limit
 ## fires first so the batch script survives to write its marker. See
-## docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=4:00:00
 
 ## ------------- job info starts here ------------- ##
 
 ## What the STEP holds, asked from inside a step; the job's AllocTRES cannot
 ## answer that. Wording is fixed -- verdict.sh greps this file.
-## See docs/benchmarks.md#preflight.
+## See docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     echo "preflight: $(hostname) cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
     [[ "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
@@ -49,7 +49,7 @@ rc=$?
 ## ------------- parse info starts here ----------- ##
 
 ## Only whether the job ran is decided here; verdict.sh decides whether the
-## result is good. See docs/benchmarks.md#where-a-pass-is-decided.
+## result is good. See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 
 ## A FAIL with a non-zero status here is srun's own; a FAIL with `exit status:
 ## 0` came from verdict.sh, which leaves no trace in this file.

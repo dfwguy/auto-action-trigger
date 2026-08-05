@@ -2,7 +2,7 @@
 #
 # Compute-plane HCA discovery for the NCCL -nonvlink jobs. Host detection and
 # container probe answer different questions; see
-# docs/benchmarks.md#host-hcas-are-not-container-hcas.
+# docs/explanation/judging-benchmarks.md#host-hcas-are-not-container-hcas.
 
 ## Drops the NVSwitch-attached HCA (4 functions on one PCIe device) and
 ## mlx5_bond_*, which backs the OOB bond0. Returns 1 if nothing survived: an
@@ -33,7 +33,7 @@ nccl_hca_report_host() {
 ## Run inside the container, as `bash -c "$NCCL_HCA_PROBE"`. Prefers
 ## ibv_devinfo -- the same libibverbs call NCCL makes. The last line is a fixed
 ## format because verdict.sh gates on it. See
-## docs/benchmarks.md#host-hcas-are-not-container-hcas.
+## docs/explanation/judging-benchmarks.md#host-hcas-are-not-container-hcas.
 # shellcheck disable=SC2034  # read by the -nonvlink sbatch files that source this
 read -r -d '' NCCL_HCA_PROBE <<'PROBE' || true
 echo "INFO: container NCCL_IB_HCA: ${NCCL_IB_HCA:-(unset)}"

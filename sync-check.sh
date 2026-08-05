@@ -67,7 +67,7 @@ is_not_a_check() {
     esac
 }
 
-# Real check names, from the baseline. See docs/health-checks.md#reading-the-reason-field.
+# Real check names, from the baseline. See docs/reference/health-checks.md#reading-the-reason-field.
 declare -A known_check
 while IFS= read -r name; do
     is_not_a_check "$name" && continue

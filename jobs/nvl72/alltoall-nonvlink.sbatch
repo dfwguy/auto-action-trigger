@@ -8,11 +8,11 @@
 #SBATCH -t 0:25:00
 #SBATCH --nice=20
 ## --nice 20 is the sweep's tier; higher is later. See
-## docs/benchmarks.md#queue-priority.
+## docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/alltoall-nonvlink.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
-## implies --exact. See docs/benchmarks.md#the-allocation-header.
+## implies --exact. See docs/reference/jobs.md#the-allocation-header.
 
 ## AI Factory Testing Plan: NCCL AllToAll -- Single Node, No NVLink -- SNT2
 ## GB300 MOP 7.3 Scope A. NVLink-scope counterpart: alltoall.sbatch
@@ -22,7 +22,7 @@
 job_name=alltoall-nonvlink
 
 ## Handed to srun --time below, so the step is cancelled and the batch script
-## survives. See docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## survives. See docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=0:15:00
 ## shellcheck disable: read by grep from this file's text, never sourced.
 # shellcheck disable=SC2034
@@ -32,7 +32,7 @@ totalRuns=1
 
 ## Preflight -- what the STEP holds, which only a step can see. Wording of the
 ## passing line is fixed; verdict.sh greps this file. See
-## docs/benchmarks.md#preflight.
+## docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -45,11 +45,11 @@ srun --ntasks=1 bash -c '
 
 
 ## Node-local copy first so job start does not stream the image over NFS. See
-## docs/containers.md#how-the-caching-works.
+## docs/explanation/containers.md#how-the-caching-works.
 IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
 [[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
-## Registry fallback; note enroot's `#` separator. docs/containers.md#why-local-images.
+## Registry fallback; note enroot's `#` separator. docs/explanation/containers.md#why-local-images.
 #CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
 
 ## bond0 carries bootstrap and the IB OOB handshake only, never collective data.
@@ -64,7 +64,8 @@ export NCCL_MNNVL_ENABLE=0
 export NCCL_IB_DISABLE=0
 
 ## Deletes NCCL's silent fallback to TCP: no usable HCA is now an init failure
-## rather than a clean but worthless result. docs/benchmarks.md#judge-the-channels-never-the-plugin-registration
+## rather than a clean but worthless result. See
+## docs/explanation/judging-benchmarks.md#judge-the-channels-never-the-plugin-registration
 export NCCL_NET=IB
 
 ## Compute-plane HCA discovery, shared with allreduce-nonvlink.sbatch. See
@@ -88,7 +89,7 @@ fi
 nccl_hca_report_host
 
 ## Ask the container what it sees; a healthy host list proves nothing. See
-## docs/benchmarks.md#host-hcas-are-not-container-hcas. --ntasks=1, not
+## docs/explanation/judging-benchmarks.md#host-hcas-are-not-container-hcas. --ntasks=1, not
 ## --ntasks-per-node=1, which Slurm ignores in favour of the header's 4.
 srun --ntasks=1 --export=ALL \
                 --container-image="${CONT}" \
@@ -99,7 +100,7 @@ srun --ntasks=1 --export=ALL \
 ## No --ntasks-per-node: srun inherits the header's 4, and stating it twice let
 ## them drift. `-g 1` pairs with 4 tasks for one rank per GPU.
 ## /dev/infiniband must be mounted -- enroot's fresh /dev has no HCA character
-## devices. docs/benchmarks.md#host-hcas-are-not-container-hcas
+## devices. docs/explanation/judging-benchmarks.md#host-hcas-are-not-container-hcas
 srun --time="$STEP_TIMELIMIT" --mpi=pmix --export=ALL --cpu-bind=none --mem-bind=none \
                 --container-image="${CONT}" \
                 --container-mounts=/dev/infiniband:/dev/infiniband \
@@ -110,7 +111,7 @@ rc=$?
 ## ------------- parse info starts here ----------- ##
 
 ## Only whether the job ran is decided here; verdict.sh decides whether the
-## result is good. See docs/benchmarks.md#where-a-pass-is-decided.
+## result is good. See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 ## `exit status:` says who decided a FAIL -- non-zero is the job's own, 0 means
 ## the gate in verdict.sh rejected output that ran clean.
 echo "exit status: $rc"

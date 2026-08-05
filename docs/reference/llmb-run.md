@@ -1,7 +1,7 @@
 # `llmb-run`
 
 Reference for the tool itself, separate from how this tree uses it.
-[llmb.md](llmb.md) covers the two jobs and the install; this page covers what
+[explanation/llmb.md](../explanation/llmb.md) covers the two jobs and the install; this page covers what
 `llmb-run` is, what its flags mean, and the four behaviours that surprised us.
 
 Upstream: [NVIDIA/dgxc-benchmarking](https://github.com/NVIDIA/dgxc-benchmarking),
@@ -16,7 +16,7 @@ job for it and submits it. It does not run training in your allocation; it makes
 an allocation of its own.
 
 That single fact drives the whole design of `llm-pretrain` — see
-[llmb.md#why-llm-pretrain-is-not-an-sbatch](llmb.md#why-llm-pretrain-is-not-an-sbatch).
+[llmb.md#why-llm-pretrain-is-not-an-sbatch](../explanation/llmb.md#why-llm-pretrain-is-not-an-sbatch).
 
 ## Command surface
 
@@ -152,7 +152,7 @@ statements about what the hardware can hold.
 `--force` bypasses that check for one explicit task. Whether that is *sound* is
 a per-recipe question — it depends entirely on the parallelism plan, and the
 answer for Llama 3.1 8B is worked through in
-[llmb.md#running-below-the-characterised-scale](llmb.md#running-below-the-characterised-scale).
+[llmb.md#running-below-the-characterised-scale](../explanation/llmb.md#running-below-the-characterised-scale).
 
 ### 3. Minimum scales are large
 

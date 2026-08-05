@@ -4,8 +4,8 @@
 #
 # Does the container see the same HCAs the host does, and will NCCL use them?
 # The four failure modes and the case numbers printed below are documented in
-# docs/operations.md#debugging-ib-visibility; the host-vs-container split
-# itself is docs/benchmarks.md#host-hcas-are-not-container-hcas.
+# docs/how-to/diagnose-ib-visibility.md; the host-vs-container split
+# itself is docs/explanation/judging-benchmarks.md#host-hcas-are-not-container-hcas.
 #
 # One node at a time on purpose: the host selection is read back here and
 # pinned into the container run, so both sections describe the same machine.
@@ -32,7 +32,7 @@ fi
 CONT="${2:-}"
 
 ## Must be the same filter and probe the jobs use, or this is not testing what
-## runs. See docs/benchmarks.md#host-hcas-are-not-container-hcas.
+## runs. See docs/explanation/judging-benchmarks.md#host-hcas-are-not-container-hcas.
 HCA_LIB="$JOBS_DIR/nccl-hca.sh"
 if [[ ! -f "$HCA_LIB" ]]; then
     echo "ERROR: missing $HCA_LIB -- it carries the HCA filter and the container" >&2
@@ -86,7 +86,7 @@ fi
 ## Image path and arch resolved HERE, on the node, then read back on the head
 ## node: /tmp is node-local, so testing it on the head node picks a path that is
 ## real where it was looked for and absent where it runs. Same fallback the jobs
-## use -- see docs/containers.md#how-the-caching-works.
+## use -- see docs/explanation/containers.md#how-the-caching-works.
 img=nvidia+hpc-benchmarks+26.02-$(uname -m | sed "s/aarch64/arm/;s/x86_64/x86/").sqsh
 if [[ -f /tmp/containers/$img ]]; then
     echo "CONTAINER=/tmp/containers/$img"
@@ -187,7 +187,7 @@ fi
 ## quietly succeed over TCP.
 ##
 ## Filtered to the transport lines verdict.sh reads -- see
-## docs/benchmarks.md#judge-the-channels-never-the-plugin-registration -- plus
+## docs/explanation/judging-benchmarks.md#judge-the-channels-never-the-plugin-registration -- plus
 ## pyxis, enroot and srun errors, so a run that never started a container cannot
 ## print an empty section that reads as "NCCL ran and said nothing".
 echo

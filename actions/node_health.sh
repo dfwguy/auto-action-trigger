@@ -5,7 +5,7 @@
 # Checks live in health-checks/$HEALTHCHECKS/NN-<check>.sh -- a platform is a
 # directory, so a check that does not apply is a file that is not there.
 #
-# Check file format -- see docs/health-checks.md#the-check-file-format:
+# Check file format -- see docs/reference/health-checks.md#the-check-file-format:
 #
 #   #!/bin/bash
 #   # banner: ########INFO: Check BIOS
@@ -40,7 +40,7 @@ fi
 source "$home/settings.sh"
 
 ## Deliberately before the `refresh` sentinel is consumed, so a queued re-check
-## survives the pause. See docs/settings.md#pause-switches.
+## survives the pause. See docs/reference/settings.md#pause-switches.
 if setting_enabled "$PAUSE_HEALTH_CHECKS"; then
     echo "########INFO: PAUSE_HEALTH_CHECKS=${PAUSE_HEALTH_CHECKS} in ${SETTINGS_FILE:-<none>}" \
          "-- health checks not run on ${HOSTNAME}"
@@ -100,7 +100,7 @@ check_meta() {
 ## The numeric prefix fixes the order and is stripped to get the check name,
 ## which the log, the baseline and the reason all share. Each check runs in its
 ## own `bash`, never sourced, so one `exit` cannot truncate the set.
-## See docs/health-checks.md#the-check-file-format.
+## See docs/reference/health-checks.md#the-check-file-format.
 for check_file in "$HEALTHCHECKS_DIR"/[0-9]*.sh; do
     [[ -f "$check_file" ]] || continue
 
@@ -119,7 +119,7 @@ for check_file in "$HEALTHCHECKS_DIR"/[0-9]*.sh; do
     printf '%s\n' "$out"   >> "$node_health/$check"
 
     ## Recorded but never drains -- per-rack values cannot match one
-    ## cluster-wide baseline. See docs/health-checks.md#informational-checks.
+    ## cluster-wide baseline. See docs/reference/health-checks.md#informational-checks.
     [[ "$informational" == "yes" ]] && continue
 
     ## stderr is kept: "No such file or directory" means the baseline has no
@@ -144,7 +144,7 @@ node_name=${SLURMD_NODENAME:-$(hostname -s)}
 
 ## Both halves go together: resuming a node this script never drained would
 ## clear somebody else's drain. Every check still runs either way.
-## See docs/operations.md#disabling-drains.
+## See docs/how-to/manage-drains.md.
 if ! setting_enabled "$DRAIN_AFTER_FAILED_HEALTH_CHECK"; then
   if [ -n "${reason}" ]; then
     echo "########INFO: ${node_name} failed health checks, not draining" \
@@ -159,7 +159,7 @@ if command -v /cm/local/apps/slurm/current/bin/scontrol >/dev/null 2>&1; then
     ## A clean run clears only the drains it is evidence against: `health`, the
     ## reasons this script writes itself -- it is the only caller with that
     ## evidence -- plus `machine`. Everything else is left alone.
-    ## See docs/settings.md#recovering-drains-slurm-set-itself.
+    ## See docs/explanation/drain-recovery.md.
     if setting_enabled "$PAUSE_RECOVERY"; then
       echo "########INFO: PAUSE_RECOVERY=${PAUSE_RECOVERY} in ${SETTINGS_FILE:-<none>}" \
            "-- ${node_name} passed every check but its drain is left where it is"

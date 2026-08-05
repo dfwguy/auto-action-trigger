@@ -3,7 +3,7 @@
 # Clearing drains that Slurm set itself. Sourced by actions/launch_job.sh and
 # actions/node_health.sh -- never executed. The four reason classes, the three
 # discriminators that protect an operator drain, the readiness checks and the
-# rate limit are in docs/settings.md#recovering-drains-slurm-set-itself.
+# rate limit are in docs/explanation/drain-recovery.md.
 #
 # Callers set before calling slurm_recover_node: RECOVER_ACCEPT (classes this
 # caller may clear, space separated -- launch_job.sh "machine", node_health.sh
@@ -23,7 +23,8 @@ fi
 : "${RECOVER_LOG:=}"
 
 ## Health reasons are lists of check names, not prose; the translation is
-## reason-map.sh, shared rather than copied (docs/health-checks.md#reading-the-reason-field).
+## reason-map.sh, shared rather than copied. See
+## docs/reference/health-checks.md#reading-the-reason-field.
 ## Not re-sourced if a caller already did.
 if ! declare -F canonicalize_reason >/dev/null 2>&1; then
     _recover_home="${SETTINGS_HOME:-${home:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}}"
@@ -57,7 +58,7 @@ recover_reason_is_health() {
 ## Slurm appends " : Not responding" to whatever reason the node already had,
 ## and signs the result itself -- so an operator's drain arrives set by slurm,
 ## reading `BF3 TEST BY AIC : Not responding`. Everything downstream judges
-## what was there first. docs/settings.md#reasons-slurm-appends-to
+## what was there first. docs/explanation/drain-recovery.md#reasons-slurm-appends-to
 recover_base_reason() {
     local reason="$1" base
     if [[ "${reason,,}" =~ ^(.*[^[:space:]])[[:space:]]*:[[:space:]]*not[[:space:]]responding[[:space:]]*$ ]]; then
@@ -71,7 +72,7 @@ recover_base_reason() {
 
 ## marker | health | machine | operator, most specific first: a benchmark drain
 ## whose text happens to contain "prolog" must not be read as Slurm's.
-## docs/settings.md#how-an-operators-drain-is-protected
+## docs/explanation/drain-recovery.md#how-an-operators-drain-is-protected
 recover_classify() {
     local reason="$1" setter="$2"
     if [[ -n "$DRAIN_MARKER" && "$reason" == *"$DRAIN_MARKER"* ]]; then
@@ -116,7 +117,7 @@ recover_state_recoverable() {
 ## ── Count drains ──────────────────────────────────────────────────────────
 ##
 ## The two reasons that mean slurmd registered before the hardware was ready.
-## docs/settings.md#a-count-drain-is-checked-against-the-hardware
+## docs/explanation/drain-recovery.md#a-count-drain-is-checked-against-the-hardware
 recover_count_reason() {
     local reason="${1,,}"
     [[ "$reason" == *"gres/gpu count"* ]] && { printf 'gpu'; return 0; }
@@ -218,7 +219,7 @@ recover_counts_ready() {
 ##
 ## The drain reason says `rogueprocess` and stops there; the process it
 ## objected to is only ever written down in the pre-job check's own log.
-## docs/settings.md#a-rogue-process-drain-names-its-process
+## docs/explanation/drain-recovery.md#a-rogue-process-drain-names-its-process
 ## Is this live process one the check flagged? A pid is not proof on its own --
 ## pids are reused, and the flagged command is usually one the node runs anyway,
 ## so `sshd` alone would match the sshd daemon on every node forever. The
@@ -297,7 +298,7 @@ recover_rogue_still_running() {
 ## The one restart path, for both of the reasons this library has to use one.
 ## `reset-failed` first: a slurmd that tripped systemd's start limit refuses
 ## `restart` until that counter is cleared, and it is the state an unevenly
-## rebooted node is most often found in. docs/settings.md#restarting-slurmd
+## rebooted node is most often found in. docs/explanation/drain-recovery.md#restarting-slurmd
 recover_slurmd_restart() {
     local node="$1" why="$2" waited=0
     command -v systemctl >/dev/null 2>&1 || return 0
@@ -336,7 +337,7 @@ recover_reregister() {
 
 ## Still coming up? Every count read below is a moving number until boot
 ## finishes, so nothing is judged before then -- the node is simply left for
-## the next cycle. docs/settings.md#nothing-is-judged-mid-boot
+## the next cycle. docs/explanation/drain-recovery.md#nothing-is-judged-mid-boot
 recover_boot_settled() {
     local node="$1" up state
     if [[ "${RECOVER_MIN_UPTIME_SECS:-0}" -gt 0 && -r /proc/uptime ]]; then
@@ -362,7 +363,7 @@ recover_boot_settled() {
 
 ## Has the condition actually cleared? Deliberately narrow -- a check that
 ## cannot be satisfied is a node that never comes back. Sets RECOVER_NOT_READY
-## to why. docs/settings.md#why-a-resume-is-not-enough-on-its-own
+## to why. docs/explanation/drain-recovery.md#why-a-resume-is-not-enough-on-its-own
 RECOVER_NOT_READY=""
 recover_node_ready() {
     local node="$1" reason="$2" when="$3" pids jobs
@@ -374,7 +375,7 @@ recover_node_ready() {
 
     ## Before the two gates below, deliberately: a job assigned to a node whose
     ## slurmd is dead needs the slurmd back to carry on, and the resume still
-    ## waits for the job. docs/settings.md#restarting-slurmd
+    ## waits for the job. docs/explanation/drain-recovery.md#restarting-slurmd
     if command -v systemctl >/dev/null 2>&1; then
         if ! systemctl is-active --quiet slurmd 2>/dev/null; then
             local unit; unit=$(systemctl is-active slurmd 2>/dev/null)
@@ -421,7 +422,7 @@ recover_node_ready() {
     fi
 
     ## Last, so a slurmd restart can never happen under a job or a live GPU
-    ## process. docs/settings.md#a-count-drain-is-checked-against-the-hardware
+    ## process. docs/explanation/drain-recovery.md#a-count-drain-is-checked-against-the-hardware
     recover_counts_ready "$node" "$reason" || return 1
     if [[ "$RECOVER_STALE_COUNT" -eq 1 ]]; then
         recover_reregister "$node" || return 1

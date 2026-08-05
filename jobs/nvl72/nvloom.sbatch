@@ -7,28 +7,28 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH -t 1:10:00
 #SBATCH --nice=20
-## 20 is the sweep's tier. See docs/benchmarks.md#queue-priority.
+## 20 is the sweep's tier. See docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/nvloom.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
 ## implies --exact. --gres not --gpus-per-task, see NVIDIA_VISIBLE_DEVICES
-## below. See docs/benchmarks.md#the-allocation-header.
+## below. See docs/reference/jobs.md#the-allocation-header.
 
 ## MNNVL fabric validation per node -- optional / exploratory, not a required
-## gate. Prerequisites (IMEX, not fabricmanager) in docs/containers.md#nvloom.
+## gate. Prerequisites (IMEX, not fabricmanager) in docs/how-to/build-containers.md#nvloom.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 # shellcheck disable=SC2034  # read by grepping this file, from actions/launch_job.sh
 job_name=nvloom
 
 ## Step limit fires before #SBATCH -t so the script survives to write its
-## marker. See docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## marker. See docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=1:00:00
 
 ## ------------- job info starts here ------------- ##
 
 ## What the STEP holds, asked from inside a step -- AllocTRES cannot answer it.
-## The passing line's wording is fixed. See docs/benchmarks.md#preflight.
+## The passing line's wording is fixed. See docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -39,7 +39,7 @@ srun --ntasks=1 bash -c '
 }
 
 ## NOT ENABLED BY DEFAULT -- no published image, and not in BENCHMARKS.
-## Building and enabling it: docs/containers.md#nvloom.
+## Building and enabling it: docs/how-to/build-containers.md#nvloom.
 IMG=nvloom-v2.0.0-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
 [[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
@@ -48,7 +48,7 @@ RACK_SAMPLES=5
 BURN_IN_DURATION=3600      # seconds per testcase, burn-in variant only
 
 ## Needed for the Pyxis GPU hook. Do NOT add --gpus-per-task: it causes
-## CUDA_ERROR_NO_DEVICE here -- docs/containers.md#nvloom.
+## CUDA_ERROR_NO_DEVICE here -- docs/how-to/build-containers.md#nvloom.
 export NVIDIA_VISIBLE_DEVICES=all
 
 ## Scope 1 -- single-node basic health check (MOP section 4)
@@ -72,7 +72,7 @@ rc=$?
 ## ------------- parse info starts here ----------- ##
 
 ## Only whether the job ran is decided here; whether the result is good is
-## _v_gate_nvloom in verdict.sh. See docs/benchmarks.md#where-a-pass-is-decided.
+## _v_gate_nvloom in verdict.sh. See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 ## Bandwidth uniformity needs the per-platform matrix and is still left to
 ## review of the log.
 

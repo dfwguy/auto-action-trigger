@@ -46,7 +46,7 @@
 #            A cached report is the report you would have got anyway; reach for
 #            this when you suspect the cache rather than the gate. Deleting the
 #            cache files does the same, and they are safe to remove at any time.
-#            See docs/operations.md#the-verdict-cache.
+#            See docs/explanation/verdicts-and-the-cache.md#the-verdict-cache.
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -77,7 +77,7 @@ elif [[ "$pattern" != *[\*\?\[]* ]]; then
 fi
 
 # Burn-in columns appear only while RUN_BURNIN is on, or they read NOT_RUN
-# forever. See docs/operations.md#status-and-reporting.
+# forever. See docs/reference/scripts.md.
 active_benchmarks="$BENCHMARKS"
 setting_enabled "$RUN_BURNIN" && active_benchmarks="$BENCHMARKS $BURNIN"
 
@@ -99,7 +99,7 @@ select_test() {
 }
 
 for job in $active_benchmarks; do
-    ## See docs/sequencer.md#host-launched-jobs.
+    ## See docs/explanation/sequencing.md#host-launched-jobs.
     sbatch="$jobs_dir/$job.sbatch"
     [[ -f "$sbatch" ]] || sbatch="$jobs_dir/$job.sh"
     [[ -f "$sbatch" ]] || continue
@@ -129,7 +129,7 @@ if [[ ${#columns[@]} -eq 0 ]]; then
 fi
 
 ## Verdicts are derived from the log on every read, so a result on disk is
-## re-judged by the current gate. See docs/operations.md#status-and-reporting.
+## re-judged by the current gate. See docs/reference/scripts.md.
 if [[ ! -f "$PARSERS_DIR/verdict.sh" ]]; then
     echo "ERROR: $PARSERS_DIR/verdict.sh is missing -- it carries the pass/fail rule" >&2
     echo "       for every job, and without it nothing can be judged." >&2
@@ -139,7 +139,7 @@ fi
 source "$PARSERS_DIR/verdict.sh"
 
 # Judges every cell, in parallel worker processes.
-# See docs/operations.md#how-a-report-is-produced.
+# See docs/explanation/verdicts-and-the-cache.md#how-a-report-is-produced.
 # shellcheck source=/dev/null
 source "$home/verdict-scan.sh"
 
@@ -152,7 +152,7 @@ if ! command -v squeue >/dev/null 2>&1 && [[ -r /etc/profile.d/modules.sh ]]; th
 fi
 
 # Nodes with one of our batches executing right now, so a mid-run partial file
-# is not reported as INCOMPLETE. See docs/operations.md#status-and-reporting.
+# is not reported as INCOMPLETE. See docs/reference/scripts.md.
 #
 # One squeue call for the cluster, not one per node. RUNNING only -- a queued
 # job has written no file, so its columns are NOT_RUN or RETRY anyway.
@@ -189,7 +189,7 @@ if [[ ${#nodes[@]} -eq 0 ]]; then
 fi
 
 # Exported, not passed, so node names are all that is on the command line and
-# xargs can chunk them. See docs/operations.md#how-a-report-is-produced.
+# xargs can chunk them. See docs/explanation/verdicts-and-the-cache.md#how-a-report-is-produced.
 export SCAN_RESULTS_DIR="$results_dir"
 export SCAN_COLUMNS="${columns[*]}"
 export SCAN_RUNNING_FILE="$running_file"
@@ -199,13 +199,13 @@ export SCAN_METRICS=0      # no numbers in this report, only statuses
 # Worst status a node holds decides its summary bucket, so the roll-up lists
 # stay disjoint. RUNNING sits above DONE (still working is not passed) and below
 # NOT_RUN (untouched columns are work outstanding either way).
-# See docs/operations.md#status-and-reporting.
+# See docs/reference/scripts.md.
 RANKS='FAIL 6 INCOMPLETE 5 RETRY 4 NOT_RUN 3 RUNNING 2 DONE 1'
 
 # Scan rows to report lines. The reason is on the line so dshbak collapses
 # nodes failing the same way; no attempt count, which would split one block into
 # one per count. In awk because this is tens of thousands of rows and no state.
-# See docs/operations.md#status-and-reporting.
+# See docs/reference/scripts.md.
 report_lines() {
     awk -F"$SCAN_FS" '{
         line = $1 ": " $2 ": " $3
@@ -263,7 +263,7 @@ while IFS="$SCAN_FS" read -r node status; do
 done < <(scan_fleet "${nodes[@]}" | worst_per_node | sort)
 
 # Name the tests up front, or a -t-scoped list reads as a verdict on the whole
-# benchmark set. See docs/operations.md#status-and-reporting.
+# benchmark set. See docs/reference/scripts.md.
 if [[ ${#tests[@]} -gt 0 ]]; then
     echo "SUMMARY — judged on: ${columns[*]}"
 else

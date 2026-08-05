@@ -13,9 +13,9 @@
 ## requested, so --gres and --mem=0 are stated even though --exclusive is a
 ## job-level guarantee, and --cpus-per-task is deliberately absent -- it implies
 ## --exact. The GPU count is a literal shared with the preflight below; change
-## both together. See docs/benchmarks.md#the-allocation-header.
+## both together. See docs/reference/jobs.md#the-allocation-header.
 ## --nice orders this job against everything else queued for the node: higher is
-## LATER, and 20 is the sweep's tier. See docs/benchmarks.md#queue-priority.
+## LATER, and 20 is the sweep's tier. See docs/reference/jobs.md#queue-priority.
 
 ## Set job_name to the new benchmark's name; it appears in the status line.
 # shellcheck disable=SC2034
@@ -30,7 +30,7 @@ totalRuns=1
 ## Bounds the workload's srun step below. `#SBATCH -t` above bounds the job and
 ## is deliberately the larger of the two, so the step limit is what fires. Set
 ## this to twice the testing plan's estimate, floored at 15 minutes. See
-## docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=0:15:00
 
 ## ------------- job info starts here ------------- ##
@@ -43,7 +43,7 @@ STEP_TIMELIMIT=0:15:00
 ## SLURM_CPUS_ON_NODE rather than the physical core count, so a site reserving
 ## cores is not failed on every job; and the passing line's wording, which must
 ## avoid fail/warn/error and must not begin with a digit. See
-## docs/benchmarks.md#preflight.
+## docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -69,8 +69,8 @@ rc=$?
 ## NOT judge its own result -- it reports PENDING if the workload ran and FAIL
 ## if it could not, and the gate in parsers/$PARSERS/verdict.sh decides the
 ## rest, re-read on every status check rather than frozen here. See
-## docs/benchmarks.md#where-a-pass-is-decided, then write the gate:
-## docs/benchmarks.md#adding-a-new-benchmark, steps 4-7.
+## docs/explanation/judging-benchmarks.md#where-a-pass-is-decided, then write the gate:
+## docs/how-to/add-a-benchmark.md, steps 4-7.
 ## The `exit status:` line says WHO decided a FAIL. Keep the prefix identical
 ## across jobs, keep it BEFORE the marker (verdict.sh reads the last line), and
 ## keep the words fail/warn/error out of it.

@@ -1,0 +1,109 @@
+# Enable the LLM pre-training jobs
+
+Two jobs, one install. Why they are shaped the way they are is
+[explanation/llmb.md](../explanation/llmb.md).
+
+## 1. Install on the head node
+
+Head node only, once per CPU architecture — `nvl72` is ARM, and the image is
+architecture-specific.
+
+```bash
+export HF_TOKEN=hf_...            # this run only; never written to a node
+./build_llmb.sh                   # installs the LLMB_REF in SETTINGS
+./build_llmb.sh -l                # what is present, what is not
+```
+
+To move versions, edit `LLMB_REF` in `SETTINGS` and re-run. `-l` prints both the
+ref `SETTINGS` asks for and the one actually checked out, so a drift between
+them is visible. A ref that does not exist lists the tags that do.
+
+It leaves `$LLMB_INSTALL/src` (the pinned collection), `bin/`, `venvs/`,
+`workloads/`, `datasets/`, `images/*.sqsh`, a `cluster_config.yaml`, and
+`$LLMB_INSTALL/hf` holding the tokenizer cache.
+
+Two things to expect:
+
+- **The collection's `install.sh` prompts** — for cluster settings, workload
+  selection and `HF_TOKEN` — so the first run is interactive, not unattended. It
+  is passed `-i "$LLMB_INSTALL/images"` so repeat installs share one image
+  directory instead of re-importing.
+- **There is no dataset staging subcommand.** The installer fetches what a
+  selected workload needs. `-d` therefore **checks** that `$HF_HOME` is
+  populated rather than fetching it — an empty cache is a two-hour failure on a
+  node with no route out, and it is worth catching on the head node instead.
+  `-i` re-stages the image into `containers/` only.
+
+Llama is a **gated** Hugging Face repo: it needs an access approval on the
+account behind `HF_TOKEN`, and approval is per-account rather than carried by
+the token. Get that first or the staging fails.
+
+`cluster_config.yaml` (schema v2) is where `llmb_install`, `gpu_type` and the
+`slurm` settings live — not environment variables. Set `gpu_type: gb200` and the
+tray's GPU count there. See
+[reference/llmb-run.md#configuration](../reference/llmb-run.md#configuration).
+
+The image is copied into `containers/` as well, so `actions/file_copy.sh` rsyncs
+it to `/tmp/containers/` on each node like every other image. Without that step
+every node streams the same multi-GB squashfs off one filer at the same moment.
+The NGC credentials are the ones `./build_containers.sh -L` already writes — see
+[build-containers.md#logging-in-to-ngc](build-containers.md#logging-in-to-ngc).
+No credential ever reaches a compute node.
+
+## 2. Enable `llm-pretrain`
+
+In order, because each step is checkable on its own:
+
+1. `./build_llmb.sh` on the head node, then `-l` to confirm.
+2. `llmb-run submit ... --scale 4 --force --dry-run`, and confirm the generated
+   submission is what you expect.
+3. `actions/launch_job.sh --test llm-pretrain --explain` on one node — it prints
+   the launch it would run without running it.
+4. Drop `--explain` on that one node and read `results/<node>/trigger.log` and
+   `results/<node>/llm-pretrain.txt`.
+5. Capture that output as a fixture in `tests/fixtures/` and check it against
+   `_v_gate_llm_pretrain` with `./tests/verdict-test.sh`.
+6. Only then add `llm-pretrain` to `BENCHMARKS`.
+
+`--scale` and the tray's GPU count have to agree; both are set for `nvl72` in
+`jobs/nvl72/llm-pretrain.sh`. On a platform with a different GPU count, both
+move together.
+
+## 3. Filling in the solo training command
+
+`jobs/nvl72/llm-pretrain-solo.sbatch` carries a marked block where the training
+command goes, and ships refusing to run — it echoes what is missing and exits
+non-zero rather than appearing to work.
+
+Get the command from the head node:
+
+```bash
+llmb-run submit -w pretrain_llama3.1 -s 8b --dtype fp8 --scale 1 --force --dry-run
+```
+
+Take the training invocation out of the generated script, **not** the `sbatch`
+wrapper around it. It has to be a **single-process** invocation: no `torchrun`,
+no `srun`, no distributed launcher. The four copies are already four Slurm
+tasks, and a launcher inside them would fan out again.
+
+Do not remove `--gpus-per-task=1`, the `WORLD_SIZE=1 RANK=0 LOCAL_RANK=0`
+overrides, or `srun --label` — all three are load-bearing, and the failure when
+they go is quiet. See
+[explanation/llmb.md#keeping-the-four-solo-copies-independent](../explanation/llmb.md#keeping-the-four-solo-copies-independent).
+
+## 4. Set the spread floor
+
+`VERDICT_MAX_COV_LLM_SOLO` ships as **0**, which skips the spread check
+entirely. Set it from what a healthy node on this platform actually shows, once
+one has run the job — a made-up floor either drains the fleet on day one or
+never fires.
+
+## If a launch is refused
+
+Every refusal writes `FAIL` and its reason into the result file, so
+`results/<node>/llm-pretrain.txt` names it. In order: no `RESULT_FILE` or
+`SBATCH_JOB_NAME` (run by hand rather than through the sequencer), no install at
+`$LLMB_INSTALL`, no `llmb-run` on `PATH`, and no pre-staged `$HF_HOME`.
+
+Anything absent from `$LLMB_INSTALL/hf` at launch is a failed run, not a slow
+one. `build_llmb.sh -d` is what fixes it, and it runs on the head node.

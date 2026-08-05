@@ -7,14 +7,14 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH -t 2:00:00
 #SBATCH --nice=20
-## 20 is the sweep's tier. See docs/benchmarks.md#queue-priority.
+## 20 is the sweep's tier. See docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/hpl.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
-## implies --exact. See docs/benchmarks.md#the-allocation-header.
+## implies --exact. See docs/reference/jobs.md#the-allocation-header.
 #
 ## Node-local copy first so job start does not read the image over NFS; the
-## shared directory is the fallback. See docs/containers.md#why-local-images.
+## shared directory is the fallback. See docs/explanation/containers.md#why-local-images.
 IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
 [[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
@@ -27,13 +27,14 @@ HPLDATPATH=/home/cmods/bringup/jobs/nvl72/hpl/
 job_name=hpl
 
 ## Step limit, under #SBATCH -t so the step is what Slurm cancels and the batch
-## script survives to write its marker. See docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## script survives to write its marker. See
+## docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=1:50:00
 
 ## ------------- job info starts here ------------- ##
 
 ## Preflight -- what the STEP holds; the job's AllocTRES cannot answer that.
-## Wording is load-bearing. See docs/benchmarks.md#preflight.
+## Wording is load-bearing. See docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -76,7 +77,7 @@ rc=$?
 ## ------------- parse info starts here ----------- ##
 
 ## Only whether the job ran is decided here; the `PASSED` residual gate lives in
-## _v_gate_hpl in verdict.sh. See docs/benchmarks.md#where-a-pass-is-decided.
+## _v_gate_hpl in verdict.sh. See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 
 ## Says who decided a FAIL: non-zero is srun's, 0 is the verdict.sh gate.
 echo "exit status: $rc"

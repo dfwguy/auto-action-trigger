@@ -3,7 +3,7 @@
 # Usage: set-valid-default.sh <node>
 #
 # Promote one node's health log to the cluster baseline. Validate the node by
-# hand first. See docs/health-checks.md#the-baseline-is-cluster-local.
+# hand first. See docs/how-to/add-a-health-check-set.md#set-the-baseline-first.
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 logs="$home/logs"

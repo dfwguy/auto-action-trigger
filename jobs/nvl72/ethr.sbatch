@@ -6,12 +6,12 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH -t 1:10:00
 #SBATCH --nice=20
-## 20 is the sweep's tier. See docs/benchmarks.md#queue-priority.
+## 20 is the sweep's tier. See docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/ethr.txt
 
 ## No --gres: never touches a GPU. --exclusive is what makes the numbers mean
 ## anything -- a job sharing the node shares the NIC. See
-## docs/benchmarks.md#the-allocation-header.
+## docs/reference/jobs.md#the-allocation-header.
 
 ## AI Factory Testing Plan: ethr -- SNT2 (Exhaustive)
 ## North-south throughput/latency on the in-band management and storage NICs,
@@ -23,13 +23,13 @@ job_name=ethr
 
 ## Per-pass step limit. Two passes per interface, so adding an interface to
 ## IFACES means raising #SBATCH -t too. See
-## docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 PASS_TIMELIMIT=0:30:00
 
 ## ------------- job info starts here ------------- ##
 
 ## Preflight -- what the STEP holds, which only a step can see. Wording is
-## fixed; verdict.sh greps it. See docs/benchmarks.md#preflight.
+## fixed; verdict.sh greps it. See docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     echo "preflight: $(hostname) cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
     [[ "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
@@ -40,7 +40,7 @@ srun --ntasks=1 bash -c '
 
 ## Host running `ethr -s`. Start the server side once, outside this job.
 ETHR_SERVER=headnode
-## Host-installed static Go binary, not a container -- see docs/containers.md.
+## Host-installed static Go binary, not a container -- see docs/explanation/containers.md.
 ETHR_BIN=ethr
 DURATION=30s
 
@@ -79,7 +79,7 @@ done
 ## ------------- parse info starts here ----------- ##
 
 ## Only whether the job ran is decided here; whether the result is good is
-## verdict.sh's call. See docs/benchmarks.md#where-a-pass-is-decided.
+## verdict.sh's call. See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 
 ## Logged, not just left in the marker: a FAIL with a non-zero here is the
 ## job's own, a FAIL with `exit status: 0` came from the gate in verdict.sh.

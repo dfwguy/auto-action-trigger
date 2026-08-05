@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Unregister the BCM actions and triggers created by create-action-trigger.sh.
-# See docs/architecture.md#directory-layout.
+# See docs/reference/layout.md#directory-layout.
 
 # Actions
 cmsh -c "monitoring action; remove node_health_action; commit"

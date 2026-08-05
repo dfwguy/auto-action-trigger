@@ -8,11 +8,11 @@
 #SBATCH -t 0:25:00
 #SBATCH --nice=20
 ## The sweep's tier: higher is later, behind the dcgmi gates at 0 and ahead of
-## burn-in at 100000. See docs/benchmarks.md#queue-priority.
+## burn-in at 100000. See docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/alltoall.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
-## implies --exact. See docs/benchmarks.md#the-allocation-header.
+## implies --exact. See docs/reference/jobs.md#the-allocation-header.
 
 ## Used in the status line; read out of this file's text, never sourced.
 # shellcheck disable=SC2034
@@ -20,7 +20,7 @@ job_name=alltoall
 
 ## 2x the plan's estimate, floored at 15 min. The step limit fires first, which
 ## leaves the batch script alive to write its marker -- see
-## docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=0:15:00
 ## Read out of this file's text by grep, never sourced.
 # shellcheck disable=SC2034
@@ -31,7 +31,7 @@ totalRuns=1
 
 ## What the STEP holds, asked from inside a step because the job's AllocTRES
 ## cannot answer it. The passing line's wording is fixed -- the parse block
-## below and verdict.sh grep this same file. See docs/benchmarks.md#preflight.
+## below and verdict.sh grep this same file. See docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -45,7 +45,7 @@ srun --ntasks=1 bash -c '
 
 ## The node-local copy is preferred so job start does not read a multi-gigabyte
 ## image over NFS; the shared directory is the fallback for a node the rsync has
-## not reached yet. See docs/containers.md#why-local-images.
+## not reached yet. See docs/explanation/containers.md#why-local-images.
 IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
 [[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
@@ -82,7 +82,7 @@ rc=$?
 ## ------------- parse info starts here ----------- ##
 
 ## Only whether the job ran is decided here; whether the result is any good is
-## decided by verdict.sh. See docs/benchmarks.md#where-a-pass-is-decided.
+## decided by verdict.sh. See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 ## /dev/infiniband is deliberately not mounted -- this job is NVLink scope.
 
 ## A FAIL with a non-zero status here is the job's own; a FAIL with `exit

@@ -6,7 +6,7 @@
 ##
 ## Hardcoded path: BCM invokes this by absolute path with no working directory
 ## to infer from. Missing settings.sh is fatal rather than defaulted -- an empty
-## BENCHMARKS reads as "everything passing" on every node. See docs/settings.md.
+## BENCHMARKS reads as "everything passing" on every node. See docs/reference/settings.md.
 home=/home/cmods/bringup
 if [[ ! -f "$home/settings.sh" ]]; then
     echo "ERROR: $home/settings.sh is missing -- refusing to run, because an" >&2
@@ -16,8 +16,8 @@ fi
 source "$home/settings.sh"
 
 ## Retry and drain policy, the two lists, and how the ordering between them is
-## expressed: docs/sequencer.md#retry-and-drain-behaviour and
-## docs/sequencer.md#two-lists.
+## expressed: docs/explanation/sequencing.md#retry-and-drain-behaviour and
+## docs/explanation/sequencing.md#two-lists.
 
 ## set paths
 logs="$home/results/$HOSTNAME"
@@ -26,7 +26,7 @@ tracelog="$logs/trigger.log"
 
 ## Per-node and distinct per list: the two lists are queued at once and have to
 ## be counted and cancelled separately. Anything matching neither is somebody
-## else's job. See docs/sequencer.md#two-lists.
+## else's job. See docs/explanation/sequencing.md#two-lists.
 JOB_NAME_BENCH="bringup-$HOSTNAME"
 JOB_NAME_BURNIN="burnin-$HOSTNAME"
 
@@ -35,7 +35,7 @@ JOB_NAME_BURNIN="burnin-$HOSTNAME"
 ##
 ## The `job_launch=host` line is what makes a `.sh` a job: JOBS_DIR also holds
 ## sourced helpers like nccl-hca.sh, and a bare *.sh glob would offer those as
-## benchmarks. See docs/sequencer.md#host-launched-jobs.
+## benchmarks. See docs/explanation/sequencing.md#host-launched-jobs.
 job_launcher() {
     local job="$1"
     [[ -f "$JOBS_DIR/$job.sbatch" ]] && { printf '%s\n' "$JOBS_DIR/$job.sbatch"; return 0; }
@@ -87,7 +87,7 @@ result_file() {
 ## every decision is written down instead.
 ##
 ## The flags, and what --force deliberately does not override, are in
-## docs/sequencer.md#running-it-by-hand. There is no node argument -- the
+## docs/how-to/run-a-job-by-hand.md. There is no node argument -- the
 ## trigger fires on the node it is deciding about -- so an unrecognised argument
 ## is fatal here rather than traced: the run that followed would sweep whatever
 ## node the command was typed on and report success from a log nobody reads.
@@ -149,7 +149,7 @@ done
 ## Fatal rather than traced and skipped, unlike a bad BENCHMARKS entry: the
 ## operator is standing there, and a name that resolves to no launcher would
 ## otherwise sweep nothing and exit looking like a healthy idle cycle.
-## See docs/sequencer.md#running-a-job-that-is-not-in-the-list.
+## See docs/how-to/run-a-job-by-hand.md#running-a-job-that-is-not-in-the-list.
 for _job in $TEST_LIST; do
     job_launcher "$_job" >/dev/null || {
         echo "ERROR: --test $_job: no $JOBS_DIR/$_job.sbatch or $JOBS_DIR/$_job.sh -- nothing was swept." >&2
@@ -200,10 +200,10 @@ fi
 ## An allowlist rather than a blocklist: the submission is built as a string and
 ## run through `su - $JOB_USER -c`, so a plausible typo like `NCCL_X=0;id` would
 ## run as root on 200+ nodes. Commas are out because --export is itself
-## comma-separated. See docs/settings.md#what-is-rejected.
+## comma-separated. See docs/reference/settings.md#what-is-rejected.
 ## Two forms of the same allowlisted list: a comma-separated one for sbatch
 ## --export, and a space-separated one for the `NAME=VALUE ... bash launcher`
-## prefix a host-launched job gets instead. See docs/sequencer.md#host-launched-jobs.
+## prefix a host-launched job gets instead. See docs/explanation/sequencing.md#host-launched-jobs.
 JOB_ENV_ARGS=""
 JOB_ENV_PAIRS=()
 JOB_ENV_NAMES=()
@@ -224,7 +224,7 @@ unset _pair
 ## A host launcher needs LLMB_INSTALL, and it reaches the launcher the same way
 ## JOB_ENV does -- through a string run by `su - $JOB_USER -c`. So it gets the
 ## same allowlist, for the same reason: unvalidated, a SETTINGS value would run
-## as root on 200+ nodes. See docs/settings.md#what-is-rejected.
+## as root on 200+ nodes. See docs/reference/settings.md#what-is-rejected.
 ##
 ## Empty is left to the launcher to diagnose: it knows whether it needs one.
 LLMB_ARGS=""
@@ -249,7 +249,7 @@ fi
 ##
 ## Re-checked every cycle, not just on creation, so clearing results/ by hand is
 ## safe and an already-broken tree repairs itself.
-## See docs/sequencer.md#result-path-ownership.
+## See docs/reference/layout.md#result-path-ownership.
 ensure_owned() {
     local d="$1"
     [[ -d "$d" ]] || mkdir -p "$d" 2>/dev/null || return 1
@@ -285,7 +285,7 @@ ensure_file_owned "$quickview"
 ## Shell globs, not regexes: `ink40-dh4-*` is the form node names are written in
 ## everywhere else, and as an ERE it would match nothing and quietly stop the
 ## fleet. Empty means every node.
-## See docs/settings.md#restricting-which-nodes-run-jobs.
+## See docs/reference/settings.md#restricting-which-nodes-run-jobs.
 node_in_scope() {
     local pat
     [[ -z "${NODE_FILTER// /}" ]] && return 0
@@ -300,7 +300,7 @@ if ! node_in_scope; then
     ## --test names both a job and, by running here, a node, so it opens this;
     ## --force does not. A forced sweep is normally issued over pdsh across a
     ## whole rack, and that must not quietly test nodes the site excluded.
-    ## See docs/settings.md#restricting-which-nodes-run-jobs.
+    ## See docs/reference/settings.md#restricting-which-nodes-run-jobs.
     if [[ -n "$TEST_LIST" ]]; then
         trace "NODE_FILTER='$NODE_FILTER' does not match $HOSTNAME, but --test $TEST_LIST names this node by running on it -- testing anyway. This node is outside the set the sequencer sweeps, so nothing here will be re-run on a cadence."
     elif [[ "$EXPLAIN" -eq 1 ]]; then
@@ -341,7 +341,7 @@ source "$PARSERS_DIR/verdict.sh"
 ##
 ## One job at a time per node, and the question "is it still going" is answered
 ## from the node itself rather than from slurmctld: `scontrol listjobs` contacts
-## the local slurmstepd processes only. See docs/sequencer.md#one-job-at-a-time.
+## the local slurmstepd processes only. See docs/explanation/sequencing.md#one-job-at-a-time.
 inflight="$logs/.in-flight"
 
 ## Tab separated, jobid first. Same shape as recover.log, for the same reason.
@@ -363,7 +363,7 @@ inflight_read() {
 
 ## How long to believe a job that has not started. Its own `#SBATCH -t`, since
 ## one fixed window cannot fit both dcgmi-r1 and mnubergemm.
-## See docs/sequencer.md#when-a-marker-goes-stale.
+## See docs/explanation/sequencing.md#when-a-marker-goes-stale.
 job_walltime_secs() {
     local launch="$1" t d=0 h=0 m=0 s=0
     t=$(grep -oE '^#SBATCH[[:space:]]+(-t|--time=?)[[:space:]]*[0-9:-]+' "$launch" 2>/dev/null |
@@ -380,7 +380,7 @@ job_walltime_secs() {
 
 ## Every job running here, ours and everyone else's, from the local slurmstepds
 ## rather than slurmctld. `listjobs` prints a JOBID header then one bare id per
-## line. See docs/sequencer.md#what-the-node-can-answer-by-itself.
+## line. See docs/explanation/sequencing.md#what-the-node-can-answer-by-itself.
 local_job_ids() {
     scontrol listjobs 2>/dev/null | awk '/^[0-9]+$/ { print }'
 }
@@ -400,7 +400,7 @@ result_complete() {
 ## Move a result aside so the slot is free for the next attempt; the archives
 ## double as the attempt history. Two suffixes because status-check.sh reads the
 ## name as a verdict -- it counts .fail<N> as rejections, and a pass that --all
-## re-runs is not one. See docs/sequencer.md.
+## re-runs is not one. See docs/explanation/sequencing.md.
 archive_result() {
     local file="$1" kind="${2:-fail}" base n
     [[ -f "$file" ]] || return 0
@@ -417,13 +417,13 @@ archive_result() {
 
 ## The reason Slurm gives a job it gave up launching. Defined rather than
 ## inlined because an empty pattern matches every job, and the branch it guards
-## cancels. See docs/sequencer.md#jobs-the-scheduler-has-given-up-on.
+## cancels. See docs/explanation/sequencing.md#jobs-the-scheduler-has-given-up-on.
 LAUNCH_FAILED_HELD='launch failed requeued held'
 
 ## ── The in-flight gate ────────────────────────────────────────────────────
 ##
 ## Four answers, and only the last costs a query. Every branch prefers waiting
-## to submitting. See docs/sequencer.md#one-job-at-a-time.
+## to submitting. See docs/explanation/sequencing.md#one-job-at-a-time.
 if inflight_read; then
     if_file=$(result_file "$IF_JOB" "$IF_RUN" "$IF_TOTAL")
     if_age=$(( $(date +%s) - IF_EPOCH ))
@@ -438,7 +438,7 @@ if inflight_read; then
     elif [[ "$if_running" -eq 1 ]]; then
         ## Still going, but past the limit. The only branch that reads on: the
         ## drain needs the node state, which costs the one query below.
-        ## See docs/sequencer.md#retry-and-drain-behaviour.
+        ## See docs/explanation/sequencing.md#retry-and-drain-behaviour.
         inflight_overrun="job timeout after $(( if_age / 3600 ))h (RUNNING, job $IF_JOBID)"
     elif result_complete "$if_file"; then
         trace "$IF_JOB run $IF_RUN (job $IF_JOBID) finished after ${if_age}s: $VERDICT_STATUS${VERDICT_REASON:+ -- $VERDICT_REASON}"
@@ -463,7 +463,7 @@ if inflight_read; then
             ## A job held after a failed launch reads as PENDING at priority 0
             ## and never starts, so waiting on it waits forever. Ours by
             ## construction -- the marker holds the id we submitted.
-            ## See docs/sequencer.md#jobs-the-scheduler-has-given-up-on.
+            ## See docs/explanation/sequencing.md#jobs-the-scheduler-has-given-up-on.
             if [[ -n "$LAUNCH_FAILED_HELD" && "$if_queued" == *"$LAUNCH_FAILED_HELD"* ]]; then
                 if_out=$(scancel "$IF_JOBID" 2>&1)
                 trace "CANCELLED $IF_JOBID -- $IF_JOB run $IF_RUN held after a failed launch ('$LAUNCH_FAILED_HELD') for ${if_age}s; the next cycle resubmits${if_out:+ -- $if_out}"
@@ -475,7 +475,7 @@ if inflight_read; then
         else
         ## Gone without finishing its result file: cancelled, killed, or the
         ## node was drained under it. Archived so the slot is free and the
-        ## attempt is still on disk. See docs/sequencer.md#when-a-marker-goes-stale.
+        ## attempt is still on disk. See docs/explanation/sequencing.md#when-a-marker-goes-stale.
             trace "$IF_JOB run $IF_RUN (job $IF_JOBID) is gone from the queue after ${if_age}s with no end marker -- archiving the partial result and moving on"
             [[ -f "$if_file" ]] && archive_result "$if_file" fail
             inflight_clear
@@ -487,7 +487,7 @@ fi
 ##
 ## The one thing a node cannot answer about itself: State and Reason live in
 ## slurmctld. Fetched lazily and cached, so a healthy cycle never asks.
-## See docs/sequencer.md#what-the-node-can-answer-by-itself.
+## See docs/explanation/sequencing.md#what-the-node-can-answer-by-itself.
 ## NODE_ASKED separates "not fetched yet" from "fetched and got nothing", so a
 ## controller that timed out is not asked again on every call in the same run.
 NODE_INFO=""
@@ -513,7 +513,7 @@ node_reason() {
 ## Only the `machine` class -- every other drain belongs to whoever set it.
 ## Above the PAUSE_JOBS gate and governed by PAUSE_RECOVERY instead: putting a
 ## node back is not putting work on it. The state is re-read rather than
-## assumed. See docs/settings.md#pause-switches.
+## assumed. See docs/reference/settings.md#pause-switches.
 ## --explain reads through this the same way it reads through PAUSE_JOBS: a
 ## dry-run recovery issues no scontrol, restarts no slurmd and records no
 ## attempt, so the pause has nothing to protect it from.
@@ -533,7 +533,7 @@ elif [[ "${inflight_stale:-0}" -eq 0 && "$FORCE" -eq 0 ]]; then
     ## A drain stops our jobs starting, and the stale branch above is where that
     ## shows up -- so recovery runs there rather than on every cycle, and a
     ## healthy node never pays for it.
-    ## See docs/sequencer.md#what-the-node-can-answer-by-itself.
+    ## See docs/explanation/sequencing.md#what-the-node-can-answer-by-itself.
     :
 elif [[ -f "$home/slurm-recovery.sh" ]]; then
     recover_log() { trace "$@"; }
@@ -557,7 +557,7 @@ fi
 ## A pause has to reach the queue too, or it is not a pause: pending jobs are
 ## cancelled, a running one is left to finish, and only our two job names are
 ## ever touched. `--explain` reads through it -- see
-## docs/settings.md#pause-switches.
+## docs/reference/settings.md#pause-switches.
 if setting_enabled "$PAUSE_JOBS"; then
     paused_queue=$( { squeue -h -n "$JOB_NAME_BENCH"  -o '%i %T %M' 2>/dev/null
                       squeue -h -n "$JOB_NAME_BURNIN" -o '%i %T %M' 2>/dev/null
@@ -600,11 +600,11 @@ fi
 
 ## Drain only a node that is currently usable; anything already drained is left
 ## alone. DRAIN_AFTER_FAILED_BENCHMARK=no suppresses every drain here, including
-## the timeout one, but still traces it. See docs/settings.md#drains.
+## the timeout one, but still traces it. See docs/reference/settings.md#drains.
 drain_node() {
     local reason="$1"
     ## A hand-run of a job the fleet is not judged on cannot take the node out.
-    ## See docs/sequencer.md#running-a-job-that-is-not-in-the-list.
+    ## See docs/how-to/run-a-job-by-hand.md#running-a-job-that-is-not-in-the-list.
     [[ -n "$TEST_LIST" ]] && {
         trace "drain suppressed by --test: $reason"
         return 0
@@ -617,7 +617,7 @@ drain_node() {
     ## on that would take out a node on no information -- and overwrite an
     ## operator's drain reason with ours. The failure this guards against is real
     ## and observed: under load the same query makes `sinfo -N -n` return empty.
-    ## See docs/sequencer.md#when-the-controller-does-not-answer.
+    ## See docs/explanation/sequencing.md#when-the-controller-does-not-answer.
     if ! node_info; then
         trace "drain skipped, the controller did not answer 'scontrol show node $HOSTNAME' -- not draining on an unknown state: $reason"
         return 0
@@ -642,7 +642,7 @@ resume_node() {
 
 ## The job that outran MAX_JOB_HOURS in the in-flight gate above. Drained here
 ## because drain_node needs both its own definition and the node state, and
-## neither exists that early. See docs/sequencer.md#retry-and-drain-behaviour.
+## neither exists that early. See docs/explanation/sequencing.md#retry-and-drain-behaviour.
 if [[ -n "${inflight_overrun:-}" ]]; then
     drain_node "$inflight_overrun"
     exit 0
@@ -683,7 +683,7 @@ swept=1
 ## $2 is whether this list is in the queue. If it is, the survey still runs --
 ## quick-view has to say something about every job -- but its per-run failure
 ## lines are not traced: "INCOMPLETE" once a cycle for six hours reads as a node
-## failing when it is a node working. See docs/sequencer.md#two-lists.
+## failing when it is a node working. See docs/explanation/sequencing.md#two-lists.
 survey() {
     local list="$1" busy="${2:-0}" job launch totalRuns passed attempted failed r file mtime
 
@@ -785,7 +785,7 @@ write_quickview() {
     local job reason
     ## The file describes the BENCHMARKS and BURNIN lists, which a --test run
     ## has not surveyed -- writing it here would report every real column as
-    ## QUEUED. See docs/sequencer.md#running-a-job-that-is-not-in-the-list.
+    ## QUEUED. See docs/how-to/run-a-job-by-hand.md#running-a-job-that-is-not-in-the-list.
     [[ -n "$TEST_LIST" ]] && return 0
     {
         for job in $BENCHMARKS; do
@@ -817,7 +817,7 @@ write_quickview() {
 ## ── Survey both lists ─────────────────────────────────────────────────────
 ##
 ## Both, every cycle, independently; the ordering between them is queue priority
-## rather than a gate. See docs/sequencer.md#two-lists.
+## rather than a gate. See docs/explanation/sequencing.md#two-lists.
 ##
 ## --all widens `pending` to every job in the list, and only that -- the failure
 ## and sweep bookkeeping keeps reading the results on disk, so a forced re-sweep
@@ -825,7 +825,7 @@ write_quickview() {
 ##
 ## --test replaces the list outright rather than adding to it, so a run asked
 ## for one job submits one job. See
-## docs/sequencer.md#running-a-job-that-is-not-in-the-list.
+## docs/how-to/run-a-job-by-hand.md#running-a-job-that-is-not-in-the-list.
 survey "${TEST_LIST:-$BENCHMARKS}" "$bench_busy"
 bench_pending=("${pending_jobs[@]}")
 bench_failed=("${failed_jobs[@]}")
@@ -880,7 +880,7 @@ fi
 
 ## ── Drain once the full sweep has run and something is still failing ──────
 ## Not on the first failure, and only on results newer than the drain window.
-## See docs/sequencer.md#retry-and-drain-behaviour.
+## See docs/explanation/sequencing.md#retry-and-drain-behaviour.
 
 age=-1
 [[ "$newest_result" -gt 0 ]] && age=$(( $(date +%s) - newest_result ))
@@ -900,7 +900,7 @@ fi
 ## Every job of ours the controller is holding, in one call: this node's two
 ## names gate the submission below, and the fleet-wide count of both prefixes
 ## gates it against MAX_QUEUED_JOBS. Still one query, which is the number that
-## costs. See docs/sequencer.md#the-guard-before-a-submission.
+## costs. See docs/explanation/sequencing.md#the-guard-before-a-submission.
 ##
 ## Sets QUEUED_OURS rather than printing it, and so must never be called as
 ## $(queued_ours) -- a subshell would cache the answer in a child and ask again.
@@ -924,7 +924,7 @@ queued_ours() {
 ## Cadence is per job, not per node: eligible means not passed, and its own
 ## result missing or older than RETRY_INTERVAL_HOURS. The sweep advances as fast
 ## as jobs finish while no one job re-runs inside the hour.
-## See docs/sequencer.md#one-job-at-a-time.
+## See docs/explanation/sequencing.md#one-job-at-a-time.
 NEXT_JOB=""; NEXT_RUN=""; NEXT_TOTAL=""
 next_eligible() {
     local list="$1" job launch total r file mtime now
@@ -952,12 +952,12 @@ next_eligible() {
 ## No drain check here any more: it existed to stop a whole list landing on a
 ## node the moment an operator resumed it, and one job is not a dump. A job sent
 ## to a drained node pends, and the stale branch says why.
-## See docs/sequencer.md#what-the-node-can-answer-by-itself.
+## See docs/explanation/sequencing.md#what-the-node-can-answer-by-itself.
 resume_node
 
 ## Queue priority is NOT set here: each job carries its own `#SBATCH --nice`, so
 ## a hand-submitted job sits where a sequencer-submitted one would. This script
-## decides only *what* to submit. See docs/benchmarks.md#queue-priority.
+## decides only *what* to submit. See docs/reference/jobs.md#queue-priority.
 ##
 ## One run of one job, and the id it was given is the whole point of the return:
 ## it is what the marker records and what the next cycle asks slurmstepd about.
@@ -970,13 +970,13 @@ submit_one() {
     file=$(result_file "$job" "$r" "$totalRuns")
 
     ## Two launchers for one name is a half-finished conversion, and the loser
-    ## is otherwise dropped in silence. See docs/sequencer.md#host-launched-jobs.
+    ## is otherwise dropped in silence. See docs/explanation/sequencing.md#host-launched-jobs.
     [[ "$launch" == *.sbatch && -f "$JOBS_DIR/$job.sh" ]] &&
         trace "NOTE: $job has both a .sbatch and a .sh -- the .sbatch is what runs."
 
     ## The job file wins when both name a variable, which is right -- but the
     ## override was invisible, so a SETTINGS line that did nothing looked exactly
-    ## like one that worked. See docs/settings.md#the-job-file-wins.
+    ## like one that worked. See docs/explanation/sequencing.md#the-job-file-wins.
     for name in "${JOB_ENV_NAMES[@]}"; do
         grep -qE "^[[:space:]]*export[[:space:]]+$name=" "$launch" &&
             trace "NOTE: JOB_ENV sets $name, but ${launch##*/} exports its own -- the job file's value is what runs."
@@ -992,7 +992,7 @@ submit_one() {
     ## -J must be passed here, not as an #SBATCH line -- those are comments, not
     ## shell, and would not expand $HOSTNAME. A host-launched job submits itself,
     ## so it is handed the same things by environment instead, and its id read
-    ## back from the queue. See docs/sequencer.md#host-launched-jobs.
+    ## back from the queue. See docs/explanation/sequencing.md#host-launched-jobs.
     if [[ "$launch" == *.sh ]]; then
         submit="source /etc/profile.d/modules.sh; module load slurm; \
 mkdir -p $logs && SBATCH_JOB_NAME=$jname RESULT_FILE=$file$LLMB_ARGS \
@@ -1017,7 +1017,7 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
 
     ## stderr is merged and kept: every way this fails looks identical from
     ## outside, and sbatch's own diagnosis is what tells them apart. Only how we
-    ## arrive at $JOB_USER differs. See docs/sequencer.md#running-it-by-hand.
+    ## arrive at $JOB_USER differs. See docs/how-to/run-a-job-by-hand.md.
     if [[ "$EUID" -eq 0 ]]; then
         out=$(su - "$JOB_USER" -c "$submit" 2>&1); rc=$?
     elif [[ "$(id -un)" == "$JOB_USER" ]]; then
@@ -1032,7 +1032,7 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
         ## what was queued under the name a moment ago. `head -1` here picked
         ## arbitrarily among everything sharing the name, which is how a stale
         ## job's id ended up in the marker.
-        ## See docs/sequencer.md#getting-the-job-id-right.
+        ## See docs/explanation/sequencing.md#getting-the-job-id-right.
         SUBMITTED_ID=$(comm -13 <(printf '%s' "${pre_ids:+$pre_ids$'\n'}") \
                                 <(squeue -h -n "$jname" -o '%i' 2>/dev/null | sort -u))
         ## More than one is a launcher that submitted twice, or a leftover the
@@ -1080,7 +1080,7 @@ fi
 ## killed between sbatch returning and the marker being written leaves one, and
 ## so does a marker deleted by hand. The job is PENDING at that point, so it is
 ## invisible to `scontrol listjobs` and only the controller knows.
-## See docs/sequencer.md#the-guard-before-a-submission.
+## See docs/explanation/sequencing.md#the-guard-before-a-submission.
 if [[ -n "$submit_target" && "$EXPLAIN" -eq 0 ]]; then
     queued_ours
     if [[ -n "$QUEUED_OURS" ]]; then
@@ -1093,7 +1093,7 @@ fi
 
 ## The fleet-wide ceiling. The gate above bounds this node to one job; nothing
 ## bounded every node holding one at once, which is what saturates slurmctld.
-## See docs/sequencer.md#the-fleet-wide-cap.
+## See docs/explanation/sequencing.md#the-fleet-wide-cap.
 if [[ -n "$submit_target" && -n "${MAX_QUEUED_JOBS// /}" && "$MAX_QUEUED_JOBS" != 0 ]]; then
     if [[ ! "$MAX_QUEUED_JOBS" =~ ^[0-9]+$ ]]; then
         trace "WARNING: MAX_QUEUED_JOBS='$MAX_QUEUED_JOBS' in ${SETTINGS_FILE:-<no settings file found>} is not a whole number -- ignored, and this cycle submits as if uncapped."
@@ -1122,7 +1122,7 @@ if [[ -n "$submit_target" ]]; then
         ## Checked before it is written, not after it is read back. A marker
         ## holding an unusable id is discarded next cycle, which leaves the node
         ## looking idle while the job is still out -- and it submits a second
-        ## copy over the first. See docs/sequencer.md#getting-the-job-id-right.
+        ## copy over the first. See docs/explanation/sequencing.md#getting-the-job-id-right.
         if [[ "$SUBMITTED_ID" =~ ^[0-9]+$ ]]; then
             inflight_write "$SUBMITTED_ID" "$NEXT_JOB" "$NEXT_RUN" "$NEXT_TOTAL" "$(date +%s)"
             IN_FLIGHT_JOB="$NEXT_JOB"

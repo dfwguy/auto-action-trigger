@@ -1,31 +1,8 @@
-# Architecture and layout
+# Layout, paths and permissions
 
-Three BCM monitoring triggers fire while a node's device status is `UP`
-(`duringactions`), so each one re-evaluates on every monitoring cycle without
-manual intervention. Every gate in every script can end a cycle with a plain
-`exit 0` — most cycles have nothing to do.
-
-```
-Node boots → BCM device status = UP
-    ├── NodeHealthTrigger → node_health.sh
-    │       Compares hardware/software state against a known-good baseline.
-    │       Sets node IDLE (all checks pass) or DOWN with a reason (any fail).
-    │
-    ├── FileCopyTrigger → file_copy.sh
-    │       Rsyncs containers/ to /tmp/containers/ so job start reads the image
-    │       off local disk. Silent no-op if there is nothing to copy.
-    │
-    └── LaunchJobTrigger → launch_job.sh
-            Sequences through benchmarks (dcgmi-r1 → dcgmi-r3 → allreduce).
-            Submits the next Slurm job when the node is idle and the prior run passed.
-            Drains the node if a benchmark fails or runs too long.
-```
-
-Because a quiet cycle and a broken chain look identical from outside, each node
-keeps a running trace at `results/<node>/trigger.log`, one line per cycle
-recording what it did or why it stopped. `trigger-log.sh` reads those traces
-across the cluster; `trigger-debug.sh` walks the configuration behind them when
-the traces have gone stale.
+Where every file sits, where it runs from, and who has to own what. Why the
+pieces fit together this way is
+[explanation/architecture.md](../explanation/architecture.md).
 
 ## Directory layout
 
@@ -108,93 +85,6 @@ the traces have gone stale.
 └── watch-rack.sh                  # Watch a nodelist for DOWN/drained nodes
 ```
 
-## Registering with BCM
-
-`pre-post/create-action-trigger.sh` registers six objects: three monitoring
-actions — `node_health_action`, `file_copy_action`, `launch_job_action` — and
-one trigger apiece, `NodeHealthTrigger`, `FileCopyTrigger` and
-`LaunchJobTrigger`. `pre-post/delete-action-trigger.sh` removes the same six.
-cmsh has no upsert, so creation removes each object before adding it; that
-makes the script safe to re-run, and it is why the removals are silent — on a
-first run there is nothing to remove. The adds are not silent. A registration
-that fails quietly is how you end up believing a node is being health-checked
-when it is not.
-
-An action is a path plus execution settings. All three run with `runon node`
-and `nodeenvironment yes`, so BCM executes the script on the node itself, out
-of the NFS-exported tree, with no working directory to infer anything from —
-hence the absolute `BRINGUP_HOME` path described under [Runtime
-paths](#runtime-paths). The timeout is `2m` on all three because `2m` is BCM's
-hard maximum; anything larger is rejected outright. The first sync of a
-container image is multi-gigabyte over NFS and cannot finish inside that, which
-is why `file_copy.sh` detaches its rsync and returns immediately rather than
-being killed mid-transfer on every monitoring cycle.
-
-Each trigger attaches its action with `duringactions`, which re-fires on every
-monitoring cycle while the device is `UP`. `enteractions` fires only on the
-transition into `UP`, so a node that was already up would never pick up a newly
-built container image until it rebooted.
-
-Because BCM runs an action by executing the registered path, the exec bit is
-part of the contract: a `644` action registers fine, reports success and
-silently runs nothing. The exec bit is also easy to lose in transit — a tarball
-unpacked through a Windows-mounted path, an `scp` of a single file, an editor
-that rewrites rather than edits. So the script preflights the three action
-scripts, restores the bit where it can, and refuses to register anything while
-one is missing or still not runnable. The wider `755`/`644` split across the
-tree is deliberate and asymmetric; the table in `CLAUDE.md` says which a given
-file is and why, and the `permissions` CI job enforces it.
-
-## Driving cmsh
-
-Two things about `cmsh` shape every script that touches it.
-
-It exits `0` even when an individual `set` inside the `-c` string was rejected.
-It reports the problem on stdout and carries on to the commit, so the exit
-status is useless and the output has to be inspected instead — which is what
-`cm_run` in `pre-post/create-action-trigger.sh` does, grepping the combined
-output for the phrasings BCM uses to refuse. Getting this wrong once already
-produced a trigger with no actions attached that still reported success: the
-object exists, so nothing looks broken until you notice nothing runs.
-
-Read trigger state with `get <property>`, never by parsing `show`. The column
-padding and property names in `show` output drift between BCM releases, so a
-parser written against one release quietly matches nothing on the next — the
-same silent-empty-result failure the framework is written against.
-
-## What CI gates on
-
-`.gitlab-ci.yml` runs the checks listed under "Before committing" in
-`CLAUDE.md`, and it is the last gate before a change reaches a cluster; there
-is no staging deployment behind it. Nothing in the pipeline talks to Slurm, BCM
-or a GPU — the suites stub those on `PATH` — so a job that needs cluster access
-does not belong there, because it could only be faked.
-
-The `lint` stage runs `shellcheck -f gcc -S warning` over every tracked `*.sh`
-and `*.sbatch`, `bash -n` over the same set, the `permissions` job described
-above, and `architecture-doc`, which fails if a top-level script is not named
-in this file's tree listing. `severity=warning` is the gate, not the ceiling:
-the info- and style-level findings below it are largely deliberate here. The
-`test` stage runs the five suites — `tests/verdict-test.sh`,
-`tests/health-runner-test.sh`, `tests/recover-test.sh`, `tests/help-text-test.sh`,
-`tests/scan-cache-test.sh` — as one job each, so a failure names the gate that
-broke without anyone opening a log.
-
-`scan-cache` is there for the same reason `help-text` is: a coupling that fails
-without saying so. Break the cache key and every report still prints, still
-looks right, and is wrong about nodes whose answer has changed. See
-[operations.md#the-verdict-cache](operations.md#the-verdict-cache).
-
-`help-text` is there for a coupling the rest of the tree does not have.
-`status-check.sh`, `health-check.sh`, `daily-report.sh`, `sync-check.sh` and
-`trigger-log.sh` implement `--help` by printing their own header comment through
-a hardcoded `sed -n '2,NNp'`, which makes comment length a runtime property of
-five operator scripts. Editing a comment is the one change everybody treats as
-free, so without a gate a cleanup that shortens a header truncates `--help`
-silently and passes review as "comments only" — because it is. Each of the five
-carries a sentinel comment on the line after its range, and the suite fails when
-the two stop agreeing.
-
 ## Runtime paths
 
 Scripts assume the repo is deployed at `/home/cmods/bringup/` — the home
@@ -222,3 +112,97 @@ not the checked-out ones.
 | `/home/cmods/bringup/reports/` | Where `daily-report.sh -o` reports are kept by convention |
 | `/home/cmods/bringup/containers/` | Container images built by `build_containers.sh` |
 | `/tmp/containers/` (on each node) | Node-local cache of the above, rsync'd by `file_copy.sh` |
+
+## Result-path ownership
+
+Clearing `results/` is safe at any time:
+
+```bash
+mv results results.$(date +%F)     # or: rm -rf results
+```
+
+The sequencer runs as root on each node (BCM actions do), so root is what
+recreates `results/` and `results/<node>` on the next monitoring cycle — but the
+benchmarks are submitted as `cmods`, and `sbatch --output` writes as that user.
+A root-owned result directory means `sbatch` returns a job id, Slurm schedules
+the job, and it dies at startup with nowhere to write: the node returns to idle
+with no result file, no `FAIL`, and no archive, which is indistinguishable from
+never having been tested.
+
+`launch_job.sh` therefore re-checks ownership of both directories on every cycle
+and hands them back to `cmods`, so a cleared tree repairs itself. To fix an
+existing tree immediately rather than waiting for a cycle:
+
+```bash
+chown -R cmods:cmods /home/cmods/bringup/results
+```
+
+## Executable bits
+
+The `755`/`644` split across the tree is deliberate and asymmetric. The table in
+`CLAUDE.md` says which a given file is and why, and the `permissions` CI job
+enforces it. The whole tree at once:
+
+```bash
+git ls-files -s | awk '{print $1, $4}' | sort
+```
+
+The short version: entry points a human or BCM invokes directly are `755`;
+sourced libraries, `.sbatch` files, health checks and host launchers are `644`,
+because each is run as `bash <file>` or read by `sbatch` rather than executed.
+A `644` action registers with BCM fine and silently runs nothing.
+
+## Slurm permissions
+
+`scontrol update nodename=...` requires privilege. It works as `root`, as the
+`SlurmUser` (typically `slurm`), or as an account with an admin level set in the
+accounting database. To grant a user that access:
+
+```bash
+sacctmgr modify user name=<user> set adminlevel=Operator        # drain/resume nodes, manage jobs
+sacctmgr modify user name=<user> set adminlevel=Administrator   # full control, incl. accounting
+sacctmgr show user <user> withassoc format=User,AdminLevel      # verify
+```
+
+`Operator` is enough for node state changes and is the right level for anyone
+doing bringup. `Administrator` additionally allows modifying accounts,
+associations, and QOS — grant it sparingly.
+
+The `sacctmgr modify` command itself must be run by `root`, the `SlurmUser`, or
+an existing `Administrator`, and requires `slurmdbd` with accounting storage
+configured. Without accounting enabled, admin levels do not apply and node state
+changes are limited to `root` and the `SlurmUser`.
+
+## What CI gates on
+
+`.gitlab-ci.yml` runs the checks listed under "Before committing" in `CLAUDE.md`,
+and it is the last gate before a change reaches a cluster; there is no staging
+deployment behind it. Nothing in the pipeline talks to Slurm, BCM or a GPU — the
+suites stub those on `PATH` — so a job that needs cluster access does not belong
+there, because it could only be faked.
+
+The `lint` stage runs `shellcheck -f gcc -S warning` over every tracked `*.sh`
+and `*.sbatch`, `bash -n` over the same set, the `permissions` job, and
+`layout-doc`, which fails if a top-level script is not named in the tree
+listing above. `severity=warning` is the gate, not the ceiling: the info- and
+style-level findings below it are largely deliberate here.
+
+The `test` stage runs the six suites — `tests/verdict-test.sh`,
+`tests/health-runner-test.sh`, `tests/recover-test.sh`, `tests/help-text-test.sh`,
+`tests/scan-cache-test.sh`, `tests/doc-links-test.sh` — as one job each, so a
+failure names the gate that broke without anyone opening a log.
+
+Three of those exist for couplings that fail *without saying so*, which is why
+they are gates rather than review items:
+
+- `scan-cache` — break the cache key and every report still prints, still looks
+  right, and is wrong about nodes whose answer has changed. See
+  [explanation/verdicts-and-the-cache.md](../explanation/verdicts-and-the-cache.md).
+- `help-text` — eight scripts print `--help` from their own header through a
+  hardcoded `sed -n '2,NNp'`, which makes comment length a runtime property.
+  Each carries a sentinel comment on the line after its range, and the suite
+  fails when the two stop agreeing. See [scripts.md](scripts.md).
+- `doc-links` — the comment convention puts reasoning in `docs/` and leaves a
+  one-line pointer in the code, which makes several hundred anchors load-bearing
+  and unrendered: retitle a heading and the pointer still resolves, to the top
+  of the page.

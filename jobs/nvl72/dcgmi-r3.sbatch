@@ -4,16 +4,16 @@
 #SBATCH --mem=0
 #SBATCH -t 0:50:00
 ## Steps inherit only what was named here, never what --exclusive implied.
-## See docs/benchmarks.md#the-allocation-header.
+## See docs/reference/jobs.md#the-allocation-header.
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=1
 #SBATCH --nice=3
 ## Matches the -r level, so the gates run in order; ahead of the sweep they gate,
-## behind a hand-submitted job, which defaults to 0. See docs/benchmarks.md#queue-priority.
+## behind a hand-submitted job, which defaults to 0. See docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/dcgmi-r3.txt
 
 ## DCGM diagnostics at run level 3. The four dcgmi-r* jobs differ only in the
-## -r level and the time that level needs. See docs/benchmarks.md#the-dcgmi-gates.
+## -r level and the time that level needs. See docs/reference/jobs.md#the-dcgmi-gates.
 
 ## Job name is used in the status line.
 # shellcheck disable=SC2034  # consumed by the status line, not by this script
@@ -21,15 +21,15 @@ job_name=dcgmi-r3
 
 ## `timeout` rather than srun --time because dcgmi runs in the batch body, not
 ## a step; the derivation is in
-## docs/benchmarks.md#what-each-jobs-limits-were-derived-from. See
-## docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## docs/reference/jobs.md#what-each-jobs-limits-were-derived-from. See
+## docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 JOB_TIMEOUT=40m
 
 ## ------------- job info starts here ------------- ##
 
 ## Preflight -- what the STEP holds, which the job's AllocTRES cannot answer.
 ## The wording is fixed; verdict.sh greps this file. See
-## docs/benchmarks.md#preflight and example.sbatch.
+## docs/reference/jobs.md#preflight and example.sbatch.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -48,13 +48,14 @@ timeout --signal=TERM --kill-after=60 "$JOB_TIMEOUT" dcgmi diag -r 3
 rc=$?
 
 ## Fixed wording VERDICT_RUN_ERRORS matches, so an overrun does not read as a
-## dead node. See docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## dead node. See docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 [[ "$rc" -eq 124 || "$rc" -eq 137 ]] && echo "timeout: killed after ${JOB_TIMEOUT}"
 
 
 ## ------------- parse info starts here ----------- ##
 ## Only whether the job ran is decided here; whether it passed is verdict.sh's
-## call, made at status-check time. See docs/benchmarks.md#where-a-pass-is-decided.
+## call, made at status-check time. See
+## docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 
 ## Says who decided a FAIL: non-zero is the workload's own, 0 is verdict.sh.
 echo "exit status: $rc"

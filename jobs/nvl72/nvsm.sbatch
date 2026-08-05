@@ -7,27 +7,27 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH -t 0:50:00
 #SBATCH --nice=20
-## 20 is the sweep's tier. See docs/benchmarks.md#queue-priority.
+## 20 is the sweep's tier. See docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/nvsm.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
-## implies --exact. See docs/benchmarks.md#the-allocation-header.
+## implies --exact. See docs/reference/jobs.md#the-allocation-header.
 
 ## System-level GPU stress, run as a pre-burn-in health gate. DGX only, and not
-## in the default BENCHMARKS list -- see docs/nvsm.md.
+## in the default BENCHMARKS list -- see docs/how-to/enable-nvsm.md.
 
 # shellcheck disable=SC2034  # read by grepping this file, from actions/launch_job.sh
 job_name=nvsm
 
 ## One limit per step, and they must sum to less than the walltime above.
-## See docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## See docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 STRESS_TIMELIMIT=0:35:00
 HEALTH_TIMELIMIT=0:05:00
 
 ## ------------- job info starts here ------------- ##
 
 ## What the STEP holds, which only a step can see. The passing line's wording is
-## fixed -- verdict.sh greps this file. See docs/benchmarks.md#preflight.
+## fixed -- verdict.sh greps this file. See docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -44,7 +44,7 @@ unset CUDA_VISIBLE_DEVICES
 
 ## Host binary, no container, and root-only -- hence sudo. `-n` because a batch
 ## task has no tty and a prompt would hang. Needs a NOPASSWD grant on every
-## compute node; see docs/nvsm.md.
+## compute node; see docs/how-to/enable-nvsm.md.
 if [[ $(id -u) -eq 0 ]]; then
 	NVSM=(nvsm)
 else
@@ -52,19 +52,19 @@ else
 fi
 
 ## Fail before spending 20 minutes, and keep nvsm's own output: not every
-## failure here is a missing grant. See docs/nvsm.md.
+## failure here is a missing grant. See docs/how-to/enable-nvsm.md.
 preflight=$(srun --ntasks-per-node=1 "${NVSM[@]}" show version 2>&1)
 rc=$?
 if [[ $rc -ne 0 ]]; then
 	case "$preflight" in
 		*"password is required"*|*"not allowed to execute"*|*"may not run"*)
-			echo "ERROR: no passwordless sudo grant for $(id -un) to run nvsm -- see docs/nvsm.md. A root shell via 'sudo -s' does not imply this: the grant is per-command." ;;
+			echo "ERROR: no passwordless sudo grant for $(id -un) to run nvsm -- see docs/how-to/enable-nvsm.md. A root shell via 'sudo -s' does not imply this: the grant is per-command." ;;
 		*"must have a tty"*|*"no tty present"*)
 			echo "ERROR: sudo requires a tty on this node and a batch task has none. The grant is fine; add 'Defaults:$(id -un) !requiretty' next to it." ;;
 		*"command not found"*)
 			echo "ERROR: nvsm is not on sudo's secure_path -- grant the absolute path 'command -v nvsm' reports on this node." ;;
 		*"matching definition file"*|*"Failed to initialize NVSM"*)
-			echo "ERROR: nvsm has no platform definition file for this node and never initialized. Sudo and the hardware are both fine -- this is NVSM platform support, and nvsm is DGX only. If this is not a DGX system, drop nvsm from BENCHMARKS in SETTINGS; it is not in the default list. If it is, set autogenerate_pdf in /etc/nvsm/nvsm.config in the software image. See docs/nvsm.md." ;;
+			echo "ERROR: nvsm has no platform definition file for this node and never initialized. Sudo and the hardware are both fine -- this is NVSM platform support, and nvsm is DGX only. If this is not a DGX system, drop nvsm from BENCHMARKS in SETTINGS; it is not in the default list. If it is, set autogenerate_pdf in /etc/nvsm/nvsm.config in the software image. See docs/how-to/enable-nvsm.md." ;;
 		*)
 			echo "ERROR: '${NVSM[*]} show version' failed (exit $rc). This is not a sudoers failure -- read the output below." ;;
 	esac
@@ -86,7 +86,7 @@ health_rc=$?
 ## ------------- parse info starts here ----------- ##
 
 ## Only whether the job ran is decided here; whether the result is good is
-## _v_gate_nvsm in verdict.sh. See docs/benchmarks.md#where-a-pass-is-decided.
+## _v_gate_nvsm in verdict.sh. See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 ## Both statuses go in the log: a FAIL with both at 0 came from the gate, which
 ## leaves no trace in this file.
 echo "exit status: stress-test=$stress_rc show-health=$health_rc"

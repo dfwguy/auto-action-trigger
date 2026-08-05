@@ -7,22 +7,23 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH -t 0:25:00
 #SBATCH --nice=20
-## 20 is the sweep's tier; higher is later. See docs/benchmarks.md#queue-priority.
+## 20 is the sweep's tier; higher is later. See docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/allreduce-forcesharp.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
-## implies --exact. See docs/benchmarks.md#the-allocation-header.
+## implies --exact. See docs/reference/jobs.md#the-allocation-header.
 
 ## NCCL AllReduce, single node, NVLink, SHARP forced -- allreduce.sbatch with
 ## the NVSwitch offload made mandatory, so this asks "did SHARP run" rather than
-## "was it allowed". See docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says.
+## "was it allowed". See
+## docs/explanation/judging-benchmarks.md#judge-what-the-tool-means-not-what-it-says.
 
 ## Job name is used in the status line.
 # shellcheck disable=SC2034  # read by grep out of this file, never sourced
 job_name=allreduce-forcesharp
 
 ## Step limit fires before #SBATCH -t so the script survives to write a marker.
-## See docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## See docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=0:15:00
 # shellcheck disable=SC2034  # read by grep out of this file, never sourced
 totalRuns=1
@@ -31,7 +32,7 @@ totalRuns=1
 
 ## Preflight -- what the STEP holds, which only a step can see. The wording of
 ## these lines is fixed; verdict.sh greps this file. See
-## docs/benchmarks.md#preflight.
+## docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -44,7 +45,7 @@ srun --ntasks=1 bash -c '
 
 
 ## Node-local copy first, NFS as the fallback. See
-## docs/containers.md#why-local-images.
+## docs/explanation/containers.md#why-local-images.
 IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
 [[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
@@ -64,7 +65,7 @@ export NCCL_NVLS_ENABLE=1
 ## This line, not the one above, is what makes this job different: pinning the
 ## algorithm turns an unsupported node into an ncclCommInitRank failure instead
 ## of a quiet Ring run. Suspect it first if this fails fleet-wide after an image
-## change. See docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says.
+## change. See docs/explanation/judging-benchmarks.md#judge-what-the-tool-means-not-what-it-says.
 export NCCL_ALGO=NVLS
 export NCCL_MNNVL_ENABLE=1
 export NCCL_IB_DISABLE=0
@@ -90,7 +91,7 @@ rc=$?
 
 ## Only whether the job ran is decided here; whether the result is good is
 ## verdict.sh's call, re-read on every status check. See
-## docs/benchmarks.md#where-a-pass-is-decided.
+## docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 ##
 ## /dev/infiniband is deliberately not mounted, unlike the -nonvlink jobs: this
 ## is the NVLink scope, and reachable HCAs would let a run that lost NVLink

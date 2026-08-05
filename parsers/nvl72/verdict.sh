@@ -7,10 +7,10 @@
 # PENDING (ran, srun exited 0), and DONE is computed here from the log on every
 # read, so tightening a gate re-judges every result already on disk. Files
 # ending in DONE are legacy and are re-judged here rather than trusted.
-# See docs/benchmarks.md#where-a-pass-is-decided.
+# See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 
 ## The five NCCL bandwidth floors are set in SETTINGS and arrive via settings.sh.
-## See docs/settings.md#benchmark-pass-floors.
+## See docs/reference/settings.md#benchmark-pass-floors.
 
 ## Floors for the non-NCCL jobs, here rather than in each sbatch for the same
 ## reason the NCCL floors are -- see the header. A floor of 0 means one has not
@@ -29,7 +29,7 @@ VERDICT_MIN_TFLOPS_READINGS=1       ## one TFLOPS figure per GPU is expected
 ## still required, and the figures are still printed by the report. Set it from
 ## the spread a healthy node actually shows -- a floor invented here would
 ## either drain the fleet on day one or never fire. See
-## docs/llmb.md#judging-the-four-step-times.
+## docs/explanation/llmb.md#judging-the-four-step-times.
 VERDICT_MAX_COV_LLM_SOLO=0
 ## One rank per GPU has to report timings; three reporting and one silent is the
 ## failure this catches, and it is invisible to a check that only requires the
@@ -51,14 +51,14 @@ VERDICT_MIN_FIO_PASSES=4
 ## the expected output is present. The last two are the two ways an overrun
 ## arrives -- Slurm's step cancellation and the dcgmi jobs' `timeout` wrapper --
 ## so it is reported as a run error rather than as missing output. See
-## docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 VERDICT_RUN_ERRORS='NCCL WARN|Test NCCL failure|Test failure|srun: error|Segmentation fault|CANCELLED AT|error: unable to|slurmstepd: error|^timeout: killed after'
 
 ## Set by verdict() on every call. REASON must read IDENTICALLY on every node
 ## failing the same way -- status-check.sh groups through dshbak, so anything
 ## per-node in it splits one block into forty. Per-node specifics (line number,
 ## matched text, measured value) go in DETAIL and nowhere else.
-## See docs/operations.md#status-and-reporting.
+## See docs/reference/scripts.md.
 VERDICT_REASON=""
 VERDICT_DETAIL=""
 
@@ -86,7 +86,7 @@ _v_forbid() {
 
 ## Case-insensitive _v_forbid, for rules that are deliberately broad. Fixed
 ## strings like `NCCL WARN` stay case-sensitive so they cannot catch prose --
-## see docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says.
+## see docs/explanation/judging-benchmarks.md#judge-what-the-tool-means-not-what-it-says.
 _v_forbid_i() {
     local file="$1" label="$2" re="$3" hit
     hit=$(grep -niEm1 "$re" "$file" 2>/dev/null)
@@ -153,7 +153,7 @@ _v_min_value() {
 ##
 ## Only the per-channel `via ...` lines are evidence of where data went; `Using
 ## network IB`/`Socket` name the plugin NCCL registered and prove nothing. See
-## docs/benchmarks.md#judge-the-channels-never-the-plugin-registration.
+## docs/explanation/judging-benchmarks.md#judge-the-channels-never-the-plugin-registration.
 _v_gate_nccl() {
     local file="$1" transport="$2" peak_min="$3"
 
@@ -165,7 +165,7 @@ _v_gate_nccl() {
 
     ## Ordered by causation, not severity -- the first check to fire is the one
     ## whose reason gets reported, so keep new checks in the chain's order. See
-    ## docs/benchmarks.md#host-hcas-are-not-container-hcas.
+    ## docs/explanation/judging-benchmarks.md#host-hcas-are-not-container-hcas.
     if [[ "$transport" == "ib" ]]; then
         ## jobs/nvl72/nccl-hca.sh makes the same libibverbs call NCCL does from
         ## inside the container; `(none)` here is the root cause stated plainly.
@@ -193,7 +193,7 @@ _v_gate_nccl() {
     ## once. The bandwidth floor catches the gross case meanwhile.
 
     ## Bandwidth last, and only the largest-size figure. An empty floor is a
-    ## missing setting, not a job without one. See docs/settings.md#benchmark-pass-floors.
+    ## missing setting, not a job without one. See docs/reference/settings.md#benchmark-pass-floors.
     if [[ -z "$peak_min" ]]; then
         VERDICT_REASON="bandwidth floor is not set -- check SETTINGS"
         VERDICT_DETAIL=""
@@ -278,7 +278,7 @@ _v_gate_dcgmi() {
 ## GPU(column) matrix N/A is expected on the diagonal and nowhere else, and in
 ## the CPU(row) matrices every cell is a real transfer. Matching the string flat
 ## is what made this gate necessary -- see
-## docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says.
+## docs/explanation/judging-benchmarks.md#judge-what-the-tool-means-not-what-it-says.
 _v_nvb_missing_peer() {
     local file="$1" hit
     hit=$(awk '
@@ -486,7 +486,7 @@ _v_llm_solo_ranks() {
 ## and are legitimately slower on every GPU; one outlier step must not read as
 ## an outlier device. DETAIL names the slowest GPU -- that is the actionable
 ## part -- while REASON stays identical across nodes so dshbak keeps them in one
-## block. See docs/llmb.md#judging-the-four-step-times.
+## block. See docs/explanation/llmb.md#judging-the-four-step-times.
 _v_llm_solo_spread() {
     local file="$1" max="$2" hit
     ## 0 means no band established for this platform; skip rather than pass all.
@@ -554,7 +554,7 @@ _v_gate_mnubergemm() {
 ## The fail/error sweep is the loosest rule in this file and the one never
 ## checked against a captured healthy run -- narrow it to nvsm's own fault
 ## strings once one exists. See
-## docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says.
+## docs/explanation/judging-benchmarks.md#judge-what-the-tool-means-not-what-it-says.
 _v_gate_nvsm() {
     local file="$1"
     _v_require  "$file" "nvsm health summary" 'Health Summary|System Status' || return 1
@@ -666,7 +666,7 @@ _v_dispatch_gate() {
 ##   INCOMPLETE   no end marker. "Died" is the caller's conclusion, not this
 ##                function's evidence -- a RUNNING job has no marker either, so
 ##                a caller that does not check squeue first will call every
-##                in-flight job dead. See docs/operations.md#status-and-reporting.
+##                in-flight job dead. See docs/reference/scripts.md.
 ##   FAIL         the job reported it could not run, or the gate rejected it
 ##   DONE         the gate accepted it
 ##

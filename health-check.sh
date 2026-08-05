@@ -32,7 +32,7 @@
 #
 # Only as complete as the drains behind it: with the shipped
 # DRAIN_AFTER_FAILED_HEALTH_CHECK=no every node reads as PASSING, and the banner
-# below says so. See docs/operations.md#disabling-drains.
+# below says so. See docs/how-to/manage-drains.md.
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
@@ -88,7 +88,7 @@ is_not_a_check() {
 
 # Valid check names: the baseline, widened with logs/ -- a check newer than the
 # last set-valid-default.sh run has no baseline entry yet and would otherwise be
-# dismissed as operator text. See docs/health-checks.md#the-baseline-is-cluster-local.
+# dismissed as operator text. See docs/how-to/add-a-health-check-set.md#set-the-baseline-first.
 declare -A known_check baseline_has
 if [[ -d "$valid_dir" ]]; then
     while IFS= read -r name; do
@@ -223,7 +223,7 @@ while IFS='|' read -r node state reason; do
     if [[ -z "$reason" || "$reason" == "none" ]]; then
         # No reason: available splits on whether logs/<node> exists, since a
         # never-checked node is not a passing one. Down with no reason is
-        # neither, so it goes with the other drains. docs/operations.md#--summary.
+        # neither, so it goes with the other drains. docs/reference/scripts.md#--summary.
         case "$state" in
             *down*|*drain*|*fail*|*unk*|*error*)
                 ((other++))
@@ -291,7 +291,7 @@ if [[ ! -d "$valid_dir" ]]; then
 fi
 
 # Paused means nothing re-runs, so this is a snapshot of whatever was true when
-# the pause went on. See docs/operations.md#pausing-everything.
+# the pause went on. See docs/how-to/pause-and-resume.md.
 if setting_enabled "$PAUSE_HEALTH_CHECKS"; then
     echo "NOTE: PAUSE_HEALTH_CHECKS=$PAUSE_HEALTH_CHECKS in ${SETTINGS_FILE##*/}"
     echo "      node_health.sh is not running on any node, so nothing below can change"
@@ -301,7 +301,7 @@ if setting_enabled "$PAUSE_HEALTH_CHECKS"; then
 fi
 
 # Drains off means this report has nothing to read, and an empty report looks
-# exactly like a healthy cluster. See docs/operations.md#disabling-drains.
+# exactly like a healthy cluster. See docs/how-to/manage-drains.md.
 if ! setting_enabled "$DRAIN_AFTER_FAILED_HEALTH_CHECK"; then
     echo "NOTE: DRAIN_AFTER_FAILED_HEALTH_CHECK=$DRAIN_AFTER_FAILED_HEALTH_CHECK in ${SETTINGS_FILE##*/}"
     echo "      node_health.sh records failures without draining, so a failing node"
@@ -312,7 +312,7 @@ if ! setting_enabled "$DRAIN_AFTER_FAILED_HEALTH_CHECK"; then
 fi
 
 # --summary: every node in exactly one bucket, full list for each. See
-# docs/operations.md#--summary.
+# docs/reference/scripts.md#--summary.
 if [[ "$summary" -eq 1 ]]; then
     echo "SUMMARY — $total $(plural "$total")"
     echo

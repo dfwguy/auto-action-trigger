@@ -9,7 +9,7 @@
 #
 # The case that matters most is `gate edit re-judges`: floors move as the
 # platform is learned, and a cache that survived that would keep every node's
-# old answer. See docs/operations.md#the-verdict-cache.
+# old answer. See docs/explanation/verdicts-and-the-cache.md#the-verdict-cache.
 #
 # Builds its own results tree from tests/fixtures/ in a temp directory. No
 # cluster, no slurm, no network.
@@ -47,7 +47,7 @@ for n in node01 node02 node03 node04; do
     ## is the newest .txt in the directory almost all of the time. Pinned ahead
     ## of every rewrite() below so that is certain here, because it is what the
     ## live-column probe has to look past.
-    ## See docs/operations.md#status-and-reporting.
+    ## See docs/reference/scripts.md.
     printf 'alltoall: IN QUEUE\n' > "$d/quick-view.txt"
     touch -d "$(date -d '+2 hours')" "$d/quick-view.txt"
 done

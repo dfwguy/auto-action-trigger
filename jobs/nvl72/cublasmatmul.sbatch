@@ -8,27 +8,27 @@
 #SBATCH -t 0:30:00
 #SBATCH --nice=20
 ## --nice 20 is the sweep's tier; higher is LATER. See
-## docs/benchmarks.md#queue-priority.
+## docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/cublasmatmul.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
-## implies --exact. See docs/benchmarks.md#the-allocation-header.
+## implies --exact. See docs/reference/jobs.md#the-allocation-header.
 
 ## GB300 single-node GEMM (GB200 uses hpl.sbatch), remediation-only: keep it out
-## of `BENCHMARKS` and submit it by hand. See docs/settings.md.
+## of `BENCHMARKS` and submit it by hand. See docs/reference/settings.md.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 # shellcheck disable=SC2034
 job_name=cublasmatmul
 
 ## 2x DURATION. The step limit fires first, leaving the script alive to write
-## its marker. See docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## its marker. See docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=0:20:00
 
 ## ------------- job info starts here ------------- ##
 
 ## What the STEP holds, which only a step can answer. Wording is fixed: the
-## parse block and verdict.sh grep it. See docs/benchmarks.md#preflight.
+## parse block and verdict.sh grep it. See docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -38,7 +38,7 @@ srun --ntasks=1 bash -c '
     exit 0
 }
 
-## Node-local copy first, NFS as fallback. See docs/containers.md#why-local-images.
+## Node-local copy first, NFS as fallback. See docs/explanation/containers.md#why-local-images.
 IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
 [[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
@@ -64,7 +64,7 @@ rc=$?
 
 ## Only whether the job ran is decided here; quality is verdict.sh's call, read
 ## at status-check time. Its TFLOPS floor, VERDICT_MIN_TFLOPS_GEMM, is still 0
-## for this platform. See docs/benchmarks.md#where-a-pass-is-decided.
+## for this platform. See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 
 ## A FAIL with a non-zero status here is srun's; `exit status: 0` means the
 ## verdict.sh gate failed it, which leaves no trace in this file.

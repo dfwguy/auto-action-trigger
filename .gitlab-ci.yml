@@ -109,7 +109,7 @@ permissions:
 
       # jobs/*/*.sh is both sourced helpers (nccl-hca.sh) and host launchers
       # (llm-pretrain.sh), which launch_job.sh runs as `bash "$launch"`.
-      # Neither is exec'd. See docs/sequencer.md#host-launched-jobs.
+      # Neither is exec'd. See docs/explanation/sequencing.md#host-launched-jobs.
       for f in $(git ls-files 'jobs/*/*.sh'); do
         check 100644 "$f"
       done
@@ -141,17 +141,17 @@ permissions:
       [ "$status" -eq 0 ] && echo "modes match the table in CLAUDE.md"
       exit $status
 
-architecture-doc:
+layout-doc:
   extends: .base
   stage: lint
-  # The tree listing in docs/architecture.md has drifted twice this way. Scoped
+  # The tree listing in docs/reference/layout.md has drifted twice this way. Scoped
   # to the top level: the doc lists health-checks/ and jobs/ as directories.
   script:
     - |
       status=0
       for f in $(git ls-files -- '*.sh' | grep -v '/'); do
-        if ! grep -qF "$f" docs/architecture.md; then
-          echo "not listed in docs/architecture.md: $f"
+        if ! grep -qF "$f" docs/reference/layout.md; then
+          echo "not listed in docs/reference/layout.md: $f"
           status=1
         fi
       done
@@ -179,7 +179,7 @@ recover:
     - ./tests/recover-test.sh
 
 # A stale cache hit is silent: a clean report for a fleet that is not clean.
-# See docs/operations.md#the-verdict-cache.
+# See docs/explanation/verdicts-and-the-cache.md#the-verdict-cache.
 scan-cache:
   extends: .base
   stage: test
@@ -194,3 +194,11 @@ help-text:
   stage: test
   script:
     - ./tests/help-text-test.sh
+
+# The code points at docs/ by anchor and nothing renders those links, so a
+# reworded heading silently lands the reader on the wrong section.
+doc-links:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/doc-links-test.sh

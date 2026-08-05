@@ -7,11 +7,11 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH -t 0:25:00
 #SBATCH --nice=20
-## The sweep's tier; higher is later. See docs/benchmarks.md#queue-priority.
+## The sweep's tier; higher is later. See docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/allreduce-nonvlink.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
-## implies --exact. See docs/benchmarks.md#the-allocation-header.
+## implies --exact. See docs/reference/jobs.md#the-allocation-header.
 
 ## SNT2, GB300 MOP 7.3 Scope A: intra-node collectives forced over the HCAs,
 ## NVLink excluded. NVLink-scope counterpart: allreduce.sbatch
@@ -22,7 +22,7 @@ job_name=allreduce-nonvlink
 
 ## 2x the plan's < 5 min for single-node NCCL, floored at 15 min. Cancelling
 ## the step leaves the script alive to write its marker; see
-## docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=0:15:00
 ## Read out of this file's text by grep, never sourced -- see example.sbatch.
 # shellcheck disable=SC2034
@@ -32,7 +32,7 @@ totalRuns=1
 
 ## What the STEP holds, which only a step can see. The passing line's wording
 ## is fixed -- verdict.sh greps this same file. See
-## docs/benchmarks.md#preflight.
+## docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -46,7 +46,7 @@ srun --ntasks=1 bash -c '
 
 ## The node-local copy first so job start does not read a multi-gigabyte image
 ## over NFS; shared directory is the fallback. See
-## docs/containers.md#why-local-images.
+## docs/explanation/containers.md#why-local-images.
 IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
 [[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
@@ -67,12 +67,12 @@ export NCCL_IB_DISABLE=0
 
 ## Excluding the shortcuts does not say which network. Without this, no visible
 ## HCA silently means TCP over bond0 and a clean-looking summary. See
-## docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says.
+## docs/explanation/judging-benchmarks.md#judge-what-the-tool-means-not-what-it-says.
 export NCCL_NET=IB
 
 ## Compute-plane HCA discovery, shared with alltoall-nonvlink.sbatch. See that
 ## file for what is filtered out, and
-## docs/benchmarks.md#host-hcas-are-not-container-hcas.
+## docs/explanation/judging-benchmarks.md#host-hcas-are-not-container-hcas.
 HCA_LIB=/home/cmods/bringup/jobs/nvl72/nccl-hca.sh
 if [[ ! -f "$HCA_LIB" ]]; then
 	echo "Missing $HCA_LIB -- cannot work out which HCAs to run over."
@@ -91,7 +91,7 @@ fi
 nccl_hca_report_host
 
 ## Ask the container what it sees, not the host -- see
-## docs/benchmarks.md#host-hcas-are-not-container-hcas. --ntasks=1 rather than
+## docs/explanation/judging-benchmarks.md#host-hcas-are-not-container-hcas. --ntasks=1 rather than
 ## --ntasks-per-node=1, which Slurm ignores in favour of the header's 4.
 srun --ntasks=1 --export=ALL \
                 --container-image="${CONT}" \
@@ -113,7 +113,7 @@ rc=$?
 ## ------------- parse info starts here ----------- ##
 
 ## Only whether the job ran is decided here; verdict.sh decides whether the
-## result is good. See docs/benchmarks.md#where-a-pass-is-decided.
+## result is good. See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 
 ## srun's status is the one thing the log cannot recover afterwards -- a run
 ## can print a valid summary and still lose a rank on the way out. A FAIL with

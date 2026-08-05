@@ -3,7 +3,7 @@
 # informational: yes
 #
 # Recorded, never drains: no stable baseline exists. See
-# docs/health-checks.md#informational-checks.
+# docs/reference/health-checks.md#informational-checks.
 
 if [ "$(uname -m)" == aarch64 ]; then
   nvidia-imex-ctl -N 2>&1 \

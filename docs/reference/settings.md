@@ -1,0 +1,363 @@
+# Settings (`SETTINGS`, `SETTINGS.default`)
+
+Every key, its default, and what a valid value looks like. Why any of it is
+arranged this way is in [explanation/](../explanation/) — each section links to
+the page that carries its reasoning.
+
+| File | What it is |
+|------|------------|
+| `SETTINGS.default` | Ships with the framework. Tracked in git, replaced by every tarball drop. |
+| `SETTINGS` | The site's own copy. Git-ignored, never written by an upgrade. |
+
+`settings.sh` reads `SETTINGS` if it exists, and `SETTINGS.default` if it does
+not. They are not layered — a site's `SETTINGS` is the whole answer.
+
+```bash
+cp SETTINGS.default SETTINGS
+```
+
+What *is* layered is the defaults inside `settings.sh`: any key a settings file
+leaves unset is filled in there, so a `SETTINGS` only has to carry the lines the
+site actually changed, and one written against an older release does not break
+when a new key is added. See
+[explanation/architecture.md#upgrading-through-a-tarball-drop](../explanation/architecture.md#upgrading-through-a-tarball-drop).
+
+Editing `SETTINGS.default` in place works until the next tarball drop overwrites
+it. Do it once and forget, and the site's configuration silently reverts on an
+upgrade.
+
+Every yes/no key in this file is read by `setting_enabled`: `yes`, `true`, `1`
+and `on` are affirmative, and everything else — including a typo and including
+empty — is not.
+
+## Reading them from a script
+
+`settings.sh` is sourced, never run. It takes the bringup root from
+`SETTINGS_HOME`, or from `home`, or failing both from its own location:
+
+```bash
+home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$home/settings.sh"
+```
+
+Afterwards `SETTINGS_FILE` holds the path that was actually read, or is empty if
+neither file was found. Nothing treats an empty one as fatal, because the
+defaults inside `settings.sh` are a complete working configuration on their own.
+The two BCM actions are the exception — they carry `home=` literally and treat a
+missing `settings.sh` as fatal.
+
+## Which set of things to run
+
+| Setting | Default | Directory | Contents |
+|---------|---------|-----------|----------|
+| `JOBS` | `nvl72` | `jobs/$JOBS/` | The `.sbatch` files `launch_job.sh` submits — see [reference/jobs.md](jobs.md) |
+| `HEALTHCHECKS` | `nvl72` | `health-checks/$HEALTHCHECKS/` | One file per check, run by `node_health.sh` — see [reference/health-checks.md](health-checks.md) |
+| `PARSERS` | `nvl72` | `parsers/$PARSERS/` | `verdict.sh`: the pass/fail rule and the bandwidth floors |
+
+Each is a directory *name*, never a path. `settings.sh` joins each to the
+bringup root and leaves `JOBS_DIR`, `HEALTHCHECKS_DIR` and `PARSERS_DIR` set;
+nothing else may rebuild one by hand. Why they are three variables rather than
+one `PLATFORM`, and what a name resolving to a missing directory does, is in
+[explanation/platform-sets.md](../explanation/platform-sets.md).
+
+## The benchmark list
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `BENCHMARKS` | see below | Ordered list of jobs to run. Everything in it without a passing result is queued once an hour, in listed order |
+
+A name with no `jobs/$JOBS/<name>.sbatch` behind it is skipped with a line in
+the trace rather than failing.
+
+```bash
+BENCHMARKS="dcgmi-r1 dcgmi-r3 nvbandwidth allreduce allreduce-forcesharp \
+            alltoall allreduce-nonvlink alltoall-nonvlink"
+```
+
+The default assumes an NGC login, because `nvbandwidth` is pulled from a private
+org. The catalog of what is available is
+[reference/jobs.md](jobs.md#the-job-catalog); choosing a list for a site is
+[how-to/enable-a-benchmark.md](../how-to/enable-a-benchmark.md).
+
+## Benchmark pass floors
+
+The five NCCL bandwidth gates, in GB/s:
+
+| Setting | Default | Job |
+|---------|---------|-----|
+| `VERDICT_MIN_PEAK_BW_ALLREDUCE` | `683` | `allreduce` |
+| `VERDICT_MIN_PEAK_BW_ALLREDUCE_FORCESHARP` | `665` | `allreduce-forcesharp` |
+| `VERDICT_MIN_PEAK_BW_ALLTOALL` | `623` | `alltoall` |
+| `VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK` | `93` | `allreduce-nonvlink` |
+| `VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK` | `83` | `alltoall-nonvlink` |
+
+All five read out-of-place busbw at the largest message size actually run, which
+is also what `daily-report.sh` prints in those columns, so a cell and a floor
+compare directly. The `-nonvlink` pair is measured on a **100 GB/s compute
+plane**; a site on a different link speed has different numbers.
+
+A floor that reaches the gate empty means `settings.sh` was not sourced. That is
+reported as `bandwidth floor is not set -- check SETTINGS`, not skipped.
+
+Every other gate — dcgmi, nvbandwidth stability, STREAM, the llm-pretrain spread
+— lives in `parsers/$PARSERS/verdict.sh`. Why these five are settings and those
+are not is in
+[explanation/judging-benchmarks.md#floors-are-a-property-of-the-hardware](../explanation/judging-benchmarks.md#floors-are-a-property-of-the-hardware).
+
+## Burn-in
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `RUN_BURNIN` | `no` | The switch |
+| `BURNIN` | `mnubergemm` | A second list, same format and same rules as `BENCHMARKS` |
+
+An empty `BURNIN` is a real answer meaning "no burn-in", so it is not
+backfilled. `RUN_BURNIN=yes` with an empty `BURNIN` is traced as a mistake.
+
+Both lists are surveyed on every cycle and both can be in the queue at once,
+under the Slurm job names `bringup-<node>` and `burnin-<node>`. What that
+separation buys, and what to expect once the switch is on, is in
+[explanation/sequencing.md#two-lists](../explanation/sequencing.md#two-lists).
+
+The image has to be there **before** the switch is flipped — `mnubergemm` is in
+the default `CONTAINERS` for that reason even though its job does not run by
+default.
+
+## Container images
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `CONTAINERS` | `hpc-benchmarks nvbandwidth mnubergemm` | What `build_containers.sh` builds when no image is named on the command line |
+
+| Image | Jobs that use it | Source |
+|-------|-----------------|--------|
+| `hpc-benchmarks` | `allreduce`, `allreduce-forcesharp`, `alltoall`, both `-nonvlink` variants, `hpl`, `cublasmatmul`, `stream` | Public NGC image |
+| `nvbandwidth` | `nvbandwidth` | Private NGC org (needs a login); source build only with `-S` |
+| `nvloom` | `nvloom` | No published image; two-pass source build, and only with `-S` |
+| `mnubergemm` | `mnubergemm` | Private NGC org (needs a login); NVIDIA-internal, no source build exists |
+
+`dcgmi-r*` and `nvsm` are not in this table — they run host binaries and need no
+image.
+
+```bash
+CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm"   # default -- needs an NGC login
+CONTAINERS="hpc-benchmarks"                          # no credentials
+CONTAINERS="hpc-benchmarks nvbandwidth nvloom"       # adds the source build -- run with -S
+CONTAINERS=""                                        # build nothing
+```
+
+An explicitly empty `CONTAINERS=""` means "build nothing" and is left that way —
+the one setting where empty is a real answer, so `settings.sh` backfills it only
+when the key is absent altogether. `-A` builds everything regardless of this
+setting, and naming images as arguments overrides it. See
+[how-to/build-containers.md](../how-to/build-containers.md).
+
+## Pause switches
+
+| Setting | Default | Stops |
+|---------|---------|-------|
+| `PAUSE_JOBS` | `no` | `launch_job.sh`: submit nothing, drain nothing |
+| `PAUSE_HEALTH_CHECKS` | `no` | `node_health.sh`: run no checks, touch Slurm in neither direction |
+| `PAUSE_CONTAINER_COPY` | `no` | `file_copy.sh`: start no new rsync into `/tmp/containers` |
+| `PAUSE_RECOVERY` | `no` | Both actions: clear no drains Slurm set itself |
+
+`PAUSE_RECOVERY` is **independent of `PAUSE_JOBS`**. `PAUSE_JOBS` also cancels
+this framework's pending jobs and leaves its running one to finish.
+`launch_job.sh --explain` is stopped by neither. The reasoning for all three is
+in
+[explanation/sequencing.md#what-a-pause-is-for](../explanation/sequencing.md#what-a-pause-is-for);
+what to expect while paused is
+[how-to/pause-and-resume.md](../how-to/pause-and-resume.md).
+
+## Drains
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `DRAIN_AFTER_FAILED_HEALTH_CHECK` | `no` | `node_health.sh`: mismatch against the baseline |
+| `DRAIN_AFTER_FAILED_BENCHMARK` | `no` | `launch_job.sh`: failed sweep, and `MAX_JOB_HOURS` |
+
+Both ship off, and anything not affirmative reads as off: for two switches that
+decide whether nodes get taken out of service, an unreadable value has to mean
+"don't". These replace the old `NODRAIN` file, which is gone.
+
+`DRAIN_AFTER_FAILED_HEALTH_CHECK` is the one to leave off longest — a health
+check drains on any diff against `valid-config/default`, so a baseline taken
+from a node that is itself slightly off drains the entire cluster on the first
+cycle. Which to turn on first, and in what order, is
+[how-to/manage-drains.md](../how-to/manage-drains.md).
+
+## Recovering drains Slurm set itself
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `RECOVER_SLURM_DRAINS` | `yes` | The switch. `no` leaves every drain exactly where it is |
+| `RECOVER_REASONS` | see below | Case-insensitive ERE. A drain reason matching it is machine-generated |
+| `RECOVER_EMPTY_REASON` | `yes` | Treat a drain with no reason recorded as machine-generated |
+| `RECOVER_SETTERS` | `slurm root` | Only drains set by these accounts are ever cleared |
+| `RECOVER_MAX_ATTEMPTS` | `3` | Recoveries allowed per node inside the window |
+| `RECOVER_WINDOW_HOURS` | `24` | The window, counted from `results/<node>/recover.log` |
+| `RECOVER_RESTART_SLURMD` | `yes` | Restart a `slurmd` that is not running before resuming the node |
+| `RECOVER_REREGISTER` | `yes` | Restart a *live* `slurmd` to replace a stale registered count |
+| `RECOVER_SLURMD_WAIT` | `30` | Seconds to wait for `slurmd` to come back from either restart |
+| `RECOVER_MIN_UPTIME_SECS` | `300` | Judge nothing on a node up for less than this. `0` disables the floor |
+| `RECOVER_PREJOB_LOGS` | BCM's `failed-pre-jobs` | Where the pre-job check writes what it objected to. Empty skips that check |
+| `RECOVER_PREJOB_SLACK_SECS` | `900` | How far before the drain a pre-job log may be written and still count as its cause |
+
+```bash
+RECOVER_REASONS="prolog|epilog|rogue ?process|batch job complete failure|Kill task failed|node unexpectedly rebooted|node was stopped|not responding|duplicate jobid|gres/gpu count|low socket|low cpus"
+RECOVER_PREJOB_LOGS=/cm/local/apps/slurm/var/pre-post-job-logs/failed-pre-jobs
+```
+
+Unlike the two drain switches above, this one ships **on**: those take nodes out
+of service, this one puts them back. `slurm-recovery.sh` is what clears them,
+and both actions call it. What each shipped pattern means, what has to be true
+before a drain is cleared, and how an operator's drain is protected from all of
+it, is [explanation/drain-recovery.md](../explanation/drain-recovery.md).
+
+## Restricting which nodes run jobs
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `NODE_FILTER` | empty | The nodes the sequencer submits benchmarks on. Empty means every node |
+
+```bash
+NODE_FILTER=""                          # every node
+NODE_FILTER="ink40-dh4-*"               # one rack
+NODE_FILTER="ink40-dh4-* ink41-dh4-*"   # two
+NODE_FILTER="ink40-dh4-0[1-9]"          # part of one
+```
+
+**These are shell globs, not regular expressions** — deliberately not an ERE,
+unlike `RECOVER_REASONS`. Patterns are separated by whitespace, a node matches
+if **any** of them matches, and the comparison is against `$HOSTNAME` as Slurm
+and BCM know it, so the short name rather than an FQDN.
+
+It gates benchmarks and burn-in only: health checks, reporting, container copy
+and drain recovery still run everywhere. `--force` does not open it; `--test`
+does; `--explain` reads through it. See
+[explanation/sequencing.md#site-switches-are-not-timing-gates](../explanation/sequencing.md#site-switches-are-not-timing-gates).
+
+To take a node out of the framework entirely, use BCM's node execution filters
+at registration time instead — see the commented example at the bottom of
+`pre-post/create-action-trigger.sh`.
+
+## Retry and drain policy
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `MAX_QUEUED_JOBS` | `500` | Ceiling on jobs this framework has queued or running across the whole fleet. `0` is no cap |
+| `RETRY_INTERVAL_HOURS` | `1` | Hours before a job may run again, measured from that job's own result file |
+| `MAX_JOB_HOURS` | `7` | A benchmark `RUNNING` longer than this drains the node |
+| `DRAIN_WINDOW_MINUTES` | `15` | Only failures newer than this drain |
+| `INFLIGHT_GRACE_MINUTES` | `30` | Added to a job's own walltime before a submitted job that never started is treated as stale |
+| `DRAIN_MARKER` | `auto-retry` | Written into every drain reason this framework issues; only drains carrying it are ever cleared automatically |
+
+`DRAIN_WINDOW_MINUTES` has to sit above the BCM monitoring interval or the drain
+is missed entirely, and well below `RETRY_INTERVAL_HOURS`.
+
+`MAX_JOB_HOURS` has to clear the longest single run in `BENCHMARKS` **and**
+`BURNIN`, not the longest sweep. The binding constraint is `mnubergemm`, whose
+step is capped at `6:30:00`; hence `7`.
+
+```bash
+grep -H STEP_TIMELIMIT jobs/$JOBS/*.sbatch | sort -t= -k2   # longest run in the set
+```
+
+It is the top of a four-rung ladder that has to stay in order, and only the top
+rung lives in `SETTINGS`:
+
+| Limit | `mnubergemm` | What it does |
+|---|---|---|
+| workload's own cap | `--time_to_run 21420` (5:57) | what normally ends the run |
+| `STEP_TIMELIMIT` | `6:30:00` | `srun` kills the step; the script still writes its marker |
+| `#SBATCH -t` | `6:41:00` | Slurm kills the job, marker or not |
+| `MAX_JOB_HOURS` | `7` | the sequencer drains the node for timeout |
+
+What `MAX_QUEUED_JOBS` is protecting, and what a closed cap does to a sweep, is
+[explanation/sequencing.md#the-fleet-wide-cap](../explanation/sequencing.md#the-fleet-wide-cap).
+`INFLIGHT_GRACE_MINUTES` is the only setting that trades a chatty controller
+against an idle node; see
+[explanation/sequencing.md#when-a-marker-goes-stale](../explanation/sequencing.md#when-a-marker-goes-stale).
+
+## Reporting
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `SCAN_JOBS` | empty | Worker processes `status-check.sh` and `daily-report.sh` judge the fleet with. Empty or `0` means one per core |
+
+It changes nothing about what is reported: the scan's output is folded and
+sorted before it is printed, so two runs at different `SCAN_JOBS` produce
+identical reports. Lower it if the head node is shared; raise it only if the
+results tree is on high-latency storage.
+
+There is no setting for the verdict cache — it either tells the truth or it is a
+bug. See
+[explanation/verdicts-and-the-cache.md](../explanation/verdicts-and-the-cache.md).
+
+## Extra environment for every job
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `JOB_ENV` | empty | Space-separated `NAME=VALUE`, added to the environment of every `BENCHMARKS` and `BURNIN` job |
+
+```sh
+JOB_ENV="NCCL_DMABUF_ENABLE=0"
+```
+
+Nothing else in the tree reads `JOB_ENV`: not the health checks, not
+`build_containers.sh`, not the parsers. A variable the job's own `.sbatch`
+exports is **not** overridden by it, and the collision is traced on submission:
+
+```
+NOTE: JOB_ENV sets NCCL_P2P_LEVEL, but allreduce.sbatch exports its own -- the job file's value is what runs.
+```
+
+`grep -n '^export' jobs/$JOBS/*.sbatch` lists which variables a job file owns.
+Why the job file wins is in
+[explanation/sequencing.md#the-job-file-wins](../explanation/sequencing.md#the-job-file-wins).
+
+### What is rejected
+
+Each entry must be `NAME=VALUE`, where the name is a normal shell identifier and
+the value contains only `A-Za-z0-9` and `_.:/+@%-`. Anything else is dropped,
+with a line in `trigger.log` saying so, and the sweep runs without it.
+
+It is an allowlist rather than a blocklist because the submission is built as a
+string and run through `su - $JOB_USER -c`. Commas are excluded for a second
+reason: `--export` is itself comma-separated, so a value carrying one would
+silently split into two entries. A value that genuinely needs a comma or a space
+belongs in the `.sbatch`, which is a file rather than a list.
+
+`trigger-debug.sh` section 0 reports the effective list and names any entry that
+will be dropped.
+
+## Accounts and paths
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `JOB_USER` | `cmods` | The account Slurm jobs are submitted as, and the owner `results/` and `logs/` are handed to |
+| `BRINGUP_HOME` | `/home/cmods/bringup` | Where this checkout lives on the cluster |
+
+`BRINGUP_HOME` is documentation for the BCM actions rather than something they
+read: both carry the path literally. Deploying elsewhere means editing `home=`
+at the top of `node_health.sh` and `launch_job.sh`, and this setting to match.
+See [reference/layout.md#runtime-paths](layout.md#runtime-paths).
+
+## llmb-run
+
+Only the `llm-pretrain` job reads these. A site not running it needs neither.
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `LLMB_INSTALL` | `/home/cmods/llmb` | Where `build_llmb.sh` installs the collection, image and tokenizer cache. Empty means no install |
+| `LLMB_REF` | `v26.06.01` | The `dgxc-benchmarking` tag `build_llmb.sh` installs. A tag rather than a branch so a reinstall is the same install |
+
+`LLMB_INSTALL` is deliberately outside `BRINGUP_HOME`, and `build_llmb.sh`
+refuses to install into it or below it. It is handed to a host launcher through
+the same allowlist as `JOB_ENV` — see [What is rejected](#what-is-rejected) — and
+a value carrying anything outside `[A-Za-z0-9_.:/+@%=-]` is dropped with a
+`WARNING`, after which the job refuses rather than running without it.
+
+Everything else `llmb-run` needs lives in `cluster_config.yaml` inside the
+install, written by the collection's own installer — not in `SETTINGS`. See
+[reference/llmb-run.md](llmb-run.md).

@@ -8,21 +8,21 @@
 #SBATCH -t 6:41:00
 #SBATCH --nice=100000
 ## Burn-in queues last; higher --nice is LATER. See
-## docs/benchmarks.md#queue-priority.
+## docs/reference/jobs.md#queue-priority.
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
-## implies --exact. See docs/benchmarks.md#the-allocation-header.
+## implies --exact. See docs/reference/jobs.md#the-allocation-header.
 
 ## Job name is used in the status line.
 # shellcheck disable=SC2034  # read by grepping this file, from actions/launch_job.sh
 job_name=mnubergemm
 
 ## --time_to_run 21420 (5:57) plus half an hour. Rung two of a four-limit
-## ladder that moves together; see docs/settings.md#retry-and-drain-policy.
+## ladder that moves together; see docs/reference/settings.md#retry-and-drain-policy.
 STEP_TIMELIMIT=6:30:00
 
 ## 12 runs of ~6h, one job at a time -- about three days on the node. See
-## docs/settings.md#burn-in.
+## docs/reference/settings.md#burn-in.
 # shellcheck disable=SC2034  # read by grepping this file, from actions/launch_job.sh
 totalRuns=12
 
@@ -30,7 +30,7 @@ totalRuns=12
 ## ------------- job info starts here ------------- ##
 
 ## Preflight -- what the STEP holds, which only a step can see. Wording of the
-## passing line is fixed; see docs/benchmarks.md#preflight.
+## passing line is fixed; see docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -42,7 +42,7 @@ srun --ntasks=1 bash -c '
 
 
 ## NVIDIA-internal image; version and -arch suffix must match the nodes under
-## test. See docs/containers.md#mnubergemm. /tmp/containers is the node-local
+## test. See docs/how-to/build-containers.md#mnubergemm. /tmp/containers is the node-local
 ## copy rsync'd by actions/file_copy.sh.
 IMG=mnubergemm-26.03-v1.17-arm.sqsh
 CONT=/tmp/containers/$IMG
@@ -88,7 +88,7 @@ rc=$?
 ## ------------- parse info starts here ----------- ##
 
 ## Only whether the job ran is decided here; the verdict is derived by
-## verdict.sh on every read. See docs/benchmarks.md#where-a-pass-is-decided.
+## verdict.sh on every read. See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 
 ## Says who decided a FAIL: non-zero is the job's own, 0 is verdict.sh's gate.
 echo "exit status: $rc"

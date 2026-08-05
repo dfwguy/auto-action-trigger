@@ -1,7 +1,7 @@
 # Working in this repo
 
 Conventions that are not visible from any single file, and that changes have
-broken before. `docs/architecture.md` describes what the pieces are; this
+broken before. `docs/explanation/architecture.md` describes what the pieces are; this
 describes what you have to keep true while editing them.
 
 ## The checkout is not the deployment
@@ -35,7 +35,7 @@ who is not already staring at that line. So: one or two lines and a reference.
 
 ```bash
 ## Not a tab: `read` collapses runs of IFS whitespace and eats empty fields.
-## See docs/operations.md#how-a-report-is-produced.
+## See docs/explanation/verdicts-and-the-cache.md#how-a-report-is-produced.
 ```
 
 not eight lines restating it above the function. A comment that has grown into
@@ -55,6 +55,46 @@ dropping it look identical in a diff and are not the same thing.
 
 The exemptions are permission to be self-contained, not to be verbose. They do
 not raise the density ceiling below.
+
+### `docs/` is the source of truth, and it is Diátaxis
+
+The code is not where this tree explains itself. When a fact about *why*
+something works the way it does exists in both a comment and `docs/`, the two
+drift and the comment is the copy that goes stale unnoticed — nothing reads a
+comment on a schedule. So `docs/` holds the reasoning, and the code holds a
+pointer to it. Changing behaviour means changing the `docs/` section that
+describes it, in the same commit, not afterwards.
+
+`docs/` is organised by [Diátaxis](https://diataxis.fr/) — by what the reader is
+doing, not by which script the text is about. Four directories, and a new page
+goes in exactly one of them:
+
+| Directory | Answers | Written as |
+|---|---|---|
+| `docs/tutorials/` | "I have never done this" | one guided path, no options, no alternatives |
+| `docs/how-to/` | "I need to do X" | steps for someone who already knows the system |
+| `docs/reference/` | "what is this value / flag / line" | dry, complete, scannable — tables, no argument |
+| `docs/explanation/` | "why is it like this" | prose, history, trade-offs, the failures that shaped it |
+
+The split that gets got wrong is reference against explanation. A settings table
+is reference; *why that default* is explanation. Keep the "why" out of the table
+and link to it — a reference page you cannot scan has stopped being one. The
+same applies in reverse: an explanation page that lists every flag is a
+reference page nobody will find.
+
+A page that needs to be two of these is two pages. `docs/README.md` is the
+compass and every page is reachable from it.
+
+Two consequences worth knowing before you move any of it:
+
+- **Anchors are load-bearing.** The code points at `docs/<dir>/<page>.md#<section>`
+  several hundred times, and nothing renders those links, so a retitled heading
+  resolves silently to the top of the page. `tests/doc-links-test.sh` is the
+  gate; run it after touching a heading.
+- **The eight `--help` scripts are the exception.** Their header block *is* the
+  command surface, and `docs/reference/scripts.md` points at it rather than
+  restating it. Two copies of an option list drift, and only one of them is
+  testable.
 
 ### Match the file you are editing
 
@@ -98,7 +138,7 @@ is:
 | `644` | Sourced libraries: `settings.sh`, `reason-map.sh`, `slurm-recovery.sh`, `verdict-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is also *run*, but as `bash verdict-scan.sh` from its own `xargs`, like the health checks below |
 | `644` | `health-checks/*/NN-*.sh` | `node_health.sh` runs each as `bash "$check_file"` — deliberately, so one check's `exit 1` cannot truncate the set of 38 |
 | `644` | `jobs/*/*.sbatch`, including `example.sbatch` | `sbatch` reads them; it does not exec them. `example.sbatch` is a template that gets `cp`'d, so a stray `755` propagates into every new job |
-| `644` | `jobs/*/*.sh` — host launchers like `llm-pretrain.sh`, and the sourced `nccl-hca.sh` | `launch_job.sh` runs a host launcher as `bash "$launch"`, like the health checks. A launcher is told apart from a sourced helper by a `job_launch=host` line, not by its mode or name — see `docs/sequencer.md#host-launched-jobs` |
+| `644` | `jobs/*/*.sh` — host launchers like `llm-pretrain.sh`, and the sourced `nccl-hca.sh` | `launch_job.sh` runs a host launcher as `bash "$launch"`, like the health checks. A launcher is told apart from a sourced helper by a `job_launch=host` line, not by its mode or name — see `docs/explanation/sequencing.md#host-launched-jobs` |
 
 Check the whole tree with:
 
@@ -113,7 +153,7 @@ all three ship as `nvl72`. `settings.sh` derives `JOBS_DIR`, `HEALTHCHECKS_DIR`
 and `PARSERS_DIR` from them; nothing else should rebuild those paths by hand.
 
 They are separate variables rather than one `PLATFORM` because they do not have
-to move together. See `docs/settings.md`.
+to move together. See `docs/reference/settings.md`.
 
 The failure mode to design against: a name that resolves to a path that does not
 exist produces *nothing*, per node, per cycle, quietly. A benchmark listed in
@@ -150,7 +190,7 @@ must not be cached. `./tests/scan-cache-test.sh` holds this, and a stale hit is
 silent, so that suite is the only thing between a wrong key and a clean-looking
 report of a broken cluster.
 
-Read `docs/operations.md#the-verdict-cache` before touching any of it.
+Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touching any of it.
 
 ## Before committing
 
@@ -160,6 +200,7 @@ Read `docs/operations.md#the-verdict-cache` before touching any of it.
 ./tests/recover-test.sh        # drain classification in slurm-recovery.sh
 ./tests/help-text-test.sh      # --help blocks, if you touched a header comment
 ./tests/scan-cache-test.sh     # the report cache, if you touched a gate or verdict-scan.sh
+./tests/doc-links-test.sh      # every docs/ anchor the code points at, if you moved or retitled one
 bash -n <changed script>       # these scripts run as root on 200+ nodes
 shellcheck -S warning <changed script>   # CI gates on this; see below
 ```
@@ -178,7 +219,7 @@ but a rewrite is not provably equivalent, the directive *is* the correct
 outcome, not a cop-out. `export` is never the way to silence SC2034 in this
 tree — it changes the environment every sourcing script and Slurm job runs in.
 
-Keep the tree listing in `docs/architecture.md` in step with the files — it has
+Keep the tree listing in `docs/explanation/architecture.md` in step with the files — it has
 drifted twice by adding a top-level script and not listing it.
 
 ## Some scripts print their own header as `--help`

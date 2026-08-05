@@ -7,14 +7,14 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH -t 0:40:00
 #SBATCH --nice=20
-## 20 is the sweep's tier; higher is later. See docs/benchmarks.md#queue-priority.
+## 20 is the sweep's tier; higher is later. See docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/nvbandwidth.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
-## implies --exact. See docs/benchmarks.md#the-allocation-header.
+## implies --exact. See docs/reference/jobs.md#the-allocation-header.
 
 ## Per-GPU HBM, PCIe and NVLink/NVSwitch bandwidth -- see
-## docs/containers.md#nvbandwidth. Adjust --gres and the preflight count
+## docs/how-to/build-containers.md#nvbandwidth. Adjust --gres and the preflight count
 ## together for the platform (4 for GB200, typically 8 for HGX H100/H200/B200).
 
 ## Job name is used in the status line.
@@ -22,13 +22,13 @@
 job_name=nvbandwidth
 
 ## Step limit fires before #SBATCH -t so the script survives to write its
-## marker. See docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## marker. See docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=0:30:00
 
 ## ------------- job info starts here ------------- ##
 
 ## Preflight -- what the STEP holds, which only a step can see. The passing
-## line's wording is fixed. See docs/benchmarks.md#preflight.
+## line's wording is fixed. See docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -38,9 +38,9 @@ srun --ntasks=1 bash -c '
     exit 0
 }
 
-## Needs an NGC login to build -- see docs/containers.md#nvbandwidth. The arch
+## Needs an NGC login to build -- see docs/how-to/build-containers.md#nvbandwidth. The arch
 ## split is the CPU's, not the GPU's; /tmp/containers is the node-local copy,
-## the shared path the fallback. See docs/containers.md#how-the-caching-works.
+## the shared path the fallback. See docs/explanation/containers.md#how-the-caching-works.
 IMG=nvbandwidth-v0.9-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
 [[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
@@ -64,8 +64,8 @@ rc=$?
 
 ## Only whether the job ran is decided here; whether the result is any good is
 ## _v_gate_nvbandwidth in verdict.sh, including the MOP 6.2 criteria this block
-## used to apply. See docs/benchmarks.md#where-a-pass-is-decided and
-## docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says.
+## used to apply. See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided and
+## docs/explanation/judging-benchmarks.md#judge-what-the-tool-means-not-what-it-says.
 
 ## Says *who* decided a FAIL: non-zero is the workload's own, 0 is the gate.
 echo "exit status: $rc"

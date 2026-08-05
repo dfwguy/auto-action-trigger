@@ -3,7 +3,7 @@
 
 # SC2046: the word split is the point -- quoting hands grep -v one pattern
 # instead of the "-e <bdf>." list. SC2010: ls -l is parsed for symlink targets,
-# which a glob would not give us. See docs/health-checks.md.
+# which a glob would not give us. See docs/reference/health-checks.md.
 # shellcheck disable=SC2046,SC2010
 for i in $(
   ls -l /sys/class/infiniband \
