@@ -84,6 +84,10 @@ fi
 ## 0 is no cap. See docs/explanation/sequencing.md#the-fleet-wide-cap.
 : "${MAX_QUEUED_JOBS:=500}"
 : "${RETRY_INTERVAL_HOURS:=1}"
+## On by default, and backfilled, so an existing site gets the ramp without
+## editing anything. See docs/explanation/sequencing.md#backing-off-a-job-that-keeps-failing.
+: "${RETRY_BACKOFF:=yes}"
+: "${RETRY_BACKOFF_MAX_HOURS:=12}"
 : "${MAX_JOB_HOURS:=7}"
 : "${DRAIN_WINDOW_MINUTES:=15}"
 : "${INFLIGHT_GRACE_MINUTES:=30}"

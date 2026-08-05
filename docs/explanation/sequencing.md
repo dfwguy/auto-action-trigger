@@ -297,8 +297,8 @@ by other users. See
 
 A job passes when every one of its runs ends in `DONE`; anything else — `FAIL`,
 truncated output from a crashed node, or no result at all — is offered again
-once its hour is up. There is no retry limit: a node keeps being re-tested until
-it passes or an operator intervenes.
+once its window is up. There is no retry limit: a node keeps being re-tested
+until it passes or an operator intervenes.
 
 A run is skipped at submit time when `verdict()` returns `DONE` for its result
 file. What makes that skip safe is that the verdict is derived from the log on
@@ -315,6 +315,62 @@ aside and is even less untested than a `.fail<N>`. A job mid-retry with its
 output rotated away is tested, and reading it as untested would hold the
 swept-clean condition on the drain below open indefinitely on exactly the node
 that keeps failing.
+
+## Backing off a job that keeps failing
+
+`RETRY_BACKOFF` widens that per-job window as a job's failures accumulate:
+`RETRY_INTERVAL_HOURS`, plus one hour for every failure already on disk, up to
+`RETRY_BACKOFF_MAX_HOURS`. At the shipped values a job that will not pass is
+retried after 1h, then 2h, then 3h, and settles at 12h — thirteen attempts in
+the first day rather than twenty-four, and two a day after that.
+
+It ships **on**, and `settings.sh` backfills the key, so a site whose `SETTINGS`
+predates it gets the ramp on the next tarball drop without editing anything —
+worth knowing, because the first thing that changes is the cadence of a node
+that has been failing for a while. `RETRY_BACKOFF=no` in `SETTINGS` puts the
+flat window back.
+
+An hour at a time rather than doubling, deliberately. A doubling schedule is
+past a full day by the sixth failure and would need the cap to do all the work;
+a linear one is legible from the log without arithmetic — the *n*th attempt
+waited *n* hours — and reaches the ceiling in a number of failures you can count
+on your fingers. The ceiling is what bounds the wait; the ramp only decides how
+fast a node stops being interesting.
+
+**The count comes from the archives, not from a counter.** A run's failures are
+the `<job>.fail<N>.txt` files next to its result, plus the failed result
+currently in place. Nothing new is written and nothing has to be cleared:
+emptying `results/<node>/` by hand is a supported way to start a node over — see
+[how-to/reset-results.md](../how-to/reset-results.md) — and it resets the
+backoff along with everything else, because there was never a second place
+holding the number. A `.prev<N>` is a *pass* moved aside by `--all` and is not
+counted, so re-sweeping a healthy fleet does not slow its retries down.
+
+Three things it deliberately does not do:
+
+- **It never gives up.** Backoff is a wait, not a limit; the retry loop still
+  has no end. Whether a node comes out of service is
+  `DRAIN_AFTER_FAILED_BENCHMARK` and the drain window, which is a separate
+  decision about the *node* rather than about how often to re-ask. Neither reads
+  the other, and the drain still fires on a failure newer than
+  `DRAIN_WINDOW_MINUTES` whenever one arrives.
+- **It does not idle the node.** Cadence is per job, so a benchmark waiting out
+  a 12h window does not hold up the seven that are not — the sweep advances
+  through everything else at full speed, and only the job that keeps failing
+  slows down.
+- **It does not survive `--force`.** A backed-off window is a timing gate like
+  any other, so an operator can ignore it; `PAUSE_JOBS` and `MAX_QUEUED_JOBS`
+  are the site switches that `--force` does not open. See
+  [site switches are not timing gates](#site-switches-are-not-timing-gates).
+
+A held job is traced once a cycle, both lists on one line — `backing off:
+allreduce run 1 after 4 failures: 4h window, 137m left`. Without it a job in a
+12h window is indistinguishable in the log from one nobody listed. A
+`RETRY_BACKOFF_MAX_HOURS` that is not a whole number of hours at or above
+`RETRY_INTERVAL_HOURS` is refused with a warning and the flat window kept, on
+the same principle as `MAX_QUEUED_JOBS`: a typo in `SETTINGS` must not be able
+to stop the fleet, and a cap below the base interval would shorten every retry
+rather than lengthen it.
 
 ## Two lists
 

@@ -97,6 +97,9 @@ two per monitoring cycle, forever.
 | `EXIT: MAX_QUEUED_JOBS=<n> reached -- <n> of our jobs are queued or running fleet-wide, so <job> run <n> stays eligible…` | The [fleet-wide cap](../explanation/sequencing.md#the-fleet-wide-cap), closed. Expected on a large fleet, and not a fault |
 | `fleet cap open: <n> of <n> jobs of ours queued or running` | The cap, open. The count is what to watch when tuning it |
 | `WARNING: MAX_QUEUED_JOBS='<value>' … is not a whole number -- ignored` | A typo in `SETTINGS`. The cycle runs uncapped rather than stopping the fleet |
+| `backing off: <job> run <n> after <n> failures: <n>h window, <n>m left[; …]` | `RETRY_BACKOFF` is on and a run has waited out more than the flat window. One line for both lists, once a cycle — see [explanation/sequencing.md#backing-off-a-job-that-keeps-failing](../explanation/sequencing.md#backing-off-a-job-that-keeps-failing) |
+| `nothing eligible to submit: everything is passing or inside its own retry window (<n>h[, plus an hour per failure to at most <n>h])` | Nothing to do this cycle. The bracketed half appears only when `RETRY_BACKOFF` is on |
+| `WARNING: RETRY_BACKOFF=<value> but RETRY_BACKOFF_MAX_HOURS='<value>' … is not a whole number of hours at or above RETRY_INTERVAL_HOURS` | A typo in `SETTINGS`. The flat window is kept rather than the fleet stopped, as with `MAX_QUEUED_JOBS` |
 | `WOULD SUBMIT <job> run <n>[ (existing <STATUS> result kept as .<fail\|prev><N>.txt)]: <command>` | `--explain` only |
 | `submitted <job> run <n>: Submitted batch job <id> [(JOB_ENV: …)]` | Work went out |
 | `SUBMIT FAILED <job> run <n>: <sbatch output>` | Work did not go out, and `sbatch` says why |
