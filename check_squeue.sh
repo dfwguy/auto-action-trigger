@@ -2,9 +2,9 @@
 #
 # Usage: check_squeue.sh [-j <jobid>[,<jobid>...]]
 #
-# With no argument, the whole queue in one table: job id, state, node count,
-# allocated nodes, requested nodes, start time and reason. Every job on the
-# cluster, not just this framework's.
+# With no argument, the whole queue in one table: job id, state, node count and
+# start time first, then the two node lists and the reason -- the fields that
+# run long go last. Every job on the cluster, not just this framework's.
 #
 #   -j, --job <jobid>
 #            report on one job, repeatable and comma-separated. Adds what the
@@ -22,7 +22,7 @@
 # A job id that is no longer in the queue is reported as such and the run
 # continues to the next one; it is not an error. Nothing here writes anything.
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
-fmt='%i|%t|%D|%N|%n|%S|%r'
+fmt='%i|%t|%D|%S|%N|%n|%r'
 
 jobs=()
 for arg in "$@"; do
