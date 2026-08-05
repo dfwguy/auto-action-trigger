@@ -6,10 +6,10 @@
 # result path the sequencer expects, and to fail loudly if it cannot.
 #
 # Set up by ./build_llmb.sh on the head node, once per CPU architecture. This
-# script never reaches a registry or the internet: see docs/llmb.md.
+# script never reaches a registry or the internet: see docs/explanation/llmb.md.
 
 ## Without job_launch the file reads as a sourced helper and is never launched.
-## See docs/sequencer.md#host-launched-jobs.
+## See docs/explanation/sequencing.md#host-launched-jobs.
 # shellcheck disable=SC2034  # both read from outside, by grep
 job_launch=host
 # shellcheck disable=SC2034
@@ -23,7 +23,7 @@ job_name=llm-pretrain
 : "${SBATCH_JOB_NAME:?SBATCH_JOB_NAME is not set -- the submitted job would be invisible to the gates on this node}"
 
 ## Written where the report reads, not just to stderr.
-## See docs/llmb.md#when-the-launch-is-refused.
+## See docs/explanation/llmb.md#when-the-launch-is-refused.
 refuse() {
     printf '%s\n' "llm-pretrain: $1" "exit status: 1" FAIL > "$RESULT_FILE"
     echo "llm-pretrain: $1" >&2
@@ -33,7 +33,7 @@ refuse() {
 ## ------------- the recipe ------------- ##
 
 ## 8B, and SCALE below the recipe's characterised floor of 8, both explained in
-## docs/llmb.md#running-below-the-characterised-scale.
+## docs/explanation/llmb.md#running-below-the-characterised-scale.
 WORKLOAD=pretrain_llama3.1
 MODEL_SIZE=8b
 DTYPE=fp8
@@ -41,16 +41,16 @@ SCALE=4
 
 ## ------------- the install ------------- ##
 
-export LLMB_INSTALL="${LLMB_INSTALL:?LLMB_INSTALL is not set -- settings.sh derives it; see docs/llmb.md}"
+export LLMB_INSTALL="${LLMB_INSTALL:?LLMB_INSTALL is not set -- settings.sh derives it; see docs/explanation/llmb.md}"
 
 [[ -d "$LLMB_INSTALL" ]] ||
     refuse "no install at $LLMB_INSTALL -- run ./build_llmb.sh on the head node"
 
 command -v llmb-run >/dev/null 2>&1 ||
-    refuse "llmb-run is not on PATH -- see docs/llmb.md#what-build_llmbsh-leaves-behind"
+    refuse "llmb-run is not on PATH -- see docs/how-to/enable-llm-pretrain.md#1-install-on-the-head-node"
 
 ## A cache miss on a node with no route out must fail, not stall.
-## See docs/llmb.md#running-offline.
+## See docs/explanation/llmb.md#running-offline.
 export HF_HOME="$LLMB_INSTALL/hf"
 export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
@@ -64,11 +64,11 @@ cd "$LLMB_INSTALL" || refuse "cannot cd to $LLMB_INSTALL"
 ## ------------- launch ------------- ##
 
 ## Without this, llmb-run submits a second job that trips the foreign-job gate
-## on every cycle. See docs/llmb.md#the-post-processing-job.
+## on every cycle. See docs/explanation/llmb.md#the-post-processing-job.
 export LLMB_SKIP_PP=1
 
 ## What an .sbatch would get from `sbatch -w -J --output`, in llmb-run's flags.
-## See docs/llmb.md#pinning-the-submission.
+## See docs/explanation/llmb.md#pinning-the-submission.
 ##
 ## Must return once queued: anything blocking here holds the BCM action open for
 ## the length of the training run.

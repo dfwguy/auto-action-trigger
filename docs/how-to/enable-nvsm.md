@@ -1,4 +1,4 @@
-# NVSM (`jobs/nvl72/nvsm.sbatch`)
+# Enable NVSM (`jobs/nvl72/nvsm.sbatch`)
 
 > **DGX only, and not in the default benchmark list.**
 > `nvsm` ships as part of DGX OS and only carries platform definition files for

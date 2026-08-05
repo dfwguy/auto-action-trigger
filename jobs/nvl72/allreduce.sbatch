@@ -7,18 +7,18 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH -t 0:25:00
 #SBATCH --nice=20
-## 20 is the sweep's tier; higher is later. See docs/benchmarks.md#queue-priority.
+## 20 is the sweep's tier; higher is later. See docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/allreduce.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
-## implies --exact. See docs/benchmarks.md#the-allocation-header.
+## implies --exact. See docs/reference/jobs.md#the-allocation-header.
 
 ## Job name is used in the status line.
 # shellcheck disable=SC2034
 job_name=allreduce
 
 ## The step limit must fire before #SBATCH -t, so the script survives to write
-## its marker. See docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## its marker. See docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=0:15:00
 ## Read out of this file's text by grep, never sourced -- see example.sbatch.
 # shellcheck disable=SC2034
@@ -27,7 +27,7 @@ totalRuns=1
 ## ------------- job info starts here ------------- ##
 
 ## Preflight -- only a step can see what the step holds, and the passing line's
-## wording is fixed. See docs/benchmarks.md#preflight and example.sbatch.
+## wording is fixed. See docs/reference/jobs.md#preflight and example.sbatch.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -40,7 +40,7 @@ srun --ntasks=1 bash -c '
 
 
 ## Node-local copy first, NFS as the fallback for a node the rsync has not
-## reached. See docs/containers.md#why-local-images.
+## reached. See docs/explanation/containers.md#why-local-images.
 IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
 [[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
@@ -77,7 +77,7 @@ rc=$?
 ## ------------- parse info starts here ----------- ##
 
 ## Only whether the job ran is decided here; verdict.sh decides whether the
-## result is any good. See docs/benchmarks.md#where-a-pass-is-decided.
+## result is any good. See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 ##
 ## /dev/infiniband is deliberately NOT mounted, unlike the -nonvlink
 ## counterpart: this is the NVLink scope, and reachable HCAs would let a run

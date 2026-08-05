@@ -28,7 +28,7 @@ anchors=$(mktemp) || exit 1
 refs=$(mktemp) || exit 1
 trap 'rm -f "$anchors" "$refs"' EXIT
 
-## Headings, skipping fenced blocks: docs/health-checks.md documents a check
+## Headings, skipping fenced blocks: docs/reference/health-checks.md documents a check
 ## file whose own lines start with `#`, and CLAUDE.md quotes shell comments.
 ## Duplicate slugs in one file take the -1, -2 suffixes the renderers assign.
 find_headings() {
@@ -61,8 +61,8 @@ find_headings "${pages[@]}" README.md CLAUDE.md | sort -u >"$anchors"
 ##
 ## Three things have to come out of the line before the paths do: external URLs
 ## (the testing plan is a .md in another repo over https), the label half of
-## `[settings.md](docs/settings.md)`, which is a page name that is not a link,
-## and the sentence period after `See docs/settings.md#burn-in.`, which the
+## `[settings.md](docs/reference/settings.md)`, which is a page name that is not a link,
+## and the sentence period after `See docs/reference/settings.md#burn-in.`, which the
 ## path characters would otherwise swallow.
 mapfile -t sources < <(
     find . -path ./.git -prune -o \
@@ -101,7 +101,7 @@ while IFS= read -r hit; do
     [[ "$ref" == *#* ]] && anchor="${ref#*#}"
 
     ## A path is written either relative to the file it sits in, or from the
-    ## repo root -- `actions/launch_job.sh` says `docs/sequencer.md`, meaning
+    ## repo root -- `actions/launch_job.sh` says `docs/explanation/sequencing.md`, meaning
     ## the top-level docs/, not actions/docs/. Accept both, prefer the local.
     path=""
     for cand in "$(dirname "$src")/$target" "$target"; do
@@ -115,7 +115,7 @@ while IFS= read -r hit; do
     done
 
     ## An unresolvable path is only this tree's problem when it is pointing
-    ## into this tree. docs/containers.md names a file in the validation-mops
+    ## into this tree. docs/explanation/containers.md names a file in the validation-mops
     ## repo, which is prose about somewhere else, not a broken link.
     if [[ -z "$path" ]]; then
         if [[ "$target" == docs/* || "$target" == ../* || -n "$anchor" ]]; then

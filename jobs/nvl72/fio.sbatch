@@ -6,12 +6,12 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH -t 2:10:00
 #SBATCH --nice=20
-## 20 is the sweep's tier. See docs/benchmarks.md#queue-priority.
+## 20 is the sweep's tier. See docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/fio.txt
 
 ## No --gres: this job never touches a GPU. Steps inherit only what was
 ## explicitly requested; no --cpus-per-task, it implies --exact.
-## See docs/benchmarks.md#the-allocation-header.
+## See docs/reference/jobs.md#the-allocation-header.
 
 ## AI Factory Testing Plan: fio -- SNT2 (Exhaustive). Local NVMe and shared
 ## storage (VAST / Lustre / WekaFS) throughput, IOPS and latency.
@@ -22,13 +22,13 @@ job_name=fio
 
 ## Per-pass step limit -- srun --time bounds a step, and the four passes must
 ## sum inside the walltime above.
-## See docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## See docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 PASS_TIMELIMIT=0:30:00
 
 ## ------------- job info starts here ------------- ##
 
 ## Preflight -- what the STEP holds, which only a step can see. The wording of
-## the passing line is fixed. See docs/benchmarks.md#preflight.
+## the passing line is fixed. See docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     echo "preflight: $(hostname) cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
     [[ "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
@@ -39,7 +39,7 @@ srun --ntasks=1 bash -c '
 
 ## Site value: the device under test. Local NVMe by default; point at the shared
 ## mount (e.g. /lustre, /vast) to characterize that path instead.
-## See docs/benchmarks.md#before-enabling-a-job.
+## See docs/how-to/enable-a-benchmark.md#check-the-dependencies-first.
 FIO_DIR=/raid/scratch/fio-$SLURM_JOB_ID
 FILE_SIZE=64G
 RUNTIME=120
@@ -80,7 +80,7 @@ rm -rf "${FIO_DIR}"
 ## ------------- parse info starts here ----------- ##
 
 ## Only whether the job ran is decided here; _v_gate_fio in verdict.sh decides
-## whether the result is good. See docs/benchmarks.md#where-a-pass-is-decided.
+## whether the result is good. See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 
 ## Logged, not just left in the marker: a FAIL with a non-zero here is the
 ## job's own, a FAIL with `exit status: 0` came from the gate.

@@ -2,7 +2,7 @@
 #
 # Checks the drain classification and the gates in slurm-recovery.sh against
 # stubbed sinfo/scontrol/squeue/systemctl/nvidia-smi on PATH, driven by STUB_*.
-# The library under test is the real one, sourced; see docs/benchmarks.md.
+# The library under test is the real one, sourced; see docs/reference/jobs.md.
 #
 # Each case runs in a subshell, because the settings the library reads with :=
 # would otherwise be fixed by whichever case ran first.
@@ -202,7 +202,7 @@ run_case "rogue process, spelled with a space" resumed STUB_REASON="rogue proces
 
 ## The pre-job check's own log, verbatim from a drained node: the drain reason
 ## says "rogueprocess" and nothing else, so this is the only place the process
-## is named. docs/settings.md#a-rogue-process-drain-names-its-process
+## is named. docs/explanation/drain-recovery.md#a-rogue-process-drain-names-its-process
 mkdir -p "$work/prejob"
 cat > "$work/prejob/job.114250.log" <<'EOF'
 HealthCheckForWlmJob healthchecks for: 114250
@@ -251,7 +251,7 @@ run_case "rogue process, no pre-job logs on this node" resumed \
 
 ## The format on a live fleet: several commands, then ONE pid list for all of
 ## them. An earlier pattern matched only the single-pid case and so never fired
-## on any of these. docs/settings.md#a-rogue-process-drain-names-its-process
+## on any of these. docs/explanation/drain-recovery.md#a-rogue-process-drain-names-its-process
 mkdir -p "$work/prejob-multi"
 cat > "$work/prejob-multi/job.114250.log" <<'EOF'
 HealthCheckForWlmJob healthchecks for: 114250
@@ -307,14 +307,14 @@ run_case "unexpected reboot"       resumed STUB_REASON="node unexpectedly reboot
 run_case "down, not drained"       resumed STUB_REASON="Prolog error" STUB_STATE="down"
 
 ## Registration disagreements, not node faults.
-## See docs/settings.md#recovering-drains-slurm-set-itself.
+## See docs/explanation/drain-recovery.md.
 run_case "duplicate jobid"         resumed STUB_REASON="Duplicate jobid"
 
 echo "== rebooted out from under Slurm =="
 
 ## Nobody reboots these cleanly. The node comes back with the drain still on it
 ## and, often, a slurmd that tripped systemd's start limit on the way up.
-## docs/settings.md#restarting-slurmd
+## docs/explanation/drain-recovery.md#restarting-slurmd
 run_case "node was stopped"  resumed STUB_REASON="Node was stopped by root"
 run_case "not responding"    resumed STUB_REASON="Not responding"
 
@@ -331,7 +331,7 @@ grep -q "slurmd is 'failed'" "$CASE_DIR/trace" ||
 echo "== nothing is judged mid-boot =="
 
 ## Race conditions on race conditions: a node still coming up reports counts
-## that are still changing. docs/settings.md#nothing-is-judged-mid-boot
+## that are still changing. docs/explanation/drain-recovery.md#nothing-is-judged-mid-boot
 run_case "still inside the uptime floor" not-ready \
     STUB_REASON="node unexpectedly rebooted" RECOVER_MIN_UPTIME_SECS="999999999"
 resumed_node && bad "  ... and it resumed a node that had just booted"
@@ -348,7 +348,7 @@ echo "== count drains, checked against the hardware =="
 
 ## The race this exists for: slurmd counted before the driver finished, so the
 ## hardware is present and slurmctld is holding a number that no longer is.
-## docs/settings.md#a-count-drain-is-checked-against-the-hardware
+## docs/explanation/drain-recovery.md#a-count-drain-is-checked-against-the-hardware
 gres_short="gres/gpu count reported by slurmd (7) lower than configured (8)"
 cpu_short="Low socket*core*thread count, Low CPUs"
 
@@ -429,7 +429,7 @@ echo "== reasons Slurm appends to =="
 
 ## Slurm appends " : Not responding" to the reason already on the node and
 ## signs the result itself, so an operator's drain arrives set by slurm. What
-## was there first is what decides. docs/settings.md#reasons-slurm-appends-to
+## was there first is what decides. docs/explanation/drain-recovery.md#reasons-slurm-appends-to
 run_case "operator reason, then it stopped responding" class \
     STUB_REASON="BF3 TEST BY AIC : Not responding"
 resumed_node && bad "  ... and it resumed a node somebody had taken for testing"
@@ -469,7 +469,7 @@ run_case "operator prose, no setter recorded" class \
     STUB_REASON="waiting on RMA"
 
 ## The setter veto: the only discriminator left when the text looks machine-
-## generated. See docs/settings.md#how-an-operators-drain-is-protected.
+## generated. See docs/explanation/drain-recovery.md#how-an-operators-drain-is-protected.
 run_case "prolog text typed by a named admin" class \
     STUB_REASON="Prolog error" STUB_SETTER="breese"
 resumed_node && bad "  ... and it resumed an operator drain"
@@ -522,7 +522,7 @@ echo "== rate limiting =="
 
 ## Three inside the window is the shipped cap; the fourth must leave the drain
 ## exactly as Slurm set it, never re-drained under our own marker.
-## See docs/settings.md#why-a-resume-is-not-enough-on-its-own.
+## See docs/explanation/drain-recovery.md#why-a-resume-is-not-enough-on-its-own.
 setup='now=$(date +%s); for i in 1 2 3; do
            printf "%s\tseeded\tmachine\tdrained\tslurm\tProlog error\n" "$((now - i * 600))" >> "$RECOVER_LOG"
        done'

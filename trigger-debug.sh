@@ -4,7 +4,7 @@
 #
 # Walks the BCM -> sbatch chain and names the broken link. Read-only. Run
 # trigger-log.sh first: fresh traces mean every link is intact by definition.
-# See docs/operations.md#debugging-the-trigger-chain.
+# See docs/how-to/diagnose-nothing-running.md#2-if-the-traces-are-stale-walk-the-chain.
 #
 #   pattern  node filter, same rules as status-check.sh: bare string matches
 #            by prefix, globs honored as written. Per-node sections only.
@@ -46,7 +46,7 @@ hdr "0. Deployed layout"
 ## Upstream of every link: a stale tree passes links 1-7 without complaint,
 ## because BCM fires and the scripts exist -- they just look for paths that
 ## moved when the job/check/parser sets became SETTINGS-chosen directories.
-## See docs/settings.md#which-set-of-things-to-run.
+## See docs/reference/settings.md#which-set-of-things-to-run.
 if [[ -z "$SETTINGS_FILE" && ! -f "$home/settings.sh" ]]; then
     bad "settings.sh is missing from $home -- this tree predates the settings split"
     note "  the whole deployment is stale; nothing below is worth reading until it is replaced"
@@ -55,7 +55,7 @@ else
 
     ## A pause produces exactly the symptom this script gets run over, so it is
     ## reported ahead of the links -- but not counted as a problem, since it is
-    ## a choice someone made. See docs/settings.md#pause-switches.
+    ## a choice someone made. See docs/reference/settings.md#pause-switches.
     for spec in "PAUSE_JOBS:benchmarks:$PAUSE_JOBS" \
                 "PAUSE_HEALTH_CHECKS:health checks:$PAUSE_HEALTH_CHECKS" \
                 "PAUSE_CONTAINER_COPY:container copy:$PAUSE_CONTAINER_COPY" \
@@ -67,7 +67,7 @@ else
         fi
     done
     ## A closed cap is the other deliberate answer to "nothing is running", and
-    ## the only one that is fleet-wide. See docs/settings.md#the-fleet-wide-cap.
+    ## the only one that is fleet-wide. See docs/explanation/sequencing.md#the-fleet-wide-cap.
     if [[ "$MAX_QUEUED_JOBS" =~ ^[0-9]+$ ]] && [[ "$MAX_QUEUED_JOBS" -gt 0 ]]; then
         note "MAX_QUEUED_JOBS=$MAX_QUEUED_JOBS -- nodes defer while the fleet is at the cap; trigger-log.sh says when one did"
     elif [[ -n "${MAX_QUEUED_JOBS// /}" && "$MAX_QUEUED_JOBS" != 0 ]]; then
@@ -78,7 +78,7 @@ else
 
     ## Both actions carry on without it by design, so a tree from before the
     ## file existed looks healthy in every other section -- while nodes
-    ## accumulate in `drained`. See docs/settings.md#recovering-drains-slurm-set-itself.
+    ## accumulate in `drained`. See docs/explanation/drain-recovery.md.
     if [[ ! -f "$home/slurm-recovery.sh" ]]; then
         bad "slurm-recovery.sh is missing from $home -- this tree predates it"
         note "  nodes drained by Slurm itself (prolog, rogue process, no reason) will never be resumed"
@@ -104,7 +104,7 @@ else
     ## A malformed entry is dropped at submit time and only shows in
     ## trigger.log on a cycle that submitted something, so report the effective
     ## list here -- with launch_job.sh's exact test, not a looser one.
-    ## See docs/settings.md#what-is-rejected.
+    ## See docs/reference/settings.md#what-is-rejected.
     if [[ -n "${JOB_ENV// /}" ]]; then
         bad_env=""; good_env=""
         # shellcheck disable=SC2086  # list-in-a-string, as BENCHMARKS is
@@ -243,7 +243,7 @@ hdr "6-7. Ownership of the result path"
 ##############################################################################
 
 ## A root-owned result directory kills the job at startup with no symptom of
-## its own; see docs/sequencer.md#result-path-ownership. launch_job.sh repairs
+## its own; see docs/reference/layout.md#result-path-ownership. launch_job.sh repairs
 ## it every cycle, so finding one here means no cycle has run since the tree
 ## was created, or the script is not reaching this node -- check section 5.
 if [[ -d "$results_dir" ]]; then

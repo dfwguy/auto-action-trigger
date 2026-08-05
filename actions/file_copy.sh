@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Warm the node-local container cache /tmp/containers/ from the shared NFS
-# copy. See docs/containers.md#how-the-caching-works.
+# copy. See docs/explanation/containers.md#how-the-caching-works.
 #
 # Every precondition below is a silent exit 0: jobs fall back to the NFS path,
 # so nothing depends on this having run, and an error per node per cycle would
@@ -17,7 +17,7 @@ dst=/tmp/containers
 [[ -f "$home/settings.sh" ]] && source "$home/settings.sh"
 
 ## Only new copies are stopped; a detached rsync finishes.
-## See docs/settings.md#pause-switches.
+## See docs/reference/settings.md#pause-switches.
 if declare -F setting_enabled >/dev/null && setting_enabled "${PAUSE_CONTAINER_COPY:-no}"; then
     exit 0
 fi
@@ -56,7 +56,7 @@ if command -v flock >/dev/null 2>&1; then
 fi
 
 ## -a not -r, or every cycle re-transfers everything; --partial so a killed
-## copy resumes. See docs/containers.md#how-the-caching-works.
+## copy resumes. See docs/explanation/containers.md#how-the-caching-works.
 rsync -a --partial "$src/" "$dst/" >/dev/null 2>&1
 
 exit 0

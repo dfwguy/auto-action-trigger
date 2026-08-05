@@ -2,7 +2,7 @@
 #
 # Installs the LLM Benchmarking Collection into $LLMB_INSTALL so the
 # llm-pretrain job can run on nodes that have no route off the cluster.
-# Head node only, once per CPU architecture. See docs/llmb.md.
+# Head node only, once per CPU architecture. See docs/explanation/llmb.md.
 #
 #   ./build_llmb.sh          # install, image, tokenizer and dataset
 #   ./build_llmb.sh -l       # what is present and what is not
@@ -16,11 +16,11 @@ set -uo pipefail
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
 
-## LLMB_REF comes from SETTINGS. See docs/llmb.md#pinning-the-collection.
+## LLMB_REF comes from SETTINGS. See docs/explanation/llmb.md#pinning-the-collection.
 LLMB_REPO=https://github.com/NVIDIA/dgxc-benchmarking.git
 
 ## Llama 3.1 8B: the smallest pre-training recipe in the collection, and the
-## only one that fits a 4-GPU tray. See docs/llmb.md#the-two-llm-jobs.
+## only one that fits a 4-GPU tray. See docs/explanation/llmb.md.
 WORKLOAD=pretrain_llama3.1
 MODEL_SIZE=8b
 DTYPE=fp8
@@ -42,11 +42,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$LLMB_INSTALL" ]] ||
-    die "LLMB_INSTALL is empty in ${SETTINGS_FILE:-the defaults} -- nothing to install into. See docs/llmb.md#where-the-install-lives."
+    die "LLMB_INSTALL is empty in ${SETTINGS_FILE:-the defaults} -- nothing to install into. See docs/explanation/llmb.md#where-the-install-lives."
 
 case "$LLMB_INSTALL" in
     "$BRINGUP_HOME"|"$BRINGUP_HOME"/*)
-        die "LLMB_INSTALL=$LLMB_INSTALL is inside BRINGUP_HOME. A tarball drop replaces that tree, images and dataset included. See docs/llmb.md#where-the-install-lives." ;;
+        die "LLMB_INSTALL=$LLMB_INSTALL is inside BRINGUP_HOME. A tarball drop replaces that tree, images and dataset included. See docs/explanation/llmb.md#where-the-install-lives." ;;
 esac
 
 arch="$(uname -m)"
@@ -83,7 +83,7 @@ mkdir -p "$LLMB_INSTALL" || die "cannot create $LLMB_INSTALL"
 
 if [[ "$DO_INSTALL" -eq 1 ]]; then
     [[ -n "$LLMB_REF" ]] ||
-        die "LLMB_REF is empty in ${SETTINGS_FILE:-the defaults} -- it names the collection tag to install. See docs/llmb.md#pinning-the-collection."
+        die "LLMB_REF is empty in ${SETTINGS_FILE:-the defaults} -- it names the collection tag to install. See docs/explanation/llmb.md#pinning-the-collection."
 
     src="$LLMB_INSTALL/src"
     if [[ -d "$src/.git" ]]; then
@@ -116,7 +116,7 @@ if [[ "$DO_IMAGE" -eq 1 ]]; then
     ## Staged into containers/ as well, so actions/file_copy.sh rsyncs it to
     ## /tmp/containers on each node like every other image. Without that, every
     ## node streams the same multi-GB squashfs off one filer at once.
-    ## See docs/llmb.md#getting-the-image-to-the-nodes.
+    ## See docs/how-to/enable-llm-pretrain.md#1-install-on-the-head-node.
     shopt -s nullglob
     staged=0
     for sqsh in "$images"/*.sqsh; do
@@ -126,7 +126,7 @@ if [[ "$DO_IMAGE" -eq 1 ]]; then
     done
     shopt -u nullglob
     [[ "$staged" -gt 0 ]] ||
-        die "no .sqsh under $images -- the installer did not import an image, so there is nothing for the nodes to run. See docs/llmb.md#getting-the-image-to-the-nodes."
+        die "no .sqsh under $images -- the installer did not import an image, so there is nothing for the nodes to run. See docs/how-to/enable-llm-pretrain.md#1-install-on-the-head-node."
 fi
 
 ## ── Tokenizer and dataset ─────────────────────────────────────────────────
@@ -141,7 +141,7 @@ if [[ "$DO_DATA" -eq 1 ]]; then
     ## CHECK, not a fetch -- it proves the cache the nodes will read offline is
     ## actually populated, because the failure otherwise surfaces two hours into
     ## a training run on a node with no route out.
-    ## See docs/llmb.md#running-offline.
+    ## See docs/explanation/llmb.md#running-offline.
     if [[ -z "$(ls -A "$hf_home" 2>/dev/null)" ]]; then
         die "$hf_home is empty -- re-run the installer and select $WORKLOAD, with HF_TOKEN set and Llama access approved on your HF account. Llama is a GATED repo; approval is per-account and is not part of the token."
     fi
@@ -155,6 +155,6 @@ echo "NEXT: confirm the recipe accepts a 4-GPU tray, which is below its
       characterised floor of 8 and needs --force:
         llmb-run submit -w $WORKLOAD -s $MODEL_SIZE --dtype $DTYPE --scale 4 --force --dry-run
       and take llm-pretrain-solo's training command from the same at --scale 1.
-      See docs/llmb.md#running-below-the-characterised-scale."
+      See docs/explanation/llmb.md#running-below-the-characterised-scale."
 
 echo "done. './build_llmb.sh -l' for the state of the install."

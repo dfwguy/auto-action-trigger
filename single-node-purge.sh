@@ -19,7 +19,7 @@ fi
 for arg in "$@"; do
     while IFS= read -r node; do
         # An empty node name collapses to "$loc/" and deletes every node's
-        # results. See docs/operations.md#resetting-results.
+        # results. See docs/how-to/reset-results.md.
         if [[ -z "${node//[[:space:]]/}" ]]; then
             echo "Skipping empty node name in '$arg'"
         elif [[ -d "$loc/$node" ]]; then

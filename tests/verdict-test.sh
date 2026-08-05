@@ -4,7 +4,7 @@
 #
 # Checks verdict.sh against captured result files in tests/fixtures/. A wrong
 # gate is invisible until it has already passed or drained the cluster; see
-# docs/benchmarks.md#where-a-pass-is-decided.
+# docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 #
 # Fixtures are named <job>__<case>.txt -- the part before the double underscore
 # is what gets handed to verdict(). Adding a case is one fixture file plus one
@@ -44,7 +44,7 @@ cases=(
   ## for a DONE case -- no captured -nonvlink run reaches its floor.
   "alltoall-nonvlink__ib-below-floor-32|FAIL|peak busbw below floor 83 GB/s"
   ## Host list complete, container sees nothing. See
-  ## docs/benchmarks.md#host-hcas-are-not-container-hcas.
+  ## docs/explanation/judging-benchmarks.md#host-hcas-are-not-container-hcas.
   "alltoall-nonvlink__container-blind|FAIL|no HCA visible inside the container"
   ## Largest-size busbw is judged; the `# Avg bus bandwidth` line is not.
   "allreduce-nonvlink__ib-below-floor|FAIL|peak busbw below floor 93 GB/s"
@@ -52,7 +52,7 @@ cases=(
   "allreduce__fell-to-socket|FAIL|collective left NVLink for the network"
   ## Real h20-36: a healthy 220.837 GB/s NVLink run that still logs `Using
   ## network Socket`. Keep it -- it is the argument for
-  ## docs/benchmarks.md#judge-the-channels-never-the-plugin-registration.
+  ## docs/explanation/judging-benchmarks.md#judge-the-channels-never-the-plugin-registration.
   "allreduce__good-nvlink|DONE|"
   "dcgmi-r3__pass|DONE|"
   "dcgmi-r3__gpu-failure|FAIL|dcgmi subtest failed: Targeted Stress"
@@ -63,18 +63,19 @@ cases=(
   "dcgmi-r3__targeted-power|FAIL|dcgmi subtest failed: targeted_power"
   ## Real h01-13: a healthy node that a flat `grep -iE "N/A"` failed on the
   ## matrix diagonal. Keep it -- it is the argument for
-  ## docs/benchmarks.md#judge-what-the-tool-means-not-what-it-says. Only the end
+  ## docs/explanation/judging-benchmarks.md#judge-what-the-tool-means-not-what-it-says. Only the end
   ## marker differs from the capture, which wrote the sbatch's own FAIL.
   "nvbandwidth__good|DONE|"
   ## Same capture, one off-diagonal cell blanked: the fault 6.2 actually asks
   ## about, and it still has to be caught.
   "nvbandwidth__missing-peer|FAIL|missing peer transfer -- N/A off the matrix diagonal"
   "nvbandwidth__unstable|FAIL|bandwidth unstable -- coefficient of variation above 0.08"
-  ## Synthetic; replace with captures once a node has run it. See docs/llmb.md.
+  ## Synthetic; replace with captures once a node has run it. See docs/explanation/llmb.md.
   "llm-pretrain-solo__good|DONE|"
   "llm-pretrain-solo__missing-rank|FAIL|fewer than 4 GPUs reported step timings"
   ## DONE because the shipped VERDICT_MAX_COV_LLM_SOLO=0 skips the spread check.
-  ## The assertion below is what proves that check works. See docs/llmb.md#judging-the-four-step-times.
+  ## The assertion below proves that check works. See
+  ## docs/explanation/llmb.md#judging-the-four-step-times.
   "llm-pretrain-solo__slow-gpu|DONE|"
   "example__good|DONE|"
   ## Non-zero `exit status:` line, paired with example__good at 0: between them
@@ -116,7 +117,7 @@ done
 
 ## The four dcgmi levels share one gate, and only one of them has fixtures. A
 ## level missing from verdict.sh's case arm would fall through to the default
-## and pass everything. See docs/benchmarks.md#the-dcgmi-gates.
+## and pass everything. See docs/reference/jobs.md#the-dcgmi-gates.
 for level in 1 2 3 4; do
     verdict "dcgmi-r$level" "$home/tests/fixtures/dcgmi-r3__gpu-failure.txt"
     if [[ "$VERDICT_STATUS" == "FAIL" ]]; then
@@ -131,7 +132,7 @@ done
 
 ## Shipping 0 and shipping a broken spread check look identical above, so set a
 ## band and require the outlier to be caught AND named.
-## See docs/llmb.md#judging-the-four-step-times.
+## See docs/explanation/llmb.md#judging-the-four-step-times.
 _solo_cov_saved="$VERDICT_MAX_COV_LLM_SOLO"
 VERDICT_MAX_COV_LLM_SOLO=0.05
 verdict "llm-pretrain-solo" "$home/tests/fixtures/llm-pretrain-solo__slow-gpu.txt"

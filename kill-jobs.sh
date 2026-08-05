@@ -38,13 +38,13 @@
 # Safe to run from any directory, and safe to run twice.
 #
 # What a cancelled job leaves behind, and why none of it needs cleaning up by
-# hand, is in docs/operations.md#emptying-the-queue.
+# hand, is in docs/how-to/pause-and-resume.md#emptying-the-queue-now.
 #
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
 
 ## Cancelling needs Slurm and nothing else, so the tree is located separately
 ## and only --pause requires finding it. This script gets pasted into other
-## teams' checkouts. See docs/operations.md#emptying-the-queue.
+## teams' checkouts. See docs/how-to/pause-and-resume.md#emptying-the-queue-now.
 self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 home=""
 for cand in "$self_dir" "${BRINGUP_HOME:-/home/cmods/bringup}"; do
@@ -134,7 +134,7 @@ elif [[ "$pause" -eq 1 ]]; then
 fi
 
 ## One squeue call for the cluster. The node is the job name's suffix, which is
-## how it was submitted. See docs/sequencer.md#one-job-at-a-time.
+## how it was submitted. See docs/explanation/sequencing.md#one-job-at-a-time.
 ##
 ## Read into a variable first: a controller that will not answer prints nothing,
 ## which is indistinguishable from an empty queue at the wrong moment.

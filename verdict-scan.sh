@@ -4,10 +4,12 @@
 # per cell: <node><FS><column><FS><status><FS><reason><FS><metric>.
 #
 # Sourced by status-check.sh and daily-report.sh for scan_fleet(), and run by
-# its own xargs as the worker. See docs/operations.md#how-a-report-is-produced.
+# its own xargs as the worker. See
+# docs/explanation/verdicts-and-the-cache.md#how-a-report-is-produced.
 
 ## Not a tab: `read` collapses runs of IFS whitespace and eats empty fields.
-## Split on this, never on a tab. See docs/operations.md#how-a-report-is-produced.
+## Split on this, never on a tab. See
+## docs/explanation/verdicts-and-the-cache.md#how-a-report-is-produced.
 SCAN_FS=$'\037'
 
 ## ── Metric extraction ─────────────────────────────────────────────────────
@@ -62,7 +64,7 @@ metric_label() {
 # Newest <col>.<kind><N>.txt, into _SCAN_ARCHIVE. By numeric suffix, not mtime:
 # an rsync or restore reorders mtimes. A glob, not `ls | sed | sort | tail`,
 # because this fires twice per NOT_RUN cell.
-# See docs/sequencer.md for what writes .failN and .prevN.
+# See docs/explanation/sequencing.md for what writes .failN and .prevN.
 _scan_last_archive() {
     local node="$1" col="$2" kind="$3" f n best=-1
     _SCAN_ARCHIVE=""
@@ -88,7 +90,7 @@ _scan_last_archive() {
 #
 # Matched against _SCAN_RESULT_RE rather than "every .txt that is not an
 # archive": the node directory also holds quick-view.txt, which is not a result.
-# See docs/operations.md#status-and-reporting.
+# See docs/reference/scripts.md.
 _scan_live_column() {
     local node="$1" f
     _SCAN_LIVE=""
@@ -106,7 +108,7 @@ _scan_live_column() {
 
 ## One node, every column, one row per cell on stdout. Each row is ONE printf:
 ## workers share this stdout and only a single write under PIPE_BUF is atomic.
-## See docs/operations.md#how-a-report-is-produced.
+## See docs/explanation/verdicts-and-the-cache.md#how-a-report-is-produced.
 _scan_node() {
     local node="$1" col job file status reason metric i
 
@@ -194,7 +196,7 @@ scan_worker() {
     ## from both lists and not from SCAN_COLUMNS: -t narrows the report, never
     ## what the node is running, and the newest file among a SUBSET of the
     ## columns is not the live one. Archives fail it by construction.
-    ## See docs/operations.md#status-and-reporting.
+    ## See docs/reference/scripts.md.
     local alt=""
     # shellcheck disable=SC2086  # both lists are space separated job names
     for n in $BENCHMARKS $BURNIN; do
@@ -215,7 +217,7 @@ scan_worker() {
 ## Rows in no particular order; callers sort. Runs in children, so it cannot
 ## build state in the caller's shell. Worker stderr is deliberately not
 ## redirected -- a silent scan reports a clean cluster.
-## See docs/operations.md#how-a-report-is-produced.
+## See docs/explanation/verdicts-and-the-cache.md#how-a-report-is-produced.
 _scan_fleet_raw() {
     local n_nodes=$# jobs chunk
 
@@ -244,7 +246,7 @@ _scan_fleet_raw() {
 ## BOTH -- edit a floor and the whole fleet is re-judged. Anything added to a
 ## verdict that is not such a pure function must not be cached.
 ##
-## Read docs/operations.md#the-verdict-cache before changing any of this.
+## Read docs/explanation/verdicts-and-the-cache.md#the-verdict-cache before changing any of this.
 
 ## One record per line, first field a type tag:
 ##
@@ -262,7 +264,7 @@ _scan_cache_file() {
 }
 
 ## The floors are named rather than catted: they live in SETTINGS.
-## See docs/settings.md#benchmark-pass-floors.
+## See docs/reference/settings.md#benchmark-pass-floors.
 _scan_cache_key() {
     local v
     { cat "$PARSERS_DIR/verdict.sh" "$SCAN_LIB" 2>/dev/null

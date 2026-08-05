@@ -6,12 +6,12 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH -t 2:10:00
 #SBATCH --nice=20
-## nice=20 is the sweep's tier. See docs/benchmarks.md#queue-priority.
+## nice=20 is the sweep's tier. See docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/stress-ng.txt
 
 ## No --gres: never touches a GPU. --mem=0 is not implied by --exclusive and
 ## `--vm-bytes 8G` needs it; no --cpus-per-task, it implies --exact and would
-## shrink `--cpu 0`. See docs/benchmarks.md#the-allocation-header.
+## shrink `--cpu 0`. See docs/reference/jobs.md#the-allocation-header.
 
 ## AI Factory Testing Plan: stress-ng -- SNT2 (Exhaustive)
 
@@ -19,14 +19,14 @@
 job_name=stress-ng
 
 ## 2x TIMEOUT; the step limit must fire before #SBATCH -t so the script lives
-## to write its marker. See docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## to write its marker. See docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=2:00:00
 
 ## ------------- job info starts here ------------- ##
 
 ## What the STEP holds, asked from inside a step -- AllocTRES describes the
 ## job, not the step. Wording is fixed; verdict.sh greps it. See
-## docs/benchmarks.md#preflight.
+## docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     echo "preflight: $(hostname) cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
     [[ "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
@@ -55,6 +55,6 @@ rc=$?
 
 ## Only whether the job ran is decided here; verdict.sh decides whether the
 ## result is good. A FAIL with `exit status: 0` came from that gate, not from
-## srun. See docs/benchmarks.md#where-a-pass-is-decided.
+## srun. See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL

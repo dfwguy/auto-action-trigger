@@ -60,7 +60,7 @@ fi
 trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
 
 # Reservations whose node list overlaps $1, one line each. See
-# docs/operations.md#reading-the-queue.
+# docs/how-to/diagnose-nothing-running.md#reading-the-queue.
 covering_reservations() {
     local -A want=()
     local n

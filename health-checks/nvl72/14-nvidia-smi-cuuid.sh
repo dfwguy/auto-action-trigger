@@ -3,6 +3,6 @@
 # informational: yes
 #
 # ClusterUUID is per-rack, so it cannot match one cluster-wide baseline.
-# See docs/health-checks.md#informational-checks.
+# See docs/reference/health-checks.md#informational-checks.
 
 nvidia-smi -q | grep -E 'Bus Id|CliqueId|ClusterUUID'

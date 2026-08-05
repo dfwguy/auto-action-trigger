@@ -2,7 +2,7 @@
 #
 # Build the benchmark jobs' container images as local .sqsh files in
 # /home/cmods/bringup/containers/, pulled once here instead of once per node.
-# See docs/containers.md.
+# See docs/explanation/containers.md.
 #
 #   ./build_containers.sh -L                 # write ~/.config/enroot/.credentials
 #   NGC_API_KEY=nvapi-... ./build_containers.sh -L    # same, unattended
@@ -18,7 +18,7 @@
 # are what allow a source build, which runs in two passes because only the
 # headnode has internet and only the nodes are ARM. With no image named the
 # list is CONTAINERS from SETTINGS, two of whose three shipped images need -L.
-# See docs/containers.md#downloading-vs-building-from-source.
+# See docs/explanation/containers.md#downloading-is-the-default-source-builds-are-opt-in.
 #
 set -u
 
@@ -34,23 +34,23 @@ MODE=all
 
 ## Whether a failed download may fall back to a source build; -S, -F and -B each
 ## set it. Off by default -- a source build is expensive to start by accident.
-## See docs/containers.md#downloading-vs-building-from-source.
+## See docs/explanation/containers.md#downloading-is-the-default-source-builds-are-opt-in.
 SOURCE_OK=0
 
 ## Architecture suffix: a CPU split, not a GPU-generation one. -a/$ARCH
 ## overrides this machine because the fetch pass never executes anything from
 ## inside an image and so cross-builds freely.
-## See docs/containers.md#building-arm-images-on-an-x86-headnode.
+## See docs/how-to/build-containers.md#building-arm-images-on-an-x86-headnode.
 arch=${ARCH:-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/')}
 
 ## enroot's layer cache and scratch default under $HOME, which is NFS here.
-## See docs/containers.md#how-the-caching-works.
+## See docs/explanation/containers.md#how-the-caching-works.
 export ENROOT_CACHE_PATH=${ENROOT_CACHE_PATH:-/tmp/enroot-cache/$UID}
 export ENROOT_TEMP_PATH=${ENROOT_TEMP_PATH:-/tmp/enroot-temp/$UID}
 
 ## enroot creates these for every subcommand and their compiled defaults are
 ## root-only; the headnode has no /etc/enroot/enroot.conf to say otherwise.
-## Do not fix that by building as root. See docs/containers.md#how-the-caching-works.
+## Do not fix that by building as root. See docs/explanation/containers.md#how-the-caching-works.
 export ENROOT_DATA_PATH=${ENROOT_DATA_PATH:-/tmp/enroot-data/$UID}
 export ENROOT_RUNTIME_PATH=${ENROOT_RUNTIME_PATH:-/tmp/enroot-runtime/$UID}
 WORKDIR=${WORKDIR:-/tmp/container-build-$UID}
@@ -61,7 +61,7 @@ NVLOOM_VERSION=v2.0.0
 MNUBERGEMM_VERSION=26.03-v1.17
 
 ## Private NGC org holding nvbandwidth and mnubergemm; neither image is public.
-## See docs/containers.md#logging-in-to-ngc.
+## See docs/how-to/build-containers.md#logging-in-to-ngc.
 NGC_ORG=0948245400141054
 
 ## Ubuntu release the CUDA base images are built on, and its mirrors -- ARM is
@@ -75,7 +75,7 @@ UBUNTU_MIRROR_amd64=http://archive.ubuntu.com/ubuntu
 UBUNTU_MIRROR_arm64=http://ports.ubuntu.com/ubuntu-ports
 
 ## Native throwaway image used on the headnode to run apt; never shipped.
-## See docs/containers.md#why-the-package-staging-is-the-awkward-part.
+## See docs/explanation/containers.md#why-the-package-staging-is-the-awkward-part.
 HELPER_URI=docker://ubuntu:24.04
 
 ## Every image this script knows how to produce. CONTAINERS picks a subset of
@@ -97,7 +97,7 @@ warn() { printf 'build_containers: %s\n' "$*" >&2; }
 die()  { warn "$*"; exit 1; }
 
 ## Job scripts build the same string, so a rename here needs the matching edit
-## in jobs/$JOBS/. See docs/containers.md#images.
+## in jobs/$JOBS/. See docs/reference/settings.md#container-images.
 image_file() {
     case "$1" in
         hpc-benchmarks) echo "nvidia+hpc-benchmarks+${HPC_BENCHMARKS_TAG}-${arch}.sqsh" ;;
@@ -113,7 +113,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 ## ── nvcr.io login ─────────────────────────────────────────────────────────
 ## enroot has no `login` subcommand: it reads this netrc-style file before every
 ## import. The username is the literal string $oauthtoken, not a variable to
-## expand. See docs/containers.md#logging-in-to-ngc.
+## expand. See docs/how-to/build-containers.md#logging-in-to-ngc.
 CREDS_FILE=${ENROOT_CONFIG_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/enroot}/.credentials
 NGC_KEY_URL=https://org.ngc.nvidia.com/account
 
@@ -226,7 +226,7 @@ spec() {
         ;;
     nvloom)
         ## From the upstream sample Dockerfile, but kept in the devel image
-        ## rather than a slim runtime stage; see docs/containers.md#trade-offs.
+        ## rather than a slim runtime stage; see docs/explanation/containers.md#trade-offs.
         BASE_URI="docker://nvcr.io#nvidia/cuda:13.1.0-devel-ubuntu24.04"
         REPO=https://github.com/NVIDIA/nvloom.git
         REF=$NVLOOM_VERSION
@@ -246,7 +246,7 @@ from_source() { spec "$1" >/dev/null 2>&1; }
 ## Pull the target architecture's packages into a directory apt on the node can
 ## use as a repository, by running apt inside a throwaway native container with
 ## APT::Architecture forced to the target. See
-## docs/containers.md#why-the-package-staging-is-the-awkward-part.
+## docs/explanation/containers.md#why-the-package-staging-is-the-awkward-part.
 fetch_debs() {
     local dir="$1" pkgs="$2" base="$3" dpkg_arch mirror status_src
     dpkg_arch=$(deb_arch "$arch")
@@ -436,7 +436,7 @@ build_from_stage() {
 
 ## ── hpc-benchmarks ────────────────────────────────────────────────────────
 ## Public NGC image, no credentials, and multi-arch on the registry so the ARM
-## build is a plain import with --arch. See docs/containers.md#hpc-benchmarks.
+## build is a plain import with --arch. See docs/how-to/build-containers.md#hpc-benchmarks.
 build_hpc_benchmarks() {
     local out="$1"
     [[ "$MODE" == build ]] && return 0
@@ -446,7 +446,7 @@ build_hpc_benchmarks() {
 
 ## ── nvbandwidth ───────────────────────────────────────────────────────────
 ## A private NGC org image if we can read it, else the two-pass source build.
-## See docs/containers.md#nvbandwidth.
+## See docs/how-to/build-containers.md#nvbandwidth.
 build_nvbandwidth() {
     local out="$1" uri="docker://nvcr.io#${NGC_ORG}/nvbandwidth-single-node:${NVBANDWIDTH_VERSION}-${arch}"
 
@@ -471,7 +471,7 @@ build_nvbandwidth() {
 
 ## ── nvloom ────────────────────────────────────────────────────────────────
 ## No image published anywhere; spec() follows the repo's own sample Dockerfile,
-## which is worth re-reading when bumping. See docs/containers.md#nvloom.
+## which is worth re-reading when bumping. See docs/how-to/build-containers.md#nvloom.
 build_nvloom() {
     local out="$1"
     ## The one image with nothing to download, yet it still waits for -S: a bare
@@ -493,7 +493,7 @@ build_nvloom() {
 ## NVIDIA-internal with no public source, but published in the same private NGC
 ## org as nvbandwidth. The tag carries its own -arch suffix as well as a
 ## `tensorrt-` prefix, and only ARM exists today, so x86 fails the import.
-## See docs/containers.md#mnubergemm.
+## See docs/how-to/build-containers.md#mnubergemm.
 build_mnubergemm() {
     local out="$1" uri="docker://nvcr.io#${NGC_ORG}/mnubergemm:tensorrt-${MNUBERGEMM_VERSION}-${arch}"
 
@@ -545,7 +545,7 @@ fi
 ## Three sources for the image list, most specific first: the command line, -A,
 ## then CONTAINERS. A bare run without credentials builds one of the shipped
 ## three and fails two, which is the correct signal now that their jobs are in
-## the default sweep. See docs/containers.md#which-images-get-built.
+## the default sweep. See docs/reference/settings.md#container-images.
 images=("$@")
 if [[ "${#images[@]}" -eq 0 ]]; then
     if [[ "$ALL" -eq 1 ]]; then

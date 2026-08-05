@@ -6,12 +6,12 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH -t 4:10:00
 #SBATCH --nice=20
-## 20 is the sweep's tier. See docs/benchmarks.md#queue-priority.
+## 20 is the sweep's tier. See docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/stressapptest.txt
 
 ## No --gres, this job never touches a GPU; --mem=0 matters most here, the
 ## footprint below is 80% of MemAvailable. See
-## docs/benchmarks.md#the-allocation-header.
+## docs/reference/jobs.md#the-allocation-header.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 # shellcheck disable=SC2034  # read by grepping this file, from actions/launch_job.sh
@@ -19,13 +19,13 @@ job_name=stressapptest
 
 ## Step limit, 2x RUN_SECONDS; fires before #SBATCH -t so the batch script
 ## survives to write a marker. See
-## docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=4:00:00
 
 ## ------------- job info starts here ------------- ##
 
 ## Preflight -- what the STEP holds; only a step can see that. Wording is
-## fixed, the parse block greps this file. See docs/benchmarks.md#preflight.
+## fixed, the parse block greps this file. See docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     echo "preflight: $(hostname) cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
     [[ "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
@@ -57,7 +57,7 @@ rc=$?
 ## ------------- parse info starts here ----------- ##
 
 ## Only whether the job ran is decided here; verdict.sh decides whether the
-## result is good. See docs/benchmarks.md#where-a-pass-is-decided.
+## result is good. See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 
 ## A FAIL with a non-zero here is srun's; `exit status: 0` means verdict.sh
 ## failed it.

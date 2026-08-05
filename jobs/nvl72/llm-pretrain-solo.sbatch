@@ -8,17 +8,17 @@
 #SBATCH -t 1:10:00
 #SBATCH --nice=20
 ## --nice 20 is the sweep's tier; higher is LATER. See
-## docs/benchmarks.md#queue-priority.
+## docs/reference/jobs.md#queue-priority.
 ##SBATCH -o /home/cmods/bringup/results/%N/llm-pretrain-solo.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
-## implies --exact. See docs/benchmarks.md#the-allocation-header.
+## implies --exact. See docs/reference/jobs.md#the-allocation-header.
 
 ## Four INDEPENDENT copies of a single-GPU run, one per GPU, so a slow GPU names
 ## itself. No collectives at all -- the sibling job llm-pretrain covers those.
 ## Not launched through llmb-run: four scale-1 submissions would be four Slurm
 ## jobs and cannot co-schedule on an --exclusive node.
-## See docs/llmb.md#the-two-llm-jobs.
+## See docs/explanation/llmb.md.
 
 ## Job name is used in the status line. Edit grep for failures you're looking for
 # shellcheck disable=SC2034
@@ -27,13 +27,13 @@ job_name=llm-pretrain-solo
 totalRuns=1
 
 ## Handed to srun --time below; #SBATCH -t is this plus a margin so the step
-## limit fires first. See docs/benchmarks.md#two-time-limits-and-the-order-they-fire-in.
+## limit fires first. See docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 STEP_TIMELIMIT=1:00:00
 
 ## ------------- job info starts here ------------- ##
 
 ## What the STEP holds, which only a step can answer. Wording is fixed: the
-## parse block and verdict.sh grep it. See docs/benchmarks.md#preflight.
+## parse block and verdict.sh grep it. See docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
@@ -43,7 +43,7 @@ srun --ntasks=1 bash -c '
     exit 0
 }
 
-## Node-local copy first, NFS as fallback. See docs/containers.md#why-local-images.
+## Node-local copy first, NFS as fallback. See docs/explanation/containers.md#why-local-images.
 IMG=$(cd /tmp/containers 2>/dev/null && ls llama3.1*.sqsh 2>/dev/null | head -1)
 CONT=/tmp/containers/$IMG
 if [[ -z "$IMG" || ! -f "$CONT" ]]; then
@@ -53,21 +53,21 @@ fi
 ## An empty glob would reach srun as --container-image= and fail as something else.
 [[ -n "$IMG" && -f "$CONT" ]] || {
     echo "no llama3.1 image in /tmp/containers or /home/cmods/bringup/containers"
-    echo "run ./build_llmb.sh on the head node -- see docs/llmb.md"
+    echo "run ./build_llmb.sh on the head node -- see docs/explanation/llmb.md"
     echo "exit status: 1"
     echo FAIL
     exit 0
 }
 
 ## The sibling's recipe at scale 1. Why one GPU is a valid configuration:
-## docs/llmb.md#running-below-the-characterised-scale.
+## docs/explanation/llmb.md#running-below-the-characterised-scale.
 LLMB_INSTALL=${LLMB_INSTALL:-/home/cmods/llmb}
 WORKLOAD=pretrain_llama3.1
 MODEL_SIZE=8b
 DTYPE=fp8
 
 ## A cache miss on a node with no route out must fail, not stall.
-## See docs/llmb.md#running-offline.
+## See docs/explanation/llmb.md#running-offline.
 export HF_HOME="$LLMB_INSTALL/hf"
 export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
@@ -75,7 +75,7 @@ export TRANSFORMERS_OFFLINE=1
 
 ## ── The four independent ranks ────────────────────────────────────────────
 ## Three things are load-bearing here and all three are explained in
-## docs/llmb.md#keeping-the-four-copies-independent: --gpus-per-task=1 (one GPU
+## docs/explanation/llmb.md#keeping-the-four-solo-copies-independent: --gpus-per-task=1 (one GPU
 ## per rank), WORLD_SIZE=1 (stops NeMo forming one four-way group across them),
 ## and --label (the task-id prefix verdict.sh parses).
 unset CUDA_VISIBLE_DEVICES
@@ -96,9 +96,9 @@ srun --time="$STEP_TIMELIMIT" --label --export=ALL \
     ## run on the head node. Take the training invocation out of the generated
     ## script, not the sbatch wrapper around it. It must be a SINGLE-PROCESS
     ## invocation: no torchrun, no srun, no distributed launcher. See
-    ## docs/llmb.md#filling-in-the-solo-training-command.
+    ## docs/how-to/enable-llm-pretrain.md#3-filling-in-the-solo-training-command.
     ## ---------------------------------------------------------------------
-    echo "llm-pretrain-solo: no training command configured -- see docs/llmb.md#filling-in-the-solo-training-command" >&2
+    echo "llm-pretrain-solo: no training command configured -- see docs/how-to/enable-llm-pretrain.md#3-filling-in-the-solo-training-command" >&2
     exit 1
 '
 rc=$?
@@ -107,7 +107,7 @@ rc=$?
 ## ------------- parse info starts here ----------- ##
 
 ## Only whether the job ran is decided here; whether the four GPUs agree is
-## verdict.sh's call. See docs/benchmarks.md#where-a-pass-is-decided.
+## verdict.sh's call. See docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 ##
 ## A FAIL with a non-zero status here is srun's own; `exit status: 0` with FAIL
 ## came from the gate, which leaves no trace in this file.

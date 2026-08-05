@@ -30,7 +30,7 @@ cm_replace() {
 rc=0
 
 ## Registers BRINGUP_HOME, not this script's own location -- and so preflights
-## the deployed tree, not the checkout. See docs/architecture.md#runtime-paths.
+## the deployed tree, not the checkout. See docs/reference/layout.md#runtime-paths.
 _home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ -f "$_home/settings.sh" ]] && source "$_home/settings.sh"
 : "${BRINGUP_HOME:=/home/cmods/bringup}"
@@ -83,7 +83,7 @@ cm_replace action launch_job_action \
 
 ## duringactions, not enteractions: the latter fires only on the transition
 ## into UP, so an already-up node never picks up new work. See
-## docs/architecture.md.
+## docs/explanation/architecture.md.
 cm_trigger() {
     local name="$1" action="$2"
     cmsh -c "monitoring trigger; remove ${name}; commit" >/dev/null 2>&1

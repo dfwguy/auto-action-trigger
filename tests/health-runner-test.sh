@@ -2,7 +2,7 @@
 #
 # Checks the check-running loop in actions/node_health.sh against a synthetic
 # check set and baseline. A mistake in that loop is invisible from outside:
-# see docs/health-checks.md#informational-checks.
+# see docs/reference/health-checks.md#informational-checks.
 #
 # The loop is extracted from the live script, not copied -- a copy would pass
 # forever while the real one drifted.
@@ -104,7 +104,7 @@ for c in alpha beta gamma dmesg-xid explodes omega; do
     fi
 done
 
-## The banner is reproduced verbatim. See docs/health-checks.md#the-check-file-format.
+## The banner is reproduced verbatim. See docs/reference/health-checks.md#the-check-file-format.
 check "banner verbatim" "########INFO: Check Alpha" "$(head -1 "$work/log/alpha")"
 
 echo

@@ -30,7 +30,7 @@
 # Read-only. It submits nothing, drains nothing, changes nothing.
 #
 # The five sections it prints, and what each one rules out, are described in
-# docs/operations.md#debugging-nothing-is-running.
+# docs/how-to/diagnose-nothing-running.md.
 #
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
 
@@ -106,7 +106,7 @@ fi
 [[ "$tail_lines" -lt 0 ]] && tail_lines=0
 
 ## Group key for a trace line: node names and numbers out, so one reason does
-## not split into one group per node. See docs/operations.md#debugging-nothing-is-running.
+## not split into one group per node. See docs/how-to/diagnose-nothing-running.md.
 normalize() {
     local msg="$1" node="$2"
     msg="${msg//$node/<node>}"

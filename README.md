@@ -22,16 +22,16 @@ All three triggers fire continuously while the device is UP (`duringactions`), s
 
 This page covers what has to be in place, how to stand the framework up, and the commands a bringup needs day to day. Everything else is in [docs/](docs/):
 
-| Page | Covers |
+`docs/` is organised by [Diátaxis](https://diataxis.fr/) — by what you are
+doing, not by which script the page is about. [docs/README.md](docs/README.md)
+is the compass; the four entry points are:
+
+| If you are… | Start at |
 |------|--------|
-| [architecture.md](docs/architecture.md) | Trigger chain in detail, directory layout, runtime paths |
-| [settings.md](docs/settings.md) | `SETTINGS` — the job, health-check and parser sets, the pause and drain switches, and the retry policy |
-| [sequencer.md](docs/sequencer.md) | `launch_job.sh` — sweep order, retry and drain rules, result-path ownership, Slurm permissions |
-| [health-checks.md](docs/health-checks.md) | `node_health.sh` and `health-checks/$HEALTHCHECKS/` — every check, the check file format, adding a set for another platform |
-| [benchmarks.md](docs/benchmarks.md) | The `jobs/$JOBS/` catalog, test-plan coverage, what to set before enabling a job, adding a new one, and where a pass is decided (`parsers/$PARSERS/verdict.sh`) |
-| [containers.md](docs/containers.md) | `build_containers.sh` — why images are local, the two-pass source build, per-image notes |
-| [nvsm.md](docs/nvsm.md) | The sudoers grant and platform definition files `jobs/nvl72/nvsm.sbatch` needs |
-| [operations.md](docs/operations.md) | Full operator command reference |
+| new to this and want it working on one node | [docs/tutorials/first-bringup.md](docs/tutorials/first-bringup.md) |
+| trying to get something specific done | [docs/how-to/](docs/how-to/) — enabling benchmarks, pausing, managing drains, diagnosing a failure |
+| looking up a setting, a flag, or what a trace line means | [docs/reference/](docs/reference/) — `SETTINGS`, the job catalog, the 38 health checks, every operator script |
+| trying to understand why it works this way | [docs/explanation/](docs/explanation/) — the sequencer, derived verdicts, drain recovery, containers |
 
 ## Prerequisites
 
@@ -45,7 +45,7 @@ A local user named `cmods` must exist on the **headnode and every compute node**
 - The `cmods` user must have write access to `/home/cmods/bringup/logs/`, `/home/cmods/bringup/results/`, and `/home/cmods/bringup/reports/` on the headnode.
 - If the home directory is shared via NFS or another network filesystem, compute nodes will inherit it automatically. If not, `/home/cmods/bringup/` must be accessible on each compute node (e.g., via a shared filesystem mount).
 
-`jobs/nvl72/nvsm.sbatch` runs only on **DGX** systems and additionally needs a passwordless sudoers grant for `cmods` on every compute node — see [docs/nvsm.md](docs/nvsm.md). It is the only job with either requirement, and for both reasons it is not in the default `BENCHMARKS` list.
+`jobs/nvl72/nvsm.sbatch` runs only on **DGX** systems and additionally needs a passwordless sudoers grant for `cmods` on every compute node — see [docs/how-to/enable-nvsm.md](docs/how-to/enable-nvsm.md). It is the only job with either requirement, and for both reasons it is not in the default `BENCHMARKS` list.
 
 ### Required software
 
@@ -59,7 +59,7 @@ A local user named `cmods` must exist on the **headnode and every compute node**
 | `numactl` | `node_health.sh` (NUMA checks) |
 | `dmidecode` | `node_health.sh` (BIOS/memory checks) |
 | `dcgmi` | `jobs/nvl72/dcgmi-r1.sbatch` … `jobs/nvl72/dcgmi-r4.sbatch` |
-| `nvsm` | `jobs/nvl72/nvsm.sbatch` (DGX only; runs on the host, no container, needs root — see [docs/nvsm.md](docs/nvsm.md)) |
+| `nvsm` | `jobs/nvl72/nvsm.sbatch` (DGX only; runs on the host, no container, needs root — see [docs/how-to/enable-nvsm.md](docs/how-to/enable-nvsm.md)) |
 | `nvidia-imex-ctl` | `node_health.sh` (IMEX checks, GB series only) |
 | `enroot` | `build_containers.sh` (headnode for the fetch pass, compute nodes for the source-build pass; pyxis already needs it there) |
 | `squashfs-tools` | `build_containers.sh` (optional — shrinks the staged package set) |
@@ -87,7 +87,7 @@ The following scripts are run manually by an operator from the headnode and do n
 | `pre-post/create-action-trigger.sh` | `cmsh` (BCM admin access) |
 | `pre-post/delete-action-trigger.sh` | `cmsh` (BCM admin access) |
 
-Draining and resuming nodes needs Slurm privilege — see [docs/sequencer.md](docs/sequencer.md#slurm-permissions).
+Draining and resuming nodes needs Slurm privilege — see [docs/explanation/sequencing.md](docs/reference/layout.md#slurm-permissions).
 
 ## First-time setup
 
@@ -118,7 +118,7 @@ Run on the headnode, once per CPU architecture in the cluster. Which images it d
 
 `-L` is not optional for the shipped list: `nvbandwidth` and `mnubergemm` come from a private NGC org, and without credentials they fail to download and their two jobs then fail on every node. `./build_containers.sh -l` says which images are actually present. A site that would rather not need an NGC key drops both names from `CONTAINERS` *and* `BENCHMARKS`.
 
-Downloading is the default and, without `-S`, the only path: an image that cannot be pulled reports why rather than starting a source build. `-L` writes `~/.config/enroot/.credentials`. See [docs/containers.md](docs/containers.md).
+Downloading is the default and, without `-S`, the only path: an image that cannot be pulled reports why rather than starting a source build. `-L` writes `~/.config/enroot/.credentials`. See [docs/explanation/containers.md](docs/explanation/containers.md).
 
 ### 3. Establish a valid-config baseline
 
@@ -139,11 +139,11 @@ Everything configurable lives in one file. `SETTINGS.default` ships with the fra
 cp SETTINGS.default SETTINGS
 ```
 
-Editing `SETTINGS.default` in place works until the next tarball drop replaces it. A `SETTINGS` only has to carry the lines you changed — anything it leaves out falls back to the shipped default. See [docs/settings.md](docs/settings.md).
+Editing `SETTINGS.default` in place works until the next tarball drop replaces it. A `SETTINGS` only has to carry the lines you changed — anything it leaves out falls back to the shipped default. See [docs/reference/settings.md](docs/reference/settings.md).
 
 ### 5. Choose the benchmark list
 
-The active list is `BENCHMARKS` in `SETTINGS`; which subset a site should run depends on its delivery methodology. See [docs/benchmarks.md](docs/benchmarks.md).
+The active list is `BENCHMARKS` in `SETTINGS`; which subset a site should run depends on its delivery methodology. See [docs/reference/jobs.md](docs/reference/jobs.md).
 
 ```bash
 BENCHMARKS="dcgmi-r1 dcgmi-r3 nvbandwidth allreduce allreduce-forcesharp \
@@ -161,7 +161,7 @@ BURNIN="mnubergemm"
 
 `mnubergemm` is 12 runs of a ~6-hour step, one job at a time, so a node is under burn-in for about three days. It is not gated on the benchmarks passing — it is ordered behind them by `#SBATCH --nice` in the job files (the dcgmi gates at 1-4, the rest of the sweep at 20, burn-in at 100000), so a benchmark retry queued mid-burn-in goes ahead of the runs still waiting rather than behind all of them. It does not interrupt the run already on the node: every job is `--exclusive`.
 
-`MAX_JOB_HOURS` ships at `7` to clear a single burn-in run — lower it and the sequencer drains healthy nodes mid-run for a timeout. The image is downloaded by default even though the list is off, so turning it on does not mean a fleet-wide failure while the image catches up. See [docs/settings.md](docs/settings.md#burn-in).
+`MAX_JOB_HOURS` ships at `7` to clear a single burn-in run — lower it and the sequencer drains healthy nodes mid-run for a timeout. The image is downloaded by default even though the list is off, so turning it on does not mean a fleet-wide failure while the image catches up. See [docs/reference/settings.md](docs/reference/settings.md#burn-in).
 
 ### 7. Decide whether failures should drain
 
@@ -172,7 +172,7 @@ DRAIN_AFTER_FAILED_HEALTH_CHECK=no   # health check mismatched the baseline
 DRAIN_AFTER_FAILED_BENCHMARK=no      # benchmark sweep failed, or a job ran past MAX_JOB_HOURS
 ```
 
-Turn them on once the failures being reported are real ones. Health-check drains are the riskier half — a bad baseline drains the whole cluster on the first monitoring cycle — so bring that one up only after `bash health-check.sh --summary` reads clean. See [docs/operations.md](docs/operations.md#disabling-drains).
+Turn them on once the failures being reported are real ones. Health-check drains are the riskier half — a bad baseline drains the whole cluster on the first monitoring cycle — so bring that one up only after `bash health-check.sh --summary` reads clean. See [docs/reference/scripts.md](docs/how-to/manage-drains.md).
 
 ## Operating a bringup
 
@@ -190,7 +190,7 @@ bash check_squeue.sh -j 121918            # one job, plus its nodes' state and a
 
 A job stuck at `ReqNodeNotAvail` is answered by `check_squeue.sh -j` — the
 reason names a condition, not the nodes behind it. See
-[docs/operations.md](docs/operations.md#reading-the-queue).
+[docs/reference/scripts.md](docs/how-to/diagnose-nothing-running.md#reading-the-queue).
 
 A node that has stopped testing:
 
@@ -231,7 +231,7 @@ bash kill-jobs.sh -p                      # pause, then cancel every job of ours
 bash kill-jobs.sh ink50-dh01-i01          # one node or glob; no -p, so the sweep resumes next cycle
 ```
 
-`kill-jobs.sh` matches on our own job names rather than on the account, so it leaves anything else `cmods` owns alone, and it runs from any directory. See [docs/operations.md](docs/operations.md#pausing-everything) and [emptying the queue](docs/operations.md#emptying-the-queue).
+`kill-jobs.sh` matches on our own job names rather than on the account, so it leaves anything else `cmods` owns alone, and it runs from any directory. See [docs/reference/scripts.md](docs/how-to/pause-and-resume.md) and [emptying the queue](docs/how-to/pause-and-resume.md#emptying-the-queue-now).
 
 A drain reason containing `auto-retry` is the sequencer's own — it clears it on the next retry pass, so resuming by hand only starts the next sweep sooner. Any other reason is an operator drain, and the sequencer will neither clear it nor queue work behind it.
 
@@ -242,4 +242,4 @@ bash node-health-refresh.sh node001
 bash single-node-purge.sh node001
 ```
 
-Full command reference in [docs/operations.md](docs/operations.md); retry and drain rules in [docs/sequencer.md](docs/sequencer.md).
+Full command reference in [docs/reference/scripts.md](docs/reference/scripts.md); retry and drain rules in [docs/explanation/sequencing.md](docs/explanation/sequencing.md).

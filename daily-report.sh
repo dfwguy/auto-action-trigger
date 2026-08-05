@@ -14,7 +14,7 @@
 #                     results/.result_cache.*. A cached report is the report you
 #                     would have got anyway; reach for this when you suspect the
 #                     cache rather than the gate.
-#                     See docs/operations.md#the-verdict-cache.
+#                     See docs/explanation/verdicts-and-the-cache.md#the-verdict-cache.
 #
 #   pattern           optional node-name filter, read the same way as
 #                     status-check.sh's: a bare string matches every node whose
@@ -118,7 +118,7 @@ active_benchmarks="$BENCHMARKS"
 setting_enabled "$RUN_BURNIN" && active_benchmarks="$BENCHMARKS $BURNIN"
 
 for job in $active_benchmarks; do
-    ## See docs/sequencer.md#host-launched-jobs.
+    ## See docs/explanation/sequencing.md#host-launched-jobs.
     sbatch="$jobs_dir/$job.sbatch"
     [[ -f "$sbatch" ]] || sbatch="$jobs_dir/$job.sh"
     [[ -f "$sbatch" ]] || continue
@@ -178,8 +178,9 @@ fi
 
 # ── Helper functions ──────────────────────────────────────────────────────────
 
-## Status is derived from the log on every report, never read from a marker, so
-## an older gate's pass is re-judged. See docs/benchmarks.md#where-a-pass-is-decided.
+## Derived from the log on every report, never read from a marker, so an older
+## gate's pass is re-judged. See
+## docs/explanation/judging-benchmarks.md#where-a-pass-is-decided.
 if [[ ! -f "$PARSERS_DIR/verdict.sh" ]]; then
     echo "ERROR: $PARSERS_DIR/verdict.sh is missing -- it carries the pass/fail rule" >&2
     echo "       for every job, and without it nothing can be judged." >&2
@@ -189,7 +190,7 @@ fi
 source "$PARSERS_DIR/verdict.sh"
 
 # Judges every cell in parallel workers, extracting the metric while the file is
-# open. See docs/operations.md#how-a-report-is-produced.
+# open. See docs/explanation/verdicts-and-the-cache.md#how-a-report-is-produced.
 # shellcheck source=/dev/null
 source "$home/verdict-scan.sh"
 
@@ -244,7 +245,7 @@ while IFS="$SCAN_FS" read -r node col status _reason metric; do
     job="${col%-run[0-9]*}"
     ## A number whenever the run produced one, FAIL included; the status word is
     ## what a cell says when there is no figure. See
-    ## docs/operations.md#status-and-reporting.
+    ## docs/reference/scripts.md.
     if [[ -n "${mlabel_of[$job]}" && ( "$status" == "DONE" || "$status" == "FAIL" ) ]]; then
         cell="${metric:-$status}"
     else
@@ -314,7 +315,7 @@ stats_row() {
 
 ## Every block is rows and nothing else -- named by the first cell of its own
 ## header row, never a title line above it. See
-## docs/operations.md#getting-it-into-a-spreadsheet.
+## docs/how-to/export-a-report.md.
 declare -a total_rows slurm_rows status_rows metric_rows passfail_rows
 
 total_rows=("summary"$'\t'"count"
@@ -338,7 +339,7 @@ if [[ ${#cell_count[@]} -gt 0 ]]; then
 fi
 
 ## Per job, not pooled, and failing cells included so the min is the worst node
-## on the cluster. See docs/operations.md#status-and-reporting.
+## on the cluster. See docs/reference/scripts.md.
 if [[ ${#job_values[@]} -gt 0 ]]; then
     for job in "${job_order[@]}"; do
         [[ -n "${job_values[$job]}" ]] || continue
@@ -353,7 +354,7 @@ if [[ ${#job_values[@]} -gt 0 ]]; then
 fi
 
 ## The only summary a job with no metric gets. See
-## docs/operations.md#status-and-reporting.
+## docs/reference/scripts.md.
 ##
 ## Columns are the statuses actually seen, not a fixed four, so a status
 ## verdict() grows later gets its own column instead of vanishing. DONE and FAIL
@@ -388,7 +389,7 @@ fi
 # ── The grid ──────────────────────────────────────────────────────────────────
 # One set of column positions for the whole report -- widths measured across
 # every row of every block before anything prints, no indentation, every line a
-# row. See docs/operations.md#getting-it-into-a-spreadsheet.
+# row. See docs/how-to/export-a-report.md.
 
 declare -a col_width
 
@@ -430,7 +431,7 @@ if [[ -n "$report_file" ]]; then
 fi
 
 ## Table and summary alike: the grid is for reading TSV at a terminal, anything
-## else gets raw separated rows. See docs/operations.md#status-and-reporting.
+## else gets raw separated rows. See docs/reference/scripts.md.
 ##
 ## Decided once for the whole report, not per stream -- the summary is on stderr
 ## and the table on stdout, so testing each would put an aligned block under a
