@@ -682,6 +682,35 @@ the fleet is judged on; the result has no column in the reports and is read with
 Each node also keeps a running trace at `results/<node>/trigger.log`, one line
 per monitoring cycle recording what it did or why it stopped.
 
+### Reading the queue
+
+```bash
+bash check_squeue.sh                 # every job: state, nodes, start time, reason
+bash check_squeue.sh -j 121918       # one job, with what the queue line leaves out
+```
+
+The plain run is `squeue` in one aligned table, over the whole cluster rather
+than our jobs alone — a job of ours waiting is usually waiting on somebody
+else's.
+
+`-j` exists because the reason field names a *condition* and never the nodes
+behind it: `ReqNodeNotAvail, May be reserved for other job` is true of a job
+held by a drained node and of one held by a maintenance reservation, and the
+two are acted on differently. So `-j` reads the job's nodes — its allocation
+once running, its requested list while pending, since Slurm assigns no node to
+a pending job — and prints each node's state and drain reason, then every
+reservation whose node list overlaps them. A drained node in that table is ours
+to fix; a reservation covering the same nodes means the job is waiting by
+policy and nothing is broken.
+
+Reservations are matched by expanding both node lists with `scontrol show
+hostnames` and intersecting them, rather than by string-matching the range
+expressions, which do not have to be written the same way for the same nodes.
+
+The queue line is printed last so the table is the last thing on screen either
+way, and a job id no longer in the queue is reported as such — Slurm keeps a
+finished job for `MinJobAge` only, after which `sacct -j` is the place to look.
+
 ### A queue full of pending jobs
 
 The opposite symptom, and usually not a fault. The sweep submits one job per

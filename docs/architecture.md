@@ -99,6 +99,7 @@ the traces have gone stale.
 ├── ib-visibility.sh               # Compare HCAs the host sees vs the container sees
 ├── single-node-purge.sh           # Clear benchmark results for a node
 ├── kill-jobs.sh                   # Cancel our queued and running jobs; -p also pauses
+├── check_squeue.sh                # The queue in one table; -j adds node state and reservations
 ├── status-check.sh                # Live per-node benchmark status (all nodes)
 ├── daily-report.sh                # Per-node table: slurm state, status, performance metrics
 ├── sync-check.sh                  # Diff a drained node's health output vs baseline

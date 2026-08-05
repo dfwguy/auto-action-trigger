@@ -73,6 +73,7 @@ The following scripts are run manually by an operator from the headnode and do n
 | Script | Requires |
 |--------|---------|
 | `status-check.sh` | `sinfo`, `dshbak`, read access to `results/` |
+| `check_squeue.sh` | `squeue`; `-j` also uses `sinfo` and `scontrol` |
 | `daily-report.sh` | `sinfo`, read access to `results/`; write access to wherever `-o` points |
 | `health-check.sh` | `sinfo`, `scontrol`, read access to `logs/` and `valid-config/` |
 | `node-health-refresh.sh` | write access to `logs/<node>/` |
@@ -183,7 +184,13 @@ bash status-check.sh -s                    # node lists per status, no reasons
 bash daily-report.sh                      # TSV table: slurm state + status + metrics
 bash daily-report.sh -c -o reports/r.csv  # same rows as CSV, and keep a copy
 bash watch-rack.sh "rack01-node[1-32]"    # live view of DOWN/drained nodes
+bash check_squeue.sh                      # the whole queue in one table
+bash check_squeue.sh -j 121918            # one job, plus its nodes' state and any reservation
 ```
+
+A job stuck at `ReqNodeNotAvail` is answered by `check_squeue.sh -j` — the
+reason names a condition, not the nodes behind it. See
+[docs/operations.md](docs/operations.md#reading-the-queue).
 
 A node that has stopped testing:
 

@@ -46,7 +46,7 @@ Three things are exempt, and only these:
 
 - `# shellcheck disable` directives, which carry their reason inline. That is
   what they are for, and the reason has to sit with the warning it suppresses.
-- The six `--help` header blocks, which *are* the help text — see below.
+- The `--help` header blocks, which *are* the help text — see below.
 - `.sbatch` files, `jobs/*/*.sh` host launchers and `health-checks/*/NN-*.sh`,
   which are read on their own by people who will not have the docs open.
 
@@ -181,12 +181,14 @@ tree — it changes the environment every sourcing script and Slurm job runs in.
 Keep the tree listing in `docs/architecture.md` in step with the files — it has
 drifted twice by adding a top-level script and not listing it.
 
-## Six scripts print their own header as `--help`
+## Some scripts print their own header as `--help`
 
 `status-check.sh`, `health-check.sh`, `daily-report.sh`, `sync-check.sh`,
-`trigger-log.sh` and `build_llmb.sh` implement `-h` as `sed -n '2,NNp'` over
-themselves. The line
-range is hardcoded, so in those six files **comment length is runtime
+`trigger-log.sh`, `kill-jobs.sh`, `check_squeue.sh` and `build_llmb.sh`
+implement `-h` as `sed -n '2,NNp'` over themselves — `tests/help-text-test.sh`
+discovers them rather than listing them, so the set is whatever greps for the
+idiom. The line
+range is hardcoded, so in those files **comment length is runtime
 behaviour**: shortening a header truncates `--help`, and adding prose below the
 block starts printing shell source at whoever typed it. Both pass a
 "comments only" review, because that is what they are.
