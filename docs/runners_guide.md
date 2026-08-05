@@ -106,12 +106,16 @@ under the worst status it holds — built for pasting into `pdsh -w` or
 
 ```bash
 bash daily-report.sh
+bash daily-report.sh ink50-dh01-h20
 bash daily-report.sh -c -o reports/report-$(date '+%F').csv
 ```
 
-One row per node. The first column after the node name is its Slurm state, so a
-row of `NOT_RUN` can be read against a node that was drained all week rather
-than guessed at. Cells hold **a number where the job produced one** — GB/s for
+One row per node, and a node pattern narrows it to a rack the same way
+`status-check.sh` does — bare prefix, or a glob if you spell one out. The
+summary underneath then describes those nodes only.
+
+The first column after the node name is its Slurm state, so a row of `NOT_RUN`
+can be read against a node that was drained all week rather than guessed at. Cells hold **a number where the job produced one** — GB/s for
 the NCCL jobs, Gflops for HPL — and a status word only when there was no number
 to print.
 

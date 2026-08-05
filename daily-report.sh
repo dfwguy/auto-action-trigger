@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: daily-report.sh [-c] [-o file]
+# Usage: daily-report.sh [-c] [-o file] [pattern]
 #
 # Reports per-node benchmark status and performance metrics.
 # Rows: nodes  |  Columns: slurm state, then per-job status + extracted metric
@@ -15,6 +15,19 @@
 #                     would have got anyway; reach for this when you suspect the
 #                     cache rather than the gate.
 #                     See docs/operations.md#the-verdict-cache.
+#
+#   pattern           optional node-name filter, read the same way as
+#                     status-check.sh's: a bare string matches every node whose
+#                     name starts with it, so a rack prefix (dh01-rack01) covers
+#                     the whole rack, while a shell glob (dh01-rack0[12]*,
+#                     *node05) is honored as written and can match anywhere in
+#                     the name. With no pattern, every node under results/ is
+#                     reported.
+#
+#                     The summary describes the nodes that matched and nothing
+#                     else, so a filtered report's median is the median of that
+#                     subset -- the node count in the first summary block is
+#                     what says how many nodes it was taken over.
 #
 # The table goes to stdout, and a summary follows on stderr -- how many nodes
 # are in each slurm state, how many cells hold each status, min/median/mean/max
@@ -51,6 +64,7 @@ jobs_dir="$JOBS_DIR"
 
 sep=$'\t'
 report_file=""
+args=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -62,10 +76,26 @@ while [[ $# -gt 0 ]]; do
         --no-cache)
             export SCAN_CACHE=0; shift ;;
         -h|--help)
-            sed -n '2,44p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
-        *)  echo "ERROR: unknown argument $1" >&2; exit 1 ;;
+            sed -n '2,57p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        -*) echo "ERROR: unknown argument $1" >&2; exit 1 ;;
+        *)  args+=("$1"); shift ;;
     esac
 done
+
+## A second pattern would silently report on the first alone; say so instead.
+if [[ ${#args[@]} -gt 1 ]]; then
+    echo "ERROR: only one node pattern is accepted, got: ${args[*]}" >&2
+    exit 1
+fi
+
+## Same rule as status-check.sh: a bare string is a prefix, anything with glob
+## characters is used as written.
+pattern="${args[0]}"
+if [[ -z "$pattern" ]]; then
+    pattern='*'
+elif [[ "$pattern" != *[\*\?\[]* ]]; then
+    pattern="${pattern}*"
+fi
 
 if [[ -n "$report_file" ]]; then
     mkdir -p "$(dirname "$report_file")" || exit 1
@@ -106,10 +136,16 @@ done
 ## An array, not a word-split string: the row order is the node order and the
 ## scan is handed this list verbatim.
 declare -a nodes
-mapfile -t nodes < <(ls -1 "$results_dir" 2>/dev/null | sort)
+for node_dir in "$results_dir"/$pattern/; do
+    [[ -d "$node_dir" ]] || continue
+    node_dir="${node_dir%/}"
+    ## Not basename: that is a fork per node for what expansion does free.
+    nodes+=("${node_dir##*/}")
+done
 if [[ ${#nodes[@]} -eq 0 ]]; then
-    echo "No results found in $results_dir"
-    exit 0
+    # args[0], not $1 -- $1 is whichever flag came first once -c/-o are in play.
+    echo "No nodes under $results_dir match '${args[0]:-*}'" >&2
+    exit 1
 fi
 
 # ── Slurm state per node ──────────────────────────────────────────────────────

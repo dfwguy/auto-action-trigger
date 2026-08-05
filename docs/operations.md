@@ -100,8 +100,20 @@ column took.
 
 ```bash
 bash daily-report.sh
+bash daily-report.sh ink50-dh01-h20                 # one rack (bare prefix)
+bash daily-report.sh 'ink50-dh0[12]*'               # glob, as written
 bash daily-report.sh -c -o reports/report-$(date '+%F').csv
 ```
+
+The node pattern is read exactly as `status-check.sh` reads its own: a bare
+string gets a `*` appended, so a rack prefix covers the rack, and anything
+holding `*`, `?` or `[` is used as typed and can match anywhere in the name.
+With no pattern every node under `results/` is reported. A pattern matching no
+node exits 1 and names the pattern rather than printing an empty table.
+
+The summary blocks are taken over the matched nodes and nothing else, so a
+filtered report's `median` is that rack's median, not the fleet's — the `nodes`
+count in the first summary block is what says how many nodes it was taken over.
 
 One row per node, tab separated on stdout. The first column after the node name
 is its Slurm state from `sinfo`, so a column of `NOT_RUN` can be read against
