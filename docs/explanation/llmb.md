@@ -92,6 +92,35 @@ day of staging.
 An empty `LLMB_INSTALL` means "no llmb install" and is a real answer: a site not
 running `llm-pretrain` needs none of this.
 
+## The installer's enroot import
+
+The collection's `install.sh` downloads its container image by shelling out to
+`enroot import`. On a headnode with no `/etc/enroot/enroot.conf` that fails
+before it transfers anything:
+
+```
+mkdir: cannot create directory ‘/var/lib/enroot’: Permission denied
+mkdir: cannot create directory ‘/run/enroot’: Permission denied
+Error: Failed to download .../nvidia+nemo+26.04.01.sqsh
+```
+
+`enroot` creates `ENROOT_DATA_PATH` and `ENROOT_RUNTIME_PATH` at startup for
+every subcommand, `import` included, and their compiled defaults —
+`/var/lib/enroot` and `/run/enroot` — are root-only. The compute nodes get
+writable values from `/etc/enroot/enroot.conf`; the headnode does not. So
+`build_llmb.sh` exports all four enroot paths under `/tmp/*/$UID` before running
+the installer, exactly as `build_containers.sh` does for the same reason —
+[containers.md#how-the-caching-works](containers.md#how-the-caching-works) has
+the cache side of it, which is why `ENROOT_CACHE_PATH` and `ENROOT_TEMP_PATH`
+come along: their defaults sit under `$HOME`, which is NFS here, and an import
+otherwise writes a multi-gigabyte layer tree over the wire and reads it back.
+
+The installer's own advice — "try a SLURM-based installation" — is not the fix,
+and **neither is `sudo`**. A root install produces a root-owned `.sqsh`, venv
+and dataset in `$LLMB_INSTALL`; `file_copy.sh` and every job read them as
+`cmods`, and the failure lands a sweep later on a compute node rather than here.
+Setting the four variables is the whole of it.
+
 ## Pinning the collection
 
 `LLMB_REF` is the git tag `build_llmb.sh` checks out after cloning

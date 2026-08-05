@@ -79,6 +79,16 @@ done
 
 mkdir -p "$LLMB_INSTALL" || die "cannot create $LLMB_INSTALL"
 
+## The installer shells out to `enroot import`, whose compiled defaults are
+## root-only on a headnode. See docs/explanation/llmb.md#the-installers-enroot-import.
+export ENROOT_CACHE_PATH=${ENROOT_CACHE_PATH:-/tmp/enroot-cache/$UID}
+export ENROOT_TEMP_PATH=${ENROOT_TEMP_PATH:-/tmp/enroot-temp/$UID}
+export ENROOT_DATA_PATH=${ENROOT_DATA_PATH:-/tmp/enroot-data/$UID}
+export ENROOT_RUNTIME_PATH=${ENROOT_RUNTIME_PATH:-/tmp/enroot-runtime/$UID}
+mkdir -p "$ENROOT_CACHE_PATH" "$ENROOT_TEMP_PATH" \
+         "$ENROOT_DATA_PATH" "$ENROOT_RUNTIME_PATH" ||
+    die "cannot create enroot's scratch directories under /tmp. See docs/explanation/llmb.md#the-installers-enroot-import."
+
 ## ── Install ───────────────────────────────────────────────────────────────
 
 if [[ "$DO_INSTALL" -eq 1 ]]; then

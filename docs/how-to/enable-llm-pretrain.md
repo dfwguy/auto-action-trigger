@@ -34,6 +34,10 @@ Two things to expect:
   node with no route out, and it is worth catching on the head node instead.
   `-i` re-stages the image into `containers/` only.
 
+If the installer stops with `mkdir: cannot create directory '/var/lib/enroot'`,
+the enroot overrides did not reach it — do not re-run it under `sudo`. See
+[explanation/llmb.md#the-installers-enroot-import](../explanation/llmb.md#the-installers-enroot-import).
+
 Llama is a **gated** Hugging Face repo: it needs an access approval on the
 account behind `HF_TOKEN`, and approval is per-account rather than carried by
 the token. Get that first or the staging fails.
