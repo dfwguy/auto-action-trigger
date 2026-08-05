@@ -925,6 +925,47 @@ queued_ours() {
 ## result missing or older than RETRY_INTERVAL_HOURS. The sweep advances as fast
 ## as jobs finish while no one job re-runs inside the hour.
 ## See docs/explanation/sequencing.md#one-job-at-a-time.
+##
+## With RETRY_BACKOFF on that window widens by an hour per failure already on
+## disk, up to RETRY_BACKOFF_MAX_HOURS. It delays and never gives up; what takes
+## a node out is the drain, which is a separate decision and does not read this.
+## See docs/explanation/sequencing.md#backing-off-a-job-that-keeps-failing.
+##
+## Sets RETRY_WINDOW and RETRY_FAILS rather than printing them: a subshell would
+## lose the count the trace reports. Same reason verdict() works the way it does.
+RETRY_WINDOW=0
+RETRY_FAILS=0
+RETRY_BACKOFF_WARNED=0
+retry_window() {
+    local file="$1" base cap
+    RETRY_WINDOW=$(( RETRY_INTERVAL_HOURS * 3600 ))
+    RETRY_FAILS=0
+    setting_enabled "$RETRY_BACKOFF" || return 0
+
+    cap=0
+    [[ "$RETRY_BACKOFF_MAX_HOURS" =~ ^[0-9]+$ ]] && cap=$(( RETRY_BACKOFF_MAX_HOURS * 3600 ))
+    if [[ "$cap" -lt "$RETRY_WINDOW" ]]; then
+        [[ "$RETRY_BACKOFF_WARNED" -eq 0 ]] &&
+            trace "WARNING: RETRY_BACKOFF=$RETRY_BACKOFF but RETRY_BACKOFF_MAX_HOURS='$RETRY_BACKOFF_MAX_HOURS' in ${SETTINGS_FILE:-<no settings file found>} is not a whole number of hours at or above RETRY_INTERVAL_HOURS=$RETRY_INTERVAL_HOURS -- backoff ignored, and every job keeps the flat ${RETRY_INTERVAL_HOURS}h window."
+        RETRY_BACKOFF_WARNED=1
+        return 0
+    fi
+
+    ## The attempt history is the archives plus the failure on disk now -- the
+    ## file this was called for, which next_eligible has already judged not DONE.
+    ## ls|grep for the same reason as archive_result().
+    base=$(basename "$file" .txt)
+    # shellcheck disable=SC2010
+    RETRY_FAILS=$(( $(ls "$logs" 2>/dev/null | grep -cE "^${base}\.fail[0-9]+\.txt$") + 1 ))
+    RETRY_WINDOW=$(( RETRY_WINDOW + (RETRY_FAILS - 1) * 3600 ))
+    [[ "$RETRY_WINDOW" -gt "$cap" ]] && RETRY_WINDOW=$cap
+    return 0
+}
+
+## Named here so both surveys accumulate into one line, whichever list holds the
+## job that was held back.
+declare -a backoff_held=()
+
 NEXT_JOB=""; NEXT_RUN=""; NEXT_TOTAL=""
 next_eligible() {
     local list="$1" job launch total r file mtime now
@@ -938,7 +979,14 @@ next_eligible() {
                 verdict "$job" "$file"
                 [[ "$VERDICT_STATUS" == "DONE" && "$FORCE_ALL" -eq 0 ]] && continue
                 mtime=$(stat -c %Y "$file" 2>/dev/null || echo 0)
-                [[ "$FORCE" -eq 0 && $(( now - mtime )) -lt $(( RETRY_INTERVAL_HOURS * 3600 )) ]] && continue
+                if [[ "$FORCE" -eq 0 ]]; then
+                    retry_window "$file"
+                    if [[ $(( now - mtime )) -lt "$RETRY_WINDOW" ]]; then
+                        [[ "$RETRY_FAILS" -gt 1 ]] &&
+                            backoff_held+=("$job run $r after $RETRY_FAILS failures: $(( RETRY_WINDOW / 3600 ))h window, $(( (RETRY_WINDOW - now + mtime + 59) / 60 ))m left")
+                        continue
+                    fi
+                fi
             fi
             NEXT_JOB="$job"; NEXT_RUN="$r"; NEXT_TOTAL="$total"
             return 0
@@ -1075,6 +1123,14 @@ else
     submit_target=""
 fi
 
+## One line for both lists, and only when a job is actually waiting out more
+## than the flat window: a job held for 12h is otherwise indistinguishable from
+## one nobody has listed. See docs/explanation/sequencing.md#backing-off-a-job-that-keeps-failing.
+if [[ "${#backoff_held[@]}" -gt 0 ]]; then
+    held=$(printf '%s; ' "${backoff_held[@]}")
+    trace "backing off: ${held%; }"
+fi
+
 ## Reaching here means no marker said a job was out. Asked once, immediately
 ## before submitting, because a marker can be missing while a job is not: a cycle
 ## killed between sbatch returning and the marker being written leaves one, and
@@ -1131,7 +1187,7 @@ if [[ -n "$submit_target" ]]; then
         fi
     fi
 else
-    trace "nothing eligible to submit: everything is passing or inside its own ${RETRY_INTERVAL_HOURS}h retry window"
+    trace "nothing eligible to submit: everything is passing or inside its own retry window (${RETRY_INTERVAL_HOURS}h$(setting_enabled "$RETRY_BACKOFF" && printf ', plus an hour per failure to at most %sh' "$RETRY_BACKOFF_MAX_HOURS"))"
 fi
 
 ## Reflect the newly queued state. Queued lines carry the reason the previous

@@ -69,6 +69,11 @@ pdsh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --explain'
 it would issue, as a dry run — nothing is submitted, drained, or archived, so it
 is safe while the trigger is live, and it reads through a pause.
 
+A `backing off:` line there is a job deliberately waiting longer than usual
+because it has failed repeatedly — it says how much of the window is left, and
+`--force` ignores it. See
+[explanation/sequencing.md#backing-off-a-job-that-keeps-failing](../explanation/sequencing.md#backing-off-a-job-that-keeps-failing).
+
 To make it act rather than report, see
 [run-a-job-by-hand.md](run-a-job-by-hand.md).
 

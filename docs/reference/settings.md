@@ -247,6 +247,8 @@ at registration time instead — see the commented example at the bottom of
 |---------|---------|---------|
 | `MAX_QUEUED_JOBS` | `500` | Ceiling on jobs this framework has queued or running across the whole fleet. `0` is no cap |
 | `RETRY_INTERVAL_HOURS` | `1` | Hours before a job may run again, measured from that job's own result file |
+| `RETRY_BACKOFF` | `yes` | Add an hour to that window for each failure a run already has on disk. `no` keeps the flat window |
+| `RETRY_BACKOFF_MAX_HOURS` | `12` | Ceiling on the widened window. Ignored, with a warning, if it is not a whole number of hours at or above `RETRY_INTERVAL_HOURS` |
 | `MAX_JOB_HOURS` | `7` | A benchmark `RUNNING` longer than this drains the node |
 | `DRAIN_WINDOW_MINUTES` | `15` | Only failures newer than this drain |
 | `INFLIGHT_GRACE_MINUTES` | `30` | Added to a job's own walltime before a submitted job that never started is treated as stale |
@@ -254,6 +256,11 @@ at registration time instead — see the commented example at the bottom of
 
 `DRAIN_WINDOW_MINUTES` has to sit above the BCM monitoring interval or the drain
 is missed entirely, and well below `RETRY_INTERVAL_HOURS`.
+
+`RETRY_BACKOFF` slows down a job that keeps failing and nothing else: it never
+stops retrying, never idles the node's other benchmarks, and does not decide
+whether the node drains. `--force` opens it. See
+[explanation/sequencing.md#backing-off-a-job-that-keeps-failing](../explanation/sequencing.md#backing-off-a-job-that-keeps-failing).
 
 `MAX_JOB_HOURS` has to clear the longest single run in `BENCHMARKS` **and**
 `BURNIN`, not the longest sweep. The binding constraint is `mnubergemm`, whose
