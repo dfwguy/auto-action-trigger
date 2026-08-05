@@ -57,6 +57,7 @@ Task-oriented, for someone who already knows the system.
 | [diagnose-nothing-running.md](how-to/diagnose-nothing-running.md) | `trigger-log.sh` then `trigger-debug.sh`, and reading the queue. Try this first |
 | [diagnose-a-failed-node.md](how-to/diagnose-a-failed-node.md) | Reading a failure back to the device that caused it |
 | [diagnose-ib-visibility.md](how-to/diagnose-ib-visibility.md) | `ib-visibility.sh`, for the two `-nonvlink` jobs |
+| [estimate-when-a-job-will-start.md](how-to/estimate-when-a-job-will-start.md) | Your job is queued behind the sweep — how long, and what does not help. Written for anyone sharing the cluster |
 
 ## Reference
 
