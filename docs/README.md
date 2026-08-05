@@ -23,6 +23,7 @@ guides assume you already have.
 |------|--------|
 | [first-bringup.md](tutorials/first-bringup.md) | Fresh tree → one node → one passing benchmark → reading its result. Start here at a new site |
 | [understanding-the-triggers.md](tutorials/understanding-the-triggers.md) | Follow one BCM monitoring cycle end to end, and learn why "nothing happened" is written down |
+| [reading-the-fleet.md](tutorials/reading-the-fleet.md) | The three status reports, what each one reads, why two can disagree, and the order to run them in |
 | [troubleshooting-with-slurm.md](tutorials/troubleshooting-with-slurm.md) | Move between what Slurm knows about a node and what `results/` knows. Read-only throughout |
 
 ## How-to guides
@@ -37,6 +38,8 @@ Task-oriented, for someone who already knows the system.
 | [pause-and-resume.md](how-to/pause-and-resume.md) | The four pause switches, and `kill-jobs.sh` for emptying the queue now |
 | [manage-drains.md](how-to/manage-drains.md) | Turning the two drain switches on, and reading what drained |
 | [reset-results.md](how-to/reset-results.md) | `single-node-purge.sh`, and clearing the whole tree |
+| [get-a-node-list.md](how-to/get-a-node-list.md) | Turn a report into a node list `pdsh`, `scancel` or `scontrol` will take |
+| [find-outlier-nodes.md](how-to/find-outlier-nodes.md) | Find the slow node when every benchmark is passing |
 | [export-a-report.md](how-to/export-a-report.md) | Getting `daily-report.sh` into a spreadsheet |
 
 **Setting it up**
