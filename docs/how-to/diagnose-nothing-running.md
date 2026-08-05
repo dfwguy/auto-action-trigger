@@ -124,13 +124,26 @@ behind it: `ReqNodeNotAvail, May be reserved for other job` is true of a job
 held by a drained node and of one held by a maintenance reservation, and the two
 are acted on differently. So `-j` reads the job's nodes — its allocation once
 running, its requested list while pending — and prints each node's state and
-drain reason, then every reservation whose node list overlaps them. A drained
-node in that table is ours to fix; a reservation covering the same nodes means
-the job is waiting by policy and nothing is broken.
+drain reason, then the running jobs holding them, then every reservation whose
+node list overlaps them. A drained node in that table is ours to fix; a
+reservation covering the same nodes means the job is waiting by policy and
+nothing is broken.
 
-Reservations are matched by expanding both node lists with `scontrol show
-hostnames` and intersecting them, rather than by string-matching the range
-expressions, which do not have to be written the same way for the same nodes.
+The third case is the one the first two do not cover, and it is the common one.
+A node reported `allocated` with no drain reason and no reservation is working
+perfectly — it is simply running somebody else's job, and `Resources` in the
+reason column is Slurm saying so without naming the job. That reads as a fault
+and is not one, so the queue is scanned for running jobs whose allocation
+intersects ours and each is printed with its time remaining. A pending job of
+ours behind a 90-node sweep with four hours left needs no action; the same job
+behind one that should have ended an hour ago is a different problem, and the
+time-left column is what separates them.
+
+Blocking jobs and reservations are both matched by expanding the node lists with
+`scontrol show hostnames` and intersecting them, rather than by string-matching
+the range expressions, which do not have to be written the same way for the same
+nodes. The job under inspection is excluded from its own blocker list — a
+running job overlaps itself on every node.
 
 The queue line is printed last so the table is the last thing on screen either
 way, and a job id no longer in the queue is reported as such — Slurm keeps a

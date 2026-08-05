@@ -16,6 +16,10 @@
 #            and its requested nodes while it is pending -- the requested list
 #            is the one that explains a PD job.
 #
+#            It also names the running jobs holding those nodes. A pending job
+#            whose nodes are all `allocated` is queued behind them, and neither
+#            the node table nor a `Resources` reason says whose they are.
+#
 #            The queue line comes last, so the same table is the last thing on
 #            screen either way.
 #
@@ -27,7 +31,7 @@ fmt='%i|%t|%D|%S|%N|%n|%r'
 jobs=()
 for arg in "$@"; do
     case "$arg" in
-        -h|--help) sed -n '2,23p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        -h|--help) sed -n '2,27p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         -j|--job)  next_is_job=1 ;;
         -*)        echo "ERROR: unknown option $arg -- see check_squeue.sh -h" >&2; exit 1 ;;
         *)
@@ -59,16 +63,41 @@ fi
 
 trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
 
-# Reservations whose node list overlaps $1, one line each. See
-# docs/how-to/diagnose-nothing-running.md#reading-the-queue.
-covering_reservations() {
-    local -A want=()
+# The job's nodes, one key each; set_want fills it and overlap counts against
+# it. See docs/how-to/diagnose-nothing-running.md#reading-the-queue.
+declare -A want=()
+
+set_want() {
+    want=()
     local n
     while IFS= read -r n; do
         [[ -n "$n" ]] && want["$n"]=1
     done < <(scontrol show hostnames "$1" 2>/dev/null)
-    [[ "${#want[@]}" -eq 0 ]] && return
+    [[ "${#want[@]}" -gt 0 ]]
+}
 
+overlap() {
+    local n hit=0
+    while IFS= read -r n; do
+        [[ -n "${want[$n]}" ]] && ((++hit))
+    done < <(scontrol show hostnames "$1" 2>/dev/null)
+    printf '%s' "$hit"
+}
+
+# Running jobs holding any of the job's nodes, $1 being the job itself.
+blocking_jobs() {
+    local jid user name left nodes hit
+    while IFS='|' read -r jid user name left nodes; do
+        [[ "$jid" == "$1" || -z "$nodes" ]] && continue
+        hit=$(overlap "$nodes")
+        [[ "$hit" -gt 0 ]] &&
+            printf '  %-8s %-10s %-30s %10s left  %d of the job'"'"'s nodes\n' \
+                "$jid" "$user" "$name" "$left" "$hit"
+    done < <(squeue -h -t RUNNING,COMPLETING -o '%i|%u|%j|%L|%N' 2>/dev/null)
+}
+
+# Reservations whose node list overlaps the job's nodes, one line each.
+covering_reservations() {
     local line name nodes state users hit
     while IFS= read -r line; do
         [[ "$line" == *ReservationName=* ]] || continue
@@ -77,11 +106,7 @@ covering_reservations() {
         state="${line#*State=}";           state="${state%% *}"
         users="${line#*Users=}";           users="${users%% *}"
 
-        hit=0
-        while IFS= read -r n; do
-            [[ -n "${want[$n]}" ]] && ((hit++))
-        done < <(scontrol show hostnames "$nodes" 2>/dev/null)
-
+        hit=$(overlap "$nodes")
         [[ "$hit" -gt 0 ]] &&
             printf '  %s  State=%s  Users=%s  %d of the job'"'"'s nodes\n' \
                 "$name" "$state" "$users" "$hit"
@@ -125,12 +150,25 @@ for id in "${jobs[@]}"; do
         sinfo -N -o "%N|%T|%E" -n "$nodes" 2>/dev/null | column -t -s'|' | sed 's/^/  /'
 
         echo
-        echo "  reservations covering them:"
-        res=$(covering_reservations "$nodes")
-        if [[ -n "$res" ]]; then
-            echo "$res"
+        if ! set_want "$nodes"; then
+            echo "  cannot expand that node list -- no overlap check is possible"
         else
-            echo "  none -- no reservation holds any of these nodes"
+            echo "  running jobs holding them:"
+            held=$(blocking_jobs "$id")
+            if [[ -n "$held" ]]; then
+                echo "$held"
+            else
+                echo "  none -- no running job holds any of these nodes"
+            fi
+
+            echo
+            echo "  reservations covering them:"
+            res=$(covering_reservations)
+            if [[ -n "$res" ]]; then
+                echo "$res"
+            else
+                echo "  none -- no reservation holds any of these nodes"
+            fi
         fi
     fi
 
