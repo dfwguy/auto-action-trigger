@@ -68,7 +68,7 @@ DRAIN_WINDOW_MINUTES=15
 INFLIGHT_GRACE_MINUTES=30
 DRAIN_MARKER="auto-retry"
 
-## ── Getting out of the way ────────────────────────────────────────────────
+## ── Getting out of the way (experimental) ─────────────────────────────────
 ## Cancels this node's own running job when somebody else is queued for the
 ## node. See docs/reference/settings.md#getting-out-of-the-way.
 GET_OUT_OF_THE_WAY=no

@@ -89,8 +89,8 @@ fi
 : "${RETRY_BACKOFF:=yes}"
 : "${RETRY_BACKOFF_MAX_HOURS:=12}"
 : "${MAX_JOB_HOURS:=7}"
-## Off by default: it is the one setting that cancels a job of ours that is
-## working. See docs/explanation/sequencing.md#getting-out-of-the-way.
+## Experimental, and off: it is the one setting that cancels a job of ours that
+## is working. See docs/explanation/sequencing.md#getting-out-of-the-way.
 : "${GET_OUT_OF_THE_WAY:=no}"
 : "${GET_OUT_OF_THE_WAY_AFTER_MINUTES:=5}"
 : "${GET_OUT_OF_THE_WAY_POLL_MINUTES:=5}"

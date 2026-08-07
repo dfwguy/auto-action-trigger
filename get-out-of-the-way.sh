@@ -1,7 +1,8 @@
 #!/bin/bash
 #
-# Giving the node back when somebody else is queued for it. Sourced by
-# actions/launch_job.sh -- never executed. What counts as a waiter, the four
+# Giving the node back when somebody else is queued for it. Experimental --
+# GET_OUT_OF_THE_WAY ships off, and the thresholds are expected to move. Sourced
+# by actions/launch_job.sh -- never executed. What counts as a waiter, the four
 # checks a cancel has to pass first, and why the check is polled rather than run
 # every cycle are in docs/explanation/sequencing.md#getting-out-of-the-way.
 #

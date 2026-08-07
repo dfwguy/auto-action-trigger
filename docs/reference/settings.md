@@ -288,6 +288,11 @@ against an idle node; see
 
 ## Getting out of the way
 
+**Experimental.** Off on every site, and the behaviour and setting names may
+change. See
+[explanation/sequencing.md#getting-out-of-the-way](../explanation/sequencing.md#getting-out-of-the-way)
+for what turning it on commits a site to.
+
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | `GET_OUT_OF_THE_WAY` | `no` | Cancel this node's own running job when somebody else is queued for the node |

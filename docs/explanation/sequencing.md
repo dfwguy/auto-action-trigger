@@ -794,9 +794,19 @@ is left where it is — an interrupted run is already `INCOMPLETE`, and the
 resubmission archives it as the previous attempt like any other. Nothing is
 drained and nothing is counted as a failure.
 
-It ships **off**. It is the only setting in the tree that cancels a job of ours
-that is working, and a site that is the only tenant of its cluster gains nothing
-from it.
+It ships **off**, and it is **experimental**. It is the only setting in the tree
+that cancels a job of ours that is working, and a site that is the only tenant
+of its cluster gains nothing from it.
+
+Experimental means the switch is not yet load-bearing anywhere and has not run
+long enough on a busy multi-tenant cluster for the polling interval, the pending
+threshold or the "is anybody actually waiting for *this* node" test to have been
+argued with by reality. Those are the parts most likely to move: the setting
+names and the trace lines may change, and a site that turns it on should expect
+to revisit its values rather than treat them as settled. What will not change is
+the safety envelope — only a `bringup-<node>` or `burnin-<node>` job owned by
+`JOB_USER` and confirmed `RUNNING` here is ever cancelled, and nothing is
+drained or counted as a failure.
 
 ### What counts as a waiter
 
