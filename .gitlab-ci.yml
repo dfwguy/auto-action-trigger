@@ -103,7 +103,7 @@ permissions:
       # Sourced libraries. verdict-scan.sh is also run, but as
       # `bash verdict-scan.sh` from xargs, like the health checks below.
       for f in settings.sh reason-map.sh slurm-recovery.sh verdict-scan.sh \
-               $(git ls-files 'parsers/*/verdict.sh'); do
+               get-out-of-the-way.sh $(git ls-files 'parsers/*/verdict.sh'); do
         check 100644 "$f"
       done
 
@@ -129,11 +129,12 @@ permissions:
         check 100755 "$f"
       done
 
-      # Top-level scripts are entry points except for the four sourced
-      # libraries handled above.
+      # Top-level scripts are entry points except for the sourced libraries
+      # handled above.
       for f in $(git ls-files -- '*.sh' | grep -v '/'); do
         case "$f" in
           settings.sh|reason-map.sh|slurm-recovery.sh|verdict-scan.sh) continue ;;
+          get-out-of-the-way.sh)                                       continue ;;
         esac
         check 100755 "$f"
       done
@@ -185,6 +186,23 @@ scan-cache:
   stage: test
   script:
     - ./tests/scan-cache-test.sh
+
+# The gate that decides whether a node already has a job out. A wrong answer
+# there is silent: the node looks like a healthy idle cycle while holding two
+# jobs, or none. See docs/explanation/sequencing.md#one-job-at-a-time.
+inflight:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/inflight-test.sh
+
+# The only thing in the tree that cancels a job of ours that is working. Every
+# case that must not cancel asserts that scancel was never called.
+yield:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/yield-test.sh
 
 # Five scripts print --help from their own header through a hardcoded line
 # range, so comment length is runtime behaviour there. This is the gate that

@@ -49,6 +49,44 @@ The result file is not evidence on its own. `sbatch --output` creates it when
 the job *starts*, so its existence says nothing; what says the job ended is an
 end marker in it, which is the same thing `verdict.sh` reads.
 
+### A missing result file is not a finished job
+
+The row above that says "no end marker, inside its window → wait" was
+unreachable for most of the fleet's life, and the failure is worth keeping
+written down.
+
+`verdict()` answers `NOT_RUN` for a file that does not exist, and the gate asked
+"is this complete" as `VERDICT_STATUS != INCOMPLETE`. A job that is still queued
+has no result file at all — `sbatch --output` creates it at *start* — so `NOT_RUN`
+came back, the gate read "finished", and the marker was deleted on the first
+cycle after submission. The trace said so plainly, once per submission, for
+months: `finished after 39s: NOT_RUN -- no result file`.
+
+Everything downstream then behaved exactly as designed, on a false premise:
+
+- the node read as idle, so the survey re-offered the same job every cycle —
+  and with no result file there is no mtime, so `RETRY_INTERVAL_HOURS` never
+  applied either;
+- the only thing left standing between that and a duplicate submission was the
+  [guard before a submission](#the-guard-before-a-submission), a full-queue
+  `squeue` now running every cycle on every node whose job had not started —
+  the exact cost the marker exists to remove. One fleet's trace logs held 38,666
+  of its `no marker, but N job(s) of ours are already queued` lines;
+- each time that one query came back empty because the controller was busy, a
+  duplicate went out. Nodes accumulated two and three pending copies of the same
+  benchmark, hours apart;
+- and once such a job finally started, the marker was already gone, so the node
+  read its **own** running job as somebody else's and left the node to it.
+
+So `result_complete` excludes `NOT_RUN` as well as `INCOMPLETE`. A job with no
+result file has not started, the marker outlives it, and the bounded wait below
+is what eventually asks the controller. Nothing else needed changing — every
+consequence above was a correct response to a wrong answer.
+
+The general shape is worth naming, because it is not a Slurm problem: a
+three-valued answer (`not started` / `running` / `finished`) was tested with a
+two-valued question, and the missing case took the branch that does damage.
+
 Serialization no longer depends on the scheduler: only one job of ours is ever
 out, so ordering *is* the `BENCHMARKS` list. `#SBATCH --exclusive` stays in every
 `jobs/*.sbatch` because it still does the other half of the work — it keeps
@@ -264,13 +302,24 @@ can come back empty has a caller that fails closed:
   with ours.
 - **The local running check.** An inconclusive `scontrol listjobs` reads as
   *still running*, never as gone — see [one job at a time](#one-job-at-a-time).
-- **The stale branch.** `squeue -j` returning nothing is the one case where
-  empty *is* the answer, which is why that branch is only reached after the
-  job's own walltime plus `INFLIGHT_GRACE_MINUTES` have passed, rather than on
-  the first cycle a job is not seen.
+- **The stale branch.** `squeue -j` returning nothing on a **successful** query
+  is the one case where empty *is* the answer, which is why that branch is only
+  reached after the job's own walltime plus `INFLIGHT_GRACE_MINUTES` have
+  passed, rather than on the first cycle a job is not seen. A query that
+  *failed* is a different thing and is not allowed to look like it: the exit
+  status and stderr are both kept, `Invalid job id specified` means the job is
+  genuinely gone, and anything else keeps the marker and archives nothing.
+- **The guard before a submission.** `squeue -h -o '%i %j'` coming back empty
+  reads as "no job of ours is queued", which is the sentence that puts a second
+  job on a node that already has one. So a failed query is a stop: the job stays
+  eligible and the trace says the queue could not be read. `kill-jobs.sh` has
+  always done this; the sequencer did not, and duplicates on the fleet were the
+  proof.
 
 `NODE_ASKED` separates "not fetched yet" from "fetched and got nothing", so a
 run that hit a timeout does not ask again on every subsequent call.
+`QUEUED_FAILED` does the same job for the queue, and is remembered rather than
+re-asked within a cycle.
 
 This is a large part of why the call count matters at all. The load and the
 wrong answers are the same problem: the queries that saturate the controller are
@@ -526,7 +575,10 @@ Past that bound, and only then, one `squeue -j <id>` settles it:
   the `scancel` that would give up on it. Queued behind a long foreign job is a
   legitimate state, not a fault.
 - **Not in the queue** — gone without finishing. The partial result is archived
-  as `.fail<N>.txt` so the slot is free and the attempt is still on disk.
+  as `.fail<N>.txt` so the slot is free and the attempt is still on disk. "Not
+  in the queue" means an answered query that named no job, or `squeue` replying
+  `Invalid job id specified`; a query that did not complete leaves the marker
+  alone and tries again next cycle.
 
 ### When a node is drained
 
@@ -725,6 +777,113 @@ waits. Priority orders competition for a node that is free *now*; backfill fills
 a gap nobody is competing for. Both are working. The operator-facing version of
 this is
 [how-to/estimate-when-a-job-will-start.md](../how-to/estimate-when-a-job-will-start.md#6-why-our-jobs-start-ahead-of-yours-anyway).
+
+## Getting out of the way
+
+Backfill is what keeps the sweep polite about *starting*. `GET_OUT_OF_THE_WAY`
+is the other half, and it is about *stopping*: a benchmark that is already
+running holds the node until it ends, and backfill has nothing to say about a
+job it has already placed. A 25-minute `allreduce` is nothing to wait for; a
+seven-hour `mnubergemm` under somebody's deadline is, and the operator-facing
+symptom is a job stuck behind `bringup-<node>` with no obvious owner.
+
+With the switch on, a node that is running one of our jobs checks whether
+anybody else is queued for it, and cancels **its own** job if so. The sweep
+loses an attempt and re-queues it; the marker is cleared, and the partial result
+is left where it is — an interrupted run is already `INCOMPLETE`, and the
+resubmission archives it as the previous attempt like any other. Nothing is
+drained and nothing is counted as a failure.
+
+It ships **off**, and it is **experimental**. It is the only setting in the tree
+that cancels a job of ours that is working, and a site that is the only tenant
+of its cluster gains nothing from it.
+
+Experimental means the switch is not yet load-bearing anywhere and has not run
+long enough on a busy multi-tenant cluster for the polling interval, the pending
+threshold or the "is anybody actually waiting for *this* node" test to have been
+argued with by reality. Those are the parts most likely to move: the setting
+names and the trace lines may change, and a site that turns it on should expect
+to revisit its values rather than treat them as settled. What will not change is
+the safety envelope — only a `bringup-<node>` or `burnin-<node>` job owned by
+`JOB_USER` and confirmed `RUNNING` here is ever cancelled, and nothing is
+drained or counted as a failure.
+
+### What counts as a waiter
+
+A pending job, not ours, that this node is part of the answer to:
+
+| Condition | Read from | Why |
+|---|---|---|
+| `PENDING` | `squeue -t PENDING` | a running job elsewhere is not waiting for anything |
+| not named `bringup-*` or `burnin-*` | `Name` | another node's sweep job waiting its turn is not somebody being kept off the cluster |
+| pending at least `GET_OUT_OF_THE_WAY_AFTER_MINUTES` | `PendingTime` | a job that may yet be satisfied somewhere else is not worth throwing a benchmark away for |
+| wants this node | `ReqNodes` **or** `SchedNodes` | see below |
+
+**A waiter is told from one of ours by its name, never by its user.** The
+neighbouring work on a bring-up cluster is usually submitted by the same account
+the framework runs as — a real pending job here reads
+`130938|cmods|microbenchmark_nccl_nccl_fp8|ink50-dh01-i01-[11-18,28-37]`, owned
+by `cmods` like everything of ours. Filtering waiters by user would make the
+whole feature inert on exactly the cluster it was written for. The user check
+exists on the other side of the decision, where it belongs: on the job about to
+be cancelled.
+
+Both node lists are read and they answer different questions. `ReqNodes` is
+somebody naming nodes with `-w`, which is what a multi-node microbenchmark
+does; `SchedNodes` is the backfill scheduler having *planned* this node into an
+allocation, for a job that asked for a count rather than for names. `SchedNodes`
+comes back `(null)` on a queue that has nothing planned yet, and is treated as
+no match — so on a cluster where it is always empty, `ReqNodes` carries the
+whole check and the feature still works.
+
+Node lists are expanded with `scontrol show hostnames` rather than matched as
+text. `ink50-dh01-i01-[11-18]` does not contain the string
+`ink50-dh01-i01-13`, and a substring test against a compressed list is a check
+that silently never fires.
+
+### The four checks before a cancel
+
+The marker says which job id is ours. It is not evidence: an id is reused after
+`MinJobAge`, a marker survives a hand-run that submitted something else, and the
+cost of being wrong is cancelling a stranger's work. So the id is put back to
+the controller with `squeue -j <id>`, and **every** one of these has to hold
+before `scancel` runs:
+
+1. exactly one line comes back, and its `JobID` is the one that was asked about
+2. `UserName` is `JOB_USER`
+3. `Name` is this node's own `bringup-<node>` or `burnin-<node>` — both the
+   framework's prefix and this node's name, not either
+4. `State` is `RUNNING` and `NodeList` contains this node
+
+Anything else — no answer, two answers, another user, another node's job name,
+a job that turns out to be pending — writes down what it saw and leaves the job
+alone. `scancel`'s output is read rather than its exit status, because a refused
+kill is reported on stdout with a zero exit, as in `kill-jobs.sh`.
+
+A node with no marker never yields — an untracked job of ours is left to finish,
+exactly as `PAUSE_JOBS` leaves it. There is nothing to put back to the
+controller, and guessing from the job name alone is the one shortcut this
+feature must not take.
+
+The checks live in `get-out-of-the-way.sh` rather than inline, so
+`tests/yield-test.sh` can drive every one of them against a stubbed Slurm. The
+assertions that matter there are the negative ones: each case that must not
+cancel asserts that `scancel` was never called.
+
+### What a yield costs
+
+A cycle with a job running costs the controller **zero** queries — see
+[what the node can answer by itself](#what-the-node-can-answer-by-itself) — and
+this check is the one thing that would change that. Listing the pending queue is
+the expensive shape: `squeue` pulls the whole job table and filters it
+client-side, once a minute, on every busy node.
+
+So it is polled rather than run every cycle. `GET_OUT_OF_THE_WAY_POLL_MINUTES`
+is enforced with the mtime of `results/<node>/.yield-check`, written before the
+query and not at all under `--explain`. At the shipped five minutes a busy node
+asks once per five cycles instead of five times, and the worst case between
+somebody queueing and the node giving up is that plus
+`GET_OUT_OF_THE_WAY_AFTER_MINUTES`.
 
 ## Site switches are not timing gates
 

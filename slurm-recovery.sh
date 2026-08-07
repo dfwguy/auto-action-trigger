@@ -163,10 +163,10 @@ recover_configured_gpus() {
         printf '%s' "${BASH_REMATCH[1]}"; return 0
     fi
     command -v scontrol >/dev/null 2>&1 || return 1
-    ## Typed GRES is `gpu:gb200:4`, untyped `gpu:4`; the count is the last
-    ## field, and a topology suffix like `(S:0-3)` trails it.
+    ## Typed GRES is `gpu:gb200:4`, untyped `gpu:4`; the count is the last field
+    ## once the `(S:0-3)` topology suffix is off, and that suffix has its own colon.
     raw=$(scontrol show node "$node" 2>/dev/null | grep -o 'Gres=[^ ]*' | head -1)
-    raw="${raw#Gres=}"
+    raw="${raw#Gres=}"; raw="${raw%%(*}"
     n="${raw##*:}"; n="${n%%[!0-9]*}"
     [[ -n "$n" ]] || return 1
     printf '%s' "$n"
