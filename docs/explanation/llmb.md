@@ -121,10 +121,96 @@ and dataset in `$LLMB_INSTALL`; `file_copy.sh` and every job read them as
 `cmods`, and the failure lands a sweep later on a compute node rather than here.
 Setting the four variables is the whole of it.
 
+## Adopting an existing install
+
+A cluster often already has an llmb-run install that somebody else built, and
+re-installing 300 GB beside it to get a layout this tree recognises is the wrong
+answer. So `LLMB_INSTALL` no longer implies a layout. Four settings name the
+pieces, and an empty one is *searched for* rather than assumed:
+
+| Setting | Searched, in order |
+|---|---|
+| `LLMB_BIN` | `$LLMB_INSTALL/llmb-run`, `llmb_venv/bin/`, `venvs/*/bin/`, `bin/`, the same `llmb_venv/bin/` *beside* the root, then `PATH` |
+| `LLMB_CONFIG` | `$LLMB_INSTALL/cluster_config.yaml`, beside the root, then the copy in `src/cli/llmb-run/` |
+| `LLMB_IMAGES` | `$LLMB_INSTALL/images` |
+| `LLMB_HF` | `$LLMB_INSTALL/hf`, `environment.HF_HOME` from the config, then `hf/` beside the root |
+
+`build_llmb.sh -l` runs the search and prints what answered, then **exits
+non-zero if anything the jobs need is missing** — which is what makes it usable
+as a preflight rather than a thing to read.
+
+The loop it closes is easy to miss: the search happens on the head node, and the
+compute nodes read `SETTINGS`. So the report ends by printing the assignments it
+resolved by fallback, to be written into `SETTINGS` — `launch_job.sh` passes
+those four to the jobs through the same allowlist as `LLMB_INSTALL`, and passes
+nothing it was not given.
+
+Three failures this exists to catch, none of which look like failures:
+
+- **The `bin/` trap.** An installer-built root has a `bin/`, and it holds `uv`,
+  not `llmb-run`. Resolution looks for the *executable*, never a directory to
+  put on `PATH`.
+- **The CLI lives outside the install.** `llmb_venv/` is frequently a sibling of
+  `LLMB_INSTALL`, so `llmb-run` is not under the root at all and is on no
+  node's `PATH`. `llm-pretrain.sh` prepends `LLMB_BIN` for exactly this.
+- **The HF cache is somewhere else.** With `HF_HUB_OFFLINE=1` a miss is an
+  immediate failure, so `llm-pretrain-solo.sbatch` extends
+  `--container-mounts` when `HF_HOME` falls outside the install root. Without
+  that the cache exists on the node and is invisible inside the container.
+
+### Telling a real config from the template
+
+`src/cli/llmb-run/cluster_config.yaml` in the collection is an **example**, and
+it parses as a valid schema-2 config: `llmb_install: "/lustre/path/to/LLMB_INSTALL"`,
+`HF_TOKEN: "hf_token"`, one workload named `pretraining_nemotron`. Read as
+configuration it describes a cluster that does not exist, and every check
+downstream passes against it.
+
+`llmb_check.py` treats those placeholder markers as a rejection rather than a
+config. The related check is `config points at`: an install that was copied or
+moved keeps the absolute paths of the tree it was built in, and the failure
+otherwise lands at submit time on a compute node.
+
+### Where `llmb-run` actually lives
+
+Two installs on one head node, both real, neither the same shape:
+
+```
+/home/cmods/llmb/          src/  images/  llmb_venv/
+workspace/llmb/            cluster_config.yaml  images/  llmb_repo/  venvs/  bin/
+workspace/llmb_venv/       <- the CLI for the install above, beside it
+```
+
+`src/` against `llmb_repo/` is the difference between a git checkout of the
+collection and the recipe copy its installer makes; both carry `release.yaml`,
+and only the first answers `git describe`.
+
+### Reading the config without PyYAML
+
+A head node's system `python3` has no `yaml` module — the collection's own
+Python lives in a venv this tree must not depend on. `llmb_check.py` parses the
+mapping-and-list subset the config is written in, which is all the installer
+ever emits. `tests/llmb-check-test.sh` holds it against a copy of the real file.
+
+The alternative was `grep`, and it does not survive `slurm.gpu.partition` and
+`workloads.config.<workload>.venv_path` living at two different depths under
+keys whose names repeat.
+
 ## Pinning the collection
 
 `LLMB_REF` is the git tag `build_llmb.sh` checks out after cloning
 `dgxc-benchmarking`. It ships as `v26.06.01`.
+
+It is also the **version gate**. `build_llmb.sh -l` asks the install what it is
+— `git describe` in a checkout, else `llmb_version` from `release.yaml` — and
+fails when the answer is not `LLMB_REF`, naming which source it read. A leading
+`v` on one side only is the same version; `26.06.00` against `v26.06.01` is not.
+
+An adopted install is routinely at some other version, and the setting is where
+that is recorded: change `LLMB_REF` to what the install actually is, having
+re-read the floors below. Empty skips the gate entirely, the same convention as
+`VERDICT_MAX_COV_LLM_SOLO=0`. What is not acceptable is silence, because the
+floors in `verdict.sh` were set against one recipe and nothing else would say so.
 
 It is a tag rather than `main` so that re-running `build_llmb.sh` reinstalls the
 same thing. The install is one shared directory on NFS, so every node is always

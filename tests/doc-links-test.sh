@@ -79,7 +79,8 @@ fi
 ## path characters would otherwise swallow.
 mapfile -t sources < <(
     find . -path ./.git -prune -o \
-        \( -name '*.sh' -o -name '*.sbatch' -o -name '*.md' -o -name '*.yml' \) \
+        \( -name '*.sh' -o -name '*.sbatch' -o -name '*.md' -o -name '*.yml' \
+           -o -name '*.py' \) \
         -print | sed 's|^\./||' | sort
 )
 

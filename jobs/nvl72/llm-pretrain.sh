@@ -46,18 +46,22 @@ export LLMB_INSTALL="${LLMB_INSTALL:?LLMB_INSTALL is not set -- settings.sh deri
 [[ -d "$LLMB_INSTALL" ]] ||
     refuse "no install at $LLMB_INSTALL -- run ./build_llmb.sh on the head node"
 
+## An adopted install keeps llmb-run in a venv that is on nobody's PATH.
+## See docs/explanation/llmb.md#where-llmb-run-actually-lives.
+[[ -n "${LLMB_BIN:-}" ]] && export PATH="$LLMB_BIN:$PATH"
+
 command -v llmb-run >/dev/null 2>&1 ||
-    refuse "llmb-run is not on PATH -- see docs/how-to/enable-llm-pretrain.md#1-install-on-the-head-node"
+    refuse "llmb-run is not on PATH and LLMB_BIN=${LLMB_BIN:-<unset>} does not hold it -- see docs/how-to/enable-llm-pretrain.md#1-install-on-the-head-node"
 
 ## A cache miss on a node with no route out must fail, not stall.
 ## See docs/explanation/llmb.md#running-offline.
-export HF_HOME="$LLMB_INSTALL/hf"
+export HF_HOME="${LLMB_HF:-$LLMB_INSTALL/hf}"
 export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 
 [[ -d "$HF_HOME" ]] ||
-    refuse "no pre-staged $HF_HOME -- the node cannot download it; re-run ./build_llmb.sh -d on the head node"
+    refuse "no pre-staged $HF_HOME -- the node cannot download it; re-run ./build_llmb.sh -d on the head node, or set LLMB_HF if the cache is elsewhere"
 
 cd "$LLMB_INSTALL" || refuse "cannot cd to $LLMB_INSTALL"
 

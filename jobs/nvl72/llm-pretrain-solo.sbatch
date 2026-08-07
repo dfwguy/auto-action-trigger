@@ -68,7 +68,7 @@ DTYPE=fp8
 
 ## A cache miss on a node with no route out must fail, not stall.
 ## See docs/explanation/llmb.md#running-offline.
-export HF_HOME="$LLMB_INSTALL/hf"
+export HF_HOME="${LLMB_HF:-$LLMB_INSTALL/hf}"
 export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
@@ -80,11 +80,20 @@ export TRANSFORMERS_OFFLINE=1
 ## and --label (the task-id prefix verdict.sh parses).
 unset CUDA_VISIBLE_DEVICES
 
+## An adopted install can keep its HF cache outside the install root, and a
+## mount that does not cover HF_HOME is an offline cache miss inside the
+## container. See docs/explanation/llmb.md#adopting-an-existing-install.
+MOUNTS="${LLMB_INSTALL}:${LLMB_INSTALL}:ro"
+case "$HF_HOME" in
+    "$LLMB_INSTALL"/*) ;;
+    *) MOUNTS="${MOUNTS},${HF_HOME}:${HF_HOME}:ro" ;;
+esac
+
 srun --time="$STEP_TIMELIMIT" --label --export=ALL \
         --ntasks=4 --gpus-per-task=1 \
         --cpu-bind=cores \
         --container-image="${CONT}" \
-        --container-mounts="${LLMB_INSTALL}:${LLMB_INSTALL}:ro" \
+        --container-mounts="${MOUNTS}" \
         bash -c '
     export WORLD_SIZE=1 RANK=0 LOCAL_RANK=0
     export CUDA_DEVICE_MAX_CONNECTIONS=1

@@ -229,14 +229,24 @@ unset _pair
 ## as root on 200+ nodes. See docs/reference/settings.md#what-is-rejected.
 ##
 ## Empty is left to the launcher to diagnose: it knows whether it needs one.
+## The three beside LLMB_INSTALL carry an adopted install's layout, and are
+## empty unless a site set them or build_llmb.sh resolved them.
+## See docs/explanation/llmb.md#adopting-an-existing-install.
+## LLMB_EXPORT is the same list for the sbatch form: llm-pretrain-solo reads
+## LLMB_HF too, and --export takes commas where a command line takes spaces.
 LLMB_ARGS=""
-if [[ -n "${LLMB_INSTALL:-}" ]]; then
-    if [[ "$LLMB_INSTALL" =~ ^[A-Za-z0-9_.:/+@%=-]+$ ]]; then
-        LLMB_ARGS=" LLMB_INSTALL=$LLMB_INSTALL"
+LLMB_EXPORT=""
+for _llmb in LLMB_INSTALL LLMB_BIN LLMB_HF LLMB_IMAGES; do
+    _value="${!_llmb:-}"
+    [[ -n "$_value" ]] || continue
+    if [[ "$_value" =~ ^[A-Za-z0-9_.:/+@%=-]+$ ]]; then
+        LLMB_ARGS+=" $_llmb=$_value"
+        LLMB_EXPORT+=",$_llmb=$_value"
     else
-        trace "WARNING: LLMB_INSTALL contains characters outside [A-Za-z0-9_.:/+@%=-] -- dropped, and a host-launched job will refuse rather than run without it."
+        trace "WARNING: $_llmb contains characters outside [A-Za-z0-9_.:/+@%=-] -- dropped, and a host-launched job will refuse rather than run without it."
     fi
-fi
+done
+unset _llmb _value
 
 ## Without this line, results appearing off-cadence -- or a passing job suddenly
 ## re-running -- reads as the sequencer misbehaving rather than as a human.
@@ -1132,7 +1142,7 @@ ${JOB_ENV_PAIRS[*]} bash $launch"
     else
         submit="source /etc/profile.d/modules.sh; module load slurm; \
 mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
---export=ALL,RESULT_FILE=$file$JOB_ENV_ARGS --output=$file $launch"
+--export=ALL,RESULT_FILE=$file$JOB_ENV_ARGS$LLMB_EXPORT --output=$file $launch"
     fi
 
     ## The guard above already asked what was queued under our names, and the

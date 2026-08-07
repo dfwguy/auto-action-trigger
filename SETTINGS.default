@@ -88,3 +88,10 @@ JOB_USER=cmods
 BRINGUP_HOME=/home/cmods/bringup
 LLMB_INSTALL=/home/cmods/llmb
 LLMB_REF=v26.06.01
+
+## Empty is searched for; set one only when adopting an install laid out
+## differently. See docs/explanation/llmb.md#adopting-an-existing-install.
+LLMB_BIN=
+LLMB_CONFIG=
+LLMB_IMAGES=
+LLMB_HF=
