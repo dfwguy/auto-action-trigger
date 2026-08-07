@@ -326,6 +326,38 @@ wrong:
   to what it did before any of this existed and resumes on the reason text,
   rather than holding a node out of service over a number it could not get.
 
+## A drained node has no job of ours to key on
+
+For most of this file's life the sequencer only reached the recovery block when
+a job of ours had gone stale — the reasoning being that a drain is what stops
+our jobs starting, so the stale branch is where it shows up, and a healthy node
+never pays for the query. That reasoning is circular, and the two reasons it
+failed on are the two that arrive when there is no job to be stale:
+
+- **`gres/gpu count`** is set at `slurmd` registration, which is boot. Nothing
+  of ours has ever been submitted to that node in this cycle or any other since
+  the reboot, so there is no marker to go stale.
+- **A prolog or rogue-process drain** is usually earned under *somebody else's*
+  job. Same absence.
+
+A node that has passed every benchmark is in the same position, and traced
+`EXIT: every benchmark passing` on every cycle while sitting `drained` for a
+`Prolog error` nobody was going to clear. Once drained it could never acquire a
+marker either, because a drained node is never allocated — and in the one case
+where a marker did exist, a job pending on the drained node reads as `PENDING`
+forever, which the in-flight gate exits on *before* recovery is reached.
+
+So recovery now runs on every cycle that reaches it, which is every cycle where
+nothing of ours is running here. The exception is the job that outran
+`MAX_JOB_HOURS`: that is the one path that gets this far with a live job, it is
+drained immediately below, and recovery would only hold on it.
+
+The cost is one `sinfo -N -n <node>` per node per cycle, which is the price of
+seeing a drain at all — the node cannot answer this one about itself, and
+`slurm_recover_node` returns `not-drained` and traces nothing on the healthy
+majority. See
+[sequencing.md#what-the-node-can-answer-by-itself](sequencing.md#what-the-node-can-answer-by-itself).
+
 ## Why a resume is not enough on its own
 
 A node put back while still broken is re-drained within the minute, and a script

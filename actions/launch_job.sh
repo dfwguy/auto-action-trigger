@@ -515,9 +515,6 @@ if inflight_read; then
     else
         ## The one place the controller is asked on a quiet node, and the only
         ## thing that can tell "queued behind a long job" from "gone".
-        ## Reaching here means a job of ours did not start, which is what an
-        ## unexpected drain looks like from the node. Recovery below keys on it.
-        inflight_stale=1
         ## %r last: a Slurm reason is free text with spaces in it. stderr is
         ## kept rather than discarded, because it carries the only thing that
         ## tells "this job is gone" from "the controller did not answer", and
@@ -605,11 +602,9 @@ fi
 
 if [[ "$recovery_paused" -eq 1 ]]; then
     :
-elif [[ "${inflight_stale:-0}" -eq 0 && "$FORCE" -eq 0 ]]; then
-    ## A drain stops our jobs starting, and the stale branch above is where that
-    ## shows up -- so recovery runs there rather than on every cycle, and a
-    ## healthy node never pays for it.
-    ## See docs/explanation/sequencing.md#what-the-node-can-answer-by-itself.
+elif [[ -n "${inflight_overrun:-}" ]]; then
+    ## The only way to reach here with a job of ours still on the node. It is
+    ## drained below, and recovery would do nothing but hold on it.
     :
 elif [[ -f "$home/slurm-recovery.sh" ]]; then
     recover_log() { trace "$@"; }
