@@ -7,7 +7,9 @@
 ## Hardcoded path: BCM invokes this by absolute path with no working directory
 ## to infer from. Missing settings.sh is fatal rather than defaulted -- an empty
 ## BENCHMARKS reads as "everything passing" on every node. See docs/reference/settings.md.
-home=/home/cmods/bringup
+## LAUNCH_JOB_HOME exists for tests/inflight-test.sh, which runs this file
+## against a stub tree; nothing in the deployment sets it.
+home="${LAUNCH_JOB_HOME:-/home/cmods/bringup}"
 if [[ ! -f "$home/settings.sh" ]]; then
     echo "ERROR: $home/settings.sh is missing -- refusing to run, because an" >&2
     echo "       empty benchmark list reads as 'everything passing' on every node." >&2
@@ -401,10 +403,13 @@ job_running_locally() {
 }
 
 ## Whether the result file has been finished off, which is what says the job
-## ended -- sbatch creates it at start, so its existence says nothing.
+## ended -- sbatch creates it at start, so its existence says nothing and its
+## absence says the job has not started, not that it is over. NOT_RUN is
+## excluded for that reason, and the marker outlives a job that is still queued.
+## See docs/explanation/sequencing.md#a-missing-result-file-is-not-a-finished-job.
 result_complete() {
     verdict "$IF_JOB" "$1"
-    [[ "$VERDICT_STATUS" != "INCOMPLETE" ]]
+    [[ "$VERDICT_STATUS" != "INCOMPLETE" && "$VERDICT_STATUS" != "NOT_RUN" ]]
 }
 
 ## Move a result aside so the slot is free for the next attempt; the archives
@@ -430,6 +435,53 @@ archive_result() {
 ## cancels. See docs/explanation/sequencing.md#jobs-the-scheduler-has-given-up-on.
 LAUNCH_FAILED_HELD='launch failed requeued held'
 
+## ── Getting out of the way ────────────────────────────────────────────────
+##
+## Somebody else queued for this node outranks a benchmark of ours already
+## running on it. Every check that stands between "a job is waiting" and a
+## scancel is in the library, which never cancels an id the controller has not
+## confirmed is ours. See docs/explanation/sequencing.md#getting-out-of-the-way.
+YIELD_TRACE=""
+yield_ready=0
+if setting_enabled "$GET_OUT_OF_THE_WAY"; then
+    if [[ -f "$home/get-out-of-the-way.sh" ]]; then
+        yield_log() { trace "$@"; }
+        ## SC2034: read by get-out-of-the-way.sh, sourced below, which
+        ## shellcheck cannot see from here. `export` would put them in every
+        ## job's environment. Repeated because it covers one assignment.
+        # shellcheck disable=SC2034
+        YIELD_OURS="$JOB_NAME_BENCH $JOB_NAME_BURNIN"
+        # shellcheck disable=SC2034
+        YIELD_USER="$JOB_USER"
+        YIELD_STAMP="$logs/.yield-check"
+        # shellcheck disable=SC2034
+        YIELD_DRY_RUN="$EXPLAIN"
+        source "$home/get-out-of-the-way.sh"
+        yield_ready=1
+    else
+        trace "WARNING: GET_OUT_OF_THE_WAY=$GET_OUT_OF_THE_WAY but $home/get-out-of-the-way.sh is missing -- this node will never give itself up. Stale deployment?"
+    fi
+fi
+
+## True only when our job was cancelled. Everything else leaves YIELD_TRACE for
+## the line the caller was going to write anyway: a node that decided to stay
+## has to say what it decided.
+yield_job() {
+    local rc=1
+    YIELD_TRACE=""
+    [[ "$yield_ready" -eq 1 ]] || return 1
+    yield_to_waiter "$1" "$HOSTNAME" && rc=0
+    ensure_file_owned "$YIELD_STAMP"
+    [[ "$rc" -eq 0 ]] && return 0
+    case "$YIELD_RESULT" in
+        no-waiter)      YIELD_TRACE="nobody else is queued for $HOSTNAME" ;;
+        would-yield)    YIELD_TRACE="--explain: nothing cancelled" ;;
+        polled-recently|disabled|no-job) ;;
+        *)              YIELD_TRACE="staying put: $YIELD_RESULT${YIELD_WAITER:+, with $YIELD_WAITER}" ;;
+    esac
+    return 1
+}
+
 ## ── The in-flight gate ────────────────────────────────────────────────────
 ##
 ## Four answers, and only the last costs a query. Every branch prefers waiting
@@ -443,7 +495,16 @@ if inflight_read; then
     if_running=0; job_running_locally "$IF_JOBID" && if_running=1
 
     if [[ "$if_running" -eq 1 && "$if_age" -lt $(( MAX_JOB_HOURS * 3600 )) ]]; then
-        trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) running here for ${if_age}s -- slurmctld not asked"
+        if yield_job "$IF_JOBID"; then
+            ## The result file is left where it is: an interrupted run is
+            ## already INCOMPLETE, and the resubmission archives it as the
+            ## previous attempt like any other. See
+            ## docs/explanation/sequencing.md#getting-out-of-the-way.
+            inflight_clear
+            trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) cancelled after ${if_age}s to free $HOSTNAME; it is re-queued once the node is free again"
+            exit 0
+        fi
+        trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) running here for ${if_age}s -- ${YIELD_TRACE:-slurmctld not asked}"
         exit 0
     elif [[ "$if_running" -eq 1 ]]; then
         ## Still going, but past the limit. The only branch that reads on: the
@@ -464,11 +525,23 @@ if inflight_read; then
     else
         ## The one place the controller is asked on a quiet node, and the only
         ## thing that can tell "queued behind a long job" from "gone".
-        ## Reaching here means a job of ours did not start, which is what an
-        ## unexpected drain looks like from the node. Recovery below keys on it.
-        inflight_stale=1
-        ## %r last: a Slurm reason is free text with spaces in it.
-        if_queued=$(squeue -h -j "$IF_JOBID" -o '%T %r' 2>/dev/null)
+        ## %r last: a Slurm reason is free text with spaces in it. stderr is
+        ## kept rather than discarded, because it carries the only thing that
+        ## tells "this job is gone" from "the controller did not answer", and
+        ## both print nothing on stdout.
+        ## See docs/explanation/sequencing.md#when-the-controller-does-not-answer.
+        if_queued=$(squeue -h -j "$IF_JOBID" -o '%T %r' 2>&1)
+        if_rc=$?
+        if [[ "$if_rc" -ne 0 || "$if_queued" == *"error:"* ]]; then
+            if [[ "$if_queued" == *"Invalid job id"* ]]; then
+                ## Slurm has forgotten the job entirely: it is gone, and the
+                ## branch below is the right one.
+                if_queued=""
+            else
+                trace "EXIT: 'squeue -j $IF_JOBID' would not answer, so it is not known whether $IF_JOB run $IF_RUN is still queued -- the marker is kept and nothing is archived or resubmitted: ${if_queued:-<no output>}"
+                exit 0
+            fi
+        fi
         if [[ -n "$if_queued" ]]; then
             ## A job held after a failed launch reads as PENDING at priority 0
             ## and never starts, so waiting on it waits forever. Ours by
@@ -539,11 +612,9 @@ fi
 
 if [[ "$recovery_paused" -eq 1 ]]; then
     :
-elif [[ "${inflight_stale:-0}" -eq 0 && "$FORCE" -eq 0 ]]; then
-    ## A drain stops our jobs starting, and the stale branch above is where that
-    ## shows up -- so recovery runs there rather than on every cycle, and a
-    ## healthy node never pays for it.
-    ## See docs/explanation/sequencing.md#what-the-node-can-answer-by-itself.
+elif [[ -n "${inflight_overrun:-}" ]]; then
+    ## The only way to reach here with a job of ours still on the node. It is
+    ## drained below, and recovery would do nothing but hold on it.
     :
 elif [[ -f "$home/slurm-recovery.sh" ]]; then
     recover_log() { trace "$@"; }
@@ -915,18 +986,31 @@ fi
 ## Sets QUEUED_OURS rather than printing it, and so must never be called as
 ## $(queued_ours) -- a subshell would cache the answer in a child and ask again.
 ## Same reason verdict() works the way it does.
+##
+## Returns 1 when the controller would not answer. A refused query prints
+## nothing, which is indistinguishable from an empty queue at exactly the moment
+## it matters -- and reading it as "nothing of ours is out" is what puts a second
+## job on a node that already has one.
+## See docs/explanation/sequencing.md#when-the-controller-does-not-answer.
 QUEUED_OURS=""
 QUEUED_FLEET=0
 QUEUED_ASKED=0
+QUEUED_FAILED=""
 queued_ours() {
-    [[ "$QUEUED_ASKED" -eq 1 ]] && return 0
+    [[ "$QUEUED_ASKED" -eq 1 ]] && { [[ -z "$QUEUED_FAILED" ]]; return; }
     QUEUED_ASKED=1
-    local queue
-    queue=$(squeue -h -o '%i %j' 2>/dev/null)
+    local queue rc
+    queue=$(squeue -h -o '%i %j' 2>&1)
+    rc=$?
+    if [[ "$rc" -ne 0 || "$queue" == *"error:"* ]]; then
+        QUEUED_FAILED="${queue:-<no output>}"
+        return 1
+    fi
     QUEUED_OURS=$(awk -v b="$JOB_NAME_BENCH" -v u="$JOB_NAME_BURNIN" \
                       '$2 == b || $2 == u { print $1 }' <<<"$queue" | sort -u)
     QUEUED_FLEET=$(awk -v p="${JOB_NAME_BENCH%"$HOSTNAME"}" -v q="${JOB_NAME_BURNIN%"$HOSTNAME"}" \
                        '$2 ~ "^(" p "|" q ")" { n++ } END { print n+0 }' <<<"$queue")
+    return 0
 }
 
 ## ── The next job, and only the next one ───────────────────────────────────
@@ -1148,7 +1232,13 @@ fi
 ## invisible to `scontrol listjobs` and only the controller knows.
 ## See docs/explanation/sequencing.md#the-guard-before-a-submission.
 if [[ -n "$submit_target" && "$EXPLAIN" -eq 0 ]]; then
-    queued_ours
+    if ! queued_ours; then
+        ## The guard is the last thing between a lost marker and two jobs on one
+        ## node, so a query that failed is a stop, not a pass.
+        trace "EXIT: the queue could not be read, so it is not known whether a job of ours is already out -- $NEXT_JOB run $NEXT_RUN stays eligible rather than being submitted on a guess: $QUEUED_FAILED"
+        write_quickview
+        exit 0
+    fi
     if [[ -n "$QUEUED_OURS" ]]; then
         queued_list="${QUEUED_OURS//$'\n'/ }"
         trace "EXIT: no marker, but $(grep -c . <<<"$QUEUED_OURS") job(s) of ours are already queued ($queued_list) -- not submitting $NEXT_JOB on top of one. Untracked, so it is left to finish; 'scancel $queued_list' to clear it."

@@ -89,6 +89,11 @@ fi
 : "${RETRY_BACKOFF:=yes}"
 : "${RETRY_BACKOFF_MAX_HOURS:=12}"
 : "${MAX_JOB_HOURS:=7}"
+## Experimental, and off: it is the one setting that cancels a job of ours that
+## is working. See docs/explanation/sequencing.md#getting-out-of-the-way.
+: "${GET_OUT_OF_THE_WAY:=no}"
+: "${GET_OUT_OF_THE_WAY_AFTER_MINUTES:=5}"
+: "${GET_OUT_OF_THE_WAY_POLL_MINUTES:=5}"
 : "${DRAIN_WINDOW_MINUTES:=15}"
 : "${INFLIGHT_GRACE_MINUTES:=30}"
 : "${DRAIN_MARKER:=auto-retry}"

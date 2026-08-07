@@ -35,7 +35,7 @@ cat > "$stub/scontrol" <<'EOF'
 #!/bin/bash
 printf '%s\n' "$*" >> "$STUB_DIR/scontrol.calls"
 if [[ "$1" == "show" && "$2" == "node" ]]; then
-    printf 'NodeName=%s CPUTot=%s Gres=gpu:%s CfgTRES=cpu=%s,gres/gpu=%s\n' \
+    printf 'NodeName=%s CPUTot=%s Gres=gpu:gb200:%s(S:0-71) CfgTRES=cpu=%s,gres/gpu=%s\n' \
         "$3" "${STUB_CFG_CPUS:-72}" "${STUB_CFG_GPUS:-8}" \
         "${STUB_CFG_CPUS:-72}" "${STUB_CFG_GPUS:-8}"
     exit 0
@@ -381,6 +381,13 @@ grep -q "only 36 of 72 CPUs" "$CASE_DIR/trace" ||
 ## node whose slurm.conf disagrees with scontrol is still judged on the reason.
 run_case "gres reason wins over scontrol" not-ready \
     STUB_REASON="$gres_short" STUB_GPUS="7" STUB_CFG_GPUS="4"
+
+## A reason carrying no numbers falls back to `Gres=` from scontrol, where the
+## `(S:0-71)` topology suffix has a colon of its own and the count does not.
+run_case "gres count, configured count from scontrol" not-ready \
+    STUB_REASON="gres/gpu count too low" STUB_GPUS="3" STUB_CFG_GPUS="8"
+grep -q "only 3 of 8 GPUs" "$CASE_DIR/trace" ||
+    bad "  ... and the configured count was misparsed out of scontrol's Gres="
 
 ## The other spelling, reported first: `(0 < 4)`. Asserted on the message,
 ## because a parse that missed would fall back to scontrol's 8 and still hold.
