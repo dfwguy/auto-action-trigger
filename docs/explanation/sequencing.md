@@ -778,6 +778,103 @@ line because those are comments rather than shell and would not expand
 `$HOSTNAME`. It is what the queue queries match on, so a job submitted without
 it is invisible to the next cycle's "is anything of ours out there" check.
 `RESULT_FILE` is where the job writes its own markers and `--output` is where
+## Getting out of the way
+
+Backfill is what keeps the sweep polite about *starting*. `GET_OUT_OF_THE_WAY`
+is the other half, and it is about *stopping*: a benchmark that is already
+running holds the node until it ends, and backfill has nothing to say about a
+job it has already placed. A 25-minute `allreduce` is nothing to wait for; a
+seven-hour `mnubergemm` under somebody's deadline is, and the operator-facing
+symptom is a job stuck behind `bringup-<node>` with no obvious owner.
+
+With the switch on, a node that is running one of our jobs checks whether
+anybody else is queued for it, and cancels **its own** job if so. The sweep
+loses an attempt and re-queues it; the marker is cleared, and the partial result
+is left where it is — an interrupted run is already `INCOMPLETE`, and the
+resubmission archives it as the previous attempt like any other. Nothing is
+drained and nothing is counted as a failure.
+
+It ships **off**. It is the only setting in the tree that cancels a job of ours
+that is working, and a site that is the only tenant of its cluster gains nothing
+from it.
+
+### What counts as a waiter
+
+A pending job, not ours, that this node is part of the answer to:
+
+| Condition | Read from | Why |
+|---|---|---|
+| `PENDING` | `squeue -t PENDING` | a running job elsewhere is not waiting for anything |
+| not named `bringup-*` or `burnin-*` | `Name` | another node's sweep job waiting its turn is not somebody being kept off the cluster |
+| pending at least `GET_OUT_OF_THE_WAY_AFTER_MINUTES` | `PendingTime` | a job that may yet be satisfied somewhere else is not worth throwing a benchmark away for |
+| wants this node | `ReqNodes` **or** `SchedNodes` | see below |
+
+**A waiter is told from one of ours by its name, never by its user.** The
+neighbouring work on a bring-up cluster is usually submitted by the same account
+the framework runs as — a real pending job here reads
+`130938|cmods|microbenchmark_nccl_nccl_fp8|ink50-dh01-i01-[11-18,28-37]`, owned
+by `cmods` like everything of ours. Filtering waiters by user would make the
+whole feature inert on exactly the cluster it was written for. The user check
+exists on the other side of the decision, where it belongs: on the job about to
+be cancelled.
+
+Both node lists are read and they answer different questions. `ReqNodes` is
+somebody naming nodes with `-w`, which is what a multi-node microbenchmark
+does; `SchedNodes` is the backfill scheduler having *planned* this node into an
+allocation, for a job that asked for a count rather than for names. `SchedNodes`
+comes back `(null)` on a queue that has nothing planned yet, and is treated as
+no match — so on a cluster where it is always empty, `ReqNodes` carries the
+whole check and the feature still works.
+
+Node lists are expanded with `scontrol show hostnames` rather than matched as
+text. `ink50-dh01-i01-[11-18]` does not contain the string
+`ink50-dh01-i01-13`, and a substring test against a compressed list is a check
+that silently never fires.
+
+### The four checks before a cancel
+
+The marker says which job id is ours. It is not evidence: an id is reused after
+`MinJobAge`, a marker survives a hand-run that submitted something else, and the
+cost of being wrong is cancelling a stranger's work. So the id is put back to
+the controller with `squeue -j <id>`, and **every** one of these has to hold
+before `scancel` runs:
+
+1. exactly one line comes back, and its `JobID` is the one that was asked about
+2. `UserName` is `JOB_USER`
+3. `Name` is this node's own `bringup-<node>` or `burnin-<node>` — both the
+   framework's prefix and this node's name, not either
+4. `State` is `RUNNING` and `NodeList` contains this node
+
+Anything else — no answer, two answers, another user, another node's job name,
+a job that turns out to be pending — writes down what it saw and leaves the job
+alone. `scancel`'s output is read rather than its exit status, because a refused
+kill is reported on stdout with a zero exit, as in `kill-jobs.sh`.
+
+A node with no marker never yields — an untracked job of ours is left to finish,
+exactly as `PAUSE_JOBS` leaves it. There is nothing to put back to the
+controller, and guessing from the job name alone is the one shortcut this
+feature must not take.
+
+The checks live in `get-out-of-the-way.sh` rather than inline, so
+`tests/yield-test.sh` can drive every one of them against a stubbed Slurm. The
+assertions that matter there are the negative ones: each case that must not
+cancel asserts that `scancel` was never called.
+
+### What a yield costs
+
+A cycle with a job running costs the controller **zero** queries — see
+[what the node can answer by itself](#what-the-node-can-answer-by-itself) — and
+this check is the one thing that would change that. Listing the pending queue is
+the expensive shape: `squeue` pulls the whole job table and filters it
+client-side, once a minute, on every busy node.
+
+So it is polled rather than run every cycle. `GET_OUT_OF_THE_WAY_POLL_MINUTES`
+is enforced with the mtime of `results/<node>/.yield-check`, written before the
+query and not at all under `--explain`. At the shipped five minutes a busy node
+asks once per five cycles instead of five times, and the worst case between
+somebody queueing and the node giving up is that plus
+`GET_OUT_OF_THE_WAY_AFTER_MINUTES`.
+
 `sbatch` puts the job's stdout — the same path, which is what makes a result
 file a complete record of the run.
 

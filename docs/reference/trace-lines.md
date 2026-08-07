@@ -63,6 +63,16 @@ two per monitoring cycle, forever.
 | `job <id> held after a failed launch ('<reason>') <n>s ago -- cancelling and resubmitting in <n>s` | A held job seen before its retry interval is up |
 | `CANCELLED <id> -- held <n>s after a failed launch` | Cleared; the survey below decides what to resubmit |
 | `job <id> is held after a failed launch, but its submit time … did not parse -- left queued` | Cancel it by hand |
+| `EXIT: <job> run <n> (job <id>) running here for <n>s -- <what the yield check decided\|slurmctld not asked>` | The busy cycle. Ends in `slurmctld not asked` unless `GET_OUT_OF_THE_WAY` is on and this was a polling cycle, in which case it says what the queue said instead |
+| `YIELDED <node>: cancelled our job <id> to get out of the way of job <id> (<name>, <user>) pending <n>m for <node>` | Somebody else is queued for the node and our own running job was given up for them — see [explanation/sequencing.md#getting-out-of-the-way](../explanation/sequencing.md#getting-out-of-the-way) |
+| `EXIT: <job> run <n> (job <id>) cancelled after <n>s to free <node>` | The line after it: the marker is cleared and the run is re-queued once the node is free |
+| `not yielding: <what squeue said about job <id>>` | A waiter was found and the job in the marker did not confirm as ours. Names what it saw — another user, another node's job name, two answers for one id — and cancels nothing |
+| `WOULD CANCEL our job <id> to get out of the way of <waiter>` | `--explain` only |
+| `WARNING: scancel <id> said '<output>' -- the node was not given up` | The kill was refused; `scancel` reports that on stdout while exiting `0`, so the output is the report |
+| `WARNING: squeue would not list the pending queue, so nothing is yielded to: <output>` | No answer is not an answer: the node stays put rather than cancelling on no information |
+| `WARNING: GET_OUT_OF_THE_WAY=<value> but <home>/get-out-of-the-way.sh is missing` | A deployment that predates the file. Named rather than skipped quietly, as with `slurm-recovery.sh` |
+| `EXIT: 'squeue -j <id>' would not answer … -- the marker is kept and nothing is archived or resubmitted: <output>` | The stale branch could not reach the controller. Empty output means "gone" only from a query that succeeded; `Invalid job id specified` is a real answer, a timeout is not |
+| `EXIT: the queue could not be read, so it is not known whether a job of ours is already out -- <job> run <n> stays eligible …` | The submission guard's query failed. Failing closed here is what stops a busy controller turning into two jobs on one node |
 | `EXIT: waiting on our own queue [(RUNNING for <t>, limit <n>h)] [<detail>]` | The normal busy cycle. The scheduler's reason for a job that is not cleanly schedulable is appended — this line reads identically whether the job starts in a minute or never, and the reason is the whole difference |
 
 ## The survey

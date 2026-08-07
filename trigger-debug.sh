@@ -74,6 +74,17 @@ else
         bad "MAX_QUEUED_JOBS='$MAX_QUEUED_JOBS' is not a whole number -- the cap is ignored and the fleet submits uncapped"
     fi
 
+    ## A benchmark that keeps being cancelled part-way is this and not a fault,
+    ## and nothing else in the tree cancels a running job of ours.
+    ## See docs/explanation/sequencing.md#getting-out-of-the-way.
+    if setting_enabled "$GET_OUT_OF_THE_WAY"; then
+        if [[ -f "$home/get-out-of-the-way.sh" ]]; then
+            note "GET_OUT_OF_THE_WAY=$GET_OUT_OF_THE_WAY -- a node cancels its own running job for anyone else queued ${GET_OUT_OF_THE_WAY_AFTER_MINUTES}m for it, asked every ${GET_OUT_OF_THE_WAY_POLL_MINUTES}m; trigger-log.sh says when one did"
+        else
+            bad "GET_OUT_OF_THE_WAY=$GET_OUT_OF_THE_WAY but get-out-of-the-way.sh is missing from $home -- this tree predates it, and no node will ever give itself up"
+        fi
+    fi
+
     [[ -f "$home/verdict.sh" ]] && bad "verdict.sh is at the top level -- stale tree, it belongs in parsers/\$PARSERS/"
 
     ## Both actions carry on without it by design, so a tree from before the

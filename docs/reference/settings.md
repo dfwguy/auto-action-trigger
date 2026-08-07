@@ -286,6 +286,24 @@ What `MAX_QUEUED_JOBS` is protecting, and what a closed cap does to a sweep, is
 against an idle node; see
 [explanation/sequencing.md#when-a-marker-goes-stale](../explanation/sequencing.md#when-a-marker-goes-stale).
 
+## Getting out of the way
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `GET_OUT_OF_THE_WAY` | `no` | Cancel this node's own running job when somebody else is queued for the node |
+| `GET_OUT_OF_THE_WAY_AFTER_MINUTES` | `5` | How long the other job must have been pending before the node gives itself up |
+| `GET_OUT_OF_THE_WAY_POLL_MINUTES` | `5` | How often a node with a job running asks the queue whether anybody is waiting |
+
+Only a job named `bringup-<node>` or `burnin-<node>`, owned by `JOB_USER`, and
+confirmed `RUNNING` on this node by `squeue -j` is ever cancelled — the marker's
+job id is not taken as evidence on its own. Nothing is drained, and the
+cancelled run is re-queued like any other interrupted attempt.
+
+Both intervals are minutes and the second one is a cost control: a cycle with a
+job running otherwise costs the controller nothing at all. The whole design,
+including what counts as somebody waiting, is
+[explanation/sequencing.md#getting-out-of-the-way](../explanation/sequencing.md#getting-out-of-the-way).
+
 ## Reporting
 
 | Setting | Default | Meaning |

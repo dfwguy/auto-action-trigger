@@ -425,6 +425,53 @@ LAUNCH_FAILED_HELD='launch failed requeued held'
 ## Four answers, and only the last costs a query. Every branch prefers waiting
 ## to submitting. See docs/explanation/sequencing.md#one-job-at-a-time.
 if inflight_read; then
+## ── Getting out of the way ────────────────────────────────────────────────
+##
+## Somebody else queued for this node outranks a benchmark of ours already
+## running on it. Every check that stands between "a job is waiting" and a
+## scancel is in the library, which never cancels an id the controller has not
+## confirmed is ours. See docs/explanation/sequencing.md#getting-out-of-the-way.
+YIELD_TRACE=""
+yield_ready=0
+if setting_enabled "$GET_OUT_OF_THE_WAY"; then
+    if [[ -f "$home/get-out-of-the-way.sh" ]]; then
+        yield_log() { trace "$@"; }
+        ## SC2034: read by get-out-of-the-way.sh, sourced below, which
+        ## shellcheck cannot see from here. `export` would put them in every
+        ## job's environment. Repeated because it covers one assignment.
+        # shellcheck disable=SC2034
+        YIELD_OURS="$JOB_NAME_BENCH $JOB_NAME_BURNIN"
+        # shellcheck disable=SC2034
+        YIELD_USER="$JOB_USER"
+        YIELD_STAMP="$logs/.yield-check"
+        # shellcheck disable=SC2034
+        YIELD_DRY_RUN="$EXPLAIN"
+        source "$home/get-out-of-the-way.sh"
+        yield_ready=1
+    else
+        trace "WARNING: GET_OUT_OF_THE_WAY=$GET_OUT_OF_THE_WAY but $home/get-out-of-the-way.sh is missing -- this node will never give itself up. Stale deployment?"
+    fi
+fi
+
+## True only when our job was cancelled. Everything else leaves YIELD_TRACE for
+## the line the caller was going to write anyway: a node that decided to stay
+## has to say what it decided.
+yield_job() {
+    local rc=1
+    YIELD_TRACE=""
+    [[ "$yield_ready" -eq 1 ]] || return 1
+    yield_to_waiter "$1" "$HOSTNAME" && rc=0
+    ensure_file_owned "$YIELD_STAMP"
+    [[ "$rc" -eq 0 ]] && return 0
+    case "$YIELD_RESULT" in
+        no-waiter)      YIELD_TRACE="nobody else is queued for $HOSTNAME" ;;
+        would-yield)    YIELD_TRACE="--explain: nothing cancelled" ;;
+        polled-recently|disabled|no-job) ;;
+        *)              YIELD_TRACE="staying put: $YIELD_RESULT${YIELD_WAITER:+, with $YIELD_WAITER}" ;;
+    esac
+    return 1
+}
+
     if_file=$(result_file "$IF_JOB" "$IF_RUN" "$IF_TOTAL")
     if_age=$(( $(date +%s) - IF_EPOCH ))
 
@@ -433,7 +480,16 @@ if inflight_read; then
     if_running=0; job_running_locally "$IF_JOBID" && if_running=1
 
     if [[ "$if_running" -eq 1 && "$if_age" -lt $(( MAX_JOB_HOURS * 3600 )) ]]; then
-        trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) running here for ${if_age}s -- slurmctld not asked"
+        if yield_job "$IF_JOBID"; then
+            ## The result file is left where it is: an interrupted run is
+            ## already INCOMPLETE, and the resubmission archives it as the
+            ## previous attempt like any other. See
+            ## docs/explanation/sequencing.md#getting-out-of-the-way.
+            inflight_clear
+            trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) cancelled after ${if_age}s to free $HOSTNAME; it is re-queued once the node is free again"
+            exit 0
+        fi
+        trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) running here for ${if_age}s -- ${YIELD_TRACE:-slurmctld not asked}"
         exit 0
     elif [[ "$if_running" -eq 1 ]]; then
         ## Still going, but past the limit. The only branch that reads on: the

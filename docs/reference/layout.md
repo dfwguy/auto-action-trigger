@@ -22,6 +22,7 @@ pieces fit together this way is
 ├── settings.sh                    # Loads SETTINGS, else SETTINGS.default; backfills unset keys
 ├── reason-map.sh                  # Slurm drain reason → check names (health-check.sh, sync-check.sh)
 ├── slurm-recovery.sh              # Clears drains Slurm set itself, never an operator's (both actions)
+├── get-out-of-the-way.sh          # Cancels this node's own job when somebody else is queued for it (launch_job.sh)
 ├── verdict-scan.sh                # Judges every cell of the fleet in parallel (status-check.sh, daily-report.sh)
 │
 ├── health-checks/                 # One directory per platform; HEALTHCHECKS picks one
@@ -187,9 +188,10 @@ and `*.sbatch`, `bash -n` over the same set, the `permissions` job, and
 listing above. `severity=warning` is the gate, not the ceiling: the info- and
 style-level findings below it are largely deliberate here.
 
-The `test` stage runs the six suites — `tests/verdict-test.sh`,
-`tests/health-runner-test.sh`, `tests/recover-test.sh`, `tests/help-text-test.sh`,
-`tests/scan-cache-test.sh`, `tests/doc-links-test.sh` — as one job each, so a
+The `test` stage runs the suites — `tests/verdict-test.sh`,
+`tests/health-runner-test.sh`, `tests/recover-test.sh`, `tests/inflight-test.sh`,
+`tests/yield-test.sh`, `tests/help-text-test.sh`, `tests/scan-cache-test.sh`,
+`tests/llmb-check-test.sh`, `tests/doc-links-test.sh` — as one job each, so a
 failure names the gate that broke without anyone opening a log.
 
 Three of those exist for couplings that fail *without saying so*, which is why
@@ -202,6 +204,14 @@ they are gates rather than review items:
   hardcoded `sed -n '2,NNp'`, which makes comment length a runtime property.
   Each carries a sentinel comment on the line after its range, and the suite
   fails when the two stop agreeing. See [scripts.md](scripts.md).
+- `inflight` — the gate that decides whether a node already has a job out. It
+  is answered from files and from `scontrol listjobs`, so a wrong answer is
+  silent and self-consistent: the node reports a healthy idle cycle while
+  holding two jobs, or none. See
+  [explanation/sequencing.md#a-missing-result-file-is-not-a-finished-job](../explanation/sequencing.md#a-missing-result-file-is-not-a-finished-job).
+- `yield` — the only code in the tree that cancels a running job. Every case
+  that must not cancel asserts that `scancel` was never called. See
+  [explanation/sequencing.md#getting-out-of-the-way](../explanation/sequencing.md#getting-out-of-the-way).
 - `doc-links` — the comment convention puts reasoning in `docs/` and leaves a
   one-line pointer in the code, which makes several hundred anchors load-bearing
   and unrendered: retitle a heading and the pointer still resolves, to the top
