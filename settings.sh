@@ -81,6 +81,10 @@ fi
 ## Empty is a real answer here too: it means every node. See
 ## docs/reference/settings.md#restricting-which-nodes-run-jobs.
 : "${NODE_FILTER=}"
+## Hosts that are not compute nodes at all. Empty leaves the self-detection in
+## node_self_excluded as the only judge.
+## See docs/reference/settings.md#hosts-that-are-not-compute-nodes.
+: "${EXCLUDE_NODES=}"
 ## 0 is no cap. See docs/explanation/sequencing.md#the-fleet-wide-cap.
 : "${MAX_QUEUED_JOBS:=500}"
 : "${RETRY_INTERVAL_HOURS:=1}"
@@ -134,4 +138,51 @@ setting_enabled() {
         yes|true|1|on) return 0 ;;
         *)             return 1 ;;
     esac
+}
+
+## ── Hosts that are not compute nodes ──────────────────────────────────────
+## Read docs/explanation/sequencing.md#a-host-that-is-not-a-compute-node before
+## changing any of this: the obvious test, `sinfo -N -n`, is the one that was
+## removed for reporting 981 real nodes as gone.
+
+## The site's list. Shell globs and whitespace separated, like NODE_FILTER.
+##
+## `read -a`, not `for pat in $EXCLUDE_NODES`: callers set `nullglob`, which
+## deletes every pattern matching no file in the CWD -- the whole list.
+node_excluded() {
+    local pat pats
+    [[ -z "${EXCLUDE_NODES// /}" ]] && return 1
+    read -r -a pats <<< "$EXCLUDE_NODES"
+    for pat in "${pats[@]}"; do
+        # shellcheck disable=SC2053  # a glob on the right is the whole point here
+        [[ "$1" == $pat ]] && return 0
+    done
+    return 1
+}
+
+## Asked of the local systemd, which answers from installed unit files and
+## contacts nothing. Both halves must agree, so an unreadable systemd says
+## nothing rather than retiring a node.
+node_self_excluded() {
+    local units
+    command -v systemctl >/dev/null 2>&1 || return 1
+    units=$(systemctl list-unit-files slurmd.service slurmctld.service --no-legend 2>/dev/null)
+    [[ "$units" == *slurmctld.service* && "$units" != *slurmd.service* ]]
+}
+
+## What the node writes down for the reports, which run on the head node and can
+## ask neither another node's systemd nor slurmctld.
+NOT_COMPUTE_MARKER=".not-a-compute-node"
+
+node_mark_excluded() {
+    [[ -d "$1" ]] || return 1
+    printf '%s\n' "$2" > "$1/$NOT_COMPUTE_MARKER" 2>/dev/null
+}
+
+node_unmark_excluded() { rm -f "$1/$NOT_COMPUTE_MARKER" 2>/dev/null; }
+
+## The one question every script that walks results/*/ asks.
+node_out_of_reporting() {
+    node_excluded "$2" && return 0
+    [[ -f "$1/$2/$NOT_COMPUTE_MARKER" ]]
 }

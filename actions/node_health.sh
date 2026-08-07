@@ -17,17 +17,6 @@
 # that file, so its exact text -- including the leading '#' count -- is
 # load-bearing: change one and every node fails against every older baseline.
 
-source /etc/profile.d/modules.sh
-module load slurm
-
-state=$(sinfo -N -n "$HOSTNAME" -h -o '%T')
-if [[ -z "$state" ]]
-then
-        exit 0
-fi
-
-reason=""
-
 ## BCM invokes this by absolute path, so the tree is located by hardcoded path,
 ## not $0. A missing settings.sh is fatal rather than defaulted: no check
 ## directory means nothing runs and every node is reported healthy.
@@ -38,6 +27,25 @@ if [[ ! -f "$home/settings.sh" ]]; then
     exit 1
 fi
 source "$home/settings.sh"
+
+## Above the sinfo check below, and it says so: that check cannot tell a head
+## node from a busy controller, and exits silently either way.
+## See docs/explanation/sequencing.md#a-host-that-is-not-a-compute-node.
+if node_excluded "$HOSTNAME" || node_self_excluded; then
+    echo "########INFO: $HOSTNAME is not a compute node -- health checks not run there"
+    exit 0
+fi
+
+source /etc/profile.d/modules.sh
+module load slurm
+
+state=$(sinfo -N -n "$HOSTNAME" -h -o '%T')
+if [[ -z "$state" ]]
+then
+        exit 0
+fi
+
+reason=""
 
 ## Deliberately before the `refresh` sentinel is consumed, so a queued re-check
 ## survives the pause. See docs/reference/settings.md#pause-switches.

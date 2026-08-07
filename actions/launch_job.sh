@@ -292,6 +292,24 @@ ensure_owned "$logs"
 ensure_file_owned "$tracelog"
 ensure_file_owned "$quickview"
 
+## ── Hosts that are not compute nodes ──────────────────────────────────────
+##
+## Above every other gate, and not overridden by --test or --force: nothing
+## below this can succeed on a host slurm will never schedule a job on.
+## See docs/explanation/sequencing.md#a-host-that-is-not-a-compute-node.
+if node_excluded "$HOSTNAME"; then
+    node_mark_excluded "$logs" "EXCLUDE_NODES='$EXCLUDE_NODES' in ${SETTINGS_FILE:-<no settings file found>}"
+    ensure_file_owned "$logs/$NOT_COMPUTE_MARKER"
+    trace "EXIT: EXCLUDE_NODES='$EXCLUDE_NODES' in ${SETTINGS_FILE:-<no settings file found>} matches $HOSTNAME -- this host is not a compute node, so no jobs are submitted here and the reports leave it out. Neither --test nor --force opens this."
+    exit 0
+elif node_self_excluded; then
+    node_mark_excluded "$logs" "self-detected: slurmctld is installed here and slurmd is not"
+    ensure_file_owned "$logs/$NOT_COMPUTE_MARKER"
+    trace "EXIT: $HOSTNAME runs slurmctld and has no slurmd, so it is a head node and slurm will never schedule a job on it -- no jobs submitted, and the reports leave it out. Name it in EXCLUDE_NODES to say so deliberately; delete $logs/$NOT_COMPUTE_MARKER if this is wrong."
+    exit 0
+fi
+node_unmark_excluded "$logs"
+
 ## ── Which nodes this framework tests ──────────────────────────────────────
 ##
 ## Shell globs, not regexes: `ink40-dh4-*` is the form node names are written in

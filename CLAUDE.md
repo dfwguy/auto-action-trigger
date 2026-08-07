@@ -203,6 +203,7 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/scan-cache-test.sh     # the report cache, if you touched a gate or verdict-scan.sh
 ./tests/yield-test.sh          # the cancel gates, if you touched get-out-of-the-way.sh
 ./tests/llmb-check-test.sh     # llmb install discovery, if you touched llmb_check.py
+./tests/exclude-test.sh        # the head-node gate, if you touched EXCLUDE_NODES or a results/*/ walk
 ./tests/doc-links-test.sh      # every docs/ anchor the code points at, if you moved or retitled one
 bash -n <changed script>       # these scripts run as root on 200+ nodes
 shellcheck -S warning <changed script>   # CI gates on this; see below

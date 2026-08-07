@@ -111,6 +111,7 @@ not the checked-out ones.
 | `/home/cmods/bringup/results/<node>/` | Per-node benchmark result files |
 | `/home/cmods/bringup/results/<node>/trigger.log` | Per-cycle decision trace from `launch_job.sh` |
 | `/home/cmods/bringup/results/<node>/quick-view.txt` | One line per benchmark: `DONE` / `QUEUED` |
+| `/home/cmods/bringup/results/<node>/.not-a-compute-node` | Present when the host has decided it can never run a job. Holds the reason; every script that walks `results/*/` skips the directory. See [settings.md#hosts-that-are-not-compute-nodes](settings.md#hosts-that-are-not-compute-nodes) |
 | `/home/cmods/bringup/reports/` | Where `daily-report.sh -o` reports are kept by convention |
 | `/home/cmods/bringup/containers/` | Container images built by `build_containers.sh` |
 | `/tmp/containers/` (on each node) | Node-local cache of the above, rsync'd by `file_copy.sh` |
@@ -192,10 +193,11 @@ style-level findings below it are largely deliberate here.
 The `test` stage runs the suites — `tests/verdict-test.sh`,
 `tests/health-runner-test.sh`, `tests/recover-test.sh`, `tests/inflight-test.sh`,
 `tests/yield-test.sh`, `tests/help-text-test.sh`, `tests/scan-cache-test.sh`,
-`tests/llmb-check-test.sh`, `tests/doc-links-test.sh` — as one job each, so a
-failure names the gate that broke without anyone opening a log.
+`tests/llmb-check-test.sh`, `tests/exclude-test.sh`, `tests/doc-links-test.sh` —
+as one job each, so a failure names the gate that broke without anyone opening
+a log.
 
-Five of those exist for couplings that fail *without saying so*, which is why
+Six of those exist for couplings that fail *without saying so*, which is why
 they are gates rather than review items:
 
 - `scan-cache` — break the cache key and every report still prints, still looks
@@ -213,6 +215,11 @@ they are gates rather than review items:
 - `yield` — the only code in the tree that cancels a running job. Every case
   that must not cancel asserts that `scancel` was never called. See
   [explanation/sequencing.md#getting-out-of-the-way](../explanation/sequencing.md#getting-out-of-the-way).
+- `exclude` — the gate that keeps a host which is not a compute node out of the
+  sweep and the reports. Both directions are silent: a false positive retires a
+  real node and it reports nothing ever again, a false negative is the head node
+  in every report. See
+  [explanation/sequencing.md#a-host-that-is-not-a-compute-node](../explanation/sequencing.md#a-host-that-is-not-a-compute-node).
 - `doc-links` — the comment convention puts reasoning in `docs/` and leaves a
   one-line pointer in the code, which makes several hundred anchors load-bearing
   and unrendered: retitle a heading and the pointer still resolves, to the top

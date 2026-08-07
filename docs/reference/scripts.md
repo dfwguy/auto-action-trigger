@@ -22,7 +22,9 @@ bash status-check.sh -s                    # node lists per status, no reasons
 ```
 
 Reads `results/` and prints per-node status for each benchmark column, grouped
-by identical status via `dshbak`.
+by identical status via `dshbak`. A host that is not a compute node gets no row
+and is named on stderr instead — see
+[settings.md#hosts-that-are-not-compute-nodes](settings.md#hosts-that-are-not-compute-nodes).
 
 | Status | Meaning |
 | --- | --- |
@@ -201,7 +203,7 @@ rather than by matching anything, and the summary says so.
 | `node-health-refresh.sh <nodes>` | Sets the `refresh` sentinel so the next monitoring cycle re-runs `node_health.sh` there |
 | `set-valid-default.sh <node>` | Captures a validated node's `logs/` as the new baseline — see [health-checks.md](health-checks.md) |
 | `watch-rack.sh <nodelist>` | Refreshes every 20 seconds, showing only nodes that are DOWN or drained |
-| `trigger-log.sh` | Reads `results/<node>/trigger.log` across the cluster — five sections, described in [how-to/diagnose-nothing-running.md](../how-to/diagnose-nothing-running.md) |
+| `trigger-log.sh` | Reads `results/<node>/trigger.log` across the cluster — five sections, described in [how-to/diagnose-nothing-running.md](../how-to/diagnose-nothing-running.md). `--include-excluded` also reads the hosts the reports leave out |
 | `trigger-debug.sh` | Walks the BCM → `sbatch` chain and names the broken link. Read-only |
 | `check_squeue.sh` | The queue in one aligned table, whole cluster; `-j <id>` adds node state and reservations |
 | `kill-jobs.sh` | Cancels this framework's jobs; `-p` also sets `PAUSE_JOBS=yes`. See [how-to/pause-and-resume.md](../how-to/pause-and-resume.md) |

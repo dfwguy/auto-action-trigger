@@ -325,6 +325,59 @@ This is a large part of why the call count matters at all. The load and the
 wrong answers are the same problem: the queries that saturate the controller are
 the queries that then come back empty and get believed.
 
+## A host that is not a compute node
+
+The head node runs the framework and is not a target of it. But it is a host
+with a hostname, BCM will happily run an action there, and nothing about
+`launch_job.sh` knew that: it created `results/<headnode>/`, wrote a trigger log,
+surveyed the benchmark list and reported a full row of `NOT_RUN` for ever. Every
+gate it passed, it passed correctly. There was simply no gate for *this host is
+not a compute node*.
+
+The tempting test is the one this tree already threw away. `sinfo -N -n
+<host>` returning nothing does mean "Slurm has never heard of it" — and it also
+means "the controller is busy", which is what produced the 981 nodes above. A
+head-node check built on it would be the same bug wearing a different hat, and
+worse: the failure is a real node quietly retired from the fleet. An untested
+node that reports nothing looks identical to a healthy one nobody asked about,
+which is the silence this whole design exists to prevent.
+
+So the question is asked of the host itself, of systemd, which answers from
+installed unit files and contacts nothing over the network:
+
+> Is `slurmctld` installed here, and `slurmd` not?
+
+Both halves are required, and that is the point. A compute node never runs the
+controller, so the first half alone already separates the two roles; the second
+half means a node whose `slurmd` unit is momentarily unreadable still does not
+qualify. If `systemctl` is missing, or answers with neither unit, the host is
+treated as an ordinary node — no answer is not an answer here either. The cost
+of a false positive is a node silently dropped from the sweep, and the cost of a
+false negative is one head node in a report, so the test is built to fail
+towards the second.
+
+### Why it is written down rather than re-asked
+
+The reports run **on** the head node, over `results/*/`, and cannot ask another
+host's systemd any more than they can trust `sinfo`. So the host that can answer
+the question records the answer: `launch_job.sh` writes
+`results/<node>/.not-a-compute-node`, holding the reason, and the four scripts
+that walk `results/` skip a directory that has one. A cycle that does *not*
+match removes the marker, so the mistake is self-correcting in one direction and
+one file's deletion in the other.
+
+`EXCLUDE_NODES` is the same statement made deliberately, from the head node, and
+it does not wait for a cycle to run on the host before it takes effect. Neither
+`--test` nor `--force` opens it: they exist to override *timing* gates, and this
+is not one — there is nothing on the other side of it to force. See
+[reference/settings.md#hosts-that-are-not-compute-nodes](../reference/settings.md#hosts-that-are-not-compute-nodes).
+
+None of it is silent. The excluded host's own `trigger.log` carries the `EXIT:`
+line naming which of the two decided it, `trigger-log.sh --include-excluded`
+still reads it, and every report prints one line naming the hosts it left out. A
+row that disappears with no reason given is not distinguishable from a node
+nobody ever registered, which would trade one reporting bug for a worse one.
+
 ## Cadence is per job, not per node
 
 A job is eligible when it has not passed and its own result file is missing or

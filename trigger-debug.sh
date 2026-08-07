@@ -238,14 +238,23 @@ if [[ "${#nodes[@]}" -eq 0 ]]; then
     note "if you just cleared results/, this is expected until the trigger fires again"
 else
     silent=0
+    skipped=0
     for node_dir in "${nodes[@]}"; do
         node=$(basename "$node_dir")
+        ## Guarded: settings.sh is only sourced if it exists, and section 0 is
+        ## where its absence is reported. See docs/reference/settings.md#hosts-that-are-not-compute-nodes.
+        if declare -F node_out_of_reporting >/dev/null &&
+           node_out_of_reporting "$results_dir" "$node"; then
+            skipped=$((skipped + 1))
+            continue
+        fi
         if [[ -f "$node_dir/trigger.log" ]]; then
             printf '  %s: %s\n' "$node" "$(tail -1 "$node_dir/trigger.log")"
         else
             silent=$((silent + 1))
         fi
     done
+    [[ "$skipped" -gt 0 ]] && note "$skipped host(s) skipped as not compute nodes -- 'trigger-log.sh --include-excluded' reads them"
     [[ "$silent" -gt 0 ]] && bad "$silent node dir(s) have no trigger.log -- script is not running there"
 fi
 

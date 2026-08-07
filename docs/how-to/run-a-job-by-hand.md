@@ -26,8 +26,9 @@ pdsh -w 'ink50-dh01-h02-[11,13-18],ink50-dh01-h04-[11-13]' \
 ```
 
 Anything the script does not recognise — a node list included — is refused with
-`exit 2` and nothing is swept. Run on the head node with no arguments it reports
-`not known to slurm` and stops.
+`exit 2` and nothing is swept. Run on the head node it stops before any of it,
+saying the host is not a compute node — see
+[explanation/sequencing.md#a-host-that-is-not-a-compute-node](../explanation/sequencing.md#a-host-that-is-not-a-compute-node).
 
 Run it as `root` or as `JOB_USER` (`cmods`). Root becomes `JOB_USER` with
 `su -`, and `JOB_USER` submits directly — `su` would ask itself for a password,
