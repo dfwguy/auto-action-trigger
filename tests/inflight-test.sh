@@ -84,6 +84,22 @@ printf '%s|idle|none\n' "$3"
 exit 0
 EOF
 
+## A submission reaches $JOB_USER as `su - $JOB_USER -c <cmd>` when the cycle is
+## root's, and a login shell rebuilds PATH from the system profile -- which
+## drops every stub above. Stubbing the privilege drop keeps the command in this
+## environment; CI runs as root, so without this the submitting cases test the
+## runner's PATH rather than the sequencer.
+cat > "$stub/su" <<'EOF'
+#!/bin/bash
+cmd=""; prev=""
+for a in "$@"; do
+    [[ "$prev" == "-c" ]] && cmd="$a"
+    prev="$a"
+done
+printf '%s\n' "$cmd" >> "$STUB_DIR/su.calls"
+exec bash -c "$cmd"
+EOF
+
 chmod 755 "$stub"/*
 
 ## The stub tree: the real settings loader and the real parser, a job whose
