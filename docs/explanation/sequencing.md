@@ -49,6 +49,44 @@ The result file is not evidence on its own. `sbatch --output` creates it when
 the job *starts*, so its existence says nothing; what says the job ended is an
 end marker in it, which is the same thing `verdict.sh` reads.
 
+### A missing result file is not a finished job
+
+The row above that says "no end marker, inside its window → wait" was
+unreachable for most of the fleet's life, and the failure is worth keeping
+written down.
+
+`verdict()` answers `NOT_RUN` for a file that does not exist, and the gate asked
+"is this complete" as `VERDICT_STATUS != INCOMPLETE`. A job that is still queued
+has no result file at all — `sbatch --output` creates it at *start* — so `NOT_RUN`
+came back, the gate read "finished", and the marker was deleted on the first
+cycle after submission. The trace said so plainly, once per submission, for
+months: `finished after 39s: NOT_RUN -- no result file`.
+
+Everything downstream then behaved exactly as designed, on a false premise:
+
+- the node read as idle, so the survey re-offered the same job every cycle —
+  and with no result file there is no mtime, so `RETRY_INTERVAL_HOURS` never
+  applied either;
+- the only thing left standing between that and a duplicate submission was the
+  [guard before a submission](#the-guard-before-a-submission), a full-queue
+  `squeue` now running every cycle on every node whose job had not started —
+  the exact cost the marker exists to remove. One fleet's trace logs held 38,666
+  of its `no marker, but N job(s) of ours are already queued` lines;
+- each time that one query came back empty because the controller was busy, a
+  duplicate went out. Nodes accumulated two and three pending copies of the same
+  benchmark, hours apart;
+- and once such a job finally started, the marker was already gone, so the node
+  read its **own** running job as somebody else's and left the node to it.
+
+So `result_complete` excludes `NOT_RUN` as well as `INCOMPLETE`. A job with no
+result file has not started, the marker outlives it, and the bounded wait below
+is what eventually asks the controller. Nothing else needed changing — every
+consequence above was a correct response to a wrong answer.
+
+The general shape is worth naming, because it is not a Slurm problem: a
+three-valued answer (`not started` / `running` / `finished`) was tested with a
+two-valued question, and the missing case took the branch that does damage.
+
 Serialization no longer depends on the scheduler: only one job of ours is ever
 out, so ordering *is* the `BENCHMARKS` list. `#SBATCH --exclusive` stays in every
 `jobs/*.sbatch` because it still does the other half of the work — it keeps
@@ -264,13 +302,24 @@ can come back empty has a caller that fails closed:
   with ours.
 - **The local running check.** An inconclusive `scontrol listjobs` reads as
   *still running*, never as gone — see [one job at a time](#one-job-at-a-time).
-- **The stale branch.** `squeue -j` returning nothing is the one case where
-  empty *is* the answer, which is why that branch is only reached after the
-  job's own walltime plus `INFLIGHT_GRACE_MINUTES` have passed, rather than on
-  the first cycle a job is not seen.
+- **The stale branch.** `squeue -j` returning nothing on a **successful** query
+  is the one case where empty *is* the answer, which is why that branch is only
+  reached after the job's own walltime plus `INFLIGHT_GRACE_MINUTES` have
+  passed, rather than on the first cycle a job is not seen. A query that
+  *failed* is a different thing and is not allowed to look like it: the exit
+  status and stderr are both kept, `Invalid job id specified` means the job is
+  genuinely gone, and anything else keeps the marker and archives nothing.
+- **The guard before a submission.** `squeue -h -o '%i %j'` coming back empty
+  reads as "no job of ours is queued", which is the sentence that puts a second
+  job on a node that already has one. So a failed query is a stop: the job stays
+  eligible and the trace says the queue could not be read. `kill-jobs.sh` has
+  always done this; the sequencer did not, and duplicates on the fleet were the
+  proof.
 
 `NODE_ASKED` separates "not fetched yet" from "fetched and got nothing", so a
 run that hit a timeout does not ask again on every subsequent call.
+`QUEUED_FAILED` does the same job for the queue, and is remembered rather than
+re-asked within a cycle.
 
 This is a large part of why the call count matters at all. The load and the
 wrong answers are the same problem: the queries that saturate the controller are
@@ -526,7 +575,10 @@ Past that bound, and only then, one `squeue -j <id>` settles it:
   the `scancel` that would give up on it. Queued behind a long foreign job is a
   legitimate state, not a fault.
 - **Not in the queue** — gone without finishing. The partial result is archived
-  as `.fail<N>.txt` so the slot is free and the attempt is still on disk.
+  as `.fail<N>.txt` so the slot is free and the attempt is still on disk. "Not
+  in the queue" means an answered query that named no job, or `squeue` replying
+  `Invalid job id specified`; a query that did not complete leaves the marker
+  alone and tries again next cycle.
 
 ### When a node is drained
 
@@ -726,58 +778,6 @@ a gap nobody is competing for. Both are working. The operator-facing version of
 this is
 [how-to/estimate-when-a-job-will-start.md](../how-to/estimate-when-a-job-will-start.md#6-why-our-jobs-start-ahead-of-yours-anyway).
 
-## Site switches are not timing gates
-
-`--force` opens the hourly retry gate and nothing else. `PAUSE_JOBS`,
-`NODE_FILTER` and `MAX_QUEUED_JOBS` are all statements about what the cluster
-should be given, not about when a job is next due, so a forced sweep is asked
-the same questions a normal cycle is and each one traces that `--force` did not
-override it.
-
-`NODE_FILTER` is the one most likely to be forced over by accident: `-f` is
-normally issued across a whole rack over `pdsh`, and it must not quietly test
-nodes the site took out.
-
-`--test` **does** open `NODE_FILTER`. Naming a job and running the command on a
-particular node is already a deliberate statement about that node, which `-f`
-across a rack is not, and refusing would mean widening the site's `NODE_FILTER`
-to check one suspect machine. The run traces that it went ahead and that the
-node is outside the swept set, so a result on a node the reports do not cover
-has an explanation next to it — nothing there will be re-run on a cadence.
-
-## The job file wins
-
-A variable that the job's own `.sbatch` exports is **not** overridden by
-`JOB_ENV`. The `export` in the job file runs after `sbatch` has handed over the
-environment, so it is last to write.
-
-That is the right way round. `allreduce-nonvlink.sbatch` has to run with
-`NCCL_P2P_DISABLE=1`; a site-wide setting that could flip it would turn the
-non-NVLink benchmark into a second NVLink benchmark, which passes and tests
-nothing. Per-job values are the test definition, and `JOB_ENV` is the
-environment around it.
-
-What was wrong with this before it was written down is that the override was
-silent — a `SETTINGS` line that did nothing looked exactly like one that worked.
-`launch_job.sh` now traces the collision when it submits.
-
-## What a submission carries
-
-The submission is built as one string and handed to a shell as `JOB_USER`:
-`su - $JOB_USER -c` when the cycle is root's, `bash -lc` when an operator is
-already `cmods`. It loads the `slurm` module, makes `results/<node>` if it is
-missing, and submits:
-
-```
-sbatch -w $HOSTNAME -J <bringup|burnin>-<node> \
-       --export=ALL,RESULT_FILE=<file>[,<JOB_ENV>] --output=<file> <job>.sbatch
-```
-
-`-J` is per list and per node, and it is passed here rather than as an `#SBATCH`
-line because those are comments rather than shell and would not expand
-`$HOSTNAME`. It is what the queue queries match on, so a job submitted without
-it is invisible to the next cycle's "is anything of ours out there" check.
-`RESULT_FILE` is where the job writes its own markers and `--output` is where
 ## Getting out of the way
 
 Backfill is what keeps the sweep polite about *starting*. `GET_OUT_OF_THE_WAY`
@@ -875,6 +875,58 @@ asks once per five cycles instead of five times, and the worst case between
 somebody queueing and the node giving up is that plus
 `GET_OUT_OF_THE_WAY_AFTER_MINUTES`.
 
+## Site switches are not timing gates
+
+`--force` opens the hourly retry gate and nothing else. `PAUSE_JOBS`,
+`NODE_FILTER` and `MAX_QUEUED_JOBS` are all statements about what the cluster
+should be given, not about when a job is next due, so a forced sweep is asked
+the same questions a normal cycle is and each one traces that `--force` did not
+override it.
+
+`NODE_FILTER` is the one most likely to be forced over by accident: `-f` is
+normally issued across a whole rack over `pdsh`, and it must not quietly test
+nodes the site took out.
+
+`--test` **does** open `NODE_FILTER`. Naming a job and running the command on a
+particular node is already a deliberate statement about that node, which `-f`
+across a rack is not, and refusing would mean widening the site's `NODE_FILTER`
+to check one suspect machine. The run traces that it went ahead and that the
+node is outside the swept set, so a result on a node the reports do not cover
+has an explanation next to it — nothing there will be re-run on a cadence.
+
+## The job file wins
+
+A variable that the job's own `.sbatch` exports is **not** overridden by
+`JOB_ENV`. The `export` in the job file runs after `sbatch` has handed over the
+environment, so it is last to write.
+
+That is the right way round. `allreduce-nonvlink.sbatch` has to run with
+`NCCL_P2P_DISABLE=1`; a site-wide setting that could flip it would turn the
+non-NVLink benchmark into a second NVLink benchmark, which passes and tests
+nothing. Per-job values are the test definition, and `JOB_ENV` is the
+environment around it.
+
+What was wrong with this before it was written down is that the override was
+silent — a `SETTINGS` line that did nothing looked exactly like one that worked.
+`launch_job.sh` now traces the collision when it submits.
+
+## What a submission carries
+
+The submission is built as one string and handed to a shell as `JOB_USER`:
+`su - $JOB_USER -c` when the cycle is root's, `bash -lc` when an operator is
+already `cmods`. It loads the `slurm` module, makes `results/<node>` if it is
+missing, and submits:
+
+```
+sbatch -w $HOSTNAME -J <bringup|burnin>-<node> \
+       --export=ALL,RESULT_FILE=<file>[,<JOB_ENV>] --output=<file> <job>.sbatch
+```
+
+`-J` is per list and per node, and it is passed here rather than as an `#SBATCH`
+line because those are comments rather than shell and would not expand
+`$HOSTNAME`. It is what the queue queries match on, so a job submitted without
+it is invisible to the next cycle's "is anything of ours out there" check.
+`RESULT_FILE` is where the job writes its own markers and `--output` is where
 `sbatch` puts the job's stdout — the same path, which is what makes a result
 file a complete record of the run.
 

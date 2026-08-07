@@ -187,6 +187,15 @@ scan-cache:
   script:
     - ./tests/scan-cache-test.sh
 
+# The gate that decides whether a node already has a job out. A wrong answer
+# there is silent: the node looks like a healthy idle cycle while holding two
+# jobs, or none. See docs/explanation/sequencing.md#one-job-at-a-time.
+inflight:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/inflight-test.sh
+
 # The only thing in the tree that cancels a job of ours that is working. Every
 # case that must not cancel asserts that scancel was never called.
 yield:

@@ -194,7 +194,7 @@ The `test` stage runs the suites — `tests/verdict-test.sh`,
 `tests/llmb-check-test.sh`, `tests/doc-links-test.sh` — as one job each, so a
 failure names the gate that broke without anyone opening a log.
 
-Three of those exist for couplings that fail *without saying so*, which is why
+Five of those exist for couplings that fail *without saying so*, which is why
 they are gates rather than review items:
 
 - `scan-cache` — break the cache key and every report still prints, still looks
