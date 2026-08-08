@@ -125,6 +125,27 @@ absent "and no health grouping" "FAILED HEALTH CHECKS" "$drained"
 ## situations, and folding them together hides one of them.
 check "state leads each line" "down " "$drained"
 
+## ── --by-state ────────────────────────────────────────────────────────────
+## The flat roll-up counts a node already drained the same as one still taking
+## work, so it cannot say how much of a check a drain would take out.
+
+flat=$(run --summary)
+split=$(run --by-state)
+
+check "the flat roll-up pools the states" "    alpha                      2 nodes" "$flat"
+absent "and names none of them" "Slurm state:" "$flat"
+
+check "--by-state implies --summary" "── HEALTH CHECKS ──" "$split"
+check "one block per state, largest first" \
+    "Slurm state: drained — 1 node" "$split"
+check "the other state" "Slurm state: idle — 1 node" "$split"
+check "the check is counted inside its state" "    alpha                      1 node" "$split"
+absent "and never pooled across them" "    alpha                      2 nodes" "$split"
+
+## Once per node, not once per check it failed: node01 fails two checks and is
+## one node.
+absent "a node is counted once in its block header" "Slurm state: idle — 2 nodes" "$split"
+
 ## ── The two roll-ups are reports, not filters ─────────────────────────────
 
 both=$(run --summary --drained; echo "rc=$?")

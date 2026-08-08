@@ -205,6 +205,7 @@ bash health-check.sh                      # every node
 bash health-check.sh ink50-dh01-h20       # one rack (bare prefix)
 bash health-check.sh --drained            # every drain, grouped by reason
 bash health-check.sh --summary            # the per-check roll-up, complete
+bash health-check.sh --by-state          # that roll-up, split by Slurm state
 bash health-check.sh --explain            # the cadence: when each node re-checks
 bash health-check.sh --refresh node001    # queue a re-check ahead of the cadence
 ```
@@ -295,6 +296,36 @@ check — "how far does each fix reach".
 
 A node with no `logs/<node>` at all is listed separately as never checked. It is
 not a passing node, and is not counted as one.
+
+### `--by-state`
+
+`--summary` split into one block per Slurm state, each with its own per-check
+tally, largest state first. It implies `--summary`, so `--by-state` on its own is
+the whole flag:
+
+```
+── HEALTH CHECKS ───────────────────────────────────────────
+3 checks failing on 193 nodes, by Slurm state (logs/<node> against valid-config/default)
+
+Slurm state: idle — 97 nodes
+    nvlinks                   97 nodes
+      ink50-dh01-h01-[11-36],ink50-dh01-h02-[11-34]
+    dmesg-xid                 96 nodes
+      ink50-dh01-h01-[11-35],ink50-dh01-h02-[11-34]
+
+Slurm state: drained — 96 nodes
+    nvlinks                   96 nodes
+      ink50-dh01-h07-[11-36]
+```
+
+The flat roll-up counts a node that is already drained the same as one still
+taking work, so `nvlinks — 193 nodes` cannot tell you how much of that a drain
+would actually take out of the queue. This split can, and it is also where a
+check failing only on nodes that are already down shows itself as the
+consequence of the outage rather than a fault of its own.
+
+The state comes from `sinfo`, and a failing node Slurm does not know about is
+grouped under `unknown` rather than dropped.
 
 ### `--explain` and `--refresh`
 

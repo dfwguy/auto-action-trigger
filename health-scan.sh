@@ -16,7 +16,7 @@
 # shellcheck disable=SC2034  # health_fail_list is read by the sourcing report
 
 declare -A gated_check base_hash check_fail_nodes
-declare -A health_fail_list health_fail_count
+declare -A health_fail_list health_fail_count health_node_state
 declare -a no_baseline_checks health_scan_notes
 have_baseline=0
 
@@ -58,14 +58,6 @@ health_scan_checks() {
     fi
 }
 
-# Every failing (node, check) pair, aggregated both ways, in one awk.
-#
-# The comparison is over one checksum per log file -- 21,888 of them on a
-# 576-node fleet -- and a `while read` around that is the single most expensive
-# thing a report can do: bash reads a pipe a byte at a time, which cost 5.3s of
-# an 8.5s overall_report.sh run before this was moved out. awk returns the two
-# aggregates already built, so bash only ever reads the failures, which are few.
-# See docs/explanation/reading-the-whole-fleet.md#health-read-from-the-files.
 ## $1 is an optional node glob. Dropping non-matching nodes here rather than at
 ## each printing site is what keeps a report's node filter honest: the scan
 ## walks the whole of logs/ either way, because a per-check tally has to be
@@ -92,6 +84,14 @@ health_scan_filter() {
     done
 }
 
+# Every failing (node, check) pair, aggregated both ways, in one awk.
+#
+# The comparison is over one checksum per log file -- 21,888 of them on a
+# 576-node fleet -- and a `while read` around that is the single most expensive
+# thing a report can do: bash reads a pipe a byte at a time, which cost 5.3s of
+# an 8.5s overall_report.sh run before this was moved out. awk returns the two
+# aggregates already built, so bash only ever reads the failures, which are few.
+# See docs/explanation/reading-the-whole-fleet.md#health-read-from-the-files.
 health_scan() {
     health_scan_checks
     [[ "$have_baseline" -eq 1 ]] || return 0
@@ -140,39 +140,80 @@ health_scan() {
     health_scan_filter "$1"
 }
 
+# One check per line, largest first, node list under each. Reads `count|name|
+# nodes` rows on stdin, already sorted, and honours the caller's cap.
+health_section_rows() {
+    local shown=0 hidden=0 count name list
+    while IFS='|' read -r count name list; do
+        if [[ "$shown" -ge "$cap" ]]; then
+            ((hidden++)); continue
+        fi
+        ((shown++))
+        printf '    %-24s %3d %s\n' "$name" "$count" "$(plural "$count")"
+        print_wrapped "      " "$(compress "$(sort_list "$list")")" 2
+    done
+    [[ "$hidden" -gt 0 ]] &&
+        printf '    ... %d more %s — rerun with %s\n' \
+            "$hidden" "$([[ "$hidden" -eq 1 ]] && echo check || echo checks)" "$more"
+    return 0
+}
+
 # The HEALTH block, per check rather than per node: 60 nodes failing `bios` is
 # one out-of-spec image, and one line. $1 caps how many checks are named before
 # the tail collapses, $2 is the comma-separated never-checked list, $3 the flag
-# that would print the rest.
+# that would print the rest, $4 splits the block by Slurm state -- for which the
+# caller fills health_node_state.
 # See docs/explanation/reading-the-whole-fleet.md#health-read-from-the-files.
 health_section() {
-    local cap="$1" never="$2" more="${3:---full}"
+    local cap="$1" never="$2" more="${3:---full}" by_state="${4:-0}"
     local n_nodes_failing=${#health_fail_count[@]} n_checks=${#check_fail_nodes[@]}
-    local shown hidden count name n_never
+    local name n_never node state key n_state
 
     [[ "$have_baseline" -eq 1 ]] || return 0
     printf '── HEALTH CHECKS ───────────────────────────────────────────\n'
     if [[ "$n_checks" -eq 0 ]]; then
         printf 'No check differs from the baseline on any node reported here.\n\n'
+    elif [[ "$by_state" -eq 1 ]]; then
+        ## The same failing check means different things on a node still taking
+        ## work and one already out of the queue, and the split says which
+        ## nodes a drain would actually cover.
+        declare -A state_check state_nodes seen_node
+        for name in "${!check_fail_nodes[@]}"; do
+            for node in ${check_fail_nodes[$name]//,/ }; do
+                state="${health_node_state[$node]:-unknown}"
+                state_check["$state|$name"]+="$node,"
+                ## Once per node, not once per check it failed, or the block
+                ## header counts a node with 38 failures as 38 nodes.
+                [[ -n "${seen_node[$node]}" ]] && continue
+                seen_node["$node"]=1
+                state_nodes["$state"]+="$node,"
+            done
+        done
+        printf '%d %s failing on %d %s, by Slurm state (logs/<node> against valid-config/default)\n' \
+            "$n_checks" "$([[ "$n_checks" -eq 1 ]] && echo check || echo checks)" \
+            "$n_nodes_failing" "$(plural "$n_nodes_failing")"
+        while IFS='|' read -r n_state state; do
+            printf '\nSlurm state: %s — %d %s\n' "$state" "$n_state" "$(plural "$n_state")"
+            health_section_rows < <(
+                for key in "${!state_check[@]}"; do
+                    [[ "${key%%|*}" == "$state" ]] || continue
+                    printf '%s|%s|%s\n' "$(count_list "${state_check[$key]%,}")" \
+                        "${key#*|}" "${state_check[$key]%,}"
+                done | sort -t'|' -k1,1nr -k2,2)
+        done < <(
+            for state in "${!state_nodes[@]}"; do
+                printf '%s|%s\n' "$(count_list "${state_nodes[$state]%,}")" "$state"
+            done | sort -t'|' -k1,1nr -k2,2)
+        echo
     else
         printf '%d %s failing on %d %s (logs/<node> against valid-config/default)\n\n' \
             "$n_checks" "$([[ "$n_checks" -eq 1 ]] && echo check || echo checks)" \
             "$n_nodes_failing" "$(plural "$n_nodes_failing")"
-        shown=0; hidden=0
-        while IFS='|' read -r count name; do
-            if [[ "$shown" -ge "$cap" ]]; then
-                ((hidden++)); continue
-            fi
-            ((shown++))
-            printf '    %-24s %3d %s\n' "$name" "$count" "$(plural "$count")"
-            print_wrapped "      " "$(compress "$(sort_list "${check_fail_nodes[$name]}")")" 2
-        done < <(
+        health_section_rows < <(
             for name in "${!check_fail_nodes[@]}"; do
-                printf '%s|%s\n' "$(count_list "${check_fail_nodes[$name]}")" "$name"
+                printf '%s|%s|%s\n' "$(count_list "${check_fail_nodes[$name]}")" \
+                    "$name" "${check_fail_nodes[$name]}"
             done | sort -t'|' -k1,1nr -k2,2)
-        [[ "$hidden" -gt 0 ]] &&
-            printf '    ... %d more %s — rerun with %s\n' \
-                "$hidden" "$([[ "$hidden" -eq 1 ]] && echo check || echo checks)" "$more"
         echo
     fi
     if [[ ${#no_baseline_checks[@]} -gt 0 ]]; then

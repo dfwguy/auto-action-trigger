@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: health-check.sh [--drained] [--summary] [pattern]
+# Usage: health-check.sh [--drained] [--summary [--by-state]] [pattern]
 #        health-check.sh --explain [pattern]
 #        health-check.sh --refresh <node|nodelist> [...]
 #
@@ -22,6 +22,12 @@
 #            failing check with every node under it, the checks with no baseline
 #            entry, and the nodes that have never been checked. The same block
 #            overall_report.sh prints, from the same numbers.
+#
+#   --by-state
+#            --summary split into one block per Slurm state, each with its own
+#            per-check tally. Answers "how much of this would a drain actually
+#            take out", which the flat roll-up cannot: it counts a node already
+#            drained the same as one still taking work. Implies --summary.
 #
 #   --explain
 #            the cadence rather than the findings: when the checks last ran on
@@ -58,17 +64,19 @@ valid_dir="$home/valid-config/default"
 # Parse before loading Slurm, so --help works on a host that has neither.
 drained=0
 summary=0
+by_state=0
 explain=0
 refresh=0
 args=()
 for arg in "$@"; do
     case "$arg" in
-        --drained|-d) drained=1 ;;
-        --summary|-s) summary=1 ;;
-        --explain|-n) explain=1 ;;
-        --refresh|-r) refresh=1 ;;
-        -h|--help)    sed -n '2,50p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
-        *)            args+=("$arg") ;;
+        --drained|-d)  drained=1 ;;
+        --summary|-s)  summary=1 ;;
+        --by-state|-b) by_state=1; summary=1 ;;
+        --explain|-n)  explain=1 ;;
+        --refresh|-r)  refresh=1 ;;
+        -h|--help)     sed -n '2,56p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        *)             args+=("$arg") ;;
     esac
 done
 
@@ -235,7 +243,7 @@ if [[ ! -f "$home/health-scan.sh" ]]; then
 fi
 ## Declared here as well as in the library: nothing follows a `source` at lint
 ## time, so these would read as undefined at every use below.
-declare -A health_fail_count health_fail_list
+declare -A health_fail_count health_fail_list health_node_state
 declare -a no_baseline_checks health_scan_notes
 source "$home/health-scan.sh"
 health_scan "$pattern"
@@ -270,6 +278,7 @@ while IFS='|' read -r node state reason; do
     if [[ -n "${health_fail_count[$node]}" ]]; then
         ((failing++))
         failing_nodes+="$node,"
+        health_node_state["$node"]="$state"
         if [[ -n "$drain_key" ]]; then
             ((out++)); drain_nodes["$drain_key"]+="$node,"
         else
@@ -380,7 +389,7 @@ printf '%d %s — %d failing, %d passing, %d never checked, %d other %s\n\n' \
 # --summary: the HEALTH block overall_report.sh prints, from the same numbers.
 # See docs/reference/scripts.md#--summary.
 if [[ "$summary" -eq 1 ]]; then
-    health_section "$max_checks" "${unchecked_nodes%,}"
+    health_section "$max_checks" "${unchecked_nodes%,}" --summary "$by_state"
     exit 0
 fi
 
