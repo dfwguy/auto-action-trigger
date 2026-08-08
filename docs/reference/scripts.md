@@ -206,6 +206,7 @@ bash health-check.sh ink50-dh01-h20       # one rack (bare prefix)
 bash health-check.sh --drained            # every drain, grouped by reason
 bash health-check.sh --summary            # the per-check roll-up, complete
 bash health-check.sh --by-state          # that roll-up, split by Slurm state
+bash health-check.sh --individual ib-firmware   # aggregate that check across all nodes
 bash health-check.sh --explain            # the cadence: when each node re-checks
 bash health-check.sh --refresh node001    # queue a re-check ahead of the cadence
 ```
@@ -326,6 +327,35 @@ consequence of the outage rather than a fault of its own.
 
 The state comes from `sinfo`, and a failing node Slurm does not know about is
 grouped under `unknown` rather than dropped.
+
+### `--individual`
+
+```bash
+bash health-check.sh --individual ib-firmware
+bash health-check.sh --individual ib-firmware ink50-dh01-h01   # one rack
+```
+
+Group nodes whose `logs/<node>/<check>` file is byte-for-byte identical, largest
+group first, with a compressed node list and the file content under each:
+
+```
+ib-firmware — 2003 nodes
+
+1999 nodes
+  nscale-h01-[11-36],nscale-h02-[11-34],...
+########INFO: Check IB FW (Expected: All nodes have the same FW version)
+             /sys/class/infiniband/mlx5_0/fw_ver     40.48.1126
+             ...
+
+4 nodes
+  nscale-h03-[11-14]
+########INFO: Check IB FW (Expected: All nodes have the same FW version)
+             /sys/class/infiniband/mlx5_0/fw_ver     40.47.2628
+             ...
+```
+
+The default report tells you *which nodes* failed a check; this tells you *what
+values* the fleet has and which nodes share each one. It reads no Slurm state.
 
 ### `--explain` and `--refresh`
 

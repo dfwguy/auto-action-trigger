@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # Usage: health-check.sh [--drained] [--summary [--by-state]] [pattern]
+#        health-check.sh --individual|-i <check> [pattern]
 #        health-check.sh --explain [pattern]
 #        health-check.sh --refresh <node|nodelist> [...]
 #
@@ -36,6 +37,12 @@
 #            cannot -- it reads a snapshot of the logs, and a node that has
 #            stopped checking keeps whatever it last wrote.
 #
+#   --individual|-i <check> [pattern]
+#            group nodes whose <check> log file is byte-for-byte identical,
+#            largest group first, with a compressed node list and the file
+#            content under each. Shows the actual values across the fleet.
+#            Reads no Slurm state.
+#
 #   --refresh <node|nodelist> [...]
 #            queue an immediate re-check on the named nodes by setting the
 #            refresh sentinel, instead of waiting out HEALTH_INTERVAL_HOURS.
@@ -66,16 +73,18 @@ drained=0
 summary=0
 by_state=0
 explain=0
+individual=0
 refresh=0
 args=()
 for arg in "$@"; do
     case "$arg" in
-        --drained|-d)  drained=1 ;;
-        --summary|-s)  summary=1 ;;
-        --by-state|-b) by_state=1; summary=1 ;;
-        --explain|-n)  explain=1 ;;
-        --refresh|-r)  refresh=1 ;;
-        -h|--help)     sed -n '2,56p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        --drained|-d)    drained=1 ;;
+        --summary|-s)    summary=1 ;;
+        --by-state|-b)   by_state=1; summary=1 ;;
+        --explain|-n)    explain=1 ;;
+        --individual|-i) individual=1 ;;
+        --refresh|-r)    refresh=1 ;;
+        -h|--help)     sed -n '2,63p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         *)             args+=("$arg") ;;
     esac
 done
@@ -86,7 +95,14 @@ if [[ "$summary" -eq 1 && "$drained" -eq 1 ]]; then
     echo "       Ask for one of them." >&2
     exit 2
 fi
-
+## Its first argument is a check name rather than a node pattern, so combining
+## it would silently reinterpret the caller's argument.
+if [[ "$individual" -eq 1 && ( "$summary" -eq 1 || "$drained" -eq 1 ) ]]; then
+    echo "ERROR: --individual is its own report -- it takes a check name, not a" >&2
+    echo "       node pattern, so it cannot be combined with --summary or" >&2
+    echo "       --drained. Ask for one of them." >&2
+    exit 2
+fi
 if ! command -v sinfo &>/dev/null; then
     source /etc/profile.d/modules.sh
     module load slurm
@@ -189,8 +205,52 @@ if [[ ! -f "$home/report-format.sh" ]]; then
     echo "       compression and wrapping this report is printed through." >&2
     exit 1
 fi
-REPORT_FULL=$(( summary || drained ))
+REPORT_FULL=$(( summary || drained || individual ))
 source "$home/report-format.sh"
+
+## Groups nodes whose <check> file is identical, largest group first.
+## See docs/reference/scripts.md#--individual.
+if [[ "$individual" -eq 1 ]]; then
+    check="${args[0]}"
+    if [[ -z "$check" ]]; then
+        echo "ERROR: --individual needs a check name -- e.g. bash health-check.sh --individual ib-firmware" >&2
+        exit 2
+    fi
+    node_pat="${args[1]:-*}"
+    [[ "$node_pat" != *[\*\?\[]* ]] && node_pat="${node_pat}*"
+    declare -A ind_nodes ind_path
+    total_ind=0
+    for dir in "$logs_dir"/*/; do
+        node=$(basename "$dir")
+        # shellcheck disable=SC2053  # $node_pat is the caller's node glob
+        [[ "$node" == $node_pat ]] || continue
+        f="$dir/$check"
+        [[ -f "$f" ]] || continue
+        hash=$(md5sum "$f" | cut -d' ' -f1)
+        ind_nodes["$hash"]+="$node,"
+        ind_path["$hash"]="${ind_path[$hash]:-$f}"
+        ((total_ind++))
+    done
+    if [[ "$total_ind" -eq 0 ]]; then
+        echo "No logs/<node>/$check found for '${args[1]:-*}'" >&2
+        exit 1
+    fi
+    printf '%s — %d %s\n\n' "$check" "$total_ind" "$(plural "$total_ind")"
+    mapfile -t hashes < <(
+        for hash in "${!ind_nodes[@]}"; do
+            printf '%d %s\n' "$(count_list "${ind_nodes[$hash]%,}")" "$hash"
+        done | sort -rn | awk '{print $2}'
+    )
+    for hash in "${hashes[@]}"; do
+        nodes="${ind_nodes[$hash]%,}"
+        count=$(count_list "$nodes")
+        printf '%d %s\n' "$count" "$(plural "$count")"
+        print_wrapped "  " "$(compress "$nodes")"
+        cat "${ind_path[$hash]}"
+        echo
+    done
+    exit 0
+fi
 
 # Files node_health.sh writes into logs/<node>/ that are not checks.
 is_not_a_check() {
