@@ -25,8 +25,8 @@ Two consequences worth knowing:
 - `health-check.sh` and `overall_report.sh` both read the health verdict out of
   `logs/<node>` rather than out of `sinfo`, so a failing node is reported either
   way. What drains off costs you is the *scheduler*: those nodes are still
-  taking work. `health-check.sh` says how many, and `--drained` narrows the
-  report to the ones Slurm has actually taken out.
+  taking work. `health-check.sh` says how many, and `--drained` is the separate
+  report of what Slurm has taken out, grouped by reason.
 - Turning either on does not clear drains that already exist, and does not drain
   a node that is already failing — the next monitoring cycle does that.
 

@@ -84,8 +84,10 @@ enough, since the rest of the group failed the same checks. Its drain-reason
 section is **not** a health verdict; those nodes are down or drained for a
 reason `node_health.sh` did not write. Do not treat it as a list of bad nodes.
 
-`bash health-check.sh --drained` cuts either view down to the nodes Slurm has
-actually taken out of the queue.
+`bash health-check.sh --drained` is the third cut, and not a health one: every
+drained or down node grouped by the reason it carries, largest group first. That
+is the list to take when the question is what is out of the queue rather than
+what is broken.
 
 ## Feeding the list to something
 

@@ -160,9 +160,10 @@ A `FAIL` group carries `[measured …]` when the column has a metric, so how far
 below a floor the nodes are is visible without opening `daily-report.sh`. The
 figures are the same ones that report prints, in the same units.
 
-The health section does **not** read Slurm drain reasons, so unlike
-`health-check.sh` it is complete with the shipped
-`DRAIN_AFTER_FAILED_HEALTH_CHECK=no`. Informational checks are excluded, because
+The health section does **not** read Slurm drain reasons, so it is complete with
+the shipped `DRAIN_AFTER_FAILED_HEALTH_CHECK=no`. It is rendered by
+`health-scan.sh`, the same library `health-check.sh --summary` prints through,
+so the two agree by construction. Informational checks are excluded, because
 `node_health.sh` never drains on them.
 
 ### A node block
@@ -202,7 +203,7 @@ resumes nothing; `-o` is the only thing it writes.
 ```bash
 bash health-check.sh                      # every node
 bash health-check.sh ink50-dh01-h20       # one rack (bare prefix)
-bash health-check.sh --drained            # only what Slurm has taken out
+bash health-check.sh --drained            # every drain, grouped by reason
 bash health-check.sh --summary            # the per-check roll-up, complete
 bash health-check.sh --explain            # the cadence: when each node re-checks
 bash health-check.sh --refresh node001    # queue a re-check ahead of the cadence
@@ -234,15 +235,42 @@ passing, and an empty report looks exactly like a healthy cluster.
 
 ### `--drained`
 
-The report reads the logs, so with the shipped
-`DRAIN_AFTER_FAILED_HEALTH_CHECK=no` most of the nodes it names are still in the
-queue. `--drained` narrows it to the ones Slurm has actually taken out — down,
-drained, failing or unknown — which is the set a scheduling problem is about
-rather than a hardware one.
+What is out of the queue, rather than what is broken. Every drained or down node
+grouped by the reason it carries, largest group first, with the node list under
+each:
 
-It does not combine with `--summary`, which is read from `logs/<node>` and
-carries no drain state; asking for both is an error rather than a silently
-ignored flag.
+```
+DRAINED — 78 of 576 nodes
+
+  drained        nvlinks nvlink-ber                            60 nodes
+      ink50-dh01-h01-[11-36],ink50-dh01-h02-[11-34]
+  down           Not responding                                15 nodes
+      ink50-dh01-h07-[11-25]
+  drained        (logs now match) bios                          2 nodes
+      ink50-dh01-h09-[14,17]
+  drained        admin: waiting on RMA                          1 node
+      ink50-dh01-h11-22
+```
+
+`sinfo -R` answers the same question one node at a time, and a rack powered off
+by CMDaemon reads there as eighteen incidents. Here it is one line, and stays
+one line however many racks get added — which is what makes an unfamiliar reason
+in a group of one worth reading.
+
+The state is kept in the grouping key as well as the reason: `down` and
+`drained` over the same text are two different situations, and a node that is
+down with nothing recorded is its own group rather than being folded into the
+drains.
+
+`(logs now match)` marks a health drain the logs no longer support — see [a
+drain the logs no longer
+support](../how-to/manage-drains.md#a-drain-the-logs-no-longer-support). Nothing
+elides, and nothing else is printed: this mode does not read the health verdict
+except to mark those lines.
+
+It does not combine with `--summary`. They are two reports, not two filters —
+one groups failures by check, the other groups drains by reason — so asking for
+both is an error rather than a silently ignored flag.
 
 ### `--summary`
 

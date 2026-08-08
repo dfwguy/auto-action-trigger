@@ -27,7 +27,7 @@ cd /home/cmods/bringup
 |---|---|---|
 | `status-check.sh` | What state is every benchmark in? | `results/` + `squeue` |
 | `daily-report.sh` | What are the numbers? | `results/` + `sinfo` |
-| `health-check.sh` | What is wrong that is not a benchmark? | Slurm drain reasons |
+| `health-check.sh` | What is wrong that is not a benchmark? | `logs/` against the baseline, plus `sinfo` for state |
 | `overall_report.sh` | What has no pass, and what do we know about it? | all three, plus each node's trace |
 
 Note the third column, because it is where all the surprises come from. They do
@@ -178,8 +178,10 @@ weeks.
 bash health-check.sh
 ```
 
-This one reads **only Slurm drain reasons**. It contacts no node and re-runs
-nothing; it reports what the last health run concluded.
+This one reads **the health logs**, not the drain reasons — `logs/<node>/<check>`
+against `valid-config/default`, the same comparison `node_health.sh` drains on,
+so it is complete whether or not drains are on. It contacts no node and re-runs
+nothing; it reports what the last health run left behind.
 
 Nodes are grouped by the *exact set* of checks they failed, largest group first.
 That grouping is the point: sixty nodes failing the same thirty-eight checks are
@@ -222,8 +224,9 @@ NOTE: DRAIN_AFTER_FAILED_HEALTH_CHECK=no in SETTINGS
 The failures themselves are reported either way — both reports read
 `logs/<node>` rather than the Slurm reason field. What that banner tells you is
 that Slurm does not know: those nodes are in the queue and taking work right now.
-`bash health-check.sh --drained` is the same report narrowed to the ones that
-have actually been taken out.
+`bash health-check.sh --drained` answers the other half — everything Slurm has
+taken out, grouped by the reason it carries, so a rack powered off by CMDaemon
+is one line rather than eighteen.
 
 Two other banners work the same way, and all three exist for one reason — **a
 report that cannot change looks exactly like a cluster that has settled**:

@@ -198,6 +198,12 @@ health-scan:
   script:
     - ./tests/health-scan-test.sh
 
+health-report:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/health-report-test.sh
+
 recover:
   extends: .base
   stage: test

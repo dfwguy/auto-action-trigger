@@ -101,8 +101,10 @@ failing are worse than either of them alone, and that is what a second copy of
 this comparison would eventually become.
 
 What drains-off still costs is visible in `sinfo` and nowhere else: nothing was
-taken out of the queue. That is what `health-check.sh` says in its banner now,
-and what `--drained` narrows the report to.
+taken out of the queue. That is what `health-check.sh` says in its banner now.
+Slurm keeps one question the files cannot answer — what is drained, and for what
+— so `--drained` is a separate report against `sinfo` rather than a filter on
+this one.
 
 Two details keep that reproduction honest:
 

@@ -199,7 +199,7 @@ The `test` stage runs the suites — `tests/verdict-test.sh`,
 `tests/health-runner-test.sh`, `tests/recover-test.sh`, `tests/inflight-test.sh`,
 `tests/yield-test.sh`, `tests/help-text-test.sh`, `tests/scan-cache-test.sh`,
 `tests/llmb-check-test.sh`, `tests/exclude-test.sh`, `tests/report-format-test.sh`,
-`tests/health-scan-test.sh`,
+`tests/health-scan-test.sh`, `tests/health-report-test.sh`,
 `tests/doc-links-test.sh` — as one job each, so a failure names the gate that broke without anyone opening
 a log.
 
