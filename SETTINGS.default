@@ -16,6 +16,11 @@ PARSERS=nvl72
 ## Space-separated shell globs; empty means every node. * to match any, otherwise specific matching.
 NODE_FILTER=""
 
+## ── Hosts that are not compute nodes ──────────────────────────────────────
+## Space-separated shell globs; the head node belongs here. Empty leaves the
+## detection to the node itself. See docs/reference/settings.md#hosts-that-are-not-compute-nodes.
+EXCLUDE_NODES=""
+
 ## ── Benchmark list ────────────────────────────────────────────────────────
 BENCHMARKS="dcgmi-r1 dcgmi-r3 nvbandwidth allreduce allreduce-forcesharp alltoall allreduce-nonvlink alltoall-nonvlink"
 

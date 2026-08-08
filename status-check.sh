@@ -175,13 +175,21 @@ else
     echo "      job cannot be told from a dead one, so both report as INCOMPLETE." >&2
 fi
 
-declare -a nodes
+declare -a nodes excluded
 for node_dir in "$results_dir"/$pattern/; do
     [[ -d "$node_dir" ]] || continue
     node_dir="${node_dir%/}"
     ## Not basename: that is a fork per node for what expansion does free.
-    nodes+=("${node_dir##*/}")
+    node="${node_dir##*/}"
+    ## See docs/reference/settings.md#hosts-that-are-not-compute-nodes.
+    node_out_of_reporting "$results_dir" "$node" && { excluded+=("$node"); continue; }
+    nodes+=("$node")
 done
+## Named rather than dropped in silence: a row that vanishes with no reason is
+## indistinguishable from a node nobody ever registered.
+if [[ ${#excluded[@]} -gt 0 ]]; then
+    echo "NOTE: left out, not compute nodes: ${excluded[*]}" >&2
+fi
 if [[ ${#nodes[@]} -eq 0 ]]; then
     # args[0], not $1 -- $1 is whichever flag came first once -t/-s are in play.
     echo "No nodes under $results_dir match '${args[0]:-*}'" >&2

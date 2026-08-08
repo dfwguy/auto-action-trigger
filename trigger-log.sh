@@ -23,6 +23,8 @@
 #   -t, --tail <lines>     lines of raw trace to print per node. Default 0
 #                          (summary only); implied 20 when the pattern matches
 #                          a single node, where a histogram of one is useless.
+#   --include-excluded     read the hosts the reports leave out as well -- the
+#                          head node. Their traces say why they were excluded.
 #   pattern                node filter, same rules as status-check.sh: a bare
 #                          string matches by prefix, globs are honored as
 #                          written.
@@ -42,6 +44,7 @@ logs_dir="$home/logs"
 window_hours=24
 stale_minutes=15
 tail_lines=-1          ## "not set": distinguishes an explicit -t 0 from no flag
+include_excluded=0
 
 args=()
 while [[ $# -gt 0 ]]; do
@@ -55,8 +58,9 @@ while [[ $# -gt 0 ]]; do
         -t|--tail)
             [[ -n "$2" ]] || { echo "ERROR: $1 needs a number of lines" >&2; exit 1; }
             tail_lines="$2"; shift 2 ;;
+        --include-excluded) include_excluded=1; shift ;;
         -h|--help)
-            sed -n '2,34p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+            sed -n '2,36p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         -*) echo "ERROR: unknown option $1" >&2; exit 1 ;;
         *)  args+=("$1"); shift ;;
     esac
@@ -92,6 +96,24 @@ shopt -s nullglob
 ## element, and every loop below then reports the fleet as empty.
 # shellcheck disable=SC2206
 node_dirs=("$results_dir"/$pattern/)
+
+## This is the tool for "why is nothing running?", so the excluded hosts are
+## dropped by default but reachable: their trigger.log holds the answer.
+## See docs/reference/settings.md#hosts-that-are-not-compute-nodes.
+if [[ "$include_excluded" -eq 0 ]]; then
+    keep=(); excluded=()
+    for node_dir in "${node_dirs[@]}"; do
+        node=$(basename "$node_dir")
+        if node_out_of_reporting "$results_dir" "$node"; then
+            excluded+=("$node")
+        else
+            keep+=("$node_dir")
+        fi
+    done
+    node_dirs=("${keep[@]}")
+    [[ "${#excluded[@]}" -gt 0 ]] &&
+        echo "NOTE: not compute nodes, skipped (--include-excluded to read them): ${excluded[*]}" >&2
+fi
 
 if [[ "${#node_dirs[@]}" -eq 0 ]]; then
     echo "ERROR: no node directories under $results_dir match '${args[0]:-*}'" >&2
@@ -168,7 +190,7 @@ for node_dir in "${node_dirs[@]}"; do
                 msg ~ /recover skipped: .* recovered /  ||
                 msg ~ /verdict\.sh is missing/ ||
                 msg ~ /not on PATH/ ||
-                msg ~ /not known to slurm/)               { print "ev\t" msg }
+                msg ~ /not a compute node|has no slurmd/) { print "ev\t" msg }
         }
         END {
             if (last != "") print "last\t" last

@@ -57,7 +57,8 @@ two per monitoring cycle, forever.
 
 | Line | When |
 |------|------|
-| `EXIT: <node> not known to slurm (sinfo -N -n returned nothing)` | Usually a run on the head node |
+| `EXIT: EXCLUDE_NODES='<globs>' … matches <host>` | The site listed this host as one Slurm will never schedule on — see [explanation/sequencing.md#a-host-that-is-not-a-compute-node](../explanation/sequencing.md#a-host-that-is-not-a-compute-node) |
+| `EXIT: <host> runs slurmctld and has no slurmd, so it is a head node` | The same conclusion reached by the host itself. Writes `results/<host>/.not-a-compute-node`, which is what keeps it out of the reports |
 | `EXIT: <n> job(s) not ours on <node> -- leaving the node to them` | Somebody else is using the node |
 | `queue: bench=<n> burnin=<n> [running=<t>] [<id> <state> <reason>…]` | Every cycle that gets this far. The per-job detail is only rendered for jobs that are not cleanly schedulable, so a healthy cycle keeps this to one line |
 | `job <id> held after a failed launch ('<reason>') <n>s ago -- cancelling and resubmitting in <n>s` | A held job seen before its retry interval is up |

@@ -135,13 +135,20 @@ done
 
 ## An array, not a word-split string: the row order is the node order and the
 ## scan is handed this list verbatim.
-declare -a nodes
+declare -a nodes excluded
 for node_dir in "$results_dir"/$pattern/; do
     [[ -d "$node_dir" ]] || continue
     node_dir="${node_dir%/}"
     ## Not basename: that is a fork per node for what expansion does free.
-    nodes+=("${node_dir##*/}")
+    node="${node_dir##*/}"
+    ## See docs/reference/settings.md#hosts-that-are-not-compute-nodes.
+    node_out_of_reporting "$results_dir" "$node" && { excluded+=("$node"); continue; }
+    nodes+=("$node")
 done
+## On stderr with the rest of the summary, so the rows stay machine-readable.
+if [[ ${#excluded[@]} -gt 0 ]]; then
+    echo "NOTE: left out, not compute nodes: ${excluded[*]}" >&2
+fi
 if [[ ${#nodes[@]} -eq 0 ]]; then
     # args[0], not $1 -- $1 is whichever flag came first once -c/-o are in play.
     echo "No nodes under $results_dir match '${args[0]:-*}'" >&2

@@ -241,6 +241,48 @@ To take a node out of the framework entirely, use BCM's node execution filters
 at registration time instead — see the commented example at the bottom of
 `pre-post/create-action-trigger.sh`.
 
+## Hosts that are not compute nodes
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `EXCLUDE_NODES` | empty | Hosts that cannot run a job at all — the head node. Empty leaves the detection to the host itself |
+
+```bash
+EXCLUDE_NODES=""                  # detect it, do not declare it
+EXCLUDE_NODES="nscale-hn1"        # one head node
+EXCLUDE_NODES="*-hn[0-9]"         # an HA pair, by shape
+```
+
+Shell globs and whitespace separated, read the same way as `NODE_FILTER`, and
+matched against `$HOSTNAME`.
+
+This is not `NODE_FILTER` with a wider reach. `NODE_FILTER` says *this node is
+not in the set we are sweeping right now*; `EXCLUDE_NODES` says *Slurm will
+never schedule a job here*, and so it stops everything rather than benchmarks
+alone:
+
+| | `NODE_FILTER` excludes it | `EXCLUDE_NODES` matches it |
+|---|---|---|
+| Benchmarks and burn-in | not submitted | not submitted |
+| Health checks | still run | not run |
+| `status-check.sh`, `daily-report.sh` | still reported | no row |
+| `trigger-log.sh`, `trigger-debug.sh` | still read | skipped, and counted |
+| `--test` / `--force` | `--test` opens it | neither opens it |
+
+A host that matches never needed to be listed for the exclusion to happen: on
+each cycle `launch_job.sh` also asks the local systemd whether this host runs
+`slurmctld` and has no `slurmd`, and writes `results/<node>/.not-a-compute-node`
+when it does. The reports skip a directory holding that marker, which is how
+they exclude a host without asking Slurm about it. Listing the host in
+`EXCLUDE_NODES` says the same thing deliberately, one cycle earlier, and from
+the head node rather than from the host.
+
+Both are undone the same way: clear the setting, delete the marker file. The
+next normal cycle on that node removes a stale marker by itself.
+
+Why the detection is that particular question, and not `sinfo -N -n`, is in
+[explanation/sequencing.md#a-host-that-is-not-a-compute-node](../explanation/sequencing.md#a-host-that-is-not-a-compute-node).
+
 ## Retry and drain policy
 
 | Setting | Default | Meaning |

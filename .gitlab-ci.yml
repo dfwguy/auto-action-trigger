@@ -215,6 +215,14 @@ yield:
   script:
     - ./tests/yield-test.sh
 
+# Both directions of this gate are silent: a false positive retires a real node
+# from the fleet, a false negative is the head node in every report.
+exclude:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/exclude-test.sh
+
 # Five scripts print --help from their own header through a hardcoded line
 # range, so comment length is runtime behaviour there. This is the gate that
 # stops a comment edit truncating --help silently.
