@@ -707,25 +707,48 @@ A failed launch — slurmd not answering at the moment the scheduler tried to
 start the job — does not fail the job. Slurm requeues it and *holds* it, and a
 held job reads as `PENDING` to the name queries above while carrying priority 0:
 it will never start, however healthy the node later becomes. Left alone, the
-queue gate waits on it forever and the node idles, tracing `waiting on our own
-queue` every cycle.
+marker pins the node until its walltime and grace are up, every cycle.
 
 So a job of ours held with reason `launch failed requeued held` is cancelled and
-left to the survey to re-queue. Cancelling is safe without any further check —
-the queue was matched by name, so everything in it is `bringup-<node>` or
-`burnin-<node>` by construction, and another user's job is never in that list.
+left to the survey to re-queue. What makes that cancel safe is where the id came
+from, not a name match at the moment of cancelling: the id is the marker's, and
+for a `.sbatch` job the marker holds what `sbatch` itself printed as `Submitted
+batch job <n>`. Nothing re-reads the job's name before `scancel`, so the
+provenance in [getting the job id right](#getting-the-job-id-right) is carrying
+the whole weight — unlike the yield path, which re-checks the prefix at the
+cancel because its id comes from a marker that may have gone stale.
 
 Two bounds on it:
 
 - **An operator's hold is never cancelled.** `JobHeldUser` and `JobHeldAdmin`
   are the same `PENDING`-at-priority-0, but a person chose it. Those are named
   in the trace and otherwise left alone.
-- **One attempt per `RETRY_INTERVAL_HOURS`,** measured from the held job's own
-  submit time — no counter on disk, and the replacement carries a fresh
-  timestamp. The bound is load-bearing rather than tidy: the hourly gate keys
-  off result mtime, and a job that never ran writes no result, so that gate
-  stays open and would not slow a cancel/resubmit loop down at all. Without it
-  a node that cannot launch anything would resubmit every monitoring cycle.
+- **Nothing bounds how often this repeats, and it should.** The hourly gate
+  keys off result mtime, and a job that never ran writes no result, so that gate
+  stays open: after the cancel, `inflight_clear` runs and the next cycle
+  submits again. The only thing pacing the loop is the job's own walltime plus
+  `INFLIGHT_GRACE_MINUTES`, which is how long the marker survives before the
+  cancel branch is reached at all. A node that cannot launch anything will
+  therefore cancel and resubmit indefinitely, at roughly one cycle per
+  walltime. This is a known gap, not a design: see
+  [what the traces showed](#what-the-traces-showed).
+
+#### What the traces showed
+
+On 2026-08-08, `trigger.log` across the fleet held **31,270** `CANCELLED … held
+after a failed launch` lines and nothing else — no yields, no other cancel of
+any kind. Every one named a benchmark of ours, and the ids matched what `sbatch`
+had returned, so nothing belonging to another tenant was ever cancelled. What
+the volume showed was the unbounded loop above: nodes that could not launch,
+resubmitting for as long as they could not launch.
+
+Two things are worth separating when reading a pile of those lines. The cancel
+is working as designed — a held job that will never start is not worth waiting
+on. The *rate* is the fault, and it is a symptom: `launch failed requeued held`
+means `slurmd` did not answer when the scheduler tried to start the job, which
+is a node or prolog problem, not a sequencer problem. Chase it with `sacct -j
+<id> -o JobID,JobName,State,Reason` and the failed-prolog logs under
+`RECOVER_PREJOB_LOGS`.
 
 The scheduler's reason for any job of ours that is not cleanly schedulable is
 appended to both the `queue:` line and the `EXIT: waiting on our own queue`
