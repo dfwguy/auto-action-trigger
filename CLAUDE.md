@@ -91,7 +91,7 @@ Two consequences worth knowing before you move any of it:
   several hundred times, and nothing renders those links, so a retitled heading
   resolves silently to the top of the page. `tests/doc-links-test.sh` is the
   gate; run it after touching a heading.
-- **The eight `--help` scripts are the exception.** Their header block *is* the
+- **The nine `--help` scripts are the exception.** Their header block *is* the
   command surface, and `docs/reference/scripts.md` points at it rather than
   restating it. Two copies of an option list drift, and only one of them is
   testable.
@@ -135,7 +135,7 @@ is:
 | Mode | What | Why |
 |------|------|-----|
 | `755` | Entry points — anything a human or BCM invokes directly | Must be `exec`able. BCM registers an action against a path and runs it; a `644` action registers fine and silently runs nothing |
-| `644` | Sourced libraries: `settings.sh`, `reason-map.sh`, `slurm-recovery.sh`, `get-out-of-the-way.sh`, `verdict-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is also *run*, but as `bash verdict-scan.sh` from its own `xargs`, like the health checks below |
+| `644` | Sourced libraries: `settings.sh`, `reason-map.sh`, `slurm-recovery.sh`, `get-out-of-the-way.sh`, `verdict-scan.sh`, `report-format.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is also *run*, but as `bash verdict-scan.sh` from its own `xargs`, like the health checks below |
 | `644` | `llmb_check.py` | `build_llmb.sh` runs it as `python3 llmb_check.py`, like the health checks below |
 | `644` | `health-checks/*/NN-*.sh` | `node_health.sh` runs each as `bash "$check_file"` — deliberately, so one check's `exit 1` cannot truncate the set of 38 |
 | `644` | `jobs/*/*.sbatch`, including `example.sbatch` | `sbatch` reads them; it does not exec them. `example.sbatch` is a template that gets `cp`'d, so a stray `755` propagates into every new job |
@@ -204,6 +204,7 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/yield-test.sh          # the cancel gates, if you touched get-out-of-the-way.sh
 ./tests/llmb-check-test.sh     # llmb install discovery, if you touched llmb_check.py
 ./tests/exclude-test.sh        # the head-node gate, if you touched EXCLUDE_NODES or a results/*/ walk
+./tests/report-format-test.sh  # node-list wrapping, if you touched report-format.sh
 ./tests/doc-links-test.sh      # every docs/ anchor the code points at, if you moved or retitled one
 bash -n <changed script>       # these scripts run as root on 200+ nodes
 shellcheck -S warning <changed script>   # CI gates on this; see below
@@ -228,9 +229,9 @@ drifted twice by adding a top-level script and not listing it.
 
 ## Some scripts print their own header as `--help`
 
-`status-check.sh`, `health-check.sh`, `daily-report.sh`, `sync-check.sh`,
-`trigger-log.sh`, `kill-jobs.sh`, `check_squeue.sh` and `build_llmb.sh`
-implement `-h` as `sed -n '2,NNp'` over themselves — `tests/help-text-test.sh`
+`status-check.sh`, `health-check.sh`, `overall_report.sh`, `daily-report.sh`,
+`sync-check.sh`, `trigger-log.sh`, `kill-jobs.sh`, `check_squeue.sh` and
+`build_llmb.sh` implement `-h` as `sed -n '2,NNp'` over themselves — `tests/help-text-test.sh`
 discovers them rather than listing them, so the set is whatever greps for the
 idiom. The line
 range is hardcoded, so in those files **comment length is runtime

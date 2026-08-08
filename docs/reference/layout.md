@@ -21,6 +21,7 @@ pieces fit together this way is
 ├── SETTINGS.default               # Shipped configuration; copy to SETTINGS to change anything
 ├── settings.sh                    # Loads SETTINGS, else SETTINGS.default; backfills unset keys
 ├── reason-map.sh                  # Slurm drain reason → check names (health-check.sh, sync-check.sh)
+├── report-format.sh               # Node-list compression, wrapping and elision (health-check.sh, overall_report.sh)
 ├── slurm-recovery.sh              # Clears drains Slurm set itself, never an operator's (both actions)
 ├── get-out-of-the-way.sh          # Cancels this node's own job when somebody else is queued for it (launch_job.sh)
 ├── verdict-scan.sh                # Judges every cell of the fleet in parallel (status-check.sh, daily-report.sh)
@@ -81,6 +82,7 @@ pieces fit together this way is
 ├── check_squeue.sh                # The queue in one table; -j adds node state and reservations
 ├── status-check.sh                # Live per-node benchmark status (all nodes)
 ├── daily-report.sh                # Per-node table: slurm state, status, performance metrics
+├── overall_report.sh              # Everything without a pass, with everything known about it
 ├── sync-check.sh                  # Diff a drained node's health output vs baseline
 ├── trigger-debug.sh               # Walk the BCM → sbatch chain and name the broken link
 ├── trigger-log.sh                 # Read what the chain wrote: trigger.log across the cluster
@@ -193,11 +195,11 @@ style-level findings below it are largely deliberate here.
 The `test` stage runs the suites — `tests/verdict-test.sh`,
 `tests/health-runner-test.sh`, `tests/recover-test.sh`, `tests/inflight-test.sh`,
 `tests/yield-test.sh`, `tests/help-text-test.sh`, `tests/scan-cache-test.sh`,
-`tests/llmb-check-test.sh`, `tests/exclude-test.sh`, `tests/doc-links-test.sh` —
-as one job each, so a failure names the gate that broke without anyone opening
+`tests/llmb-check-test.sh`, `tests/exclude-test.sh`, `tests/report-format-test.sh`,
+`tests/doc-links-test.sh` — as one job each, so a failure names the gate that broke without anyone opening
 a log.
 
-Six of those exist for couplings that fail *without saying so*, which is why
+Seven of those exist for couplings that fail *without saying so*, which is why
 they are gates rather than review items:
 
 - `scan-cache` — break the cache key and every report still prints, still looks
@@ -220,6 +222,10 @@ they are gates rather than review items:
   real node and it reports nothing ever again, a false negative is the head node
   in every report. See
   [explanation/sequencing.md#a-host-that-is-not-a-compute-node](../explanation/sequencing.md#a-host-that-is-not-a-compute-node).
+- `report-format` — `wrap_list` decides where a node list breaks, and half a
+  `[14,29,34]` range is a string neither `scontrol` nor `pdsh -w` will take
+  while looking exactly like a whole one. The suite keeps the bash
+  implementation equivalent to the awk it replaced for speed.
 - `doc-links` — the comment convention puts reasoning in `docs/` and leaves a
   one-line pointer in the code, which makes several hundred anchors load-bearing
   and unrendered: retitle a heading and the pointer still resolves, to the top

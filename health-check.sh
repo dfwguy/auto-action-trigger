@@ -72,11 +72,13 @@ if [[ "$full" -eq 1 ]]; then
     max_groups=100000; max_checks=100000; max_reasons=100000
 fi
 
-# Width to wrap node lists at. tput's terminfo default off a tty is what a
-# redirect into a file wants.
-width="${COLUMNS:-}"
-[[ -z "$width" ]] && width=$(tput cols 2>/dev/null)
-[[ -z "$width" || "$width" -lt 60 ]] && width=100
+if [[ ! -f "$home/report-format.sh" ]]; then
+    echo "ERROR: $home/report-format.sh is missing -- it carries the node-list" >&2
+    echo "       compression and wrapping this report is printed through." >&2
+    exit 1
+fi
+REPORT_FULL="$full"
+source "$home/report-format.sh"
 
 # Files node_health.sh writes into logs/<node>/ that are not checks.
 is_not_a_check() {
@@ -120,90 +122,6 @@ if [[ ! -f "$home/reason-map.sh" ]]; then
     exit 1
 fi
 source "$home/reason-map.sh"
-
-compress() {
-    local list="$1" out
-    out=$(scontrol show hostlistsorted "$list" 2>/dev/null)
-    if [[ -n "$out" ]]; then
-        printf '%s' "$out"
-    else
-        printf '%s' "$list"
-    fi
-}
-
-plural() {
-    [[ "$1" -eq 1 ]] && printf 'node' || printf 'nodes'
-}
-
-count_list() {
-    [[ -z "$1" ]] && { printf 0; return; }
-    printf '%s' "$(( $(tr -cd ',' <<< "$1" | wc -c) + 1 ))"
-}
-
-# Break a comma-separated list into chunks no wider than $2. Splits only at
-# top-level commas: a break inside a [14,29,34] range yields two lists neither
-# scontrol nor a copy-paste will take. Caller supplies label and indent.
-wrap_list() {
-    awk -v text="$1" -v avail="$2" '
-    BEGIN {
-        if (avail < 20) avail = 20
-        n = length(text); depth = 0; start = 1; line = ""
-        for (i = 1; i <= n; i++) {
-            c = substr(text, i, 1)
-            if (c == "[") depth++
-            else if (c == "]") depth--
-            else if (c == "," && depth == 0) {
-                emit(substr(text, start, i - start + 1))
-                start = i + 1
-            }
-        }
-        emit(substr(text, start, n - start + 1))
-        if (line != "") print line
-    }
-    function emit(piece) {
-        if (line != "" && length(line) + length(piece) > avail) {
-            print line; line = ""
-        }
-        if (line == "") sub(/^ +/, "", piece)
-        line = line piece
-    }'
-}
-
-# Print "<label><list>" wrapped, continuation lines indented to match. $3 caps
-# the line count for the informational sections; --full still prints it all.
-print_wrapped() {
-    local label="$1" text="$2" max_lines="${3:-0}" cont first=1 chunk n=0
-    [[ "$full" -eq 1 ]] && max_lines=0
-    printf -v cont '%*s' "${#label}" ''
-    while IFS= read -r chunk; do
-        ((n++))
-        if [[ "$max_lines" -gt 0 && "$n" -gt "$max_lines" ]]; then
-            printf '%s...\n' "$cont"
-            break
-        fi
-        if [[ "$first" -eq 1 ]]; then
-            printf '%s%s\n' "$label" "$chunk"; first=0
-        else
-            printf '%s%s\n' "$cont" "$chunk"
-        fi
-    done < <(wrap_list "$text" $(( width - ${#label} )))
-}
-
-# Elide a ", "-separated list down to $2 entries plus a count.
-elide() {
-    local list="$1" limit="$2"
-    local -a items
-    IFS=',' read -r -a items <<< "$list"
-    if [[ "${#items[@]}" -le "$limit" ]]; then
-        printf '%s' "$list"
-        return
-    fi
-    local shown="" i
-    for ((i = 0; i < limit; i++)); do
-        shown+="${items[i]#"${items[i]%%[![:space:]]*}"}, "
-    done
-    printf '%s+%d more' "$shown" "$(( ${#items[@]} - limit ))"
-}
 
 declare -A seen_node reason_nodes sig_nodes check_count
 total=0 failing=0 other=0 passing=0 unchecked=0
