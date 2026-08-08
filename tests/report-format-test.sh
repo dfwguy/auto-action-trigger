@@ -6,7 +6,7 @@
 #
 # wrap_list decides where a node list breaks, and the rule it enforces is that
 # a break never lands inside a [14,29,34] range -- because half a range is a
-# string neither scontrol nor a paste into `pdsh -w` will take, and it looks
+# string neither scontrol nor a paste into `pdsh -R ssh -w` will take, and it looks
 # exactly like a whole one. It was one awk per call until a 576-node
 # overall_report.sh --full made that ~1700 forks, and it is now bash.
 #

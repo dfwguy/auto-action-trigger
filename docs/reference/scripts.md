@@ -54,7 +54,7 @@ active, rather than printing an empty report that reads like a clean cluster.
 
 `-s` replaces the per-column report with one compressed node list per status
 (FAIL / INCOMPLETE / RETRY / NOT_RUN / DONE), reasons dropped, for pasting into
-`scancel`, `pdsh -w` or `scontrol`:
+`scancel`, `pdsh -R ssh -w` or `scontrol`:
 
 ```
 SUMMARY — judged on: allreduce
@@ -185,7 +185,7 @@ ink50-dh01-h20-35
 `prolog` is the line the rest of this tree cannot give you: Slurm records only
 that the prolog failed, and the check that actually failed is named nowhere a
 head node can read it — except in the note `slurm-recovery.sh` leaves in the
-node's own trace. When that note is absent the line says so and prints the `ssh`
+node's own trace. When that note is absent the line says so and prints the `pdsh`
 that reads the node-local log directly. See
 [explanation/reading-the-whole-fleet.md](../explanation/reading-the-whole-fleet.md#a-prolog-drain-does-not-say-why).
 

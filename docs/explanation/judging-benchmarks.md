@@ -162,7 +162,7 @@ what is visible there, via `ibv_devinfo` — the same libibverbs call NCCL makes
 
 Those answer different questions. enroot gives the container a fresh `/dev`, so
 the host list can be complete and correct while the container sees nothing at
-all. Checking by hand over ssh puts you on the host and will show a healthy HCA
+all. Checking by hand over `pdsh` puts you on the host and will show a healthy HCA
 list no matter how broken the container's view is. Both lists are now printed
 into every result file:
 

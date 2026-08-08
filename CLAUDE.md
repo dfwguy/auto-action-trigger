@@ -147,6 +147,19 @@ Check the whole tree with:
 git ls-files -s | awk '{print $1, $4}' | sort
 ```
 
+## Reaching a node is `pdsh -R ssh -w`, never a bare `ssh`
+
+Every remote command in the tree and in `docs/` — including the ones scripts
+*print* for an operator to paste — is written `pdsh -R ssh -w <nodes> '<cmd>'`.
+A command written as an `ssh` has to be rewritten the first time it is wanted on
+more than one node; written as a `pdsh` it scales by widening `-w`. `-R ssh` is
+always spelled out: `pdsh` picks its rcmd module at build time and several
+packaged builds default to `rsh`, so the default is not portable between sites.
+
+The exceptions are `srun -w <node>` where the command must run inside Slurm's
+view, and the job payload itself where it must run inside the container. See
+`docs/explanation/architecture.md#reaching-nodes-is-pdsh-not-ssh`.
+
 ## Platform sets are directories, not files
 
 `JOBS`, `HEALTHCHECKS` and `PARSERS` in `SETTINGS` each name a subdirectory —

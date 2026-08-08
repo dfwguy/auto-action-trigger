@@ -159,7 +159,7 @@ timeout; the copy carries on afterwards.
 You can see the result of that on the node:
 
 ```bash
-ssh "$N" 'ls -la /tmp/containers/ 2>/dev/null | head'
+pdsh -R ssh -w "$N" 'ls -la /tmp/containers/ 2>/dev/null | head'
 ```
 
 Those `.sqsh` files got there without any action ever running longer than two
@@ -172,7 +172,7 @@ mode. This submits nothing, drains nothing and writes nothing but its own trace,
 so it is safe while the trigger is live:
 
 ```bash
-pdsh -w "$N" '/home/cmods/bringup/actions/launch_job.sh --explain'
+pdsh -R ssh -w "$N" '/home/cmods/bringup/actions/launch_job.sh --explain'
 ```
 
 Read that output slowly — it is the clearest single view of the system you will

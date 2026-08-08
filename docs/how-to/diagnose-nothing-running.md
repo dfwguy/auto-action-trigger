@@ -67,7 +67,7 @@ ownership. Read-only.
 Rather than waiting for a monitoring cycle:
 
 ```bash
-pdsh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --explain'
+pdsh -R ssh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --explain'
 ```
 
 `--explain` prints every gate the sequencer evaluates and the `sbatch` commands
@@ -78,7 +78,7 @@ The health runner takes the same flags, and answers the other half of "nothing
 is happening on this node":
 
 ```bash
-pdsh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/node_health.sh --explain'
+pdsh -R ssh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/node_health.sh --explain'
 bash health-check.sh --explain ink50-dh01-h20      # or, from the head node
 ```
 

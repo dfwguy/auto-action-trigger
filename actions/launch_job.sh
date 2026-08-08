@@ -116,7 +116,7 @@ Usage: launch_job.sh [--explain] [--force] [--all] [--test JOB] [--verbose|--qui
 Decides about the node it runs on, and takes no node argument. To sweep a set
 of nodes, name them where they can be reached:
 
-  pdsh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/launch_job.sh -f -v'
+  pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/launch_job.sh -f -v'
 
 With no arguments -- how BCM invokes it -- one job is submitted at a time, in
 BENCHMARKS order, and no job re-runs inside its own hourly window.

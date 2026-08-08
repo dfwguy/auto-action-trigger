@@ -113,7 +113,7 @@ why, in the same place everything else does.
 reads through `PAUSE_RECOVERY`:
 
 ```bash
-pdsh -w ink50-dh01-h03-16 '/home/cmods/bringup/actions/launch_job.sh --explain'
+pdsh -R ssh -w ink50-dh01-h03-16 '/home/cmods/bringup/actions/launch_job.sh --explain'
 ```
 
 ## Resuming by hand

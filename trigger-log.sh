@@ -381,5 +381,5 @@ cat <<EOF
 
   Logs stale or missing (section 1)  -> ./trigger-debug.sh
   Logs fresh, gate closed (section 2) -> ask the node itself, no waiting:
-      pdsh -w <node> '$BRINGUP_HOME/actions/launch_job.sh --explain'
+      pdsh -R ssh -w <node> '$BRINGUP_HOME/actions/launch_job.sh --explain'
 EOF

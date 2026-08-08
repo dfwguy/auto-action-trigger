@@ -108,7 +108,7 @@ days. See
 `SETTINGS`:
 
 ```bash
-pdsh -w ink50-dh01-h02-11 '/home/cmods/bringup/actions/launch_job.sh -t ethr -v'
+pdsh -R ssh -w ink50-dh01-h02-11 '/home/cmods/bringup/actions/launch_job.sh -t ethr -v'
 ```
 
 That is the right way to check a job works at a site before adding it — adding

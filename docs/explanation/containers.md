@@ -110,8 +110,9 @@ particularly good at looking like success:
 - The run completes, writes a valid summary, and passes at roughly 1 GB/s.
 
 That is how `allreduce-nonvlink` ran entirely over `bond0` for weeks. Checking
-by hand over ssh cannot catch it, because ssh puts you on the host, where the
-HCA list is complete and correct the whole time. The `-nonvlink` jobs therefore
+by hand from a shell on the node cannot catch it, because a `pdsh` — like any
+other remote shell — puts you on the host, where the HCA list is complete and
+correct the whole time. The `-nonvlink` jobs therefore
 do two things: mount the devices with
 `--container-mounts=/dev/infiniband:/dev/infiniband`, and ask the container
 itself what it can see with `NCCL_HCA_PROBE` from `jobs/nvl72/nccl-hca.sh`,

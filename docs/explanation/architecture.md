@@ -53,6 +53,35 @@ The same principle shapes several decisions that look unrelated:
 - A drain that could not be issued says so, rather than leaving a node that
   looks fine.
 
+## Reaching nodes is pdsh, not ssh
+
+Nothing in this tree, and nothing in these docs, reaches a node with a bare
+`ssh`. Every remote command is a `pdsh -R ssh -w <nodes> '<command>'`, and the
+reason is scale: a rack is 18 nodes and a cluster is 200-plus, so a command
+written as an `ssh` has to be rewritten — as a shell loop, sequentially, with
+its output interleaved and unattributed — the first time it is needed on more
+than one. Written as a `pdsh` it never has to be: widening `-w` from one node
+to a whole rack is the whole edit, output arrives labelled with the node it
+came from, and `dshbak` will group it. The reports print node lists as ranges
+for exactly this reason — see
+[../how-to/get-a-node-list.md](../how-to/get-a-node-list.md).
+
+`-R ssh` is spelled out every time rather than left to the default. `pdsh`
+picks its remote command module at build time, and the packaged builds do not
+agree: several default to `rsh`, which is not running here, so the same line
+that works on the head node of one cluster fails on another with a connection
+refused that names neither `rsh` nor the module. Naming the module makes the
+transport a property of the command instead of a property of whichever `pdsh`
+package the site installed.
+
+Two exceptions, both deliberate: anything that must run *inside* Slurm's view of
+the node uses `srun -w <node>` instead — `ib-visibility.sh` does — and anything
+that must run inside the container asks the job's own payload. A remote shell of
+any kind lands on the host, which sees a complete and correct `/dev` no matter
+what the container saw. See
+[containers.md](containers.md) and
+[judging-benchmarks.md#host-hcas-are-not-container-hcas](judging-benchmarks.md#host-hcas-are-not-container-hcas).
+
 ## The checkout is not the deployment
 
 The tree runs at `/home/cmods/bringup/` on cluster head nodes, exported over NFS

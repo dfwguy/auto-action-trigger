@@ -53,7 +53,7 @@ Usage: node_health.sh [--explain] [--force] [--verbose|--quiet]
 Decides about the node it runs on, and takes no node argument. To sweep a set
 of nodes, name them where they can be reached:
 
-  pdsh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/node_health.sh -f -v'
+  pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/node_health.sh -f -v'
 
 With no arguments -- how BCM invokes it -- the checks re-run once every
 HEALTH_INTERVAL_HOURS, or sooner if the last run found something.

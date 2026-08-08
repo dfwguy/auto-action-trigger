@@ -226,7 +226,7 @@ they are gates rather than review items:
   in every report. See
   [explanation/sequencing.md#a-host-that-is-not-a-compute-node](../explanation/sequencing.md#a-host-that-is-not-a-compute-node).
 - `report-format` — `wrap_list` decides where a node list breaks, and half a
-  `[14,29,34]` range is a string neither `scontrol` nor `pdsh -w` will take
+  `[14,29,34]` range is a string neither `scontrol` nor `pdsh -R ssh -w` will take
   while looking exactly like a whole one. The suite keeps the bash
   implementation equivalent to the awk it replaced for speed.
 - `doc-links` — the comment convention puts reasoning in `docs/` and leaves a

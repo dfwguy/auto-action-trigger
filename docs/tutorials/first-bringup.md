@@ -123,7 +123,7 @@ silent on a first run because there is nothing to remove.
 Do not wait for the hourly cadence. Ask the node what it would do:
 
 ```bash
-pdsh -w <your-node> '/home/cmods/bringup/actions/launch_job.sh --explain'
+pdsh -R ssh -w <your-node> '/home/cmods/bringup/actions/launch_job.sh --explain'
 ```
 
 `--explain` prints every gate it evaluates and the `sbatch` command it would
@@ -137,7 +137,7 @@ itself. Fix what it says and re-run; nothing here has side effects.
 When the `WOULD SUBMIT` looks right, do it for real:
 
 ```bash
-pdsh -w <your-node> '/home/cmods/bringup/actions/launch_job.sh --force -v'
+pdsh -R ssh -w <your-node> '/home/cmods/bringup/actions/launch_job.sh --force -v'
 squeue -n bringup-<your-node>
 ```
 

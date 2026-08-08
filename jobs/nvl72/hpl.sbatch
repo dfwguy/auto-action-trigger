@@ -51,7 +51,7 @@ srun --ntasks=1 bash -c '
 
 #sleep 2
 
-#ssh ${hosts[0]} nvidia-imex-ctl -N
+#pdsh -R ssh -w ${hosts[0]} nvidia-imex-ctl -N
 
 #srun --ntasks-per-node=1 ./collect-power.sh
 #srun --ntasks-per-node=1 ./set-cpufreq.sh 2000000

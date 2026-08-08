@@ -73,7 +73,7 @@ reasoning behind the note itself, and the pid-and-user matching that decides
 whether a rogue process is still there, is
 [drain-recovery.md](drain-recovery.md#a-rogue-process-drain-names-its-process).
 
-When there is no such note the report says so, and gives the `ssh` that reads
+When there is no such note the report says so, and gives the `pdsh` that reads
 the node-local log directly. An empty `prolog` line would be indistinguishable
 from a node whose prolog never failed, which is the failure mode this whole tree
 is built against — see [architecture.md](architecture.md#silence-is-the-enemy).

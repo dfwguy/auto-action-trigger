@@ -39,13 +39,14 @@ because the location varies by NVSM package. Validate before deploying:
 ```bash
 visudo -cf /etc/sudoers.d/cmods-nvsm          # as root, on the node
 sudo -l | grep nvsm                           # as cmods, on the node
-ssh -T <node> 'sudo -n nvsm show version'     # as cmods, from the headnode
+pdsh -R ssh -w <node> 'sudo -n nvsm show version'   # as cmods, from the headnode
 ```
 
 The last one is the check that matters. Run it as `cmods` — `su - cmods` needs
 cmods's password unless you are already root, and it is `sudo` that is
-passwordless here, not `su`. Keep the `-T`: without it ssh allocates a tty and
-the run stops reproducing the batch task, which has none.
+passwordless here, not `su`. Use `pdsh` rather than a bare `ssh`: it allocates
+no tty, so the run reproduces the batch task, which has none — and the same
+line checks a whole rack by widening `-w`.
 
 Do not read a working `sudo -s` as proof the grant is in place — that is a
 different sudoers rule, and the per-command grant above can be missing while a
@@ -59,7 +60,7 @@ Defaults:cmods !requiretty
 
 If site policy forbids the grant entirely, leave `nvsm` out of `BENCHMARKS` and
 run the stress test by hand from the headnode as root
-(`pdsh -w <nodes> nvsm stress-test --force`), outside the automated sequence.
+(`pdsh -R ssh -w <nodes> nvsm stress-test --force`), outside the automated sequence.
 
 ## Platform definition files — why this is DGX only
 

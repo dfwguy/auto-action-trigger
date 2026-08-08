@@ -21,9 +21,15 @@ is a pipe rather than a terminal, so the trace would otherwise only reach each
 node's own log.
 
 ```bash
-pdsh -w 'ink50-dh01-h02-[11,13-18],ink50-dh01-h04-[11-13]' \
+pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18],ink50-dh01-h04-[11-13]' \
      '/home/cmods/bringup/actions/launch_job.sh -f -v'
 ```
+
+Every command in these docs that reaches a node goes through `pdsh`, never a
+bare `ssh`, so the same line works unchanged whether `-w` names one node or a
+whole rack — see
+[explanation/architecture.md#reaching-nodes-is-pdsh-not-ssh](../explanation/architecture.md#reaching-nodes-is-pdsh-not-ssh)
+for why `-R ssh` is always spelled out.
 
 Anything the script does not recognise — a node list included — is refused with
 `exit 2` and nothing is swept. Run on the head node it stops before any of it,
@@ -60,7 +66,7 @@ re-queues appear in `quick-view.txt` as `QUEUED  <- re-queued by --all`.
 Combine either with `--explain` to see the batch before committing to it:
 
 ```bash
-pdsh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --all --explain'
+pdsh -R ssh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --all --explain'
 ```
 
 ## Running a job that is not in the list
@@ -72,7 +78,7 @@ the fleet is judged on, and adding a job to it to try it once changes what every
 node is expected to pass and what the daily report calls a hole.
 
 ```bash
-pdsh -w ink50-dh01-h02-11 '/home/cmods/bringup/actions/launch_job.sh -t ethr -v'
+pdsh -R ssh -w ink50-dh01-h02-11 '/home/cmods/bringup/actions/launch_job.sh -t ethr -v'
 ```
 
 The name must have a launcher behind it in `JOBS_DIR` — an `.sbatch`, or a `.sh`
@@ -122,7 +128,7 @@ The health side has the same shape: `actions/node_health.sh` decides about the
 node it runs on and takes no node argument, so a sweep is `pdsh` over the nodes.
 
 ```bash
-pdsh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/node_health.sh -f -v'
+pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/node_health.sh -f -v'
 ```
 
 | Flag | Does |

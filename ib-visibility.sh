@@ -44,7 +44,7 @@ fi
 echo "=== ib-visibility: $node"
 
 ## ── 1. Host side ──────────────────────────────────────────────────────────
-## srun rather than ssh: ssh reaches the host but sits outside Slurm's view.
+## srun rather than pdsh: a remote shell reaches the host but sits outside Slurm's view.
 ## nccl_hca_detect runs INSIDE the payload so the selection is the node's own,
 ## not one recomputed against the head node's PCI bus; the fixed-format echo is
 ## read back below to pin the container run to the same devices.

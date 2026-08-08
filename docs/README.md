@@ -35,11 +35,11 @@ Task-oriented, for someone who already knows the system.
 
 | Page | Covers |
 |------|--------|
-| [run-a-job-by-hand.md](how-to/run-a-job-by-hand.md) | `launch_job.sh` flags, sweeping over `pdsh`, and `--test` for a job outside the list |
+| [run-a-job-by-hand.md](how-to/run-a-job-by-hand.md) | `launch_job.sh` flags, sweeping a rack over `pdsh -R ssh -w`, and `--test` for a job outside the list |
 | [pause-and-resume.md](how-to/pause-and-resume.md) | The four pause switches, and `kill-jobs.sh` for emptying the queue now |
 | [manage-drains.md](how-to/manage-drains.md) | Turning the two drain switches on, and reading what drained |
 | [reset-results.md](how-to/reset-results.md) | `single-node-purge.sh`, and clearing the whole tree |
-| [get-a-node-list.md](how-to/get-a-node-list.md) | Turn a report into a node list `pdsh`, `scancel` or `scontrol` will take |
+| [get-a-node-list.md](how-to/get-a-node-list.md) | Turn a report into a node list `pdsh -R ssh -w`, `scancel` or `scontrol` will take |
 | [find-outlier-nodes.md](how-to/find-outlier-nodes.md) | Find the slow node when every benchmark is passing |
 | [export-a-report.md](how-to/export-a-report.md) | Getting `daily-report.sh` into a spreadsheet |
 
@@ -84,7 +84,7 @@ Understanding-oriented. Why it is like this, and what it cost to find out.
 
 | Page | Covers |
 |------|--------|
-| [architecture.md](explanation/architecture.md) | The three BCM triggers, *silence is the enemy*, registering with BCM, driving `cmsh` |
+| [architecture.md](explanation/architecture.md) | The three BCM triggers, *silence is the enemy*, why every remote command is a `pdsh`, registering with BCM, driving `cmsh` |
 | [sequencing.md](explanation/sequencing.md) | One job at a time, the fleet cap, stale markers, retry and drain behaviour, what a pause is for |
 | [health-cadence.md](explanation/health-cadence.md) | Why the checks re-run on a timer, the stamp file, and why the golden baseline is a copy |
 | [verdicts-and-the-cache.md](explanation/verdicts-and-the-cache.md) | Why a verdict is derived and never stored, and what makes the cache safe |

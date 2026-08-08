@@ -65,7 +65,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-## The slurm tools live behind a module and are absent from a fresh ssh shell.
+## The slurm tools live behind a module and are absent from a fresh remote shell.
 if ! command -v squeue >/dev/null 2>&1 && [[ -r /etc/profile.d/modules.sh ]]; then
     # shellcheck source=/dev/null
     source /etc/profile.d/modules.sh >/dev/null 2>&1

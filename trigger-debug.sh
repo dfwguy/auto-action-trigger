@@ -301,7 +301,7 @@ cat <<EOF
 
 Next step -- ask one node directly, without waiting for a monitoring cycle:
 
-  pdsh -w <node> '/home/cmods/bringup/actions/launch_job.sh --explain'
+  pdsh -R ssh -w <node> '/home/cmods/bringup/actions/launch_job.sh --explain'
 
 That prints every gate the script evaluates and the sbatch commands it would
 run, as a dry run: it submits nothing, drains nothing, and archives nothing,

@@ -252,7 +252,7 @@ if [[ "$summary" -ne 1 ]]; then
     exit 0
 fi
 
-# Ranges rather than a bare comma list, for pasting into scancel/pdsh -w. The
+# Ranges rather than a bare comma list, for pasting into scancel/pdsh -R ssh -w. The
 # raw list is still valid input to most of the same tools, so falling back is ok.
 compress() {
     local out

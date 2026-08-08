@@ -80,7 +80,7 @@ caught contention or a transient.
 To take a fresh measurement without waiting for the hourly cadence:
 
 ```bash
-pdsh -w <node> '/home/cmods/bringup/actions/launch_job.sh -t allreduce -v'
+pdsh -R ssh -w <node> '/home/cmods/bringup/actions/launch_job.sh -t allreduce -v'
 ```
 
 `--test` runs the job outside the configured lists, drains nothing, and leaves
