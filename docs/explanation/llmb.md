@@ -378,6 +378,11 @@ two are the halves of the install that the frozen job still needs —
 
 Two things in `llm-pretrain-solo.sbatch` do this, and both are load-bearing:
 
+- `MASTER_ADDR=127.0.0.1` and `MASTER_PORT=29500+$SLURM_LOCALID`. Each copy is
+  its own one-process distributed group and still needs a rendezvous, and four
+  of them on one node default to the same port: three die with
+  `EADDRINUSE ... address already in use` while the fourth trains, which reads
+  as three failed GPUs. A private port per rank is the whole fix.
 - `CUDA_VISIBLE_DEVICES=$SLURM_LOCALID`, set inside the step, so rank N uses GPU
   N and nothing else. **Slurm's own GPU-binding flags do not work here**, and
   they fail in a way that reads like a hardware fault: `--gpus-per-task=1` and

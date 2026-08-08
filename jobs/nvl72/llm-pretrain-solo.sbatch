@@ -128,6 +128,10 @@ srun --time="$STEP_TIMELIMIT" --label --export=ALL \
         bash -c '
     export CUDA_VISIBLE_DEVICES=$SLURM_LOCALID
     export WORLD_SIZE=1 RANK=0 LOCAL_RANK=0
+    ## One rendezvous per copy, or the four collide on one port with EADDRINUSE.
+    ## See docs/explanation/llmb.md#keeping-the-four-solo-copies-independent.
+    export MASTER_ADDR=127.0.0.1
+    export MASTER_PORT=$(( 29500 + SLURM_LOCALID ))
     export CUDA_DEVICE_MAX_CONNECTIONS=1
     echo "gpu $SLURM_PROCID: $(nvidia-smi --query-gpu=uuid --format=csv,noheader)"
     ## The sibling recipe with --num_gpus 1, captured from a scale-1 submission.
