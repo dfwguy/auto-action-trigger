@@ -913,6 +913,59 @@ a job that turns out to be pending — writes down what it saw and leaves the jo
 alone. `scancel`'s output is read rather than its exit status, because a refused
 kill is reported on stdout with a zero exit, as in `kill-jobs.sh`.
 
+### The prefix is the gate
+
+Check 3 is the one that actually separates our work from a neighbour's, and it
+is worth being explicit about why the others cannot do it.
+
+`UserName` cannot, on this cluster. The neighbouring work is submitted by the
+same account the framework runs as, so check 2 passes for a stranger's job as
+readily as for ours — a real running job here reads
+`132500|cmods|microbenchmark_nccl_nccl_fp8|RUNNING|ink50-dh01-g03-[11-18,28-37]|`.
+The id cannot either: it comes from the marker, and the marker is exactly the
+thing that might be wrong. What is left is the name, and every job this
+framework submits is named `bringup-<node>` or `burnin-<node>`.
+
+So the prefix is checked in two places, and `get-out-of-the-way.sh` has only one
+line that calls `scancel`:
+
+1. in `_yield_job_is_ours`, against `YIELD_OURS` **and** the prefix list — the
+   caller's idea of this node's names, and the framework's, both
+2. in `_yield_cancel`, against the prefix list again, on the name the controller
+   returned, immediately before the `scancel` runs
+
+The second is not redundant. The first is reached through several branches and
+depends on the caller having set `YIELD_OURS` correctly; the second is on the
+only path to a cancel and depends on nothing but `squeue`'s own answer. A name
+that does not begin with `bringup-` or `burnin-` cannot reach `scancel` without
+that function being edited, and a refusal is *printed*, which the caller reads
+as a failed cancel and traces. The wrong outcome here is silence, not noise.
+
+`tests/yield-test.sh` drives this with `YIELD_OURS` deliberately set to a
+foreign name: the job then passes every check the caller controls, and must
+still not be cancelled.
+
+### The cancel drops to JOB_USER
+
+`launch_job.sh` runs as root under BCM, and root's `scancel` will cancel
+anything on the cluster. So the cancel is handed to `JOB_USER` the same way the
+submission is — `su - "$JOB_USER" -c`, as at the submit — and Slurm's own
+ownership check sits underneath ours. It is not the load-bearing gate, because
+`JOB_USER` owns the neighbouring work too; it is there so that the failure mode
+of a bug in this file is a refusal rather than a fleet-wide cancel.
+
+`su` rather than `sudo`: it is what the submit already uses, so there is no
+configuration in which submitting works and cancelling silently does not, and
+`sudo` is a package that a stripped node image can be missing. The login shell
+matters as well — it is what puts the Slurm client tools on `PATH`, for the same
+reason the submit sources `/etc/profile.d/modules.sh` before `sbatch`. See
+[how-to/run-slurm-commands-remotely.md](../how-to/run-slurm-commands-remotely.md).
+
+When the script is not root the cancel runs directly, which is correct for a
+hand-run as `JOB_USER` and refused by Slurm for anybody else. Nothing prompts
+for a password: a `su` that could block is never reached inside a monitoring
+cycle.
+
 A node with no marker never yields — an untracked job of ours is left to finish,
 exactly as `PAUSE_JOBS` leaves it. There is nothing to put back to the
 controller, and guessing from the job name alone is the one shortcut this

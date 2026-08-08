@@ -206,6 +206,15 @@ nothing_killed || bad "  ... but another node's job was cancelled"
 run_case "caller named no job of its own" not-ours YIELD_OURS=""
 nothing_killed || bad "  ... but a job was cancelled with nothing to compare the name against"
 
+## A caller that vouches for a foreign job: YIELD_OURS is set to the name of a
+## real neighbouring job, owned by JOB_USER and running here, so user, id, state
+## and node all pass and the name is the only thing left standing between it and
+## a scancel. See docs/explanation/sequencing.md#the-prefix-is-the-gate.
+run_case "caller vouches for a foreign name" not-ours \
+    STUB_JOB="4242|cmods|microbenchmark_nccl_nccl_fp8|RUNNING|$NODE|" \
+    YIELD_OURS="microbenchmark_nccl_nccl_fp8"
+nothing_killed || bad "  ... but the prefix gate let a foreign job through"
+
 run_case "id does not match the answer" unconfirmed STUB_JOB="4243|cmods|bringup-$NODE|RUNNING|$NODE|"
 nothing_killed || bad "  ... but a job we did not ask about was cancelled"
 
@@ -250,6 +259,45 @@ run_case "the queue cannot be read" no-queue-answer STUB_SQUEUE_FAIL=1
 nothing_killed || bad "  ... but it cancelled a job on no information"
 
 run_case "scancel refuses" cancel-failed STUB_SCANCEL_OUT="scancel: error: Kill job error on job id 4242: Access/permission denied"
+
+echo "== the cancel itself =="
+
+## _yield_cancel is the only line in the library that reaches scancel, and it
+## re-reads the prefix there rather than trusting the checks that got it here.
+## Driven directly, because no caller can reach it with a foreign name.
+cancel_case() {
+    local name="$1" want="$2" dir="$work/cancel-$((pass + fail))" out
+    mkdir -p "$dir"
+    out=$(
+        export PATH="$stub:$PATH" STUB_DIR="$dir"
+        source "$home/settings.sh"
+        YIELD_USER=cmods
+        source "$home/get-out-of-the-way.sh"
+        _yield_cancel 4242 "$name"
+    )
+    case "$want" in
+        refused)
+            if [[ "$out" == *"refusing to scancel"* ]] && [[ ! -f "$dir/scancel.calls" ]]; then
+                ok "_yield_cancel refuses '$name' and says so"
+            else
+                bad "_yield_cancel '$name' -> '${out:-<nothing>}'$([[ -f "$dir/scancel.calls" ]] && printf ', and it called scancel')"
+            fi ;;
+        allowed)
+            if [[ -f "$dir/scancel.calls" ]]; then
+                ok "_yield_cancel cancels '$name'"
+            else
+                bad "_yield_cancel '$name' never called scancel"
+            fi ;;
+    esac
+}
+
+cancel_case "bringup-$NODE"                 allowed
+cancel_case "burnin-$NODE"                  allowed
+cancel_case "microbenchmark_nccl_nccl_fp8"  refused
+cancel_case "train-70b"                     refused
+cancel_case ""                              refused
+## Not a prefix match by accident: the framework's name has to start the string.
+cancel_case "not-a-bringup-job"             refused
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

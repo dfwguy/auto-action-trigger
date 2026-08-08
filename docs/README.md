@@ -40,6 +40,7 @@ Task-oriented, for someone who already knows the system.
 | [manage-drains.md](how-to/manage-drains.md) | Turning the two drain switches on, and reading what drained |
 | [reset-results.md](how-to/reset-results.md) | `single-node-purge.sh`, and clearing the whole tree |
 | [get-a-node-list.md](how-to/get-a-node-list.md) | Turn a report into a node list `pdsh -R ssh -w`, `scancel` or `scontrol` will take |
+| [run-slurm-commands-remotely.md](how-to/run-slurm-commands-remotely.md) | What `squeue`/`scancel` need over `pdsh` on a node with no login shell |
 | [find-outlier-nodes.md](how-to/find-outlier-nodes.md) | Find the slow node when every benchmark is passing |
 | [export-a-report.md](how-to/export-a-report.md) | Getting `daily-report.sh` into a spreadsheet |
 

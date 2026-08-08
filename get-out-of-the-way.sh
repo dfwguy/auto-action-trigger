@@ -3,8 +3,9 @@
 # Giving the node back when somebody else is queued for it. Experimental --
 # GET_OUT_OF_THE_WAY ships off, and the thresholds are expected to move. Sourced
 # by actions/launch_job.sh -- never executed. What counts as a waiter, the four
-# checks a cancel has to pass first, and why the check is polled rather than run
-# every cycle are in docs/explanation/sequencing.md#getting-out-of-the-way.
+# checks a cancel has to pass first, why the name prefix is checked again at the
+# scancel itself, and why the check is polled rather than run every cycle are in
+# docs/explanation/sequencing.md#getting-out-of-the-way.
 #
 # Callers set before calling yield_to_waiter: YIELD_OURS (the job names this
 # node is allowed to cancel, space separated), YIELD_USER, YIELD_STAMP,
@@ -24,6 +25,17 @@ fi
 
 YIELD_RESULT=""
 YIELD_WAITER=""
+
+## Every job name this framework submits under. The one gate that does not
+## depend on the caller getting YIELD_OURS right, and it is checked twice --
+## see docs/explanation/sequencing.md#the-prefix-is-the-gate.
+YIELD_PREFIXES='bringup- burnin-'
+
+_yield_name_is_ours() {
+    local name="$1" p
+    for p in $YIELD_PREFIXES; do [[ "$name" == "$p"* ]] && return 0; done
+    return 1
+}
 
 _yield_minutes() {
     local name="$1" fallback="$2" value="${!1}"
@@ -80,7 +92,7 @@ _yield_waiter() {
         name=$(_yield_trim "$name")
         ## Ours by name, on this node or any other: a bringup job waiting its
         ## turn is not somebody being kept off the cluster.
-        case "$name" in bringup-*|burnin-*) continue ;; esac
+        _yield_name_is_ours "$name" && continue
         pend=$(_yield_trim "$pend")
         [[ "$pend" =~ ^[0-9]+$ ]] || pend=0
         [[ "$pend" -lt "$after" ]] && continue
@@ -127,7 +139,7 @@ _yield_job_is_ours() {
     for n in $YIELD_OURS; do [[ "$name" == "$n" ]] && ours=1; done
     ## Both, not either: YIELD_OURS is what this node submitted under, the
     ## prefix is what every job of this framework's is named.
-    [[ "$ours" -eq 1 && ( "$name" == bringup-* || "$name" == burnin-* ) ]] || {
+    [[ "$ours" -eq 1 ]] && _yield_name_is_ours "$name" || {
         YIELD_RESULT="not-ours"
         yield_log "not yielding: job $want is named '$name', which is not one of this node's own (${YIELD_OURS:-<none>})"
         return 1
@@ -142,7 +154,27 @@ _yield_job_is_ours() {
         yield_log "not yielding: job $want is running on '$nodes', which does not include $node"
         return 1
     }
+    _YIELD_CONFIRMED_NAME="$name"
     return 0
+}
+
+## The only place in this file that cancels, so the prefix can be re-read from
+## the controller's own answer here rather than trusted from the checks above.
+## Dropping to JOB_USER puts Slurm's ownership check under ours; the login shell
+## is what puts the client tools on PATH. See
+## docs/explanation/sequencing.md#the-prefix-is-the-gate.
+_yield_cancel() {
+    local id="$1" name="$2"
+    if ! _yield_name_is_ours "$name"; then
+        printf 'refusing to scancel %s: %s does not begin with one of %s\n' \
+               "$id" "${name:-<no name>}" "$YIELD_PREFIXES"
+        return 0
+    fi
+    if [[ "$EUID" -eq 0 ]]; then
+        su - "$YIELD_USER" -c "source /etc/profile.d/modules.sh; module load slurm; scancel $id" 2>&1
+    else
+        scancel "$id" 2>&1
+    fi
 }
 
 ## $1 the job id from the marker, $2 this node. Returns 0 only when that job was
@@ -151,6 +183,7 @@ yield_to_waiter() {
     local want="$1" node="$2" after poll waiter wid wuser wname wpend out age tool
     YIELD_RESULT=""
     YIELD_WAITER=""
+    _YIELD_CONFIRMED_NAME=""
 
     setting_enabled "$GET_OUT_OF_THE_WAY" || { YIELD_RESULT="disabled"; return 1; }
     [[ "$want" =~ ^[0-9]+$ ]] || { YIELD_RESULT="no-job"; return 1; }
@@ -194,7 +227,7 @@ yield_to_waiter() {
 
     ## scancel reports a refused kill on stdout and can still exit 0, so the
     ## output is the report and not the status -- as in kill-jobs.sh.
-    out=$(scancel "$want" 2>&1)
+    out=$(_yield_cancel "$want" "$_YIELD_CONFIRMED_NAME")
     if [[ -n "$out" ]]; then
         YIELD_RESULT="cancel-failed"
         yield_log "WARNING: scancel $want said '$out' -- the node was not given up, and $YIELD_WAITER is still waiting"
