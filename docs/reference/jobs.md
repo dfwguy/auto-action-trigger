@@ -218,8 +218,10 @@ scheduled, and stating it here means a job submitted **by hand** carries the
 same priority as one the sequencer submits. `hpl` and `cublasmatmul` are
 remediation jobs run by hand, and they still queue at `20` behind a dcgmi gate.
 So the empty `0` tier only helps a job submitted *without* a `--nice`; to push a
-job file from this tree to the front, override it on the command line:
-`sbatch --nice=0 hpl.sbatch`.
+job file from this tree to the front, override it with `sbatch --nice=0` — along
+with the `--export`, `--output` and `-w` such a submission also needs, which are
+in
+[how-to/submit-a-job-file-directly.md](../how-to/submit-a-job-file-directly.md).
 
 Three limits worth knowing:
 

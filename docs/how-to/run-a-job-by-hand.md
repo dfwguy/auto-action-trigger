@@ -69,26 +69,6 @@ Combine either with `--explain` to see the batch before committing to it:
 pdsh -R ssh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --all --explain'
 ```
 
-## Submitting a job file directly
-
-`--test` above is the supported way to run one job, and it is what you want
-almost always. A bare `sbatch jobs/$JOBS/<job>.sbatch` also works, but the job
-file cannot resolve the site's paths on its own — it runs from Slurm's spool
-copy, with no `SETTINGS` to read and no tree to locate itself in — so the two
-`launch_job.sh` normally puts on `--export` have to be passed:
-
-```bash
-sbatch --export=ALL,BRINGUP_HOME=/home/cmods/bringup,CONTAINER_DIR=/home/cmods/bringup/containers \
-       jobs/nvl72/allreduce.sbatch
-```
-
-Without them the job stops at its first path with
-`CONTAINER_DIR: not set -- launch_job.sh exports it; a bare sbatch must too`,
-in the result file. That is deliberately louder than falling back to a default,
-which would be a literal path and wrong for any site that has moved either —
-see
-[explanation/containers.md#one-share-two-mount-points](../explanation/containers.md#one-share-two-mount-points).
-
 ## Running a job that is not in the list
 
 `jobs/$JOBS/` carries more `.sbatch` files than `BENCHMARKS` names, and
@@ -141,6 +121,13 @@ lets `status-check.sh -t <job>` and `verdict.sh` judge it. Two consequences:
   read with `status-check.sh -t` or by opening the file. It can also show up as
   the "live" column for a running node in `status-check.sh`, which picks the
   newest result file in the directory and does not know the job was ad-hoc.
+
+`--test` is the supported way to run one job, and it is what you want almost
+always: it supplies the site's paths, the result path and the job name, none of
+which a job file can work out for itself. Calling `sbatch` on one of these files
+yourself is
+[submit-a-job-file-directly.md](submit-a-job-file-directly.md) — reach for it
+only when you need to change something `--test` does not expose.
 
 ## Re-running health checks by hand
 

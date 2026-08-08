@@ -55,6 +55,22 @@ else
     printf '         %s\n' "$stray"
 fi
 
+## A job file resolves nothing for itself, so a documented `sbatch <job>.sbatch`
+## with no --export is an instruction that stops at the first path. The docs
+## carried three before the paths stopped being hardcoded.
+## See docs/how-to/submit-a-job-file-directly.md.
+bare=$(git ls-files -- '*.md' |
+       xargs grep -n 'sbatch [^|]*\.sbatch' 2>/dev/null |
+       grep -v -- '--export' |
+       grep -v 'bash -n\|shellcheck')
+
+if [[ -z "$bare" ]]; then
+    ok "no doc hands out an sbatch without the site paths"
+else
+    bad "documented sbatch invocations that would stop at their first path:"
+    printf '         %s\n' "$bare"
+fi
+
 ##############################################################################
 echo "== two accounts, two trees, one trace =="
 ##############################################################################
