@@ -378,11 +378,18 @@ two are the halves of the install that the frozen job still needs —
 
 Two things in `llm-pretrain-solo.sbatch` do this, and both are load-bearing:
 
-- `--gres=gpu:4 --gpu-bind=single:1` gives each task its own
-  `CUDA_VISIBLE_DEVICES`, so rank N sees GPU N and nothing else. `--gpus-per-task=1`
-  reads as the same thing and is not: the first run of this job that reached a
-  node gave a device to rank 0 and none to ranks 1–3, which fail at
-  `Megatron requires CUDA` rather than at anything mentioning GPUs.
+- `CUDA_VISIBLE_DEVICES=$SLURM_LOCALID`, set inside the step, so rank N uses GPU
+  N and nothing else. **Slurm's own GPU-binding flags do not work here**, and
+  they fail in a way that reads like a hardware fault: `--gpus-per-task=1` and
+  then `--gres=gpu:4 --gpu-bind=single:1` each delivered exactly one device to
+  the step, with the *winning rank varying between runs* — rank 0 on one
+  attempt, rank 1 on the next. The three ranks that got nothing die at
+  `Megatron requires CUDA`, which mentions no GPUs at all.
+
+  The sibling job is the evidence for the fix: `llm-pretrain` gives all four
+  ranks a device and its `srun` names no GPU flags whatsoever, inheriting the
+  job's `--gres=gpu:4` so every task sees all four. Adding step-level GPU flags
+  is what breaks it, so this job asks for nothing and does the pinning itself.
 - `WORLD_SIZE=1 RANK=0 LOCAL_RANK=0` inside the step. NeMo reads the `SLURM_*`
   rank variables and would otherwise form one four-way distributed group across
   the tasks — which is `llm-pretrain`, not this job, and would report a single

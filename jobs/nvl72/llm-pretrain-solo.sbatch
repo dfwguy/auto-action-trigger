@@ -93,9 +93,9 @@ export TRANSFORMERS_OFFLINE=1
 
 ## ── The four independent ranks ────────────────────────────────────────────
 ## Three things are load-bearing here and all three are explained in
-## docs/explanation/llmb.md#keeping-the-four-solo-copies-independent: --gpu-bind=single:1 (one
-## GPU per rank), WORLD_SIZE=1 (stops NeMo forming one four-way group across
-## them), and --label (the task-id prefix verdict.sh parses).
+## docs/explanation/llmb.md#keeping-the-four-solo-copies-independent: the
+## per-rank CUDA_VISIBLE_DEVICES below (one GPU each), WORLD_SIZE=1 (stops NeMo
+## forming one four-way group), and --label (the prefix verdict.sh parses).
 unset CUDA_VISIBLE_DEVICES
 
 ## The recipe's own environment, the same block the sibling job carries.
@@ -119,13 +119,14 @@ case "$HF_HOME" in
 esac
 
 srun --time="$STEP_TIMELIMIT" --label --export=ALL \
-        --ntasks=4 --gres=gpu:4 --gpu-bind=single:1 \
+        --ntasks=4 \
         --cpu-bind=cores \
         --container-image="${CONT}" \
         --container-mounts="${MOUNTS}" \
         --container-workdir=/tmp \
         --no-container-mount-home --container-writable \
         bash -c '
+    export CUDA_VISIBLE_DEVICES=$SLURM_LOCALID
     export WORLD_SIZE=1 RANK=0 LOCAL_RANK=0
     export CUDA_DEVICE_MAX_CONNECTIONS=1
     echo "gpu $SLURM_PROCID: $(nvidia-smi --query-gpu=uuid --format=csv,noheader)"
