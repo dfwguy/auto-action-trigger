@@ -9,7 +9,7 @@
 #SBATCH --nice=20
 ## --nice 20 is the sweep's tier; higher is LATER. See
 ## docs/reference/jobs.md#queue-priority.
-##SBATCH -o /home/cmods/bringup/results/%N/llm-pretrain-solo.txt
+##SBATCH -o <BRINGUP_HOME>/results/%N/llm-pretrain-solo.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
 ## implies --exact. See docs/reference/jobs.md#the-allocation-header.
@@ -47,12 +47,13 @@ srun --ntasks=1 bash -c '
 IMG=$(cd /tmp/containers 2>/dev/null && ls llama3.1*.sqsh 2>/dev/null | head -1)
 CONT=/tmp/containers/$IMG
 if [[ -z "$IMG" || ! -f "$CONT" ]]; then
-    IMG=$(cd /home/cmods/bringup/containers 2>/dev/null && ls llama3.1*.sqsh 2>/dev/null | head -1)
-    CONT=/home/cmods/bringup/containers/$IMG
+    shared=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}
+    IMG=$(cd "$shared" 2>/dev/null && ls llama3.1*.sqsh 2>/dev/null | head -1)
+    CONT=$shared/$IMG
 fi
 ## An empty glob would reach srun as --container-image= and fail as something else.
 [[ -n "$IMG" && -f "$CONT" ]] || {
-    echo "no llama3.1 image in /tmp/containers or /home/cmods/bringup/containers"
+    echo "no llama3.1 image in /tmp/containers or $shared"
     echo "run ./build_llmb.sh on the head node -- see docs/explanation/llmb.md"
     echo "exit status: 1"
     echo FAIL
@@ -61,7 +62,7 @@ fi
 
 ## The sibling's recipe at scale 1. Why one GPU is a valid configuration:
 ## docs/explanation/llmb.md#running-below-the-characterised-scale.
-LLMB_INSTALL=${LLMB_INSTALL:-/home/cmods/llmb}
+LLMB_INSTALL=${LLMB_INSTALL:?not set -- launch_job.sh exports it; a bare sbatch must too}
 WORKLOAD=pretrain_llama3.1
 MODEL_SIZE=8b
 DTYPE=fp8

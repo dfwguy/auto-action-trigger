@@ -35,17 +35,19 @@ is the compass; the four entry points are:
 
 ## Prerequisites
 
-### The `cmods` user
+### The automation user
 
-A local user named `cmods` must exist on the **headnode and every compute node** in the cluster.
+A local user named by `JOB_USER` — `cmods` as shipped — must exist on the **headnode and every compute node** in the cluster. It is the only place the account is named: the tree path and the llmb install derive from it, so pointing the framework at a dedicated automation account is one line in `SETTINGS` and no code change. See [docs/reference/settings.md#accounts-and-paths](docs/reference/settings.md#accounts-and-paths).
 
-- All scripts assume the repo is deployed at `/home/cmods/bringup/`. The `cmods` home directory is the deployment root.
-- `node_health.sh` runs as whatever user BCM invokes it as, but it `chown`s its log output to `cmods:cmods`. The `cmods` user must therefore be resolvable on the node at the time the script runs.
-- `launch_job.sh` submits Slurm jobs via `su - cmods`, so `cmods` must be a valid login user with access to the Slurm environment (`/etc/profile.d/modules.sh` and the `slurm` module).
-- The `cmods` user must have write access to `/home/cmods/bringup/logs/`, `/home/cmods/bringup/results/`, and `/home/cmods/bringup/reports/` on the headnode.
-- If the home directory is shared via NFS or another network filesystem, compute nodes will inherit it automatically. If not, `/home/cmods/bringup/` must be accessible on each compute node (e.g., via a shared filesystem mount).
+- The tree is deployed at `$BRINGUP_HOME`, which defaults to `/home/$JOB_USER/bringup/` — that home directory is the deployment root.
+- `node_health.sh` runs as whatever user BCM invokes it as, but it `chown`s its log output to `$JOB_USER`. The account must therefore be resolvable on the node at the time the script runs.
+- `launch_job.sh` submits Slurm jobs via `su - $JOB_USER`, so it must be a valid login user with access to the Slurm environment (`/etc/profile.d/modules.sh` and the `slurm` module), and with whatever Slurm association the site requires — an `sbatch` refused for a missing association lands in `trigger.log` rather than being swallowed.
+- It must have write access to `logs/`, `results/` and `reports/` under the deployment root on the headnode.
+- If the home directory is shared via NFS or another network filesystem, compute nodes will inherit it automatically. If not, `$BRINGUP_HOME` must be accessible on each compute node (e.g., via a shared filesystem mount).
 
-`jobs/nvl72/nvsm.sbatch` runs only on **DGX** systems and additionally needs a passwordless sudoers grant for `cmods` on every compute node — see [docs/how-to/enable-nvsm.md](docs/how-to/enable-nvsm.md). It is the only job with either requirement, and for both reasons it is not in the default `BENCHMARKS` list.
+The container images do **not** have to live under that home directory: `CONTAINER_DIR` is its own setting, so they can sit on whatever bulk share the site has, and `CONTAINER_DIR_HEAD` covers the case where the headnode mounts that share at a different path than the compute nodes do. See [docs/explanation/containers.md#one-share-two-mount-points](docs/explanation/containers.md#one-share-two-mount-points).
+
+`jobs/nvl72/nvsm.sbatch` runs only on **DGX** systems and additionally needs a passwordless sudoers grant for `$JOB_USER` on every compute node — see [docs/how-to/enable-nvsm.md](docs/how-to/enable-nvsm.md). It is the only job with either requirement, and for both reasons it is not in the default `BENCHMARKS` list.
 
 ### Required software
 

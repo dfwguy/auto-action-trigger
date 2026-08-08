@@ -7,14 +7,15 @@
 # so nothing depends on this having run, and an error per node per cycle would
 # bury the real ones.
 
-home=/home/cmods/bringup
-src="$home/containers"
+## Located from this file, like the other two actions.
+## See docs/reference/layout.md#runtime-paths.
+home="${FILE_COPY_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 dst=/tmp/containers
 
-## Read only for PAUSE_CONTAINER_COPY, so a missing settings.sh is not fatal
-## here as it is in the other two actions: the worst it costs is a cache warm
-## during a pause.
+## Read for PAUSE_CONTAINER_COPY and CONTAINER_DIR, but a missing settings.sh is
+## not fatal here as it is in the other two actions: it costs a cache warm.
 [[ -f "$home/settings.sh" ]] && source "$home/settings.sh"
+src="${CONTAINER_DIR:-$home/containers}"
 
 ## Only new copies are stopped; a detached rsync finishes.
 ## See docs/reference/settings.md#pause-switches.

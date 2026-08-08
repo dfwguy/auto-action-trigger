@@ -7,7 +7,7 @@
 #SBATCH -t 4:10:00
 #SBATCH --nice=20
 ## nice 20 is the sweep's tier. See docs/reference/jobs.md#queue-priority.
-##SBATCH -o /home/cmods/bringup/results/%N/memtester.txt
+##SBATCH -o <BRINGUP_HOME>/results/%N/memtester.txt
 
 ## No --gres: this job never touches a GPU. --mem=0 is load-bearing -- the test
 ## size below is 80% of MemAvailable. No --cpus-per-task, it implies --exact.

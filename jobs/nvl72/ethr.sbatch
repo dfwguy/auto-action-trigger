@@ -7,7 +7,7 @@
 #SBATCH -t 1:10:00
 #SBATCH --nice=20
 ## 20 is the sweep's tier. See docs/reference/jobs.md#queue-priority.
-##SBATCH -o /home/cmods/bringup/results/%N/ethr.txt
+##SBATCH -o <BRINGUP_HOME>/results/%N/ethr.txt
 
 ## No --gres: never touches a GPU. --exclusive is what makes the numbers mean
 ## anything -- a job sharing the node shares the NIC. See

@@ -102,9 +102,18 @@ SCAN_JOBS=
 JOB_ENV=""
 
 ## ── Accounts and paths ────────────────────────────────────────────────────
+## The three below derive from JOB_USER, so an automation account of its own
+## means changing this one name. See docs/reference/settings.md#accounts-and-paths.
 JOB_USER=cmods
-BRINGUP_HOME=/home/cmods/bringup
-LLMB_INSTALL=/home/cmods/llmb
+BRINGUP_HOME=/home/$JOB_USER/bringup
+## Point these at the bulk share when the images do not belong on /home. Set a
+## _HEAD one only when the head node mounts that share somewhere else than the
+## compute nodes do. See docs/explanation/containers.md#one-share-two-mount-points.
+CONTAINER_DIR=$BRINGUP_HOME/containers
+CONTAINER_DIR_HEAD=$CONTAINER_DIR
+CONTAINER_STAGE_DIR=$BRINGUP_HOME/container-src
+CONTAINER_STAGE_DIR_HEAD=$CONTAINER_STAGE_DIR
+LLMB_INSTALL=/home/$JOB_USER/llmb
 LLMB_REF=v26.06.01
 
 ## Empty is searched for; set one only when adopting an install laid out

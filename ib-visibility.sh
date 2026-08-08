@@ -91,7 +91,7 @@ img=nvidia+hpc-benchmarks+26.02-$(uname -m | sed "s/aarch64/arm/;s/x86_64/x86/")
 if [[ -f /tmp/containers/$img ]]; then
     echo "CONTAINER=/tmp/containers/$img"
 else
-    echo "CONTAINER=/home/cmods/bringup/containers/$img"
+    echo "CONTAINER='"$CONTAINER_DIR"'/$img"
     echo "## node-local /tmp/containers/$img is absent -- file_copy.sh has not"
     echo "##   reached this node. Falling back to the NFS copy, which is the same"
     echo "##   image; the job would do the same. Slower first start, nothing more."

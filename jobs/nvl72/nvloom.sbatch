@@ -8,7 +8,7 @@
 #SBATCH -t 1:10:00
 #SBATCH --nice=20
 ## 20 is the sweep's tier. See docs/reference/jobs.md#queue-priority.
-##SBATCH -o /home/cmods/bringup/results/%N/nvloom.txt
+##SBATCH -o <BRINGUP_HOME>/results/%N/nvloom.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
 ## implies --exact. --gres not --gpus-per-task, see NVIDIA_VISIBLE_DEVICES
@@ -42,7 +42,7 @@ srun --ntasks=1 bash -c '
 ## Building and enabling it: docs/how-to/build-containers.md#nvloom.
 IMG=nvloom-v2.0.0-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
-[[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
+[[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}/$IMG
 RACK_SAMPLES=5
 # shellcheck disable=SC2034  # read only by the commented-out scope 2 srun below
 BURN_IN_DURATION=3600      # seconds per testcase, burn-in variant only

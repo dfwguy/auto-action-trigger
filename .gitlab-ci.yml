@@ -260,6 +260,15 @@ help-text:
   script:
     - ./tests/help-text-test.sh
 
+# Every other suite runs as one account, and an account that is wrong everywhere
+# is still consistent -- so this one runs the sequencer twice under two names and
+# diffs. See docs/explanation/architecture.md#one-account-name.
+job-user:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/job-user-test.sh
+
 # The code points at docs/ by anchor and nothing renders those links, so a
 # reworded heading silently lands the reader on the wrong section.
 doc-links:

@@ -86,9 +86,9 @@ Three facts, each load-bearing:
   That is why the registration script preflights the exec bits and refuses
   rather than registering something that will never run.
 - **`runon`** is `node`. The script executes on the compute node itself, out of
-  the NFS-exported tree, with no working directory to infer anything from —
-  which is why the two BCM actions carry their `home=` path literally where
-  every other script in the tree resolves its own location.
+  the NFS-exported tree, with no working directory to infer anything from — so
+  each action locates the tree from its own `${BASH_SOURCE[0]}`, which BCM gave
+  it as an absolute path, rather than from a configured one.
 - **`timeout`** is `2m`, and that is BCM's hard maximum; anything larger is
   rejected outright. Remember that number for step 6.
 

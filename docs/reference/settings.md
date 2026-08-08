@@ -43,8 +43,10 @@ source "$home/settings.sh"
 Afterwards `SETTINGS_FILE` holds the path that was actually read, or is empty if
 neither file was found. Nothing treats an empty one as fatal, because the
 defaults inside `settings.sh` are a complete working configuration on their own.
-The two BCM actions are the exception — they carry `home=` literally and treat a
-missing `settings.sh` as fatal.
+The three BCM actions are the exception in one respect only: they treat a
+missing `settings.sh` as fatal, because a defaulted empty benchmark or check
+list reads as "everything passing" on every node. They resolve their own
+location like everything else.
 
 ## Which set of things to run
 
@@ -454,12 +456,41 @@ will be dropped.
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | `JOB_USER` | `cmods` | The account Slurm jobs are submitted as, and the owner `results/` and `logs/` are handed to |
-| `BRINGUP_HOME` | `/home/cmods/bringup` | Where this checkout lives on the cluster |
+| `BRINGUP_HOME` | `/home/$JOB_USER/bringup` | Where this tree lives on the cluster |
 
-`BRINGUP_HOME` is documentation for the BCM actions rather than something they
-read: both carry the path literally. Deploying elsewhere means editing `home=`
-at the top of `node_health.sh` and `launch_job.sh`, and this setting to match.
-See [reference/layout.md#runtime-paths](layout.md#runtime-paths).
+`JOB_USER` is the only place the account is named; `BRINGUP_HOME` and
+`LLMB_INSTALL` derive from it, so moving to an automation account of its own is
+one line. Why it is worth
+keeping it that way — and what a hardcoded account broke last time — is
+[explanation/architecture.md#one-account-name](../explanation/architecture.md#one-account-name).
+
+The account has to exist on every compute node with a working login shell:
+root's cycles reach it through `su - $JOB_USER -c`, and an operator running a
+sweep by hand has to *be* it. It also needs whatever Slurm association the site
+requires, or every `sbatch` is refused — that refusal is captured in
+`trigger.log` rather than swallowed.
+
+Nothing needs `BRINGUP_HOME` to find the tree; the scripts resolve their own
+location. It is read by the jobs, which cannot, and by
+`pre-post/create-action-trigger.sh`, which registers it with BCM. See
+[reference/layout.md#runtime-paths](layout.md#runtime-paths).
+
+### Where the images live
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `CONTAINER_DIR` | `$BRINGUP_HOME/containers` | The shared image directory, as the compute nodes mount it |
+| `CONTAINER_DIR_HEAD` | `$CONTAINER_DIR` | The same directory as the head node mounts it |
+| `CONTAINER_STAGE_DIR` | `$BRINGUP_HOME/container-src` | Source staging for `-S`/`-F`/`-B`, as the compute nodes mount it |
+| `CONTAINER_STAGE_DIR_HEAD` | `$CONTAINER_STAGE_DIR` | The same, as the head node mounts it |
+
+Separate from `BRINGUP_HOME` because the images are tens of gigabytes and a
+site's bulk share is usually not the filesystem `/home` is on. Set only the two
+non-`_HEAD` ones unless the head node reaches that share by a different path
+than the nodes do — `/mnt/server-1-data` against `/data`, say — which nothing
+can detect and which fails silently.
+[explanation/containers.md#one-share-two-mount-points](../explanation/containers.md#one-share-two-mount-points)
+is the whole argument.
 
 ## llmb-run
 
@@ -467,7 +498,7 @@ Only the `llm-pretrain` job reads these. A site not running it needs neither.
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `LLMB_INSTALL` | `/home/cmods/llmb` | Where `build_llmb.sh` installs the collection, image and tokenizer cache. Empty means no install |
+| `LLMB_INSTALL` | `/home/$JOB_USER/llmb` | Where `build_llmb.sh` installs the collection, image and tokenizer cache. Empty means no install |
 | `LLMB_REF` | `v26.06.01` | The `dgxc-benchmarking` tag `build_llmb.sh` installs, and the version `-l` gates on. Empty skips the gate |
 | `LLMB_BIN` | empty | Directory holding the `llmb-run` executable. Empty is searched for |
 | `LLMB_CONFIG` | empty | Path to `cluster_config.yaml`. Empty is searched for |

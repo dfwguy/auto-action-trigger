@@ -269,18 +269,18 @@ hdr "6-7. Ownership of the result path"
 if [[ -d "$results_dir" ]]; then
     owner=$(stat -c '%U %a' "$results_dir")
     note "results/ owned by $owner"
-    case "$owner" in
-        cmods*) ;;
-        *) bad "results/ is not owned by cmods -- sbatch --output will fail for cmods-run jobs" ;;
-    esac
+    ## Exact, not the prefix glob this was: that matched an account the old name
+    ## was a prefix of. See docs/explanation/architecture.md#one-account-name.
+    [[ "${owner%% *}" == "$JOB_USER" ]] ||
+        bad "results/ is not owned by $JOB_USER -- sbatch --output will fail for $JOB_USER-run jobs"
     rootowned=0
     while IFS= read -r d; do
-        [[ "$(stat -c '%U' "$d")" == "cmods" ]] || rootowned=$((rootowned + 1))
+        [[ "$(stat -c '%U' "$d")" == "$JOB_USER" ]] || rootowned=$((rootowned + 1))
     done < <(find "$results_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
     if [[ "$rootowned" -gt 0 ]]; then
-        bad "$rootowned node dir(s) not owned by cmods -- jobs there cannot write results"
+        bad "$rootowned node dir(s) not owned by $JOB_USER -- jobs there cannot write results"
         note "these self-heal on the next monitoring cycle; to fix now:"
-        note "  chown -R cmods:cmods $results_dir"
+        note "  chown -R $JOB_USER:$JOB_USER $results_dir"
     fi
 else
     bad "$results_dir does not exist"
@@ -301,7 +301,7 @@ cat <<EOF
 
 Next step -- ask one node directly, without waiting for a monitoring cycle:
 
-  pdsh -R ssh -w <node> '/home/cmods/bringup/actions/launch_job.sh --explain'
+  pdsh -R ssh -w <node> '$BRINGUP_HOME/actions/launch_job.sh --explain'
 
 That prints every gate the script evaluates and the sbatch commands it would
 run, as a dry run: it submits nothing, drains nothing, and archives nothing,
