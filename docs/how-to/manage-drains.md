@@ -22,12 +22,32 @@ that is failing for reasons unrelated to the hardware.
 
 Two consequences worth knowing:
 
-- With `DRAIN_AFTER_FAILED_HEALTH_CHECK=no`, `health-check.sh` reads the Slurm
-  reason field and therefore reports every node as passing. It prints a banner
-  saying so. Use `sync-check.sh <node>`, which diffs the logs directly, until
-  drains are on.
+- `health-check.sh` and `overall_report.sh` both read the health verdict out of
+  `logs/<node>` rather than out of `sinfo`, so a failing node is reported either
+  way. What drains off costs you is the *scheduler*: those nodes are still
+  taking work. `health-check.sh` says how many, and `--drained` is the separate
+  report of what Slurm has taken out, grouped by reason.
 - Turning either on does not clear drains that already exist, and does not drain
   a node that is already failing — the next monitoring cycle does that.
+
+## A drain the logs no longer support
+
+A node drained over a health failure, then repaired, keeps its drain until a
+clean run clears it. Between the repair and that run, Slurm says one thing and
+the logs say another. `health-check.sh` marks those lines rather than counting
+them as failures:
+
+```
+  drained  (logs now match) nvlinks nvlink-ber        3 nodes
+      ink50-dh01-h01-[11-13]
+```
+
+Read it as "nothing supports this drain any more". With
+`DRAIN_AFTER_FAILED_HEALTH_CHECK=yes` the next clean run resumes the node on its
+own, within `HEALTH_RETRY_INTERVAL_HOURS`; with drains off nothing will, and
+resuming it is a manual `scontrol update` — see [Resuming by
+hand](#resuming-by-hand) below. Either way `health-check.sh --refresh <node>`
+brings the re-check forward.
 
 ## Which to turn on first
 

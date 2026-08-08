@@ -27,7 +27,7 @@ cd /home/cmods/bringup
 |---|---|---|
 | `status-check.sh` | What state is every benchmark in? | `results/` + `squeue` |
 | `daily-report.sh` | What are the numbers? | `results/` + `sinfo` |
-| `health-check.sh` | What is wrong that is not a benchmark? | Slurm drain reasons |
+| `health-check.sh` | What is wrong that is not a benchmark? | `logs/` against the baseline, plus `sinfo` for state |
 | `overall_report.sh` | What has no pass, and what do we know about it? | all three, plus each node's trace |
 
 Note the third column, because it is where all the surprises come from. They do
@@ -178,8 +178,10 @@ weeks.
 bash health-check.sh
 ```
 
-This one reads **only Slurm drain reasons**. It contacts no node and re-runs
-nothing; it reports what the last health run concluded.
+This one reads **the health logs**, not the drain reasons — `logs/<node>/<check>`
+against `valid-config/default`, the same comparison `node_health.sh` drains on,
+so it is complete whether or not drains are on. It contacts no node and re-runs
+nothing; it reports what the last health run left behind.
 
 Nodes are grouped by the *exact set* of checks they failed, largest group first.
 That grouping is the point: sixty nodes failing the same thirty-eight checks are
@@ -201,11 +203,10 @@ Now the roll-up:
 bash health-check.sh --summary
 ```
 
-Four buckets, every node in exactly one, and they add up to the node count.
-The distinction to learn here is `PASSING` against `NOT CHECKED`: both are
-available with no drain reason, but only the first has a `logs/<node>` to show
-for it. **A node that has never run the health checks is not a node that
-passed**, and is not counted as one.
+The same failures, cut the other way: one line per check with every node under
+it, so you can see how far a single fix reaches. It ends with the nodes that
+have no `logs/<node>` at all. **A node that has never run the health checks is
+not a node that passed**, and is not counted as one.
 
 ## 5. Read the banners before you trust the report
 
@@ -216,29 +217,23 @@ If drains are off — which is how the framework ships — you will see:
 
 ```
 NOTE: DRAIN_AFTER_FAILED_HEALTH_CHECK=no in SETTINGS
-      node_health.sh records failures without draining, so a failing node
-      carries no Slurm reason and is reported below as passing.
+      No drain was set, so jobs are still being scheduled onto 60 of the
+      64 failing nodes below.
 ```
 
-Read that carefully, because it is the most important sentence in this tutorial.
-`health-check.sh` reads the Slurm reason field. With drains off, nothing writes
-that field. **So the report says every node is passing, and it says so on a
-cluster where every node is failing.** The banner is the only thing standing
-between you and that conclusion.
-
-Until drains are on, the health question is answered per node, directly against
-the logs:
-
-```bash
-bash sync-check.sh <node>
-```
+The failures themselves are reported either way — both reports read
+`logs/<node>` rather than the Slurm reason field. What that banner tells you is
+that Slurm does not know: those nodes are in the queue and taking work right now.
+`bash health-check.sh --drained` answers the other half — everything Slurm has
+taken out, grouped by the reason it carries, so a rack powered off by CMDaemon
+is one line rather than eighteen.
 
 Two other banners work the same way, and all three exist for one reason — **a
 report that cannot change looks exactly like a cluster that has settled**:
 
 | Banner | Means |
 |---|---|
-| `WARNING: no baseline` | `valid-config/default` does not resolve, so every check diffs against a missing file. Everything below it is an artifact, not a finding |
+| `WARNING: No baseline` | `valid-config/default` does not resolve, so there is nothing to compare against and no failure can be reported. An empty report, on a cluster nobody has checked |
 | `PAUSE_HEALTH_CHECKS=yes` | Nothing re-runs; this is a snapshot of whenever the pause went on |
 | `PAUSE_JOBS=yes` (in `status-check.sh`) | No benchmarks are being submitted, so nothing below will change |
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: health-check.sh [--full] [--summary] [pattern]
+# Usage: health-check.sh [--drained] [--summary [--by-state]] [pattern]
 #        health-check.sh --explain [pattern]
 #        health-check.sh --refresh <node|nodelist> [...]
 #
@@ -10,22 +10,31 @@
 #            written, so an explicit pattern can match anywhere in the name.
 #            With no pattern, every node Slurm knows about is reported.
 #
-#   --full   print every failure pattern, check name and drain reason. The
-#            default output elides the tail of each so the report stays a fixed
-#            size as the cluster grows.
+#   --drained
+#            what is out of the queue rather than what is broken: every drained
+#            or down node grouped by the reason it carries, largest group first,
+#            with the node list under each. `sinfo -R` answers the same question
+#            one node at a time, which on a rack powered off by CMDaemon is
+#            eighteen lines of one event.
 #
 #   --summary
-#            roll-up instead of the grouped report: every node placed in exactly
-#            one of PASSING / FAILING HEALTH CHECKS / NOT CHECKED / OTHER
-#            DRAINS, with the full node list for each. Answers "where does each
-#            node stand" rather than "what do I fix".
+#            the per-check roll-up instead of the grouped report: one line per
+#            failing check with every node under it, the checks with no baseline
+#            entry, and the nodes that have never been checked. The same block
+#            overall_report.sh prints, from the same numbers.
+#
+#   --by-state
+#            --summary split into one block per Slurm state, each with its own
+#            per-check tally. Answers "how much of this would a drain actually
+#            take out", which the flat roll-up cannot: it counts a node already
+#            drained the same as one still taking work. Implies --summary.
 #
 #   --explain
 #            the cadence rather than the findings: when the checks last ran on
 #            each node, what that run concluded, and when the next one is due.
 #            Answers "why has this node not re-checked", which the report below
-#            cannot -- it reads Slurm, and a node that has stopped checking
-#            keeps whatever reason it had.
+#            cannot -- it reads a snapshot of the logs, and a node that has
+#            stopped checking keeps whatever it last wrote.
 #
 #   --refresh <node|nodelist> [...]
 #            queue an immediate re-check on the named nodes by setting the
@@ -39,15 +48,13 @@
 # 60 node lines reads as 2280 incidents. Nodes are grouped by their exact set of
 # failing checks, so one group is one fix.
 #
-# node_health.sh drains a node with the names of the checks that mismatched the
-# baseline, so the Slurm reason field is the source of truth here -- no node is
-# contacted and nothing is re-run. Use --refresh to re-run the checks and
-# sync-check.sh to see the actual diff for a node named below.
+# The failures are read from logs/<node>/<check> against valid-config/default --
+# the same comparison node_health.sh drains on -- so this is complete whether or
+# not DRAIN_AFTER_FAILED_HEALTH_CHECK is on. Slurm is asked for node state and
+# for drains this framework did not write, nothing else. No node is contacted
+# and no check is re-run: use --refresh for that, and sync-check.sh for the diff
+# behind a check name below.
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
-#
-# Only as complete as the drains behind it: with the shipped
-# DRAIN_AFTER_FAILED_HEALTH_CHECK=no every node reads as PASSING, and the banner
-# below says so. See docs/how-to/manage-drains.md.
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
@@ -55,21 +62,30 @@ logs_dir="$home/logs"
 valid_dir="$home/valid-config/default"
 
 # Parse before loading Slurm, so --help works on a host that has neither.
-full=0
+drained=0
 summary=0
+by_state=0
 explain=0
 refresh=0
 args=()
 for arg in "$@"; do
     case "$arg" in
-        --full|-f)    full=1 ;;
-        --summary|-s) summary=1 ;;
-        --explain|-n) explain=1 ;;
-        --refresh|-r) refresh=1 ;;
-        -h|--help)    sed -n '2,45p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
-        *)            args+=("$arg") ;;
+        --drained|-d)  drained=1 ;;
+        --summary|-s)  summary=1 ;;
+        --by-state|-b) by_state=1; summary=1 ;;
+        --explain|-n)  explain=1 ;;
+        --refresh|-r)  refresh=1 ;;
+        -h|--help)     sed -n '2,56p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        *)             args+=("$arg") ;;
     esac
 done
+
+if [[ "$summary" -eq 1 && "$drained" -eq 1 ]]; then
+    echo "ERROR: --summary and --drained are two reports, not two filters -- one" >&2
+    echo "       groups failures by check, the other groups drains by reason." >&2
+    echo "       Ask for one of them." >&2
+    exit 2
+fi
 
 if ! command -v sinfo &>/dev/null; then
     source /etc/profile.d/modules.sh
@@ -158,11 +174,13 @@ if [[ "$explain" -eq 1 ]]; then
     exit 0
 fi
 
-# How many entries each elided list shows before it collapses to a count.
+# How many entries each elided list shows before it collapses to a count. The
+# default report stays a fixed size as the cluster grows; --summary and
+# --drained are the complete lists, so nothing elides in either.
 max_groups=6
 max_checks=8
 max_reasons=8
-if [[ "$full" -eq 1 ]]; then
+if [[ "$summary" -eq 1 || "$drained" -eq 1 ]]; then
     max_groups=100000; max_checks=100000; max_reasons=100000
 fi
 
@@ -171,7 +189,7 @@ if [[ ! -f "$home/report-format.sh" ]]; then
     echo "       compression and wrapping this report is printed through." >&2
     exit 1
 fi
-REPORT_FULL="$full"
+REPORT_FULL=$(( summary || drained ))
 source "$home/report-format.sh"
 
 # Files node_health.sh writes into logs/<node>/ that are not checks.
@@ -185,12 +203,11 @@ is_not_a_check() {
 # Valid check names: the baseline, widened with logs/ -- a check newer than the
 # last set-valid-default.sh run has no baseline entry yet and would otherwise be
 # dismissed as operator text. See docs/how-to/add-a-health-check-set.md#set-the-baseline-first.
-declare -A known_check baseline_has
+declare -A known_check
 if [[ -d "$valid_dir" ]]; then
     while IFS= read -r name; do
         is_not_a_check "$name" && continue
         known_check["$name"]=1
-        baseline_has["$name"]=1
     done < <(find -L "$valid_dir" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null)
 fi
 if [[ -d "$logs_dir" ]]; then
@@ -217,8 +234,22 @@ if [[ ! -f "$home/reason-map.sh" ]]; then
 fi
 source "$home/reason-map.sh"
 
-declare -A seen_node reason_nodes sig_nodes check_count
-total=0 failing=0 other=0 passing=0 unchecked=0
+# Which nodes are failing, from the log files -- not from the drain reason.
+# Shared with overall_report.sh. See docs/explanation/reading-the-whole-fleet.md#health-read-from-the-files.
+if [[ ! -f "$home/health-scan.sh" ]]; then
+    echo "ERROR: $home/health-scan.sh is missing -- it carries the comparison" >&2
+    echo "       every failure below is derived from." >&2
+    exit 1
+fi
+## Declared here as well as in the library: nothing follows a `source` at lint
+## time, so these would read as undefined at every use below.
+declare -A health_fail_count health_fail_list health_node_state
+declare -a no_baseline_checks health_scan_notes
+source "$home/health-scan.sh"
+health_scan "$pattern"
+
+declare -A seen_node reason_nodes drain_nodes sig_nodes check_count
+total=0 failing=0 other=0 passing=0 unchecked=0 undrained=0 stale=0 out=0
 passing_nodes="" unchecked_nodes="" failing_nodes="" other_nodes=""
 
 while IFS='|' read -r node state reason; do
@@ -230,57 +261,62 @@ while IFS='|' read -r node state reason; do
     # shellcheck disable=SC2053  # $pattern is the caller's node glob; quoting
     # it would only ever match a literal node named '*'.
     [[ "$node" == $pattern ]] || continue
+    [[ "$reason" == "none" ]] && reason=""
     ((total++))
 
-    if [[ -z "$reason" || "$reason" == "none" ]]; then
-        # No reason: available splits on whether logs/<node> exists, since a
-        # never-checked node is not a passing one. Down with no reason is
-        # neither, so it goes with the other drains. docs/reference/scripts.md#--summary.
-        case "$state" in
-            *down*|*drain*|*fail*|*unk*|*error*)
-                ((other++))
-                other_nodes+="$node,"
-                reason_nodes["$state|(no reason recorded)"]+="$node,"
-                ;;
-            *)
-                if [[ -d "$logs_dir/$node" ]]; then
-                    ((passing++)); passing_nodes+="$node,"
-                else
-                    ((unchecked++)); unchecked_nodes+="$node,"
-                fi
-                ;;
-        esac
+    # The label this node's drain carries in both groupings below. Empty for a
+    # node that is in the queue, whatever the health verdict says about it.
+    drain_key=""
+    case "$state" in
+        *down*|*drain*|*fail*|*unk*|*error*)
+            drain_key="$state|${reason:-(no reason recorded)}" ;;
+        *)  [[ -n "$reason" ]] && drain_key="$state|$reason" ;;
+    esac
+
+    # The logs decide, so a failing node lands here whether or not Slurm was
+    # told about it. A drain it also carries is not printed twice.
+    if [[ -n "${health_fail_count[$node]}" ]]; then
+        ((failing++))
+        failing_nodes+="$node,"
+        health_node_state["$node"]="$state"
+        if [[ -n "$drain_key" ]]; then
+            ((out++)); drain_nodes["$drain_key"]+="$node,"
+        else
+            ((undrained++))
+        fi
+        # Sorted, so the same checks in a different order land in the same group.
+        sig=$(tr ',' '\n' <<< "${health_fail_list[$node]}" | sort | tr '\n' ' ')
+        sig="${sig% }"
+        sig_nodes["$sig"]+="$node,"
+        for name in $sig; do
+            (( check_count["$name"]++ ))
+        done
         continue
     fi
 
-    matched=""
-    for raw in $(canonicalize_reason "$reason"); do
-        name=$(resolve_token "$raw")
-        [[ -n "${known_check[$name]}" ]] || continue
-        # dmesg-xid carries its own output, which can echo a check name back;
-        # count the node once per check.
-        [[ " $matched " == *" $name "* ]] && continue
-        matched+="$name "
-    done
-
-    if [[ -z "$matched" ]]; then
-        # No check name in the reason, so node_health.sh did not write it -- an
-        # operator drain, or one from launch_job.sh.
-        ((other++))
+    if [[ -n "$drain_key" ]]; then
+        # A health drain over logs that now match: the node was repaired and
+        # nothing has resumed it. See docs/how-to/manage-drains.md#a-drain-the-logs-no-longer-support.
+        for raw in $(canonicalize_reason "$reason"); do
+            [[ -n "${known_check[$(resolve_token "$raw")]}" ]] || continue
+            drain_key="${drain_key%%|*}|(logs now match) $reason"
+            ((stale++))
+            break
+        done
+        ((other++)); ((out++))
         other_nodes+="$node,"
-        reason_nodes["$state|$reason"]+="$node,"
+        reason_nodes["$drain_key"]+="$node,"
+        drain_nodes["$drain_key"]+="$node,"
         continue
     fi
 
-    ((failing++))
-    failing_nodes+="$node,"
-    # Sorted, so the same checks in a different order land in the same group.
-    sig=$(tr ' ' '\n' <<< "${matched% }" | sort | tr '\n' ' ')
-    sig="${sig% }"
-    sig_nodes["$sig"]+="$node,"
-    for name in $sig; do
-        (( check_count["$name"]++ ))
-    done
+    # In the queue and failing nothing: a never-checked node is not a passing
+    # one. See docs/reference/scripts.md#--summary.
+    if [[ -d "$logs_dir/$node" ]]; then
+        ((passing++)); passing_nodes+="$node,"
+    else
+        ((unchecked++)); unchecked_nodes+="$node,"
+    fi
 done < <(sinfo -N -h -o '%N|%T|%E' 2>/dev/null)
 
 if [[ "$total" -eq 0 ]]; then
@@ -288,19 +324,42 @@ if [[ "$total" -eq 0 ]]; then
     exit 1
 fi
 
-# A missing baseline fails every check on every node that ran, so this leads
-# rather than trails: the whole report below it is an artifact.
-if [[ ! -d "$valid_dir" ]]; then
-    echo "WARNING: no baseline — $valid_dir does not resolve"
-    if [[ -L "$valid_dir" ]]; then
-        echo "         the symlink points at $(readlink "$valid_dir"), which does not exist"
+# --drained: `sinfo -R` grouped. One line per distinct reason rather than one
+# per node, because a rack powered off by CMDaemon is one event and reads as
+# eighteen. Nothing else is printed -- this answers "what is out of the queue",
+# not "what is broken". See docs/reference/scripts.md#--drained.
+if [[ "$drained" -eq 1 ]]; then
+    if [[ "$out" -eq 0 ]]; then
+        echo "Nothing drained — all $total $(plural "$total") are in the queue"
+        exit 0
     fi
-    echo "         Every check diffs against a missing file, so the failures below are"
-    echo "         artifacts of the missing baseline, not node faults. Fix it first:"
-    echo "             rm -f $valid_dir"
-    echo "             bash set-valid-default.sh <validated-node>"
+    printf 'DRAINED — %d of %d %s\n\n' "$out" "$total" "$(plural "$total")"
+    mapfile -t reasons < <(
+        for key in "${!drain_nodes[@]}"; do
+            printf '%s|%s\n' "$(count_list "${drain_nodes[$key]%,}")" "$key"
+        done | sort -t'|' -k1,1nr -k2,2
+    )
+    for entry in "${reasons[@]}"; do
+        count="${entry%%|*}"
+        key="${entry#*|}"
+        printf '  %-14s %-44s %4d %s\n' \
+            "${key%%|*}" "${key#*|}" "$count" "$(plural "$count")"
+        print_wrapped "      " "$(compress "${drain_nodes[$key]%,}")"
+    done
     echo
+    [[ "$stale" -gt 0 ]] &&
+        echo "Marked lines are drains nothing supports any more — the checks pass now."
+    echo "Why a node failed:  bash sync-check.sh <node>"
+    echo "Resume by hand:     scontrol update NodeName=<node|nodelist> State=RESUME"
+    exit 0
 fi
+
+# Nothing to compare against reads exactly like a healthy cluster, so the
+# scan's own notes lead.
+for line in "${health_scan_notes[@]}"; do
+    print_wrapped "WARNING: " "$line"
+    echo
+done
 
 # Paused means nothing re-runs, so this is a snapshot of whatever was true when
 # the pause went on. See docs/how-to/pause-and-resume.md.
@@ -312,43 +371,25 @@ if setting_enabled "$PAUSE_HEALTH_CHECKS"; then
     echo
 fi
 
-# Drains off means this report has nothing to read, and an empty report looks
-# exactly like a healthy cluster. See docs/how-to/manage-drains.md.
-if ! setting_enabled "$DRAIN_AFTER_FAILED_HEALTH_CHECK"; then
+# The failures below are read from the logs, so drains being off no longer
+# hides them -- but nothing was taken out of the queue either.
+# See docs/how-to/manage-drains.md.
+if ! setting_enabled "$DRAIN_AFTER_FAILED_HEALTH_CHECK" && [[ "$undrained" -gt 0 ]]; then
     echo "NOTE: DRAIN_AFTER_FAILED_HEALTH_CHECK=$DRAIN_AFTER_FAILED_HEALTH_CHECK in ${SETTINGS_FILE##*/}"
-    echo "      node_health.sh records failures without draining, so a failing node"
-    echo "      carries no Slurm reason and is reported below as passing. This report"
-    echo "      is complete only once drains are on. Until then:"
-    echo "          bash sync-check.sh <node>     # diff the logs directly"
+    echo "      No drain was set, so jobs are still being scheduled onto $undrained of the"
+    echo "      $failing failing $(plural "$failing") below."
     echo
 fi
 
-# --summary: every node in exactly one bucket, full list for each. See
-# docs/reference/scripts.md#--summary.
+# The grouped report below says what to fix, and nothing about the rest.
+printf '%d %s — %d failing, %d passing, %d never checked, %d other %s\n\n' \
+    "$total" "$(plural "$total")" "$failing" "$passing" "$unchecked" "$other" \
+    "$([[ "$other" -eq 1 ]] && echo drain || echo drains)"
+
+# --summary: the HEALTH block overall_report.sh prints, from the same numbers.
+# See docs/reference/scripts.md#--summary.
 if [[ "$summary" -eq 1 ]]; then
-    echo "SUMMARY — $total $(plural "$total")"
-    echo
-    bucket() {
-        local title="$1" count="$2" list="$3" note="$4"
-        [[ "$count" -eq 0 ]] && return
-        printf '%s — %d %s' "$title" "$count" "$(plural "$count")"
-        [[ -n "$note" ]] && printf ' (%s)' "$note"
-        printf '\n'
-        print_wrapped "  " "$(compress "${list%,}")"
-        echo
-    }
-    bucket "PASSING" "$passing" "$passing_nodes" \
-        "checks ran, nothing mismatched the baseline"
-    bucket "FAILING HEALTH CHECKS" "$failing" "$failing_nodes" \
-        "drained by node_health.sh"
-    bucket "NOT CHECKED" "$unchecked" "$unchecked_nodes" \
-        "available, but no logs/<node> — checks have never run"
-    bucket "OTHER DRAINS" "$other" "$other_nodes" \
-        "operator or sequencer; health state not visible in Slurm"
-    if [[ ! -d "$valid_dir" ]]; then
-        echo "PASSING is not meaningful while the baseline is missing: a node can only"
-        echo "reach it by having no reason recorded, not by matching anything."
-    fi
+    health_section "$max_checks" "${unchecked_nodes%,}" --summary "$by_state"
     exit 0
 fi
 
@@ -391,7 +432,7 @@ else
     done
 
     if [[ "$hidden_nodes" -gt 0 ]]; then
-        printf '... %d more %s covering %d %s — rerun with --full\n\n' \
+        printf '... %d more %s covering %d %s — rerun with --summary\n\n' \
             "$(( ${#groups[@]} - shown ))" \
             "$([[ $(( ${#groups[@]} - shown )) -eq 1 ]] && echo pattern || echo patterns)" \
             "$hidden_nodes" "$(plural "$hidden_nodes")"
@@ -410,26 +451,19 @@ else
     fi
 fi
 
-# A check with no baseline entry can never pass, and the fix is a new baseline
-# rather than anything on the node. Suppressed when the baseline is missing
-# outright -- the banner above already said so.
-if [[ -d "$valid_dir" ]]; then
-    missing=""
-    for name in "${!check_count[@]}"; do
-        [[ -n "${baseline_has[$name]}" ]] || missing+="$name,"
-    done
-    if [[ -n "$missing" ]]; then
-        n_missing=$(count_list "${missing%,}")
-        echo "No baseline in $valid_dir — $n_missing $([[ "$n_missing" -eq 1 ]] && echo check || echo checks) can never pass:"
-        print_wrapped "  " "$(elide "$(tr ',' '\n' <<< "${missing%,}" | sort | paste -sd',' - | sed 's/,/, /g')" "$max_checks")"
-        echo
-    fi
+# Never compared, so neither passing nor above: the fix is a new baseline.
+if [[ "${#no_baseline_checks[@]}" -gt 0 ]]; then
+    n_missing="${#no_baseline_checks[@]}"
+    echo "No baseline in $valid_dir — $n_missing $([[ "$n_missing" -eq 1 ]] && echo check || echo checks) can never pass:"
+    print_wrapped "  " "$(elide "$(printf '%s\n' "${no_baseline_checks[@]}" | sort | paste -sd',' - | sed 's/,/, /g')" "$max_checks")"
+    echo
 fi
 
 # Grouped by reason, not by node: eighteen racks powered off by CMDaemon is one
 # line, and stays one line however many racks get added.
 if [[ "$other" -gt 0 ]]; then
-    echo "Not health drains — $other $(plural "$other") (operator, or the job sequencer):"
+    echo "Not failing any check — $other drained $(plural "$other") (operator, the job sequencer,"
+    echo "or a health drain over logs that now match — those are marked):"
     mapfile -t reasons < <(
         for key in "${!reason_nodes[@]}"; do
             printf '%s|%s\n' "$(count_list "${reason_nodes[$key]%,}")" "$key"
@@ -450,11 +484,13 @@ if [[ "$other" -gt 0 ]]; then
         print_wrapped "      " "$(compress "${reason_nodes[$key]%,}")" 3
     done
     if [[ "$hidden" -gt 0 ]]; then
-        printf '  ... %d more %s covering %d %s — rerun with --full\n' \
+        printf '  ... %d more %s covering %d %s — rerun with --drained\n' \
             "$(( ${#reasons[@]} - shown ))" \
             "$([[ $(( ${#reasons[@]} - shown )) -eq 1 ]] && echo reason || echo reasons)" \
             "$hidden" "$(plural "$hidden")"
     fi
+    [[ "$stale" -gt 0 ]] &&
+        echo "  Marked lines are drains nothing supports any more — the checks pass now."
     echo
 fi
 
@@ -465,5 +501,8 @@ if [[ "$failing" -gt 0 ]]; then
     first_node="${sig_nodes[$first_sig]%%,*}"
     echo "Why a node failed:  bash sync-check.sh $first_node"
     [[ "${#groups[@]}" -gt 1 ]] && echo "                    (one node from pattern 1; each pattern needs its own diff)"
+    echo "Per check, in full: bash health-check.sh --summary"
     echo "Re-run the checks:  bash health-check.sh --refresh <node|nodelist>"
 fi
+[[ "$out" -gt 0 ]] &&
+    echo "Everything drained: bash health-check.sh --drained"

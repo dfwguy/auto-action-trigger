@@ -80,17 +80,31 @@ is built against — see [architecture.md](architecture.md#silence-is-the-enemy)
 
 ## Health, read from the files
 
-`health-check.sh` reads the Slurm drain reason, because that is where
-`node_health.sh` writes its verdict. That makes it exactly as complete as the
+`health-check.sh` used to read the Slurm drain reason, because that is where
+`node_health.sh` writes its verdict. That made it exactly as complete as the
 drains behind it, and with the shipped `DRAIN_AFTER_FAILED_HEALTH_CHECK=no`
-there are none: every node reads as passing, and the script says so in a banner.
+there are none: every node read as passing, and the script printed a banner
+saying so. A banner is a reasonable thing to do about a gap. It is not a
+reasonable thing to leave in the report an operator runs to find out what is
+broken, and a site running with drains off is the site that most needs the
+answer.
 
-That banner is fine for a report *about* drains. It is not fine for a report
-whose job is to be the exception list, so this one does not read Slurm for
-health at all. `node_health.sh` decides by diffing `logs/<node>/<check>` against
-`valid-config/default/<check>` byte for byte, and both files are on the shared
-tree — so the same conclusion can be reached from the files, whether or not
-anything ever drained.
+So neither report reads Slurm for health. `node_health.sh` decides by diffing
+`logs/<node>/<check>` against `valid-config/default/<check>` byte for byte, and
+both files are on the shared tree — so the same conclusion can be reached from
+the files, whether or not anything ever drained.
+
+The comparison lives in `health-scan.sh`, sourced by `overall_report.sh` and by
+`health-check.sh`, and so does the HEALTH block both of them print — one
+function, one set of numbers. Two reports that disagree about which nodes are
+failing are worse than either of them alone, and that is what a second copy of
+this comparison would eventually become.
+
+What drains-off still costs is visible in `sinfo` and nowhere else: nothing was
+taken out of the queue. That is what `health-check.sh` says in its banner now.
+Slurm keeps one question the files cannot answer — what is drained, and for what
+— so `--drained` is a separate report against `sinfo` rather than a filter on
+this one.
 
 Two details keep that reproduction honest:
 

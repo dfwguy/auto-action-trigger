@@ -67,23 +67,27 @@ bash status-check.sh -s -t allreduce ink50-dh01-h20
 bash health-check.sh --summary
 ```
 
-Four buckets, every node in exactly one, adding up to the node count:
-`PASSING`, `FAILING HEALTH CHECKS`, `NOT CHECKED`, `OTHER DRAINS`.
+One line per failing check with every node under it, nothing elided, so the list
+under a check name is the list to act on. It is the same block
+`overall_report.sh` prints under HEALTH.
 
-`NOT CHECKED` is the one to reach for first at a new site — those are available
-nodes with no `logs/<node>`, meaning the checks have never run there:
+The never-checked list at the foot is the one to reach for first at a new site —
+those are nodes with no `logs/<node>`, meaning the checks have never run there:
 
 ```bash
 bash health-check.sh --refresh 'ink50-dh01-h15-[11-14]'
 ```
 
-`OTHER DRAINS` is **not** a health verdict. Those nodes are down or drained for
-a reason `node_health.sh` did not write, so Slurm carries no health result for
-them either way. Do not treat that bucket as a list of bad nodes.
+The default report is the other cut of the same data: nodes grouped by the set
+of checks they failed, ending with one node per group to diagnose — one is
+enough, since the rest of the group failed the same checks. Its drain-reason
+section is **not** a health verdict; those nodes are down or drained for a
+reason `node_health.sh` did not write. Do not treat it as a list of bad nodes.
 
-For the grouped view, the default report already ends by naming one node per
-group to diagnose — one is enough, since the rest of the group failed the same
-checks.
+`bash health-check.sh --drained` is the third cut, and not a health one: every
+drained or down node grouped by the reason it carries, largest group first. That
+is the list to take when the question is what is out of the queue rather than
+what is broken.
 
 ## Feeding the list to something
 
