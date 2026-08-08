@@ -8,8 +8,9 @@ manual intervention. Every gate in every script can end a cycle with a plain
 ```
 Node boots → BCM device status = UP
     ├── NodeHealthTrigger → node_health.sh
-    │       Compares hardware/software state against a known-good baseline.
-    │       Sets node IDLE (all checks pass) or DOWN with a reason (any fail).
+    │       Compares hardware/software state against a known-good baseline, on a
+    │       cadence rather than once. Sets node IDLE (all checks pass) or DOWN
+    │       with a reason (any fail). See explanation/health-cadence.md.
     │
     ├── FileCopyTrigger → file_copy.sh
     │       Rsyncs containers/ to /tmp/containers/ so job start reads the image
@@ -31,8 +32,9 @@ has silently stopped testing looks exactly like a node that is quietly idle, and
 neither shows up in `sinfo`.
 
 The design answer is that every gate writes down why it stopped. Each node keeps
-a running trace at `results/<node>/trigger.log`, one line per cycle recording
-what it did or why it stopped — every line it can write is in
+a running trace per action — `results/<node>/trigger.log` for the sequencer and
+`results/<node>/health.log` for the health runner — one line per cycle recording
+what it did or why it stopped. Every line either can write is in
 [reference/trace-lines.md](../reference/trace-lines.md). `trigger-log.sh` reads
 those traces across the cluster; `trigger-debug.sh` walks the configuration
 behind them when the traces have gone stale. Which to reach for first is

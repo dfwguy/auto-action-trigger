@@ -743,7 +743,7 @@ pause leaves a trace line on every node saying it is paused, and
 
 Nothing is lost across a pause. Results stay on disk, the sweep resumes from
 where it stopped rather than restarting, and a `refresh` sentinel set by
-`node-health-refresh.sh` is held rather than consumed.
+`health-check.sh --refresh` is held rather than consumed.
 
 `PAUSE_JOBS` also reaches work already in the queue, because gating submission
 alone would leave hours of already-queued benchmarks running:

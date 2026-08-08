@@ -54,7 +54,7 @@ into one of four classes:
 | Class | The reason says | Who clears it |
 |-------|-----------------|---------------|
 | `marker` | it carries `DRAIN_MARKER` — this framework drained the node over a benchmark | `launch_job.sh`, once the benchmarks pass |
-| `health` | it is a list of check names — `node_health.sh` drained the node | `node_health.sh`, on a clean run |
+| `health` | it is a list of check names — `node_health.sh` drained the node | `node_health.sh`, on a clean run — which now comes round on its own, every `HEALTH_RETRY_INTERVAL_HOURS`. Before the cadence a health drain was permanent until someone asked for a re-check. See [explanation/health-cadence.md](../explanation/health-cadence.md) |
 | `machine` | it matches `RECOVER_REASONS` (prolog, epilog, rogue process, failed launch, reboot or power-off, duplicate jobid, GRES or CPU count mismatch), or it is empty | the recovery, subject to its own gates |
 | `operator` | anything else | nobody, ever |
 

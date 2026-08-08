@@ -204,6 +204,7 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/yield-test.sh          # the cancel gates, if you touched get-out-of-the-way.sh
 ./tests/llmb-check-test.sh     # llmb install discovery, if you touched llmb_check.py
 ./tests/exclude-test.sh        # the head-node gate, if you touched EXCLUDE_NODES or a results/*/ walk
+./tests/health-cadence-test.sh # the gates in node_health.sh, if you touched the cadence or the baseline
 ./tests/report-format-test.sh  # node-list wrapping, if you touched report-format.sh
 ./tests/doc-links-test.sh      # every docs/ anchor the code points at, if you moved or retitled one
 bash -n <changed script>       # these scripts run as root on 200+ nodes

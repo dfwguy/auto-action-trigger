@@ -76,7 +76,7 @@ The following scripts are run manually by an operator from the headnode and do n
 | `check_squeue.sh` | `squeue`; `-j` also uses `sinfo` and `scontrol` |
 | `daily-report.sh` | `sinfo`, read access to `results/`; write access to wherever `-o` points |
 | `health-check.sh` | `sinfo`, `scontrol`, read access to `logs/` and `valid-config/` |
-| `node-health-refresh.sh` | write access to `logs/<node>/` |
+| `health-check.sh --refresh` | write access to `logs/<node>/` |
 | `sync-check.sh` | read access to `logs/` and `valid-config/` |
 | `trigger-debug.sh` | `cmsh`, `sinfo`, read access to `results/` |
 | `trigger-log.sh` | read access to `results/` and `logs/` |
@@ -131,6 +131,8 @@ bash set-valid-default.sh <node_name>
 
 This copies `logs/<node_name>/` to `valid-config/<node_name>/` and symlinks it as `valid-config/default/`. All subsequent health checks diff against this baseline.
 
+It is a **copy**, deliberately, and pointing `valid-config/default` at a live `logs/<node>/` instead is the one edit to avoid here: the checks re-run on a cadence, so the baseline would follow that node's drift and the fleet would keep agreeing with it. `node_health.sh` refuses to run rather than overwrite its own baseline. See [docs/explanation/health-cadence.md#the-golden-baseline](docs/explanation/health-cadence.md#the-golden-baseline).
+
 ### 4. Make a SETTINGS file
 
 Everything configurable lives in one file. `SETTINGS.default` ships with the framework and is read when there is no `SETTINGS`; `SETTINGS` is what a site edits and is never overwritten by an upgrade.
@@ -173,6 +175,15 @@ DRAIN_AFTER_FAILED_BENCHMARK=no      # benchmark sweep failed, or a job ran past
 ```
 
 Turn them on once the failures being reported are real ones. Health-check drains are the riskier half — a bad baseline drains the whole cluster on the first monitoring cycle — so bring that one up only after `bash health-check.sh --summary` reads clean. See [docs/how-to/manage-drains.md](docs/how-to/manage-drains.md).
+
+### 8. Decide how often health checks re-run
+
+```bash
+HEALTH_INTERVAL_HOURS=4         # after a clean run
+HEALTH_RETRY_INTERVAL_HOURS=1   # after a run that found something
+```
+
+The checks re-run on this cadence on every node, so a node repaired between cycles clears its own health drain and a node that regresses is noticed without anyone asking. `0` on both restores the older behaviour, where nothing re-ran until `health-check.sh --refresh` said so. See [docs/explanation/health-cadence.md](docs/explanation/health-cadence.md).
 
 ## Operating a bringup
 
@@ -238,7 +249,8 @@ A drain reason containing `auto-retry` is the sequencer's own — it clears it o
 Re-run health checks, or start a node's benchmarks over after a hardware swap:
 
 ```bash
-bash node-health-refresh.sh node001
+bash health-check.sh --refresh node001     # ahead of the cadence
+bash health-check.sh --explain node001    # when is it next due, and what did the last run find
 bash single-node-purge.sh node001
 ```
 

@@ -38,6 +38,12 @@ BURNIN="mnubergemm"
 ## ── Container images ──────────────────────────────────────────────────────
 CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm"
 
+## ── Health-check cadence ──────────────────────────────────────────────────
+## 0 re-runs only when 'health-check.sh --refresh' asks. See
+## docs/explanation/health-cadence.md#choosing-the-two-intervals.
+HEALTH_INTERVAL_HOURS=4
+HEALTH_RETRY_INTERVAL_HOURS=1
+
 ## ── Pause switches ────────────────────────────────────────────────────────
 PAUSE_JOBS=no
 PAUSE_HEALTH_CHECKS=no

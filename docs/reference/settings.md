@@ -152,6 +152,22 @@ when the key is absent altogether. `-A` builds everything regardless of this
 setting, and naming images as arguments overrides it. See
 [how-to/build-containers.md](../how-to/build-containers.md).
 
+## Health-check cadence
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `HEALTH_INTERVAL_HOURS` | `4` | How long after a **clean** run `node_health.sh` re-runs the checks |
+| `HEALTH_RETRY_INTERVAL_HOURS` | `1` | How long after a run that **found something** it re-runs them |
+
+Whole hours, and `0` on either disables the cadence in the state it applies to —
+the checks then re-run only when `health-check.sh --refresh` sets the sentinel,
+which is how this tree behaved before the cadence existed.
+
+The interval is measured from `logs/<node>/.last-check`, which also records
+which of the two applies. `health-check.sh --explain` prints the resulting due
+times across the fleet. Why two intervals and no backoff:
+[explanation/health-cadence.md#choosing-the-two-intervals](../explanation/health-cadence.md#choosing-the-two-intervals).
+
 ## Pause switches
 
 | Setting | Default | Stops |

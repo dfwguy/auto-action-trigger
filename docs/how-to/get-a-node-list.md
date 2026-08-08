@@ -1,7 +1,7 @@
 # Get a node list you can act on
 
 You have a report and you need the nodes out of it, in a form `pdsh -w`,
-`scancel`, `scontrol` or `node-health-refresh.sh` will take. Both roll-ups exist
+`scancel`, `scontrol` or `health-check.sh --refresh` will take. Both roll-ups exist
 for this and neither is the default output.
 
 ## From benchmark status
@@ -74,7 +74,7 @@ Four buckets, every node in exactly one, adding up to the node count:
 nodes with no `logs/<node>`, meaning the checks have never run there:
 
 ```bash
-bash node-health-refresh.sh 'ink50-dh01-h15-[11-14]'
+bash health-check.sh --refresh 'ink50-dh01-h15-[11-14]'
 ```
 
 `OTHER DRAINS` is **not** a health verdict. Those nodes are down or drained for
@@ -91,7 +91,7 @@ Take the list from either roll-up and use it directly:
 
 ```bash
 # re-run the health checks
-bash node-health-refresh.sh 'ink50-dh01-h20-[03,17]'
+bash health-check.sh --refresh 'ink50-dh01-h20-[03,17]'
 
 # clear results and start that node's benchmarks over
 bash single-node-purge.sh 'ink50-dh01-h20-[03,17]'

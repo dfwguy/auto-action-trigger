@@ -85,6 +85,7 @@ Understanding-oriented. Why it is like this, and what it cost to find out.
 |------|--------|
 | [architecture.md](explanation/architecture.md) | The three BCM triggers, *silence is the enemy*, registering with BCM, driving `cmsh` |
 | [sequencing.md](explanation/sequencing.md) | One job at a time, the fleet cap, stale markers, retry and drain behaviour, what a pause is for |
+| [health-cadence.md](explanation/health-cadence.md) | Why the checks re-run on a timer, the stamp file, and why the golden baseline is a copy |
 | [verdicts-and-the-cache.md](explanation/verdicts-and-the-cache.md) | Why a verdict is derived and never stored, and what makes the cache safe |
 | [judging-benchmarks.md](explanation/judging-benchmarks.md) | What a good gate looks like, and the two ways these have been got wrong |
 | [drain-recovery.md](explanation/drain-recovery.md) | Which drains clear themselves, and how an operator's drain is protected |

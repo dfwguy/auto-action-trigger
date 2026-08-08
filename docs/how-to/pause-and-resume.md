@@ -36,7 +36,7 @@ In order of how long it takes to stop:
 - **Drains Slurm set itself are still cleared**, unless `PAUSE_RECOVERY=yes`.
 
 Nothing is lost. Results stay on disk and the sweep resumes rather than
-restarting, and a `refresh` set by `node-health-refresh.sh` is held through the
+restarting, and a `refresh` set by `health-check.sh --refresh` is held through the
 pause rather than consumed by a run that does nothing.
 
 `launch_job.sh --explain` still works while paused, and is the way to see what a

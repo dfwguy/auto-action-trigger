@@ -91,7 +91,7 @@ configuration becomes the definition of "correct" for every other node, so this
 choice matters more than it looks:
 
 ```bash
-bash node-health-refresh.sh <your-node>
+bash health-check.sh --refresh <your-node>
 ```
 
 Wait for one BCM monitoring cycle (about a minute), then:

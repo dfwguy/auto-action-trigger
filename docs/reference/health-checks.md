@@ -11,9 +11,13 @@ string. After all checks, it either resumes the node (no failures) or sets it
 `DRAIN_AFTER_FAILED_HEALTH_CHECK` is on. With it off, which is how it ships, the
 run is identical up to that point and Slurm is simply left alone.
 
-A `refresh` sentinel file in `logs/<node>/` must exist for the health script to
-run — this is what prevents redundant re-checks on every monitoring cycle. Use
-`node-health-refresh.sh` to set it.
+It fires on every BCM monitoring cycle and re-checks on a cadence:
+`HEALTH_INTERVAL_HOURS` after a clean run, `HEALTH_RETRY_INTERVAL_HOURS` after
+one that found something. A `refresh` sentinel file in `logs/<node>/` jumps the
+queue — `health-check.sh --refresh` sets it. Every cycle writes what it decided
+to `results/<node>/health.log`, and `health-check.sh --explain` reports when each
+node is next due. See
+[health-cadence.md](../explanation/health-cadence.md).
 
 ## The check list
 
