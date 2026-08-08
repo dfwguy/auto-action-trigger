@@ -34,9 +34,12 @@ fi
 rm -rf "${valid:?}/$node"
 cp -r "$logs/$node" "$valid/"
 
+# A copy, never a pointer -- docs/explanation/health-cadence.md#the-golden-baseline.
+rm -f "$valid/$node/refresh" "$valid/$node/.last-check"
+
 # Relative, so the link resolves wherever the tree is unpacked.
 ln -s "$node" "$valid/default"
 
 echo "Baseline set to $node ($(find -L "$valid/default" -maxdepth 1 -type f | wc -l) checks)"
 echo "Re-run the checks to clear the old failures:"
-echo "    bash node-health-refresh.sh <node|nodelist>"
+echo "    bash health-check.sh --refresh <node|nodelist>"

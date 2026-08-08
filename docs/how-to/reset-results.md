@@ -39,7 +39,7 @@ so a purge re-runs the benchmarks and changes nothing about what
 `node_health.sh` concluded. To redo that half:
 
 ```bash
-bash node-health-refresh.sh node001
+bash health-check.sh --refresh node001
 ```
 
 ## Do not purge a node with a benchmark in flight

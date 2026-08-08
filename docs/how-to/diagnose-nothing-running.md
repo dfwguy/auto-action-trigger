@@ -37,10 +37,15 @@ It prints five sections:
    mean no work went out.
 4. **Failures and warnings** — `SUBMIT FAILED`, `WARNING`, `DRAIN`, missing
    `verdict.sh`, Slurm not on `PATH`, grouped the same way.
-5. **Health-check side** — nodes with a `results/<node>` but no `logs/<node>`.
+5. **Health-check side** — the same three questions as sections 1 and 2, for the
+   other trigger. Nodes with a `results/<node>` but no `logs/<node>`:
    `node_health.sh` never ran there, so the node never left DOWN and no
    benchmark could be scheduled onto it — a stuck bringup with a perfectly
    healthy sequencer, because the sequencer is not the thing that is stuck.
+   Then whether each node's `health.log` is being written at all, and what its
+   last cycle decided. A stale `health.log` beside a fresh `trigger.log` is one
+   trigger failing while the other works, which nothing else in this tree can
+   show you.
 
 Read-only, and `-w`/`-s` only widen or narrow what it reports. What each line
 means is [reference/trace-lines.md](../reference/trace-lines.md).
@@ -68,6 +73,19 @@ pdsh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --explain'
 `--explain` prints every gate the sequencer evaluates and the `sbatch` commands
 it would issue, as a dry run — nothing is submitted, drained, or archived, so it
 is safe while the trigger is live, and it reads through a pause.
+
+The health runner takes the same flags, and answers the other half of "nothing
+is happening on this node":
+
+```bash
+pdsh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/node_health.sh --explain'
+bash health-check.sh --explain ink50-dh01-h20      # or, from the head node
+```
+
+`health-check.sh --explain` needs no node access: it reads the stamps and says
+when each node is next due. A node reading `overdue` there is one
+`NodeHealthTrigger` is not reaching. See
+[explanation/health-cadence.md](../explanation/health-cadence.md).
 
 A `backing off:` line there is a job deliberately waiting longer than usual
 because it has failed repeatedly — it says how much of the window is left, and

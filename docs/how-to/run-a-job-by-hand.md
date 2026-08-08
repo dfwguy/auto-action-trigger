@@ -115,3 +115,37 @@ lets `status-check.sh -t <job>` and `verdict.sh` judge it. Two consequences:
   read with `status-check.sh -t` or by opening the file. It can also show up as
   the "live" column for a running node in `status-check.sh`, which picks the
   newest result file in the directory and does not know the job was ad-hoc.
+
+## Re-running health checks by hand
+
+The health side has the same shape: `actions/node_health.sh` decides about the
+node it runs on and takes no node argument, so a sweep is `pdsh` over the nodes.
+
+```bash
+pdsh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/node_health.sh -f -v'
+```
+
+| Flag | Does |
+|---|---|
+| `--explain`, `-n` | print every gate, run no check, drain nothing |
+| `--force`, `-f` | ignore the cadence gate and run the checks now |
+| `--verbose`, `-v` | mirror the trace to stdout — the default on a tty, off under BCM and `pdsh` |
+| `--quiet`, `-q` | never mirror it |
+
+`--force` opens the cadence gate and nothing else. `PAUSE_HEALTH_CHECKS`, the
+not-a-compute-node gate and the baseline-is-this-node refusal all still apply,
+for the same reason `--force` does not open `PAUSE_JOBS` above: they are site
+switches and safety gates, not timing.
+
+From the head node, and where you do not want to wait for a monitoring cycle to
+reach the node, ask for the re-check instead of running it:
+
+```bash
+bash health-check.sh --refresh 'ink50-dh01-h02-[11,13-18]'
+bash health-check.sh --explain ink50-dh01-h02      # when is each node next due
+```
+
+That sets the `refresh` sentinel, which the next cycle on each node consumes
+ahead of its cadence. It needs write access to `logs/<node>/`, not root on the
+node. See
+[explanation/health-cadence.md](../explanation/health-cadence.md).

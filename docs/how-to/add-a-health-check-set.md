@@ -24,7 +24,7 @@ banner when the link does not resolve, because nothing below it is real.
 1. Drop a numbered file into `health-checks/$HEALTHCHECKS/` — `NN-<name>.sh`,
    mode `644`, with a `# banner:` line. The format is
    [reference/health-checks.md#the-check-file-format](../reference/health-checks.md#the-check-file-format).
-2. `bash node-health-refresh.sh <baseline-node>` and let a monitoring cycle run
+2. `bash health-check.sh --refresh <baseline-node>` and let a monitoring cycle run
    it there.
 3. `bash set-valid-default.sh <baseline-node>` again, so the baseline has an
    entry for the new check.

@@ -204,6 +204,8 @@ bash health-check.sh                      # every node
 bash health-check.sh ink50-dh01-h20       # one rack (bare prefix)
 bash health-check.sh --full               # nothing elided
 bash health-check.sh --summary            # roll-up: where every node stands
+bash health-check.sh --explain            # the cadence: when each node re-checks
+bash health-check.sh --refresh node001    # queue a re-check ahead of the cadence
 ```
 
 Reads the Slurm drain reasons and groups nodes by the *set* of checks they
@@ -216,7 +218,7 @@ diffing against a file that is not there.
 
 Long lists are elided with a count; `--full` prints everything. Node lists are
 compressed and wrapped at range boundaries, so they paste straight into
-`node-health-refresh.sh`. Nothing is contacted or re-run: it reports what the
+`health-check.sh --refresh`. Nothing is contacted or re-run: it reports what the
 last health run concluded.
 
 A missing or dangling `valid-config/default` is reported first, above the
@@ -260,15 +262,45 @@ Two distinctions worth knowing:
 dangling `valid-config/default`, nodes reach it by having no reason recorded
 rather than by matching anything, and the summary says so.
 
+### `--explain` and `--refresh`
+
+The report above reads Slurm, which knows what the last health run concluded and
+nothing about when the next one is due. `--explain` answers that instead, from
+the `logs/<node>/.last-check` stamps:
+
+```
+NODE                         LAST RUN             OUTCOME  NEXT DUE
+ink50-dh01-h01-11            2026-08-08 04:12:31  clean    in 96m
+ink50-dh01-h01-14            2026-08-08 07:31:02  failed   in 21m
+ink50-dh01-h01-17            2026-08-07 22:04:55  clean    overdue by 6h
+ink50-dh01-h01-29            (never)              -        next monitoring cycle
+```
+
+`overdue` is the one to read: the node is past its interval and has not
+re-checked, so `NodeHealthTrigger` is not reaching it. `tail
+results/<node>/health.log` names the gate. `(never)` on a node that has a
+`logs/<node>` means the stamp predates the cadence, and one cycle fixes it.
+
+`--refresh` takes node names and Slurm nodelists rather than a glob, repeatable,
+and does nothing else — no report is printed, because the re-check it just
+queued has not happened yet:
+
+```bash
+bash health-check.sh --refresh ink50-dh01-h01-14 'ink50-dh01-h02-[11-14]'
+```
+
+It needs write access to `logs/<node>/` and contacts no node. See
+[explanation/health-cadence.md#asking-for-a-re-check](../explanation/health-cadence.md#asking-for-a-re-check).
+
 ## The rest
 
 | Script | What it does |
 |---|---|
 | `sync-check.sh <node>` | Diffs the node's health output against the baseline for each check named in its Slurm drain reason — the fastest way to see why `node_health.sh` took a node down |
-| `node-health-refresh.sh <nodes>` | Sets the `refresh` sentinel so the next monitoring cycle re-runs `node_health.sh` there |
 | `set-valid-default.sh <node>` | Captures a validated node's `logs/` as the new baseline — see [health-checks.md](health-checks.md) |
 | `watch-rack.sh <nodelist>` | Refreshes every 20 seconds, showing only nodes that are DOWN or drained |
-| `trigger-log.sh` | Reads `results/<node>/trigger.log` across the cluster — five sections, described in [how-to/diagnose-nothing-running.md](../how-to/diagnose-nothing-running.md). `--include-excluded` also reads the hosts the reports leave out |
+| `trigger-log.sh` | Reads `results/<node>/trigger.log` and `health.log` across the cluster — five sections, described in [how-to/diagnose-nothing-running.md](../how-to/diagnose-nothing-running.md). `--include-excluded` also reads the hosts the reports leave out |
+| `actions/node_health.sh` | The health runner BCM fires. Also runnable over `pdsh` with `--explain`/`--force`/`--verbose` — see [how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand](../how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand) |
 | `trigger-debug.sh` | Walks the BCM → `sbatch` chain and names the broken link. Read-only |
 | `check_squeue.sh` | The queue in one aligned table, whole cluster; `-j <id>` adds node state and reservations |
 | `kill-jobs.sh` | Cancels this framework's jobs; `-p` also sets `PAUSE_JOBS=yes`. See [how-to/pause-and-resume.md](../how-to/pause-and-resume.md) |

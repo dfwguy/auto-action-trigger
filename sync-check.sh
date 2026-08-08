@@ -62,8 +62,8 @@ fi
 # Files node_health.sh writes into logs/<node>/ that are not checks.
 is_not_a_check() {
     case "$1" in
-        refresh|script-env) return 0 ;;
-        *)                  return 1 ;;
+        refresh|script-env|.last-check) return 0 ;;
+        *)                              return 1 ;;
     esac
 }
 
@@ -149,7 +149,7 @@ while IFS='|' read -r node reason; do
             echo "Named in the drain reason but now matching the baseline:"
             echo "  ${matching%, }"
             echo "  The reason predates the current logs or baseline. Re-run the checks:"
-            echo "      bash node-health-refresh.sh $node"
+            echo "      bash health-check.sh --refresh $node"
         fi
     fi
     if [[ -n "$unknown" ]]; then

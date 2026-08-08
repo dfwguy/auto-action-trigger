@@ -1,6 +1,8 @@
 #!/bin/bash
 #
 # Usage: health-check.sh [--full] [--summary] [pattern]
+#        health-check.sh --explain [pattern]
+#        health-check.sh --refresh <node|nodelist> [...]
 #
 #   pattern  optional node-name filter. A bare string matches every node whose
 #            name starts with it, so a rack prefix (dh01-rack01) covers the
@@ -18,6 +20,19 @@
 #            DRAINS, with the full node list for each. Answers "where does each
 #            node stand" rather than "what do I fix".
 #
+#   --explain
+#            the cadence rather than the findings: when the checks last ran on
+#            each node, what that run concluded, and when the next one is due.
+#            Answers "why has this node not re-checked", which the report below
+#            cannot -- it reads Slurm, and a node that has stopped checking
+#            keeps whatever reason it had.
+#
+#   --refresh <node|nodelist> [...]
+#            queue an immediate re-check on the named nodes by setting the
+#            refresh sentinel, instead of waiting out HEALTH_INTERVAL_HOURS.
+#            Takes node names and Slurm nodelists (node00[1-18]), repeatable.
+#            Nothing else is read or printed.
+#
 # Cluster-wide summary of health-check failures, grouped by what has to be
 # fixed rather than by what has to be fixed on: 60 nodes that all fail the same
 # 38 checks are one out-of-spec image, and printing them as 38 check lines over
@@ -26,8 +41,8 @@
 #
 # node_health.sh drains a node with the names of the checks that mismatched the
 # baseline, so the Slurm reason field is the source of truth here -- no node is
-# contacted and nothing is re-run. Use node-health-refresh.sh to re-run checks
-# and sync-check.sh to see the actual diff for a node named below.
+# contacted and nothing is re-run. Use --refresh to re-run the checks and
+# sync-check.sh to see the actual diff for a node named below.
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
 #
 # Only as complete as the drains behind it: with the shipped
@@ -42,12 +57,16 @@ valid_dir="$home/valid-config/default"
 # Parse before loading Slurm, so --help works on a host that has neither.
 full=0
 summary=0
+explain=0
+refresh=0
 args=()
 for arg in "$@"; do
     case "$arg" in
         --full|-f)    full=1 ;;
         --summary|-s) summary=1 ;;
-        -h|--help)    sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        --explain|-n) explain=1 ;;
+        --refresh|-r) refresh=1 ;;
+        -h|--help)    sed -n '2,45p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         *)            args+=("$arg") ;;
     esac
 done
@@ -57,11 +76,86 @@ if ! command -v sinfo &>/dev/null; then
     module load slurm
 fi
 
+## Above the three modes below, all of which filter on it.
 pattern="${args[0]}"
 if [[ -z "$pattern" ]]; then
     pattern='*'
 elif [[ "$pattern" != *[\*\?\[]* ]]; then
     pattern="${pattern}*"
+fi
+
+## Writes the sentinel node_health.sh consumes, and stops: the report below
+## reads Slurm, which does not yet know about the re-check just asked for.
+## See docs/explanation/health-cadence.md#asking-for-a-re-check.
+if [[ "$refresh" -eq 1 ]]; then
+    if [[ "${#args[@]}" -eq 0 ]]; then
+        echo "ERROR: --refresh needs at least one node or nodelist -- nothing was queued." >&2
+        echo "       bash health-check.sh --refresh node001 'node00[2-9]'" >&2
+        exit 2
+    fi
+    for arg in "${args[@]}"; do
+        while IFS= read -r node; do
+            [[ -z "$node" ]] && continue
+            if [[ -d "$logs_dir/$node" ]]; then
+                if touch "$logs_dir/$node/refresh" 2>/dev/null; then
+                    echo "Refresh queued for $node"
+                else
+                    echo "ERROR: cannot write $logs_dir/$node/refresh as $(id -un) -- $node will re-check on its own cadence instead." >&2
+                fi
+            else
+                echo "No health log for $node in $logs_dir — it will run fresh on its next monitoring cycle"
+            fi
+        done < <(scontrol show hostnames "$arg" 2>/dev/null || echo "$arg")
+    done
+    exit 0
+fi
+
+## Read from the stamp rather than from Slurm: with drains off a failing node
+## carries no reason. See docs/explanation/health-cadence.md#the-stamp-file.
+if [[ "$explain" -eq 1 ]]; then
+    if setting_enabled "$PAUSE_HEALTH_CHECKS"; then
+        echo "NOTE: PAUSE_HEALTH_CHECKS=$PAUSE_HEALTH_CHECKS in ${SETTINGS_FILE##*/} — no node re-checks,"
+        echo "      and the due times below are what will be acted on once it goes back to no."
+        echo
+    fi
+    printf '%-28s %-20s %-8s %s\n' NODE 'LAST RUN' OUTCOME 'NEXT DUE'
+    now=$(date +%s)
+    shown=0
+    for dir in "$logs_dir"/*/; do
+        node=$(basename "$dir")
+        # shellcheck disable=SC2053  # $pattern is the caller's node glob
+        [[ "$node" == $pattern ]] || continue
+        ((shown++))
+        if [[ -f "$dir/.last-check" ]]; then
+            IFS=$'\t' read -r epoch outcome < "$dir/.last-check"
+        else
+            epoch=""; outcome=""
+        fi
+        if [[ ! "$epoch" =~ ^[0-9]+$ ]]; then
+            printf '%-28s %-20s %-8s %s\n' "$node" '(never)' '-' 'next monitoring cycle'
+            continue
+        fi
+        hours="$HEALTH_INTERVAL_HOURS"
+        [[ "$outcome" == "failed" ]] && hours="$HEALTH_RETRY_INTERVAL_HOURS"
+        if [[ -f "$dir/refresh" ]]; then
+            due='refresh queued'
+        elif [[ ! "$hours" =~ ^[0-9]+$ || "$hours" -eq 0 ]]; then
+            due='never (cadence off)'
+        elif [[ $(( now - epoch )) -ge $(( hours * 3600 )) ]]; then
+            due="overdue by $(( (now - epoch) / 3600 - hours ))h"
+        else
+            due="in $(( (hours * 3600 - (now - epoch)) / 60 ))m"
+        fi
+        printf '%-28s %-20s %-8s %s\n' \
+            "$node" "$(date -d "@$epoch" '+%F %T')" "$outcome" "$due"
+    done
+    if [[ "$shown" -eq 0 ]]; then
+        echo "No node under $logs_dir matches '${args[0]:-*}' — the checks have never run on any of them." >&2
+        exit 1
+    fi
+    echo
+    echo "Why a run stopped:  tail results/<node>/health.log"
+    exit 0
 fi
 
 # How many entries each elided list shows before it collapses to a count.
@@ -83,8 +177,8 @@ source "$home/report-format.sh"
 # Files node_health.sh writes into logs/<node>/ that are not checks.
 is_not_a_check() {
     case "$1" in
-        refresh|script-env) return 0 ;;
-        *)                  return 1 ;;
+        refresh|script-env|.last-check) return 0 ;;
+        *)                              return 1 ;;
     esac
 }
 
@@ -213,8 +307,8 @@ fi
 if setting_enabled "$PAUSE_HEALTH_CHECKS"; then
     echo "NOTE: PAUSE_HEALTH_CHECKS=$PAUSE_HEALTH_CHECKS in ${SETTINGS_FILE##*/}"
     echo "      node_health.sh is not running on any node, so nothing below can change"
-    echo "      and a node-health-refresh.sh request will not be picked up until this"
-    echo "      is set back to no."
+    echo "      and a --refresh request will not be picked up until this is set"
+    echo "      back to no."
     echo
 fi
 
@@ -371,5 +465,5 @@ if [[ "$failing" -gt 0 ]]; then
     first_node="${sig_nodes[$first_sig]%%,*}"
     echo "Why a node failed:  bash sync-check.sh $first_node"
     [[ "${#groups[@]}" -gt 1 ]] && echo "                    (one node from pattern 1; each pattern needs its own diff)"
-    echo "Re-run the checks:  bash node-health-refresh.sh <node|nodelist>"
+    echo "Re-run the checks:  bash health-check.sh --refresh <node|nodelist>"
 fi

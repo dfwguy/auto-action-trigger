@@ -39,6 +39,9 @@ fi
 ## `=` not `:=`: an empty CONTAINERS means "build nothing" and is a real
 ## answer. See docs/reference/settings.md#container-images.
 : "${CONTAINERS=hpc-benchmarks nvbandwidth mnubergemm}"
+## 0 disables the cadence. See docs/explanation/health-cadence.md.
+: "${HEALTH_INTERVAL_HOURS:=4}"
+: "${HEALTH_RETRY_INTERVAL_HOURS:=1}"
 ## Pause and drain switches, all defaulting off so an empty or unreadable value
 ## carries on rather than stopping the fleet or draining it. See
 ## docs/reference/settings.md#pause-switches and docs/reference/settings.md#drains.

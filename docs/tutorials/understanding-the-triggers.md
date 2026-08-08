@@ -189,7 +189,8 @@ that gate is the answer, and it named itself.
 
 The other trigger works on the same loop, with one extra idea. Health checks are
 expensive and their answers do not change minute to minute, so they do not run
-every cycle — they run when a **sentinel file** asks them to.
+every cycle — they run on a **cadence**, every `HEALTH_INTERVAL_HOURS`, and
+sooner when the last run found something. A **sentinel file** jumps that queue.
 
 ```bash
 ls "logs/$N/"
@@ -199,11 +200,11 @@ Around thirty-eight files, one per check. Now the one step in this tutorial that
 writes something:
 
 ```bash
-bash node-health-refresh.sh "$N"
+bash health-check.sh --refresh "$N"
 ls "logs/$N/refresh"
 ```
 
-That file is the whole mechanism. Wait a monitoring cycle, then:
+That file is how you ask for a run now. Wait a monitoring cycle, then:
 
 ```bash
 ls "logs/$N/refresh"
@@ -213,6 +214,20 @@ ls -la "logs/$N/" | head -5
 The sentinel is gone, consumed by the run, and the check outputs have fresh
 timestamps. `node_health.sh` fired on the same `duringactions` loop as the
 sequencer, saw the sentinel, ran the checks, and removed it.
+
+The cycles in between are not silent either. They write to their own trace, the
+same way the sequencer writes to `trigger.log`:
+
+```bash
+tail -3 "results/$N/health.log"
+cat "logs/$N/.last-check"
+bash health-check.sh --explain "$N"
+```
+
+Most of those lines are one gate: the last run was recent enough, and here is
+when the next one is due. That is the whole cadence — a stamp saying when and
+what, and a line saying what was decided about it. See
+[explanation/health-cadence.md](../explanation/health-cadence.md).
 
 This is worth understanding because it is the reason a health result can be
 *stale rather than wrong*: nothing re-runs those checks until something asks.

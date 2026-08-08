@@ -3,9 +3,9 @@
 # Usage: trigger-log.sh [-w hours] [-s minutes] [-t lines] [node-pattern]
 #
 # Answers "why is nothing running?" from the written record rather than from
-# the configuration: what the sequencer wrote at results/<node>/trigger.log,
-# summarized fleet-wide. Run this one FIRST; trigger-debug.sh is for when the
-# traces turn out to be stale.
+# the configuration: what the two node-side actions wrote at
+# results/<node>/trigger.log and health.log, summarized fleet-wide. Run this
+# one FIRST; trigger-debug.sh is for when the traces turn out to be stale.
 #
 #   Logs stale or missing  -> nothing is running the script. trigger-debug.sh.
 #   Logs fresh, no submits -> the script is running and every gate is closed.
@@ -302,6 +302,56 @@ if [[ "${#never_checked[@]}" -gt 0 ]]; then
     [[ "${#never_checked[@]}" -gt 10 ]] && note "   ... and $(( ${#never_checked[@]} - 10 )) more"
 else
     note "every matched node has a logs/<node> -- health checks have run"
+fi
+
+## The same distinction as section 1, for the other trigger: a health.log that
+## has stopped being written is BCM, and a fresh one whose last line is an EXIT
+## is a gate that named itself. See docs/explanation/health-cadence.md.
+declare -A health_reason_count health_reason_example
+health_missing=(); health_stale=(); health_fresh=0
+for node_dir in "${node_dirs[@]}"; do
+    node=$(basename "$node_dir")
+    hlog="$node_dir/health.log"
+    if [[ ! -f "$hlog" ]]; then
+        health_missing+=("$node")
+        continue
+    fi
+    hage=$(( now - $(stat -c %Y "$hlog" 2>/dev/null || echo 0) ))
+    if [[ "$hage" -gt "$stale_secs" ]]; then
+        health_stale+=("$node ${hage}s")
+    else
+        health_fresh=$((health_fresh + 1))
+    fi
+    hlast=$(tail -1 "$hlog" 2>/dev/null | cut -d' ' -f3-)
+    [[ -z "$hlast" ]] && continue
+    hkey=$(normalize "$hlast" "$node")
+    (( health_reason_count["$hkey"]++ ))
+    health_reason_example["$hkey"]="$node: $hlast"
+done
+
+if [[ "${#health_missing[@]}" -gt 0 ]]; then
+    bad "${#health_missing[@]} node(s) have no results/<node>/health.log -- node_health.sh has not run since the cadence was deployed"
+    printf '     %s\n' "${health_missing[@]:0:10}"
+    [[ "${#health_missing[@]}" -gt 10 ]] && note "   ... and $(( ${#health_missing[@]} - 10 )) more"
+fi
+if [[ "${#health_stale[@]}" -gt 0 ]]; then
+    bad "${#health_stale[@]} health.log(s) older than ${stale_minutes}m -- NodeHealthTrigger is not firing there. trigger-debug.sh."
+    printf '     %s\n' "${health_stale[@]:0:10}"
+fi
+[[ "$health_fresh" -gt 0 ]] && note "$health_fresh health.log(s) written within ${stale_minutes}m"
+
+if [[ "${#health_reason_count[@]}" -gt 0 ]]; then
+    echo
+    echo "  What each node's last health cycle decided:"
+    for hkey in "${!health_reason_count[@]}"; do
+        printf '%d\t%s\n' "${health_reason_count[$hkey]}" "${health_reason_example[$hkey]}"
+    done | sort -rn | while IFS=$'\t' read -r count example; do
+        node="${example%%: *}"; msg="${example#*: }"
+        printf '  %5d x  %s\n' "$count" "$msg"
+        [[ "$count" -gt 1 ]] && printf '            (e.g. %s)\n' "$node"
+    done
+    echo
+    note "when a node is due to re-check: bash health-check.sh --explain"
 fi
 
 ##############################################################################

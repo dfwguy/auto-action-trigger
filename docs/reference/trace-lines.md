@@ -1,10 +1,12 @@
 # Every line the trace can write
 
-`launch_job.sh` writes `results/<node>/trigger.log`, one timestamped line per
-decision, and appends rather than truncates — it is the record, not a status
-file. Reading it across the cluster is `trigger-log.sh`, in
+`launch_job.sh` writes `results/<node>/trigger.log` and `node_health.sh` writes
+`results/<node>/health.log`, one timestamped line per decision, appending rather
+than truncating — they are the record, not a status file. Reading them across
+the cluster is `trigger-log.sh`, in
 [how-to/diagnose-nothing-running.md](../how-to/diagnose-nothing-running.md);
-this page is what the lines mean.
+this page is what the lines mean. Everything up to
+[the health trace](#the-health-trace) is `trigger.log`.
 
 Three conventions hold across all of them:
 
@@ -120,3 +122,29 @@ no explanation is a bug even when the behaviour is correct: most cycles
 legitimately have nothing to do, so a node that has silently stopped testing
 looks exactly like a node that is quietly idle. See
 [explanation/architecture.md#silence-is-the-enemy](../explanation/architecture.md#silence-is-the-enemy).
+
+## The health trace
+
+`results/<node>/health.log`, written by `actions/node_health.sh`. The same three
+conventions hold, and the same 1 MB / 2000-line trim. Why it is a separate file:
+[explanation/health-cadence.md#every-cycle-says-what-it-decided](../explanation/health-cadence.md#every-cycle-says-what-it-decided).
+
+| Line | When |
+|------|------|
+| `MANUAL: --force -- cadence gate bypassed` | A human ran it with `-f` |
+| `EXIT: 'sinfo -N -n <node>' returned nothing …` | The node is not in Slurm, or the controller was too busy to answer. Both look the same from here, and neither is grounds for running checks |
+| `EXIT: PAUSE_HEALTH_CHECKS=<value> … a queued refresh is held rather than consumed` | Paused. The sentinel survives, so a re-check asked for during a maintenance window happens when it lifts — see [how-to/pause-and-resume.md](../how-to/pause-and-resume.md) |
+| `EXIT: the baseline … resolves to this node's own log directory` | The golden baseline points at the directory this run would overwrite. Fatal, and the one health line that means *stop and fix the tree* — see [explanation/health-cadence.md#the-golden-baseline](../explanation/health-cadence.md#the-golden-baseline) |
+| `EXIT: no health check set at <dir> …` | `HEALTHCHECKS` names a directory that is not there. Refused rather than run, because zero checks pass trivially |
+| `refresh requested by hand -- running the checks now` | The sentinel was set, and this cycle consumed it |
+| `no .last-check -- the checks have not run here since this cadence was deployed` | First run under the cadence. One per node, ever |
+| `EXIT: last run <n>s ago was <clean\|failed>, and a <clean\|failed> run is re-checked every <n>h -- next due in <n>s` | The ordinary quiet cycle. This is what most cycles write |
+| `EXIT: HEALTH_INTERVAL_HOURS=0 … the cadence is off` | Both intervals are `0`, so only `--refresh` re-runs anything — see [settings.md#health-check-cadence](settings.md#health-check-cadence) |
+| `last run <n>s ago … past its <n>h interval -- re-checking` | The cadence fired |
+| `--explain: would run <n> check(s) from <dir> against <baseline>` | `-n`. Nothing was written and nothing drained |
+| `every check matches the baseline` | A clean run. The drain-clearing lines below it, if any, come from `slurm-recovery.sh` — see [explanation/drain-recovery.md](../explanation/drain-recovery.md) |
+| `differs from <baseline>: <checks>` | The run found something. The check names are what a drain would carry |
+| `EXIT: <node> failed health checks, not draining (DRAIN_AFTER_FAILED_HEALTH_CHECK=no)` | Found something, drains off — the shipped configuration. The finding is in the line above and in `logs/<node>/` |
+| `DOWN: <node> -- <checks>` | The node was set `DOWN` with those check names as the reason |
+| `PAUSE_RECOVERY=<value> … passed every check but its drain is left where it is` | A clean run that was not allowed to clear the drain |
+| `WARNING: scontrol not found; unable to update <node> in Slurm` | Drains are on and the client tools are missing |

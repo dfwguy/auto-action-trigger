@@ -74,8 +74,7 @@ pieces fit together this way is
 ├── build_llmb.sh                  # Install llmb-run + image + tokenizer for the LLM jobs
 ├── llmb_check.py                  # Resolve and report an llmb install; run by build_llmb.sh
 ├── set-valid-default.sh           # Capture a validated node as the health baseline
-├── health-check.sh                # Cluster-wide health summary: who is drained and why
-├── node-health-refresh.sh         # Trigger a re-health-check on one or more nodes
+├── health-check.sh                # Cluster-wide health summary, plus --explain and --refresh
 ├── ib-visibility.sh               # Compare HCAs the host sees vs the container sees
 ├── single-node-purge.sh           # Clear benchmark results for a node
 ├── kill-jobs.sh                   # Cancel our queued and running jobs; -p also pauses
@@ -85,7 +84,7 @@ pieces fit together this way is
 ├── overall_report.sh              # Everything without a pass, with everything known about it
 ├── sync-check.sh                  # Diff a drained node's health output vs baseline
 ├── trigger-debug.sh               # Walk the BCM → sbatch chain and name the broken link
-├── trigger-log.sh                 # Read what the chain wrote: trigger.log across the cluster
+├── trigger-log.sh                 # Read what the chain wrote: trigger.log and health.log
 └── watch-rack.sh                  # Watch a nodelist for DOWN/drained nodes
 ```
 
@@ -109,9 +108,12 @@ not the checked-out ones.
 | Path | Purpose |
 |------|---------|
 | `/home/cmods/bringup/logs/<node>/` | Per-node health check output files |
+| `/home/cmods/bringup/logs/<node>/.last-check` | When the checks last ran there and what they concluded, tab-separated. Drives the cadence — see [settings.md#health-check-cadence](settings.md#health-check-cadence) |
+| `/home/cmods/bringup/logs/<node>/refresh` | Present when a re-check has been asked for ahead of the cadence. Set by `health-check.sh --refresh`, consumed by the next cycle |
 | `/home/cmods/bringup/valid-config/default/` | Symlink to the reference baseline node |
 | `/home/cmods/bringup/results/<node>/` | Per-node benchmark result files |
 | `/home/cmods/bringup/results/<node>/trigger.log` | Per-cycle decision trace from `launch_job.sh` |
+| `/home/cmods/bringup/results/<node>/health.log` | Per-cycle decision trace from `node_health.sh` |
 | `/home/cmods/bringup/results/<node>/quick-view.txt` | One line per benchmark: `DONE` / `QUEUED` |
 | `/home/cmods/bringup/results/<node>/.not-a-compute-node` | Present when the host has decided it can never run a job. Holds the reason; every script that walks `results/*/` skips the directory. See [settings.md#hosts-that-are-not-compute-nodes](settings.md#hosts-that-are-not-compute-nodes) |
 | `/home/cmods/bringup/reports/` | Where `daily-report.sh -o` reports are kept by convention |

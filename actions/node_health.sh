@@ -16,11 +16,16 @@
 # The banner is the first line of the log file and the baseline is a copy of
 # that file, so its exact text -- including the leading '#' count -- is
 # load-bearing: change one and every node fails against every older baseline.
+#
+# Fires on every BCM monitoring cycle and re-checks on a cadence, tracing every
+# gate to results/<node>/health.log. See docs/explanation/health-cadence.md.
 
 ## BCM invokes this by absolute path, so the tree is located by hardcoded path,
 ## not $0. A missing settings.sh is fatal rather than defaulted: no check
 ## directory means nothing runs and every node is reported healthy.
-home=/home/cmods/bringup
+## NODE_HEALTH_HOME exists for tests/health-cadence-test.sh, which runs this
+## file against a stub tree; nothing in the deployment sets it.
+home="${NODE_HEALTH_HOME:-/home/cmods/bringup}"
 if [[ ! -f "$home/settings.sh" ]]; then
     echo "########ERROR: $home/settings.sh is missing -- refusing to run, because" >&2
     echo "               no checks found would report every node as healthy." >&2
@@ -28,13 +33,94 @@ if [[ ! -f "$home/settings.sh" ]]; then
 fi
 source "$home/settings.sh"
 
+## ── Flags ─────────────────────────────────────────────────────────────────
+##
+## The same surface as launch_job.sh, and for the same reason: this decides
+## about the node it runs on, so a sweep is pdsh over the nodes.
+## See docs/how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand.
+EXPLAIN=0
+FORCE=0
+VERBOSE=0; [[ -t 1 ]] && VERBOSE=1
+usage() {
+    cat <<'USAGE'
+Usage: node_health.sh [--explain] [--force] [--verbose|--quiet]
+
+  --explain, -n   dry run: print every gate, run no check, drain nothing
+  --force,   -f   ignore the cadence gate and run the checks now
+  --verbose, -v   mirror the trace to stdout (default when stdout is a tty)
+  --quiet,   -q   never mirror the trace to stdout
+
+Decides about the node it runs on, and takes no node argument. To sweep a set
+of nodes, name them where they can be reached:
+
+  pdsh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/node_health.sh -f -v'
+
+With no arguments -- how BCM invokes it -- the checks re-run once every
+HEALTH_INTERVAL_HOURS, or sooner if the last run found something.
+USAGE
+}
+for arg in "$@"; do
+    case "$arg" in
+        --explain|-n|--dry-run) EXPLAIN=1 ;;
+        --force|-f)             FORCE=1 ;;
+        --verbose|-v)           VERBOSE=1 ;;
+        --quiet|-q)             VERBOSE=0 ;;
+        -h|--help)              usage; exit 0 ;;
+        *)
+            echo "ERROR: unrecognised argument '$arg' -- no checks were run." >&2
+            usage >&2
+            exit 2 ;;
+    esac
+done
+
 ## Above the sinfo check below, and it says so: that check cannot tell a head
 ## node from a busy controller, and exits silently either way.
+##
+## Before the trace directory is created, unlike every gate under it: a
+## results/<host> holding only a health trace and no not-a-compute-node marker
+## puts the head node back into every report that walks results/*/.
 ## See docs/explanation/sequencing.md#a-host-that-is-not-a-compute-node.
 if node_excluded "$HOSTNAME" || node_self_excluded; then
     echo "########INFO: $HOSTNAME is not a compute node -- health checks not run there"
     exit 0
 fi
+
+## ── Tracing ───────────────────────────────────────────────────────────────
+##
+## Its own file beside trigger.log, read by trigger-log.sh section 5. Every gate
+## below writes down why it stopped, or a cadence that has quietly wedged is
+## indistinguishable from one with nothing to do.
+## See docs/explanation/health-cadence.md#every-cycle-says-what-it-decided.
+logs="$home/results/$HOSTNAME"
+tracelog="$logs/health.log"
+mkdir -p "$logs" 2>/dev/null
+
+TRACE_WRITABLE=-1
+trace_writable() {
+    [[ "$TRACE_WRITABLE" -ge 0 ]] && return "$TRACE_WRITABLE"
+    if { : >> "$tracelog"; } 2>/dev/null; then
+        TRACE_WRITABLE=0
+    else
+        TRACE_WRITABLE=1
+        VERBOSE=1
+        echo "WARNING: cannot write $tracelog as $(id -un) -- tracing to stdout only." >&2
+    fi
+    return "$TRACE_WRITABLE"
+}
+trace() {
+    trace_writable && printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$tracelog" 2>/dev/null
+    [[ "$EXPLAIN" -eq 1 || "$VERBOSE" -eq 1 ]] && printf '%s\n' "$*"
+    return 0
+}
+own_file() {
+    [[ -e "$1" && "$EUID" -eq 0 ]] || return 0
+    [[ "$(stat -c %U "$1" 2>/dev/null)" == "$JOB_USER" ]] || chown "$JOB_USER:$JOB_USER" "$1" 2>/dev/null
+}
+if [[ -f "$tracelog" ]] && [[ "$(stat -c %s "$tracelog" 2>/dev/null || echo 0)" -gt 1000000 ]]; then
+    tail -2000 "$tracelog" > "$tracelog.tmp" && mv "$tracelog.tmp" "$tracelog"
+fi
+
+[[ "$FORCE" -eq 1 ]] && trace "MANUAL: --force -- cadence gate bypassed"
 
 source /etc/profile.d/modules.sh
 module load slurm
@@ -42,6 +128,7 @@ module load slurm
 state=$(sinfo -N -n "$HOSTNAME" -h -o '%T')
 if [[ -z "$state" ]]
 then
+        trace "EXIT: 'sinfo -N -n $HOSTNAME' returned nothing, so it is not known whether this is a compute node -- no checks run. A busy controller answers this way too."
         exit 0
 fi
 
@@ -50,8 +137,7 @@ reason=""
 ## Deliberately before the `refresh` sentinel is consumed, so a queued re-check
 ## survives the pause. See docs/reference/settings.md#pause-switches.
 if setting_enabled "$PAUSE_HEALTH_CHECKS"; then
-    echo "########INFO: PAUSE_HEALTH_CHECKS=${PAUSE_HEALTH_CHECKS} in ${SETTINGS_FILE:-<none>}" \
-         "-- health checks not run on ${HOSTNAME}"
+    trace "EXIT: PAUSE_HEALTH_CHECKS=${PAUSE_HEALTH_CHECKS} in ${SETTINGS_FILE:-<none>} -- no checks run, and a queued refresh is held rather than consumed"
     exit 0
 fi
 
@@ -63,24 +149,73 @@ node_health="$home/logs/$HOSTNAME/"
 ## use to gather env data as seen from script
 #env > $node_health/script-env
 
+## ── The golden baseline is never the file being written ───────────────────
+##
+## A baseline pointed at a live logs/<node> was harmless while checks ran once;
+## on a cadence every run silently redefines "correct" as whatever that node
+## reports now. Fatal, because the alternative is a fleet that agrees with a
+## drifting reference. See docs/explanation/health-cadence.md#the-golden-baseline.
+## Both resolved, not just equal: readlink -f prints nothing when a parent
+## directory is missing, and two empty strings compare equal.
+valid_real=$(readlink -f "$valid_health")
+node_real=$(readlink -f "$node_health")
+if [[ -n "$valid_real" && "$valid_real" == "$node_real" ]]; then
+    trace "EXIT: the baseline $valid_health resolves to this node's own log directory, so running the checks here would overwrite the thing they are judged against. Copy it out with 'bash set-valid-default.sh $HOSTNAME' -- that takes a copy rather than a pointer -- then re-run."
+    exit 1
+fi
 
-if [[ -d $node_health ]];
-then
-	if [[ ! -f $node_health/refresh ]];
-	then
-		exit 0
-	else
-		rm $node_health/refresh
-	fi
+if [[ ! -d "$HEALTHCHECKS_DIR" ]]; then
+    trace "EXIT: no health check set at $HEALTHCHECKS_DIR (HEALTHCHECKS=$HEALTHCHECKS, from ${SETTINGS_FILE:-<none>}) -- nothing to run, and a node with no checks would otherwise read as healthy."
+    exit 1
+fi
+
+## ── The cadence gate ──────────────────────────────────────────────────────
+##
+## The stamp carries the outcome as well as the time: a node that found
+## something is re-checked on the shorter interval, and drains being off means
+## the outcome is recorded nowhere else.
+## See docs/explanation/health-cadence.md#the-stamp-file.
+stamp="$node_health/.last-check"
+last_epoch=0
+last_status=""
+if [[ -f "$stamp" ]]; then
+    IFS=$'\t' read -r last_epoch last_status < "$stamp" 2>/dev/null
+    [[ "$last_epoch" =~ ^[0-9]+$ ]] || { last_epoch=0; last_status=""; }
+fi
+
+if [[ "$last_status" == "failed" ]]; then
+    interval_hours="$HEALTH_RETRY_INTERVAL_HOURS"
+else
+    interval_hours="$HEALTH_INTERVAL_HOURS"
+fi
+[[ "$interval_hours" =~ ^[0-9]+$ ]] || interval_hours=0
+age=$(( $(date +%s) - last_epoch ))
+
+if [[ -f "$node_health/refresh" ]]; then
+    ## Consumed here and nowhere else, so a refresh queued during a pause is
+    ## still waiting when the pause lifts.
+    trace "refresh requested by hand -- running the checks now"
+    [[ "$EXPLAIN" -eq 1 ]] || rm -f "$node_health/refresh"
+elif [[ "$FORCE" -eq 1 ]]; then
+    :
+elif [[ "$last_epoch" -eq 0 ]]; then
+    trace "no ${stamp##*/} -- the checks have not run here since this cadence was deployed; running them now"
+elif [[ "$interval_hours" -eq 0 ]]; then
+    trace "EXIT: HEALTH_INTERVAL_HOURS=$HEALTH_INTERVAL_HOURS and HEALTH_RETRY_INTERVAL_HOURS=$HEALTH_RETRY_INTERVAL_HOURS in ${SETTINGS_FILE:-<none>} -- the cadence is off, so the checks re-run only when 'health-check.sh --refresh' asks. Last run ${age}s ago: ${last_status:-unknown}."
+    exit 0
+elif [[ "$age" -lt $(( interval_hours * 3600 )) ]]; then
+    trace "EXIT: last run ${age}s ago was ${last_status:-unknown}, and a ${last_status:-clean} run is re-checked every ${interval_hours}h -- next due in $(( interval_hours * 3600 - age ))s"
+    exit 0
+else
+    trace "last run ${age}s ago was ${last_status:-unknown}, past its ${interval_hours}h interval -- re-checking"
+fi
+
+if [[ "$EXPLAIN" -eq 1 ]]; then
+    trace "--explain: would run $(find "$HEALTHCHECKS_DIR" -maxdepth 1 -name '[0-9]*.sh' | wc -l) check(s) from $HEALTHCHECKS_DIR against $valid_health, and write neither a log nor a drain"
+    exit 0
 fi
 
 mkdir -p $node_health
-
-if [[ ! -d "$HEALTHCHECKS_DIR" ]]; then
-    echo "########ERROR: no health check set at $HEALTHCHECKS_DIR" >&2
-    echo "               (HEALTHCHECKS=$HEALTHCHECKS, from ${SETTINGS_FILE:-<none>})" >&2
-    exit 1
-fi
 
 append_reason() {
   local header="$1"
@@ -144,7 +279,21 @@ done
 #echo >> $node_health
 #echo -e "\n########INFO: sysinfo check completed, please review the above information for any potential issue.\n" >> $node_health
 
+## Written before the drain, not after: the drain can fail, and a run whose
+## outcome went unrecorded repeats on the next cycle forever.
+## See docs/explanation/health-cadence.md#the-stamp-file.
+flat_reason=$(echo "${reason}" | tr $'\n' ' ' | sed 's/  */ /g')
+printf '%s\t%s\n' "$(date +%s)" "$([[ -n "$reason" ]] && echo failed || echo clean)" > "$stamp"
+
 chown -R "$JOB_USER:$JOB_USER" $node_health
+own_file "$tracelog"
+
+if [[ -n "$reason" ]]; then
+    trace "differs from $valid_health:$flat_reason"
+else
+    trace "every check matches the baseline"
+fi
+
 # -----------------------------------------------------------------------------
 # Drain this node in Slurm with the aggregated "reason" text
 # -----------------------------------------------------------------------------
@@ -155,9 +304,7 @@ node_name=${SLURMD_NODENAME:-$(hostname -s)}
 ## See docs/how-to/manage-drains.md.
 if ! setting_enabled "$DRAIN_AFTER_FAILED_HEALTH_CHECK"; then
   if [ -n "${reason}" ]; then
-    echo "########INFO: ${node_name} failed health checks, not draining" \
-         "(DRAIN_AFTER_FAILED_HEALTH_CHECK=${DRAIN_AFTER_FAILED_HEALTH_CHECK}):" \
-         "$(echo "${reason}" | tr $'\n' ' ' | sed 's/  */ /g')"
+    trace "EXIT: ${node_name} failed health checks, not draining (DRAIN_AFTER_FAILED_HEALTH_CHECK=${DRAIN_AFTER_FAILED_HEALTH_CHECK})"
   fi
   exit 0
 fi
@@ -169,24 +316,21 @@ if command -v /cm/local/apps/slurm/current/bin/scontrol >/dev/null 2>&1; then
     ## evidence -- plus `machine`. Everything else is left alone.
     ## See docs/explanation/drain-recovery.md.
     if setting_enabled "$PAUSE_RECOVERY"; then
-      echo "########INFO: PAUSE_RECOVERY=${PAUSE_RECOVERY} in ${SETTINGS_FILE:-<none>}" \
-           "-- ${node_name} passed every check but its drain is left where it is"
+      trace "PAUSE_RECOVERY=${PAUSE_RECOVERY} in ${SETTINGS_FILE:-<none>} -- ${node_name} passed every check but its drain is left where it is"
     elif [[ -f "$home/slurm-recovery.sh" ]]; then
-      recover_log() { printf '########INFO: %s\n' "$*"; }
+      recover_log() { trace "$@"; }
       RECOVER_ACCEPT="machine health"
       RECOVER_LOG="$home/results/${node_name}/recover.log"
       source "$home/slurm-recovery.sh"
       slurm_recover_node "${node_name}"
       [[ -f "$RECOVER_LOG" ]] && chown "$JOB_USER:$JOB_USER" "$RECOVER_LOG" 2>/dev/null
     else
-      echo "########WARN: $home/slurm-recovery.sh is missing -- ${node_name} passed" \
-           "every check but no drain was cleared. Stale deployment?"
+      trace "WARNING: $home/slurm-recovery.sh is missing -- ${node_name} passed every check but no drain was cleared. Stale deployment?"
     fi
   else
-    # Flatten newlines to spaces for the Slurm reason field
-    scontrol update NodeName="${node_name}" State=DOWN \
-      Reason="$(echo "${reason}" | tr $'\n' ' ' | sed 's/  */ /g')"
+    trace "DOWN: ${node_name} --$flat_reason"
+    scontrol update NodeName="${node_name}" State=DOWN Reason="$flat_reason"
   fi
 else
-  echo "########WARN: scontrol not found; unable to update node in Slurm."
+  trace "WARNING: scontrol not found; unable to update ${node_name} in Slurm."
 fi
