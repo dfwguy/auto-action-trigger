@@ -141,7 +141,9 @@ For this tree that is not a preference. `actions/launch_job.sh` treats any job
 on the node that is not named `bringup-<node>` or `burnin-<node>` as somebody
 else's and leaves the node alone. A post-processing job would trip that gate
 every cycle for as long as it existed — the node would stop testing behind a
-trace line that looked correct. Both LLM jobs set `LLMB_SKIP_PP=1`.
+trace line that looked correct. No job calls `llmb-run` any more, but a capture
+run on the head node still sets `LLMB_SKIP_PP=1` for the same reason — see
+[how-to/capture-an-sbatch-from-llmb-run.md#the-capture](../how-to/capture-an-sbatch-from-llmb-run.md#the-capture).
 
 ### 2. Scales are characterised, not permitted
 
@@ -184,6 +186,9 @@ llmb-run --help
 llmb-run submit --help
 llmb-run list                    # workloads, sizes, characterised scales
 ```
+
+Getting the batch script a submission actually produces is a separate procedure:
+[how-to/capture-an-sbatch-from-llmb-run.md](../how-to/capture-an-sbatch-from-llmb-run.md).
 
 The recipe tables under each workload directory in the upstream repo carry the
 per-GPU-type parallelism plans — that is where the scale ranges and the TP/PP/DP

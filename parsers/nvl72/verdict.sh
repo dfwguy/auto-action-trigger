@@ -54,6 +54,12 @@ VERDICT_MIN_FIO_PASSES=4
 ## docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
 VERDICT_RUN_ERRORS='NCCL WARN|Test NCCL failure|Test failure|srun: error|Segmentation fault|CANCELLED AT|error: unable to|slurmstepd: error|^timeout: killed after'
 
+## Both LLM jobs. Which of the two a run prints depends on the training
+## framework in the image, not on the job or the node -- and a gate that knows
+## only one of them fails a healthy run.
+## See docs/explanation/llmb.md#two-step-timing-formats.
+VERDICT_STEP_TIMING='train_step_timing|reduced_train_loss|elapsed time per iteration'
+
 ## Set by verdict() on every call. REASON must read IDENTICALLY on every node
 ## failing the same way -- status-check.sh groups through dshbak, so anything
 ## per-node in it splits one block into forty. Per-node specifics (line number,
@@ -455,9 +461,11 @@ _v_gate_hpl() {
 }
 
 ## llm-pretrain. Per-step timings are the evidence training actually stepped.
+## Two formats: Megatron-Bridge prints `elapsed time per iteration`, NeMo prints
+## `train_step_timing`. See docs/explanation/llmb.md#two-step-timing-formats.
 _v_gate_llm_pretrain() {
     local file="$1"
-    _v_require  "$file" "training step timings" 'train_step_timing|reduced_train_loss' || return 1
+    _v_require  "$file" "training step timings" "$VERDICT_STEP_TIMING" || return 1
     _v_forbid   "$file" "run error"             "$VERDICT_RUN_ERRORS" || return 1
     _v_forbid_i "$file" "training aborted"      'traceback|cuda error|nccl error|out of memory' || return 1
     return 0
@@ -471,13 +479,13 @@ _v_gate_llm_pretrain() {
 ## printing forty timings while three print none is exactly the failure being
 ## looked for, and a plain count of matching lines would pass it.
 _v_llm_solo_ranks() {
-    local file="$1" min="$2" n
-    n=$(grep -oE '^[0-9]+:.*(train_step_timing|reduced_train_loss)' "$file" 2>/dev/null |
-        cut -d: -f1 | sort -u | grep -c .)
+    local file="$1" min="$2" n reported
+    reported=$(grep -oE "^[0-9]+:.*($VERDICT_STEP_TIMING)" "$file" 2>/dev/null |
+        cut -d: -f1 | sort -u)
+    n=$(printf '%s' "$reported" | grep -c .)
     [[ "$n" -ge "$min" ]] && return 0
     VERDICT_REASON="fewer than $min GPUs reported step timings"
-    VERDICT_DETAIL="reported: $(grep -oE '^[0-9]+:.*train_step_timing' "$file" 2>/dev/null |
-        cut -d: -f1 | sort -u | paste -sd, )"
+    VERDICT_DETAIL="reported: $(printf '%s' "$reported" | paste -sd, )"
     return 1
 }
 
@@ -493,11 +501,18 @@ _v_llm_solo_spread() {
     awk -v m="$max" 'BEGIN { exit !(m + 0 > 0) }' || return 0
     ## Flat SUBSEP keys, not arrays of arrays -- the latter is a gawk extension
     ## and this has to run under whatever awk the node has.
+    ## Seconds or milliseconds, whichever the framework printed: a coefficient of
+    ## variation is a ratio, so the unit cancels and the two never mix in one run.
     hit=$(awk -v max="$max" '
-        match($0, /^[0-9]+:/) && match($0, /train_step_timing[^0-9]*[0-9]+\.?[0-9]*/) {
+        match($0, /^[0-9]+:/) {
             rank = $1 + 0
-            v = substr($0, RSTART, RLENGTH)
-            sub(/train_step_timing[^0-9]*/, "", v)
+            if (match($0, /train_step_timing[^0-9]*[0-9]+\.?[0-9]*/)) {
+                v = substr($0, RSTART, RLENGTH)
+                sub(/train_step_timing[^0-9]*/, "", v)
+            } else if (match($0, /elapsed time per iteration \(ms\):[ ]*[0-9]+\.?[0-9]*/)) {
+                v = substr($0, RSTART, RLENGTH)
+                sub(/.*:[ ]*/, "", v)
+            } else next
             n[rank]++
             t[rank, n[rank]] = v + 0
         }
@@ -520,7 +535,7 @@ _v_llm_solo_spread() {
             for (r in med) sq += (med[r] - mean) ^ 2
             cov = sqrt(sq / k) / mean
             if (cov > max + 0)
-                printf "cov %.3f, slowest gpu %d at %.4fs vs %.4fs mean", cov, worstr, worst, mean
+                printf "cov %.3f, slowest gpu %d at %.4f vs %.4f mean per step", cov, worstr, worst, mean
         }' "$file" 2>/dev/null)
     [[ -z "$hit" ]] && return 0
     VERDICT_REASON="per-GPU step times disagree -- spread above ${max}"

@@ -108,9 +108,9 @@ permissions:
         check 100644 "$f"
       done
 
-      # jobs/*/*.sh is both sourced helpers (nccl-hca.sh) and host launchers
-      # (llm-pretrain.sh), which launch_job.sh runs as `bash "$launch"`.
-      # Neither is exec'd. See docs/explanation/sequencing.md#host-launched-jobs.
+      # jobs/*/*.sh is sourced helpers (nccl-hca.sh) and any host launcher, which
+      # launch_job.sh runs as `bash "$launch"`. Neither is exec'd.
+      # See docs/explanation/sequencing.md#host-launched-jobs.
       for f in $(git ls-files 'jobs/*/*.sh'); do
         check 100644 "$f"
       done

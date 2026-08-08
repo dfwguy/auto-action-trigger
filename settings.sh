@@ -39,6 +39,12 @@ fi
 ## `=` not `:=`: an empty CONTAINERS means "build nothing" and is a real
 ## answer. See docs/reference/settings.md#container-images.
 : "${CONTAINERS=hpc-benchmarks nvbandwidth mnubergemm}"
+## Image versions. See docs/reference/settings.md#image-versions.
+: "${HPC_BENCHMARKS_TAG:=26.02}"
+: "${NVBANDWIDTH_VERSION:=v0.9}"
+: "${NVLOOM_VERSION:=v2.0.0}"
+: "${MNUBERGEMM_VERSION:=26.03-v1.17}"
+: "${NEMO_TAG:=26.04.01}"
 ## 0 disables the cadence. See docs/explanation/health-cadence.md.
 : "${HEALTH_INTERVAL_HOURS:=4}"
 : "${HEALTH_RETRY_INTERVAL_HOURS:=1}"

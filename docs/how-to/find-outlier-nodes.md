@@ -99,7 +99,7 @@ names a slow device rather than a slow node**:
 
 ```
 per-GPU step times disagree -- spread above 0.05
-cov 0.074, slowest gpu 2 at 0.4740s vs 0.4202s mean
+cov 0.074, slowest gpu 2 at 0.4740 vs 0.4202 mean per step
 ```
 
 Note that `VERDICT_MAX_COV_LLM_SOLO` ships as `0`, which **skips** the spread

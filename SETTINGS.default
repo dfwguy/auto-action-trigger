@@ -38,6 +38,14 @@ BURNIN="mnubergemm"
 ## ── Container images ──────────────────────────────────────────────────────
 CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm"
 
+## The tag or ref each image is built from. The job files build the same
+## filename, so these move together. See docs/reference/settings.md#image-versions.
+HPC_BENCHMARKS_TAG=26.02
+NVBANDWIDTH_VERSION=v0.9
+NVLOOM_VERSION=v2.0.0
+MNUBERGEMM_VERSION=26.03-v1.17
+NEMO_TAG=26.04.01
+
 ## ── Health-check cadence ──────────────────────────────────────────────────
 ## 0 re-runs only when 'health-check.sh --refresh' asks. See
 ## docs/explanation/health-cadence.md#choosing-the-two-intervals.

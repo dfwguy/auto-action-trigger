@@ -54,6 +54,7 @@ Task-oriented, for someone who already knows the system.
 | [build-containers.md](how-to/build-containers.md) | `build_containers.sh`, the NGC login, cross-building for ARM |
 | [add-a-health-check-set.md](how-to/add-a-health-check-set.md) | The baseline, adding a check, a set for another platform |
 | [enable-llm-pretrain.md](how-to/enable-llm-pretrain.md) | `build_llmb.sh`, and filling in the solo training command |
+| [capture-an-sbatch-from-llmb-run.md](how-to/capture-an-sbatch-from-llmb-run.md) | Getting the batch script `llmb-run` generates out of a cluster, and what to keep from it |
 | [enable-nvsm.md](how-to/enable-nvsm.md) | The sudoers grant and platform definition files NVSM needs (DGX only) |
 
 **When something is wrong**

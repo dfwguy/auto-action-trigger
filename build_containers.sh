@@ -58,10 +58,9 @@ export ENROOT_DATA_PATH=${ENROOT_DATA_PATH:-/tmp/enroot-data/$UID}
 export ENROOT_RUNTIME_PATH=${ENROOT_RUNTIME_PATH:-/tmp/enroot-runtime/$UID}
 WORKDIR=${WORKDIR:-/tmp/container-build-$UID}
 
-HPC_BENCHMARKS_TAG=26.02
-NVBANDWIDTH_VERSION=v0.9
-NVLOOM_VERSION=v2.0.0
-MNUBERGEMM_VERSION=26.03-v1.17
+## The five image versions come from SETTINGS, sourced above; settings.sh
+## backfills what a site's file does not set.
+## See docs/reference/settings.md#image-versions.
 
 ## Private NGC org holding nvbandwidth and mnubergemm; neither image is public.
 ## See docs/how-to/build-containers.md#logging-in-to-ngc.
@@ -83,7 +82,7 @@ HELPER_URI=docker://ubuntu:24.04
 
 ## Every image this script knows how to produce. CONTAINERS picks a subset of
 ## these; -A is this list.
-ALL_IMAGES="hpc-benchmarks nvbandwidth nvloom mnubergemm"
+ALL_IMAGES="hpc-benchmarks nvbandwidth nvloom mnubergemm nemo"
 
 usage() {
     awk 'NR > 2 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
@@ -107,6 +106,7 @@ image_file() {
         nvbandwidth)    echo "nvbandwidth-${NVBANDWIDTH_VERSION}-${arch}.sqsh" ;;
         nvloom)         echo "nvloom-${NVLOOM_VERSION}-${arch}.sqsh" ;;
         mnubergemm)     echo "mnubergemm-${MNUBERGEMM_VERSION}-${arch}.sqsh" ;;
+        nemo)           echo "nvidia+nemo+${NEMO_TAG}-${arch}.sqsh" ;;
         *)              return 1 ;;
     esac
 }
@@ -445,6 +445,16 @@ build_hpc_benchmarks() {
     [[ "$MODE" == build ]] && return 0
     log "hpc-benchmarks: importing nvcr.io#nvidia/hpc-benchmarks:${HPC_BENCHMARKS_TAG} ($arch)"
     import "$out" "docker://nvcr.io#nvidia/hpc-benchmarks:${HPC_BENCHMARKS_TAG}"
+}
+
+## ── nemo ──────────────────────────────────────────────────────────────────
+## The two LLM jobs' image. The llmb installer imports the same one; this is the
+## way to get it without a 300 GB install. See docs/how-to/build-containers.md#nemo.
+build_nemo() {
+    local out="$1"
+    [[ "$MODE" == build ]] && return 0
+    log "nemo: importing nvcr.io#nvidia/nemo:${NEMO_TAG} ($arch)"
+    import "$out" "docker://nvcr.io#nvidia/nemo:${NEMO_TAG}"
 }
 
 ## ── nvbandwidth ───────────────────────────────────────────────────────────

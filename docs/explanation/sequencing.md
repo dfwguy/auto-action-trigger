@@ -529,9 +529,13 @@ misread as one that passed.
 ## Host-launched jobs
 
 Almost every job is a `.sbatch` the sequencer submits. A job whose tool does its
-own submitting is a `.sh` the sequencer *runs on the node* instead, and
-`llm-pretrain` is the only one — see [llmb.md](llmb.md) for why `llmb-run`
-cannot be a batch payload.
+own submitting is a `.sh` the sequencer *runs on the node* instead.
+
+**No job ships as one today.** `llm-pretrain` was the only one, and it is now a
+frozen `.sbatch` — [llmb.md#the-frozen-recipe](llmb.md#the-frozen-recipe). The
+mechanism stays because the constraint that produced it has not gone away: any
+tool that submits its own Slurm job cannot be a batch payload, for the reasons
+in [llmb.md#why-llm-pretrain-is-not-an-sbatch](llmb.md#why-llm-pretrain-is-not-an-sbatch).
 
 `job_launcher()` resolves a name to one or the other, `.sbatch` first. Both
 present is traced as a `NOTE` naming the winner rather than silently dropping
@@ -565,8 +569,8 @@ match on it, so a job submitted under any other name is invisible to them.
 There is no `SBATCH_OUTPUT` and no nodelist equivalent among the `SBATCH_*`
 defaults, so pinning the job to this node and redirecting its output cannot be
 handed over in the environment. They are the launcher's job, using whatever its
-own tool provides; `llm-pretrain` does it with `llmb-run`'s `--nodelist` and
-`--slurm-arg`. See [llmb.md#pinning-the-submission](llmb.md#pinning-the-submission).
+own tool provides — for `llmb-run` that was `--nodelist` and `--slurm-arg`. See
+[llmb.md#pinning-the-submission](llmb.md#pinning-the-submission).
 
 `LLMB_INSTALL` goes through the same allowlist as `JOB_ENV`, and for the same
 reason: the submission is a string run by `su - $JOB_USER -c`, so an

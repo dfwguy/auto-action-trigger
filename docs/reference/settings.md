@@ -137,14 +137,37 @@ default.
 | `nvbandwidth` | `nvbandwidth` | Private NGC org (needs a login); source build only with `-S` |
 | `nvloom` | `nvloom` | No published image; two-pass source build, and only with `-S` |
 | `mnubergemm` | `mnubergemm` | Private NGC org (needs a login); NVIDIA-internal, no source build exists |
+| `nemo` | `llm-pretrain`, `llm-pretrain-solo` | Public NGC image. The llmb installer imports the same one — see [how-to/build-containers.md#nemo](../how-to/build-containers.md#nemo) |
 
 `dcgmi-r*` and `nvsm` are not in this table — they run host binaries and need no
 image.
+
+### Image versions
+
+| Setting | Default | Names |
+|---------|---------|-------|
+| `HPC_BENCHMARKS_TAG` | `26.02` | the NGC tag, and the `nvidia+hpc-benchmarks+<tag>-<arch>.sqsh` filename |
+| `NVBANDWIDTH_VERSION` | `v0.9` | the git ref for the source build, and the org image's tag |
+| `NVLOOM_VERSION` | `v2.0.0` | the git ref; there is no published image |
+| `MNUBERGEMM_VERSION` | `26.03-v1.17` | the org image's tag, after its `tensorrt-` prefix |
+| `NEMO_TAG` | `26.04.01` | the NGC tag for both LLM jobs' image |
+
+These were literals in `build_containers.sh` until a site needed a different
+one. Bumping one changes the **filename** the build produces, and the job files
+build that same string — so a bump is two edits, here and in `jobs/$JOBS/`, and
+a job that cannot find its image says so rather than running against the old
+one. The two LLM jobs are the exception: they glob `nvidia+nemo+*.sqsh` and do
+not carry the version at all.
+
+`NEMO_TAG` additionally has to match the recipe the LLM jobs were captured
+against — see
+[explanation/llmb.md#the-frozen-recipe](../explanation/llmb.md#the-frozen-recipe).
 
 ```bash
 CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm"   # default -- needs an NGC login
 CONTAINERS="hpc-benchmarks"                          # no credentials
 CONTAINERS="hpc-benchmarks nvbandwidth nvloom"       # adds the source build -- run with -S
+CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm nemo"  # adds the two LLM jobs' image
 CONTAINERS=""                                        # build nothing
 ```
 

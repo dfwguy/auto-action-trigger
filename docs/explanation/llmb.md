@@ -5,7 +5,7 @@ shapes:
 
 | | `llm-pretrain` | `llm-pretrain-solo` |
 |---|---|---|
-| Launch | host-launched `.sh` via `llmb-run submit` | ordinary `.sbatch` |
+| Launch | ordinary `.sbatch`, frozen from an `llmb-run` capture | ordinary `.sbatch` |
 | Shape | one run, 4-way data parallel across the tray | 4 independent copies, one GPU each |
 | Exercises | framework, container, data pipeline **and the gradient all-reduce**, together | per-device compute only — no collectives at all |
 | Answers | is this node able to train | *which GPU* on it is slow |
@@ -56,7 +56,13 @@ same reason.
 
 ## Why `llm-pretrain` is not an `.sbatch`
 
-`llm-pretrain` is the only job in the tree that does not run as a batch script.
+**Superseded.** `llm-pretrain` is now `jobs/$JOBS/llm-pretrain.sbatch`, frozen
+from a captured submission — [The frozen recipe](#the-frozen-recipe) below. This
+section records why the host-launched form existed, because the constraint it
+describes is still true of `llmb-run` and is the reason the tree stopped calling
+it.
+
+`llm-pretrain` was the only job in the tree that did not run as a batch script.
 `llmb-run` builds and submits its own Slurm job, so the framework cannot treat
 it as a payload — it hands it the node, the job name and the result path, and
 gets out of the way. How the sequencer treats a `.sh` job is
@@ -152,7 +158,8 @@ Three failures this exists to catch, none of which look like failures:
   put on `PATH`.
 - **The CLI lives outside the install.** `llmb_venv/` is frequently a sibling of
   `LLMB_INSTALL`, so `llmb-run` is not under the root at all and is on no
-  node's `PATH`. `llm-pretrain.sh` prepends `LLMB_BIN` for exactly this.
+  node's `PATH`. `LLMB_BIN` is what `build_llmb.sh -l` resolves and what a
+  capture run needs on the head node; no job reads it any more.
 - **The HF cache is somewhere else.** With `HF_HUB_OFFLINE=1` a miss is an
   immediate failure, so `llm-pretrain-solo.sbatch` extends
   `--container-mounts` when `HF_HOME` falls outside the install root. Without
@@ -242,8 +249,8 @@ traces `SUBMIT FAILED` naming the launcher and its exit status if not.
 
 ### The post-processing job
 
-`llmb-run` submits a **second** Slurm job for post-processing. Both jobs set
-`LLMB_SKIP_PP=1` to stop it.
+`llmb-run` submits a **second** Slurm job for post-processing. `LLMB_SKIP_PP=1`
+stops it, and a capture run must set it.
 
 That job would carry neither of this node's two job names, so the foreign-job
 gate in `launch_job.sh` would read it as somebody else's work and leave the node
@@ -270,20 +277,99 @@ same miss fails immediately and says what was missing.
 The corollary: anything absent from `$LLMB_INSTALL/hf` at launch is a failed
 run, not a slow one.
 
+## The frozen recipe
+
+`llmb-run` is a generator, and generators drift. The tree needs one comparable
+number per node across a bringup that runs for weeks, and a submitter that
+rebuilds its job from installed recipe metadata on every call cannot promise
+that: a reinstall, a `--config_variant` fallback, or a recipe version bump
+changes the job without changing anything in this repo. The first captured run
+showed all three risks at once — `gpu_type` resolved to `gb300`, the v2
+configuration for it did not exist and silently fell back to v1, and the install
+reported a version that was not `LLMB_REF`.
+
+So the recipe is captured once and checked in. `jobs/$JOBS/llm-pretrain.sbatch`
+holds the allocation shape, the container, the mounts, the environment and the
+training command that a real submission produced, and nothing on the node calls
+`llmb-run`. Re-deriving it when the collection moves is
+[how-to/capture-an-sbatch-from-llmb-run.md](../how-to/capture-an-sbatch-from-llmb-run.md).
+
+What this does not remove is the install. The recipe scripts under
+`Megatron-Bridge/scripts/performance` and the Hugging Face cache are still read
+from `$LLMB_INSTALL`; only the submitter is gone. The image is the exception and
+is copied into `CONTAINER_DIR`, so it reaches the nodes through
+`file_copy.sh` like every other image rather than over NFS per run.
+
+### The captured environment
+
+Eight variables come out of the generated script unchanged, and they are not
+tidiness — they are the recipe's performance configuration:
+
+| Variable | What it does |
+|---|---|
+| `CUDA_DEVICE_MAX_CONNECTIONS=32` | Set by the recipe's perf plugin; not the CUDA default |
+| `NCCL_NVLS_ENABLE=0` | NVLink SHARP off for this recipe |
+| `NVTE_FWD_LAYERNORM_SM_MARGIN=16`, `NVTE_BWD_LAYERNORM_SM_MARGIN=16` | SM reserved for communication overlap |
+| `TORCH_NCCL_AVOID_RECORD_STREAMS=1`, `TORCH_NCCL_HIGH_PRIORITY=1` | NCCL stream behaviour |
+| `TOKENIZERS_PARALLELISM=False` | Silences a fork warning that otherwise floods the result file |
+| `PYTHONUNBUFFERED=1` | Without it the step timings arrive in blocks and a killed run looks like a run that never stepped |
+
+The three offline flags are separate and are
+[Running offline](#running-offline) above. That the generated script sets them
+independently is a confirmation of that reasoning, not a coincidence.
+
+### Two step-timing formats
+
+The gates look for step timings, and which string a healthy run prints is a
+property of the training framework in the image, not of the job or the node:
+
+| Framework | Prints |
+|---|---|
+| Megatron-Bridge | `iteration 12/50 | … elapsed time per iteration (ms): 862.5 | lm loss: …` |
+| NeMo | `train_step_timing in s: 0.4010`, `reduced_train_loss` |
+
+This is not a detail. The gates originally knew only the NeMo strings, and the
+captured runs — both of them, at scale 4 and scale 1 — printed **zero** of them
+and fifty of the other. A healthy 50-step run would have been reported as `no
+training step timings`, which reads as a node that failed to train: a hardware
+verdict for a string mismatch, on every node, silently.
+
+`VERDICT_STEP_TIMING` in `parsers/$PARSERS/verdict.sh` holds both, and the solo
+spread check parses whichever appeared. Seconds against milliseconds does not
+matter there — a coefficient of variation is a ratio, so the unit cancels, and
+one run never mixes the two.
+
+The general form of this: a gate keyed on an upstream log string is a dependency
+on that string, and nothing upstream promises to keep it. When a recipe version
+changes, re-reading the log for the strings the gate wants is part of the
+capture — [how-to/capture-an-sbatch-from-llmb-run.md](../how-to/capture-an-sbatch-from-llmb-run.md).
+
+### The NUMA binding
+
+```
+numactl --cpunodebind=$((SLURM_LOCALID/2)) --membind=$((SLURM_LOCALID/2))
+```
+
+Four local ranks across two NUMA nodes, pinning each rank's memory to the node
+its GPU hangs off. It is captured verbatim because it is part of the measured
+configuration, and it is the line to revisit first on any tray that is not a
+4-GPU GB200/GB300 — the divisor is the tray layout, written as arithmetic.
+
 ## When the launch is refused
 
-Every refusal in `llm-pretrain.sh` writes `FAIL` and its reason into
-`RESULT_FILE` before exiting, rather than only to stderr.
+Every refusal in both LLM jobs prints its reason and `FAIL` into the result file
+and exits **zero**, rather than dying with a status and no output.
 
-The script returns before the training starts, so there is no later chance to
-explain itself. A refusal that only went to stderr would leave no result file,
-which the sweep reads as "not run yet" and retries every cycle forever — a node
-that has quietly stopped testing. See
+A refusal that only went to stderr would leave a result file the sweep reads as
+"not run yet", and it would retry every cycle forever — a node that has quietly
+stopped testing. See
 [architecture.md#silence-is-the-enemy](architecture.md#silence-is-the-enemy).
 
-The refusals, in order: no `RESULT_FILE` or `SBATCH_JOB_NAME` (run by hand
-rather than through the sequencer), no install at `$LLMB_INSTALL`, no `llmb-run`
-on `PATH`, and no pre-staged `$HF_HOME`.
+The refusals in `llm-pretrain.sbatch`, in order: the step did not receive the
+whole node, no `nvidia+nemo` image in `/tmp/containers` or `$CONTAINER_DIR`, no
+`run_script.py` under `$LLMB_INSTALL`, and no pre-staged `$HF_HOME`. The middle
+two are the halves of the install that the frozen job still needs —
+[The frozen recipe](#the-frozen-recipe).
 
 ## Keeping the four solo copies independent
 
@@ -319,7 +405,7 @@ device. The reason string is identical on every node failing this way, so
 
 ```
 per-GPU step times disagree -- spread above 0.05
-cov 0.074, slowest gpu 2 at 0.4740s vs 0.4202s mean
+cov 0.074, slowest gpu 2 at 0.4740 vs 0.4202 mean per step
 ```
 
 `VERDICT_MAX_COV_LLM_SOLO` ships as **0**, which skips the spread check — the
