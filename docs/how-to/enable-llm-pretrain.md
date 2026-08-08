@@ -118,10 +118,11 @@ they go is quiet. See
 
 ## 4. Set the spread floor
 
-`VERDICT_MAX_COV_LLM_SOLO` ships as **0**, which skips the spread check
-entirely. Set it from what a healthy node on this platform actually shows, once
-one has run the job — a made-up floor either drains the fleet on day one or
-never fires.
+`VERDICT_MAX_COV_LLM_SOLO` ships as **0.02**, four times the `0.005` a healthy
+GB300 tray showed. It came from one node and one run, so check it against the
+second and third trays to finish the job: a healthy tray sitting near the line
+means widen it, not that the tray is bad. `0` skips the check. See
+[explanation/llmb.md#judging-the-four-step-times](../explanation/llmb.md#judging-the-four-step-times).
 
 ## If a launch is refused
 

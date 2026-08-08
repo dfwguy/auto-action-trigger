@@ -24,13 +24,11 @@ VERDICT_MIN_TFLOPS_READINGS=1       ## one TFLOPS figure per GPU is expected
 ## coefficient of variation across the four ranks -- the same measure and the
 ## same shape as VERDICT_MAX_COV_NVBANDWIDTH below.
 ##
-## 0 means no band has been established on this platform yet, so the spread
-## check is SKIPPED rather than passing everything: four ranks that ran are
-## still required, and the figures are still printed by the report. Set it from
-## the spread a healthy node actually shows -- a floor invented here would
-## either drain the fleet on day one or never fire. See
-## docs/explanation/llmb.md#judging-the-four-step-times.
-VERDICT_MAX_COV_LLM_SOLO=0
+## 0.02 is 4x the 0.005 a healthy GB300 tray showed, and catches one GPU about
+## 5% off the other three. Measured on ONE node -- widen it if a second healthy
+## tray sits nearer the line. 0 skips the check entirely.
+## See docs/explanation/llmb.md#judging-the-four-step-times.
+VERDICT_MAX_COV_LLM_SOLO=0.02
 ## One rank per GPU has to report timings; three reporting and one silent is the
 ## failure this catches, and it is invisible to a check that only requires the
 ## pattern to appear at all.

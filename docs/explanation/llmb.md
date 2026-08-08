@@ -455,11 +455,27 @@ per-GPU step times disagree -- spread above 0.05
 cov 0.074, slowest gpu 2 at 0.4740 vs 0.4202 mean per step
 ```
 
-`VERDICT_MAX_COV_LLM_SOLO` ships as **0**, which skips the spread check — the
-house convention for a floor with no established band, and honest here: no node
-has run this job, so any number would be invented. A made-up floor either drains
-the fleet on day one or never fires. Set it from what a healthy node actually
-shows.
+`VERDICT_MAX_COV_LLM_SOLO` ships as **0.02**, and where that came from matters
+more than the number. It shipped as `0` — the check skipped — for as long as no
+node had run the job, because a floor invented at a desk either drains the fleet
+on day one or never fires.
+
+The first healthy GB300 tray to complete it showed:
+
+| | median step | above fastest |
+|---|---|---|
+| gpu 0 | 3319.5 ms | — |
+| gpu 3 | 3330.9 ms | 0.3% |
+| gpu 1 | 3349.7 ms | 0.9% |
+| gpu 2 | 3363.8 ms | 1.3% |
+
+**cov 0.0051** — 44 ms of spread on a 3.34 s step. `0.02` is four times that,
+and the arithmetic of what it catches is worth stating: with one outlier among
+four, `cov ≈ 0.43 × d`, so `0.02` fires at a GPU about **5% slower** than its
+neighbours and `0.05` would need 12%.
+
+One node, one run. If a second healthy tray lands nearer the line, widen it —
+that is a real finding about the spread, not a failure.
 
 Because 0 makes the spread check silent, `tests/verdict-test.sh` sets a band
 explicitly and asserts the outlier is caught *and named* — otherwise shipping 0

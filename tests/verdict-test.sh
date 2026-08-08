@@ -73,10 +73,9 @@ cases=(
   ## Synthetic; replace with captures once a node has run it. See docs/explanation/llmb.md.
   "llm-pretrain-solo__good|DONE|"
   "llm-pretrain-solo__missing-rank|FAIL|fewer than 4 GPUs reported step timings"
-  ## DONE because the shipped VERDICT_MAX_COV_LLM_SOLO=0 skips the spread check.
-  ## The assertion below proves that check works. See
-  ## docs/explanation/llmb.md#judging-the-four-step-times.
-  "llm-pretrain-solo__slow-gpu|DONE|"
+  ## Caught by the SHIPPED floor, which was 0 -- check skipped -- until a healthy
+  ## tray gave one. See docs/explanation/llmb.md#judging-the-four-step-times.
+  "llm-pretrain-solo__slow-gpu|FAIL|per-GPU step times disagree -- spread above 0.02"
   "example__good|DONE|"
   ## Non-zero `exit status:` line, paired with example__good at 0: between them
   ## they hold that line to a wording no gate reacts to. Reported as the run
