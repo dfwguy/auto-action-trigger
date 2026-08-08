@@ -458,6 +458,38 @@ _v_gate_hpl() {
     return 0
 }
 
+## Median step time across the whole run, against a ceiling in milliseconds.
+## Median rather than mean because the first iterations are init and CUDA-graph
+## capture and are legitimately several times slower on every node -- see
+## docs/explanation/llmb.md#judging-the-step-time.
+_v_llm_step_median() {
+    local file="$1" max="$2" hit
+    ## 0 or empty means no band for this platform; skip rather than pass all.
+    awk -v m="$max" 'BEGIN { exit !(m + 0 > 0) }' || return 0
+    hit=$(awk -v max="$max" '
+        match($0, /elapsed time per iteration \(ms\):[ ]*[0-9]+\.?[0-9]*/) {
+            v = substr($0, RSTART, RLENGTH); sub(/.*:[ ]*/, "", v); t[++n] = v + 0
+        }
+        match($0, /train_step_timing[^0-9]*[0-9]+\.?[0-9]*/) {
+            v = substr($0, RSTART, RLENGTH); sub(/train_step_timing[^0-9]*/, "", v)
+            t[++n] = (v + 0) * 1000
+        }
+        END {
+            if (n < 5) exit 0
+            for (i = 2; i <= n; i++) {
+                x = t[i]
+                for (j = i - 1; j >= 1 && t[j] > x; j--) t[j+1] = t[j]
+                t[j+1] = x
+            }
+            med = (n % 2) ? t[(n+1)/2] : (t[n/2] + t[n/2+1]) / 2
+            if (med > max + 0) printf "median %.0f ms over %d iterations", med, n
+        }' "$file" 2>/dev/null)
+    [[ -z "$hit" ]] && return 0
+    VERDICT_REASON="step time above ${max} ms"
+    VERDICT_DETAIL="$hit"
+    return 1
+}
+
 ## llm-pretrain. Per-step timings are the evidence training actually stepped.
 ## Two formats: Megatron-Bridge prints `elapsed time per iteration`, NeMo prints
 ## `train_step_timing`. See docs/explanation/llmb.md#two-step-timing-formats.
@@ -466,6 +498,7 @@ _v_gate_llm_pretrain() {
     _v_require  "$file" "training step timings" "$VERDICT_STEP_TIMING" || return 1
     _v_forbid   "$file" "run error"             "$VERDICT_RUN_ERRORS" || return 1
     _v_forbid_i "$file" "training aborted"      'traceback|cuda error|nccl error|out of memory' || return 1
+    _v_llm_step_median "$file" "$VERDICT_MAX_STEP_MS_LLM_PRETRAIN" || return 1
     return 0
 }
 
@@ -547,6 +580,9 @@ _v_gate_llm_pretrain_solo() {
     _v_forbid   "$file" "run error"        "$VERDICT_RUN_ERRORS" || return 1
     _v_forbid_i "$file" "training aborted" 'traceback|cuda error|nccl error|out of memory' || return 1
     _v_llm_solo_spread "$file" "$VERDICT_MAX_COV_LLM_SOLO" || return 1
+    ## The spread above asks whether the four agree; this asks whether all four
+    ## are slow together, which agreeing hides.
+    _v_llm_step_median "$file" "$VERDICT_MAX_STEP_MS_LLM_SOLO" || return 1
     return 0
 }
 

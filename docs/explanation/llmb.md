@@ -433,6 +433,25 @@ the two jobs' step times to be comparable, and making them comparable would
 mean giving up either the graphs on the four-way run or the job's ability to run
 at all. Do not "fix" this by aligning them.
 
+## Judging the step time
+
+The spread check below asks whether a tray's four GPUs agree with each other. It
+cannot see a tray where all four are slow together — agreement hides that
+perfectly. So both jobs also carry an absolute ceiling on the **median**
+iteration, `VERDICT_MAX_STEP_MS_LLM_PRETRAIN` and `VERDICT_MAX_STEP_MS_LLM_SOLO`.
+
+Median, not mean, and for a reason visible in every run: iteration 1 costs
+12.2 s to initialise and iteration 4 costs 5.8 s to capture CUDA graphs, against
+a steady state of 3.3 s. A mean over 50 iterations carries roughly 0.3 s of
+warmup that has nothing to do with the hardware; the median does not notice it.
+
+The shipped numbers are **estimates at +5%** of one healthy tray — 3310 ms at
+four GPUs, 3341 ms per solo copy. That is deliberately loose: the job of a
+starting band is to catch a node that is plainly slow while a real floor is
+being assembled from several trays. A tray that trips it at 5% is worth looking
+at before assuming the number is wrong, and a fleet where nothing ever trips it
+should be tightened rather than trusted.
+
 ## Judging the four step times
 
 `_v_gate_llm_pretrain_solo` in `parsers/nvl72/verdict.sh` asks two questions the

@@ -32,6 +32,11 @@ fi
 : "${VERDICT_MIN_PEAK_BW_ALLTOALL:=623}"
 : "${VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK:=93}"
 : "${VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK:=83}"
+## Median step time ceilings for the two LLM jobs, milliseconds. `=` not `:=`:
+## an explicit 0 means "no band" and skips the check, which is a real answer.
+## See docs/reference/settings.md#llm-step-time-ceilings.
+: "${VERDICT_MAX_STEP_MS_LLM_PRETRAIN=3480}"
+: "${VERDICT_MAX_STEP_MS_LLM_SOLO=3510}"
 ## `=` not `:=`: an empty BURNIN means "no burn-in" and is a real answer.
 ## See docs/reference/settings.md#burn-in.
 : "${RUN_BURNIN:=no}"

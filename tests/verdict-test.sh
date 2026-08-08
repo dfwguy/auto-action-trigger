@@ -148,6 +148,40 @@ fi
 ## Restored so nothing below sees a band the tree does not ship.
 VERDICT_MAX_COV_LLM_SOLO="$_solo_cov_saved"
 
+## The step ceiling catches a tray whose four GPUs agree with each other and are
+## all slow -- which the spread check above passes by construction. A ceiling
+## under the fixture's own step time is the whole test.
+## See docs/explanation/llmb.md#judging-the-step-time.
+_solo_step_saved="$VERDICT_MAX_STEP_MS_LLM_SOLO"
+VERDICT_MAX_STEP_MS_LLM_SOLO=100
+verdict "llm-pretrain-solo" "$home/tests/fixtures/llm-pretrain-solo__good.txt"
+if [[ "$VERDICT_STATUS" == "FAIL" &&
+      "$VERDICT_REASON" == "step time above 100 ms" &&
+      "$VERDICT_DETAIL" == *"median 40"* ]]; then
+    printf 'ok       %-42s FAIL -- %s\n' "(solo step ceiling)" "$VERDICT_DETAIL"
+    ((pass++))
+else
+    printf 'FAIL     %-42s want FAIL on the ceiling, got %s / %s / %s\n' \
+        "(solo step ceiling)" "$VERDICT_STATUS" "$VERDICT_REASON" "$VERDICT_DETAIL"
+    ((fail++))
+fi
+VERDICT_MAX_STEP_MS_LLM_SOLO="$_solo_step_saved"
+
+## The same for the four-way job, and the seconds-to-milliseconds conversion
+## with it: the fixture prints train_step_timing in seconds.
+_pre_step_saved="$VERDICT_MAX_STEP_MS_LLM_PRETRAIN"
+VERDICT_MAX_STEP_MS_LLM_PRETRAIN=100
+verdict "llm-pretrain" "$home/tests/fixtures/llm-pretrain-solo__good.txt"
+if [[ "$VERDICT_STATUS" == "FAIL" && "$VERDICT_REASON" == "step time above 100 ms" ]]; then
+    printf 'ok       %-42s FAIL -- %s\n' "(pretrain step ceiling)" "$VERDICT_DETAIL"
+    ((pass++))
+else
+    printf 'FAIL     %-42s want FAIL on the ceiling, got %s / %s\n' \
+        "(pretrain step ceiling)" "$VERDICT_STATUS" "$VERDICT_REASON"
+    ((fail++))
+fi
+VERDICT_MAX_STEP_MS_LLM_PRETRAIN="$_pre_step_saved"
+
 ## An empty floor used to skip the bandwidth check -- a silent pass on a
 ## fixture that clears every other one.
 _ar_saved="$VERDICT_MIN_PEAK_BW_ALLREDUCE"

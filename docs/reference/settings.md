@@ -93,7 +93,23 @@ The five NCCL bandwidth gates, in GB/s:
 | `VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK` | `93` | `allreduce-nonvlink` |
 | `VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK` | `83` | `alltoall-nonvlink` |
 
-All five read out-of-place busbw at the largest message size actually run, which
+### LLM step time ceilings
+
+| Setting | Default | Job |
+|---------|---------|-----|
+| `VERDICT_MAX_STEP_MS_LLM_PRETRAIN` | `3480` | `llm-pretrain` |
+| `VERDICT_MAX_STEP_MS_LLM_SOLO` | `3510` | `llm-pretrain-solo`, across all four copies |
+
+Milliseconds, compared against the **median** iteration of the run, so the
+init and CUDA-graph-capture iterations do not move it. `0` skips the check.
+
+Both are **estimates**: +5% of a single healthy GB300 tray, which measured
+3310 ms at four GPUs and 3341 ms per solo copy. They are a starting band meant
+to catch a node that is plainly slow, not a characterised floor — tighten them
+once several trays have reported. See
+[explanation/llmb.md#judging-the-step-time](../explanation/llmb.md#judging-the-step-time).
+
+All five bandwidth floors read out-of-place busbw at the largest message size actually run, which
 is also what `daily-report.sh` prints in those columns, so a cell and a floor
 compare directly. The `-nonvlink` pair is measured on a **100 GB/s compute
 plane**; a site on a different link speed has different numbers.
