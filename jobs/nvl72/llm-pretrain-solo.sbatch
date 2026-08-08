@@ -44,17 +44,28 @@ srun --ntasks=1 bash -c '
 }
 
 ## Node-local copy first, NFS as fallback. See docs/explanation/containers.md#why-local-images.
-IMG=$(cd /tmp/containers 2>/dev/null && ls nvidia+nemo+*.sqsh 2>/dev/null | head -1)
-CONT=/tmp/containers/$IMG
-if [[ -z "$IMG" || ! -f "$CONT" ]]; then
-    shared=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}
-    IMG=$(cd "$shared" 2>/dev/null && ls nvidia+nemo+*.sqsh 2>/dev/null | head -1)
-    CONT=$shared/$IMG
-fi
+## The other architecture's image sorts FIRST and pyxis reports the mismatch as
+## `Exec format error`, so it is excluded by name.
+## See docs/explanation/containers.md#matching-the-architecture.
+_other=x86
+[[ "$(uname -m)" == x86_64 ]] && _other=arm
+nemo_image() {
+    local f
+    for f in "$1"/nvidia+nemo+*.sqsh; do
+        [[ -f "$f" && "$f" != *-"$_other".sqsh ]] && { printf '%s\n' "$f"; return 0; }
+    done
+    return 1
+}
+
+shared=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}
+CONT=$(nemo_image /tmp/containers)
+[[ -n "$CONT" ]] || CONT=$(nemo_image "$shared")
+
 ## An empty glob would reach srun as --container-image= and fail as something else.
-[[ -n "$IMG" && -f "$CONT" ]] || {
-    echo "no nvidia+nemo image in /tmp/containers or $shared"
-    echo "copy it out of the llmb install -- see docs/how-to/capture-an-sbatch-from-llmb-run.md#getting-the-image-onto-the-nodes"
+[[ -n "$CONT" && -f "$CONT" ]] || {
+    echo "no nvidia+nemo image for $(uname -m) in /tmp/containers or $shared"
+    echo "build it with the right -a, or copy it out of the llmb install --"
+    echo "see docs/how-to/build-containers.md#nemo"
     echo "exit status: 1"
     echo FAIL
     exit 0

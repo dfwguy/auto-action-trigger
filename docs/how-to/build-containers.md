@@ -205,11 +205,17 @@ silently produce the wrong image. Update `IMG` in
 
 ### nemo
 
-Public NGC catalog image, imported like `hpc-benchmarks`:
+Public NGC catalog image, imported like `hpc-benchmarks`. **Name the
+architecture** — the compute nodes are ARM and the head node may not be:
 
 ```bash
-./build_containers.sh nemo
+./build_containers.sh -a arm nemo
 ```
+
+A registry pull cross-builds for free, so this finishes on the head node. Get it
+wrong and the job fails at container start with `Exec format error`, which names
+nothing useful — see
+[explanation/containers.md#matching-the-architecture](../explanation/containers.md#matching-the-architecture).
 
 It is the image both LLM jobs run, and it is large — budget tens of gigabytes.
 The tag is pinned in `build_containers.sh` as `NEMO_TAG` and **must match the

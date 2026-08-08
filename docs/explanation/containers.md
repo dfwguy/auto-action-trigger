@@ -188,6 +188,33 @@ to a build.
 One side effect worth knowing: a download-only run no longer needs write access
 to the staging directory (`CONTAINER_STAGE_DIR`). Only `-S`/`-F` create it.
 
+## Matching the architecture
+
+Every image filename in the tree carries an architecture suffix, and the jobs
+build the whole name — `nvidia+hpc-benchmarks+26.02-arm.sqsh` — rather than
+globbing for it. That is not decoration. An x86 image on an ARM node starts,
+gets as far as `enroot-switchroot`, and dies:
+
+```
+enroot-switchroot: failed to execute: /bin/bash: Exec format error
+error: pyxis: couldn't start container
+```
+
+Nothing in that names the architecture, and the job above it reports whatever
+its gate says about an empty result file — a container problem arriving as a
+benchmark failure.
+
+The two LLM jobs are the exception and have to glob, because the same image
+reaches a cluster under two names: `build_containers.sh` writes
+`nvidia+nemo+<tag>-<arch>.sqsh` and the llmb installer writes
+`nvidia+nemo+<tag>.sqsh` with no suffix. So they match the prefix and
+**exclude the other architecture by name**.
+
+Excluding is the operation, not preferring, and the reason is an ASCII
+accident: `-` is `0x2D` and `.` is `0x2E`, so `nvidia+nemo+26.04.01-x86.sqsh`
+sorts *before* `nvidia+nemo+26.04.01.sqsh`. A plain `ls | head -1` on a node
+holding both picks the x86 one — which is how this was found.
+
 ## Cross-building for ARM nodes from an x86 headnode
 
 The nodes have no route to the internet, so everything is fetched on the
