@@ -104,6 +104,12 @@ Two details keep that reproduction honest:
   576-node cluster is 21,888 processes. Byte-exact equality is what
   `node_health.sh` tests, so equal checksums are exactly the checks it would not
   have drained on.
+- **The comparison is one `awk`, not a bash loop.** That checksum stream is
+  21,888 lines, and `while read` around it was 5.3 seconds of an 8.5-second run
+  — bash reads a pipe a byte at a time, and the array insert costs again on top.
+  `awk` returns the two aggregates already built, per node and per check, so
+  bash only ever reads the failures. See
+  [what a report costs](#what-a-report-costs).
 
 A check with no baseline entry can never pass and is counted separately rather
 than reported as a fleet-wide fault — the fix for those is a new baseline, not
@@ -129,6 +135,44 @@ there are few of those on a cluster in bringup — which is what keeps the
 
 Losing any of this is not fatal. Each section names the answer it lost rather
 than printing a blank, for the same reason the trace exists at all.
+
+## What a report costs
+
+This one crosses every result file, every health log and the whole queue, so it
+is the report most able to become something nobody runs. Measured on a 576-node
+fixture — 4,608 benchmark cells, 21,888 health logs, a 165 kB trace per node:
+
+| | before | after |
+|---|---|---|
+| warm, default | 9.1 s | 3.4 s |
+| warm, `--full` | 15.4 s | 4.5 s |
+| cold, no verdict cache | 25.1 s | 20.3 s |
+
+Three things accounted for nearly all of it, and all three are the same
+mistake — **doing per-item work in bash**:
+
+- **The health comparison**, 5.3 s. A `while read` over 21,888 checksums. Now
+  one `awk`, above.
+- **`wrap_list`**, ~5 s on `--full`. One `awk` plus a process substitution to
+  read it back, called about 1,700 times when 576 node blocks print. Now bash,
+  writing into an array with no subprocess at all. It is a formatting primitive
+  shared with `health-check.sh`, so `tests/report-format-test.sh` keeps it
+  equivalent to the awk it replaced rather than trusting the rewrite.
+- **Ranking the node blocks**, 1.1 s. `$(node_rank "$node")` is a fork per node;
+  it sets a variable now, the same way `verdict()` does and for the same reason.
+
+What is left is close to the floor for the data: `md5sum` over 21,888 files
+(0.45 s), one `grep` over 97 MB of traces (0.23 s), and the verdict scan itself.
+
+The cold column is the one that does not improve much, and should not: it is
+`verdict-scan.sh` judging every cell from its file, which is already parallel,
+already cached, and shared with the other two reports. Paying it once after
+results change is the design — see
+[verdicts-and-the-cache.md](verdicts-and-the-cache.md#the-verdict-cache).
+
+The general rule this leaves behind: **anything that touches every node, every
+cell or every log file belongs in one `awk`, `grep` or `find`, not in a bash
+loop.** Bash is for assembling what those return.
 
 ## The order node blocks come in
 

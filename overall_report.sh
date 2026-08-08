@@ -234,16 +234,25 @@ done > "$running_file"
 ## so equal checksums are exactly the checks it would not have drained on.
 ## See docs/explanation/reading-the-whole-fleet.md#health-read-from-the-files.
 
-declare -A gated_check base_hash node_hash check_fail_nodes
+declare -A gated_check base_hash check_fail_nodes
 declare -A health_fail_list health_fail_count
 declare -a no_baseline_checks
 have_baseline=0
+## One awk for the set, not three processes per check file. The FNR window is
+## node_health.sh's own: a whole-file match would catch a check that greps for
+## the same words. See docs/reference/health-checks.md#the-check-file-format.
+declare -A informational
+while IFS= read -r f; do
+    name="${f##*/}"; name="${name%.sh}"; name="${name#*-}"
+    informational["$name"]=1
+done < <(awk 'FNR <= 10 && /^# informational: *yes/ { hit[FILENAME] = 1 }
+              END { for (f in hit) print f }' "$HEALTHCHECKS_DIR"/[0-9]*.sh 2>/dev/null)
 for f in "$HEALTHCHECKS_DIR"/[0-9]*.sh; do
     [[ -f "$f" ]] || continue
     name="${f##*/}"; name="${name%.sh}"; name="${name#*-}"
     ## Recorded and never drained on -- per-rack values cannot match one
     ## cluster-wide baseline. See docs/reference/health-checks.md#informational-checks.
-    [[ "$(sed -n '1,10p' "$f" | sed -n 's/^# informational: *//p' | head -1)" == "yes" ]] && continue
+    [[ -n "${informational[$name]}" ]] && continue
     gated_check["$name"]=1
 done
 
@@ -256,47 +265,74 @@ elif [[ ! -d "$valid_dir" ]]; then
 else
     have_baseline=1
     while read -r h f; do base_hash["${f##*/}"]="$h"; done < <(md5sum "$valid_dir"/* 2>/dev/null)
-    while read -r h f; do
-        f="${f#"$logs_dir/"}"
-        node_hash["$f"]="$h"
-    done < <(find "$logs_dir" -mindepth 2 -maxdepth 2 -type f -print0 2>/dev/null | xargs -0 -r md5sum 2>/dev/null)
-
     for name in "${!gated_check[@]}"; do
         [[ -n "${base_hash[$name]}" ]] || no_baseline_checks+=("$name")
     done
 fi
 
-## Sorted once, here: every node walks this list, and walking the associative
-## array instead would give each node its checks in bash's hash order and cost
-## a sort per node to put them back.
-declare -a gated_names
-if [[ ${#gated_check[@]} -gt 0 ]]; then
-    mapfile -t gated_names < <(printf '%s\n' "${!gated_check[@]}" | sort)
-fi
+# Every failing (node, check) pair, aggregated both ways, in one awk.
+#
+# The comparison is over one checksum per log file -- 21,888 of them on a
+# 576-node fleet -- and a `while read` around that is the single most expensive
+# thing this report can do: bash reads a pipe a byte at a time, which cost 5.3s
+# of an 8.5s run before this was moved out. awk returns the two aggregates
+# already built, so bash only ever reads the failures, which are few.
+# See docs/explanation/reading-the-whole-fleet.md#health-read-from-the-files.
+health_scan() {
+    [[ "$have_baseline" -eq 1 ]] || return 0
+    local gatedf basef
+    gatedf=$(mktemp) || return 0
+    basef=$(mktemp) || { rm -f "$gatedf"; return 0; }
+    printf '%s\n' "${!gated_check[@]}" > "$gatedf"
+    md5sum "$valid_dir"/* 2>/dev/null > "$basef"
 
-# One node's failing checks, into health_fail_list. A check the node has no log
-# for did not run there; it is counted, never called a failure.
-declare -A never_checked
-health_of_node() {
-    local node="$1" name fails="" n=0
-    [[ "$have_baseline" -eq 1 ]] || return
-    if [[ ! -d "$logs_dir/$node" ]]; then
-        never_checked["$node"]=1
-        return
-    fi
-    for name in "${gated_names[@]}"; do
-        [[ -n "${base_hash[$name]}" ]] || continue
-        [[ -n "${node_hash[$node/$name]}" ]] || continue
-        [[ "${node_hash[$node/$name]}" == "${base_hash[$name]}" ]] && continue
-        fails+="${fails:+,}$name"
-        ((n++))
-        check_fail_nodes["$name"]+="${check_fail_nodes[$name]:+,}$node"
-    done
-    if [[ -n "$fails" ]]; then
-        health_fail_list["$node"]="$fails"
-        health_fail_count["$node"]=$n
-    fi
+    ## Sorted by path, so a node's checks and a check's nodes both come out of
+    ## awk in order and neither needs sorting again downstream.
+    while IFS=$'\t' read -r kind key count list; do
+        case "$kind" in
+            N) health_fail_count["$key"]="$count"; health_fail_list["$key"]="$list" ;;
+            C) check_fail_nodes["$key"]="$list" ;;
+        esac
+    done < <(
+        find "$logs_dir" -mindepth 2 -maxdepth 2 -type f -print0 2>/dev/null |
+        sort -z |
+        xargs -0 -r md5sum 2>/dev/null |
+        awk -v gatedf="$gatedf" -v basef="$basef" -v logs="$logs_dir/" '
+            FILENAME == gatedf { gated[$0] = 1; next }
+            FILENAME == basef  { n = substr($0, 35); sub(/.*\//, "", n)
+                                 base[n] = substr($0, 1, 32); next }
+            ## Fixed offsets, not fields: md5sum prints a 32-char digest, two
+            ## spaces, then a path that may contain spaces of its own.
+            {
+                p = substr($0, 35)
+                if (substr(p, 1, length(logs)) != logs) next
+                rest = substr(p, length(logs) + 1)
+                i = index(rest, "/")
+                if (i == 0) next
+                node = substr(rest, 1, i - 1); chk = substr(rest, i + 1)
+                if (!(chk in gated) || !(chk in base)) next
+                if (substr($0, 1, 32) == base[chk]) next
+                nfail[node] = nfail[node] (nfail[node] ? "," : "") chk
+                ncount[node]++
+                cfail[chk] = cfail[chk] (cfail[chk] ? "," : "") node
+            }
+            END {
+                for (n in nfail) printf "N\t%s\t%d\t%s\n", n, ncount[n], nfail[n]
+                for (c in cfail) printf "C\t%s\t0\t%s\n", c, cfail[c]
+            }' "$gatedf" "$basef" -
+    )
+    rm -f "$gatedf" "$basef"
 }
+health_scan
+
+# A node with no logs/<node> at all has not been checked, which is not the same
+# as passing. Builtins only -- this runs over the whole fleet.
+declare -A never_checked
+if [[ "$have_baseline" -eq 1 ]]; then
+    for node in "${nodes[@]}"; do
+        [[ -d "$logs_dir/$node" ]] || never_checked["$node"]=1
+    done
+fi
 
 ## ── What the node wrote down about itself ─────────────────────────────────
 ## One grep for the fleet, not one per node. The prolog line is the whole
@@ -391,30 +427,33 @@ for node in "${nodes[@]}"; do
         node_outstanding["$node"]=1
         node_cells["$node"]+="${node_cells[$node]:+, }$col (NO_SCAN)"
     done
-    health_of_node "$node"
 done
 
 ## ── Rank the node blocks ──────────────────────────────────────────────────
 ## Worst first, so an elided report keeps the nodes nothing else will explain.
 ## See docs/explanation/reading-the-whole-fleet.md#the-order-node-blocks-come-in.
 
+## Sets NODE_RANK rather than printing it -- $(node_rank ...) is a fork per
+## node, and this runs over every node with a column outstanding.
+NODE_RANK=0
 node_rank() {
     local node="$1"
     local state="${slurm_state[$node]:-$slurm_default}"
     case "${state,,}" in
-        *down*|*fail*|*unk*)          printf 6; return ;;
-        *drain*|*maint*|*reserv*)     printf 5; return ;;
+        *down*|*fail*|*unk*)          NODE_RANK=6; return ;;
+        *drain*|*maint*|*reserv*)     NODE_RANK=5; return ;;
     esac
-    [[ -n "${health_fail_count[$node]}" ]] && { printf 4; return; }
-    [[ -n "${our_job[$node]}" ]]       && { printf 1; return; }
-    [[ -n "${foreign_job[$node]}" ]]   && { printf 2; return; }
+    [[ -n "${health_fail_count[$node]}" ]] && { NODE_RANK=4; return; }
+    [[ -n "${our_job[$node]}" ]]       && { NODE_RANK=1; return; }
+    [[ -n "${foreign_job[$node]}" ]]   && { NODE_RANK=2; return; }
     ## Nothing wrong with it, nothing running on it, and work outstanding.
-    printf 3
+    NODE_RANK=3
 }
 
 declare -a blocks ranked
 for node in "${!node_outstanding[@]}"; do
-    ranked+=("$(node_rank "$node")|$node")
+    node_rank "$node"
+    ranked+=("$NODE_RANK|$node")
 done
 ## Guarded: `printf '%s\n'` with nothing to print still emits one empty line,
 ## which would become a block for a node named "".

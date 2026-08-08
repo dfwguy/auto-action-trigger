@@ -195,11 +195,11 @@ style-level findings below it are largely deliberate here.
 The `test` stage runs the suites — `tests/verdict-test.sh`,
 `tests/health-runner-test.sh`, `tests/recover-test.sh`, `tests/inflight-test.sh`,
 `tests/yield-test.sh`, `tests/help-text-test.sh`, `tests/scan-cache-test.sh`,
-`tests/llmb-check-test.sh`, `tests/exclude-test.sh`, `tests/doc-links-test.sh` —
-as one job each, so a failure names the gate that broke without anyone opening
+`tests/llmb-check-test.sh`, `tests/exclude-test.sh`, `tests/report-format-test.sh`,
+`tests/doc-links-test.sh` — as one job each, so a failure names the gate that broke without anyone opening
 a log.
 
-Six of those exist for couplings that fail *without saying so*, which is why
+Seven of those exist for couplings that fail *without saying so*, which is why
 they are gates rather than review items:
 
 - `scan-cache` — break the cache key and every report still prints, still looks
@@ -222,6 +222,10 @@ they are gates rather than review items:
   real node and it reports nothing ever again, a false negative is the head node
   in every report. See
   [explanation/sequencing.md#a-host-that-is-not-a-compute-node](../explanation/sequencing.md#a-host-that-is-not-a-compute-node).
+- `report-format` — `wrap_list` decides where a node list breaks, and half a
+  `[14,29,34]` range is a string neither `scontrol` nor `pdsh -w` will take
+  while looking exactly like a whole one. The suite keeps the bash
+  implementation equivalent to the awk it replaced for speed.
 - `doc-links` — the comment convention puts reasoning in `docs/` and leaves a
   one-line pointer in the code, which makes several hundred anchors load-bearing
   and unrendered: retitle a heading and the pointer still resolves, to the top

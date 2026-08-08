@@ -177,6 +177,12 @@ health-runner:
   script:
     - ./tests/health-runner-test.sh
 
+report-format:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/report-format-test.sh
+
 recover:
   extends: .base
   stage: test
