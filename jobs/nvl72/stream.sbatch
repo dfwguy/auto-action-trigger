@@ -7,7 +7,7 @@
 #SBATCH -t 4:10:00
 #SBATCH --nice=20
 ## The sweep's tier; higher is later. See docs/reference/jobs.md#queue-priority.
-##SBATCH -o /home/cmods/bringup/results/%N/stream.txt
+##SBATCH -o <BRINGUP_HOME>/results/%N/stream.txt
 
 ## No --gres, this job never touches a GPU. Steps inherit only what was
 ## explicitly requested; no --cpus-per-task, it implies --exact and would shrink
@@ -40,7 +40,7 @@ srun --ntasks=1 bash -c '
 ## Node-local rsynced copy first, NFS fallback. See docs/explanation/containers.md#why-local-images.
 IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
-[[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
+[[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}/$IMG
 ## Registry fallback; note enroot's `#` separator. Every node pulls on first use.
 #CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
 

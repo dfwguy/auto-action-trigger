@@ -1058,8 +1058,22 @@ missing, and submits:
 
 ```
 sbatch -w $HOSTNAME -J <bringup|burnin>-<node> \
-       --export=ALL,RESULT_FILE=<file>[,<JOB_ENV>] --output=<file> <job>.sbatch
+       --export=ALL,RESULT_FILE=<file>[,<JOB_ENV>],BRINGUP_HOME=…,CONTAINER_DIR=…[,LLMB_*=…] \
+       --output=<file> <job>.sbatch
 ```
+
+The site's paths are on that list because a batch script cannot work them out.
+It runs from Slurm's spool copy, so `${BASH_SOURCE[0]}` names a file in
+`/var/spool/slurmd` rather than anywhere in the tree, and there is no `SETTINGS`
+to read from there. Every one of them goes through the same allowlist as
+`JOB_ENV` — see [What is rejected](../reference/settings.md#what-is-rejected) —
+because the whole string is run by `su - $JOB_USER -c` from a root cycle.
+
+The job files spell these `${CONTAINER_DIR:?…}` rather than giving them a
+default. A default would have to be a literal path, which is the thing that
+broke when the account moved; `:?` makes a job submitted without it stop and
+say which variable was missing, in the result file, where the next report reads
+it.
 
 `-J` is per list and per node, and it is passed here rather than as an `#SBATCH`
 line because those are comments rather than shell and would not expand

@@ -384,19 +384,30 @@ For a single repaired node, `hpl` and `cublasmatmul` are the remediation jobs
 meant to be run by hand. Submit one straight from the job directory:
 
 ```bash
+cd /home/cmods/bringup
+source settings.sh
+
 node=ink50-dh01-h01-11
 sbatch -w "$node" --nice=0 \
-       --output="/home/cmods/bringup/results/$node/cublasmatmul.txt" \
-       jobs/nvl72/cublasmatmul.sbatch
+       --export=ALL,BRINGUP_HOME="$BRINGUP_HOME",CONTAINER_DIR="$CONTAINER_DIR" \
+       --output="$BRINGUP_HOME/results/$node/cublasmatmul.txt" \
+       "$JOBS_DIR/cublasmatmul.sbatch"
 ```
 
-Two flags carry weight there. **`--output` is what puts the result where the
-reports look** — the `-o` line inside the job file is deliberately disabled,
-because `launch_job.sh` supplies the path per node. Without it the output lands
-in `slurm-<jobid>.out` in your working directory and no report will ever see it.
-**`--nice=0`** puts the job at the front of the queue; the sweep's own jobs sit
-at `20`, and that tier is left empty for exactly this. See
-[reference/jobs.md](../reference/jobs.md#queue-priority).
+Three things carry weight there. **`source settings.sh`** is what makes the rest
+of it the site's own paths rather than typed ones. **`--export`** hands the job
+the paths it cannot work out for itself — a batch script runs from Slurm's spool
+copy, so it can neither read `SETTINGS` nor find the tree; without them the job
+stops and says which variable was missing. **`--output` is what puts the result
+where the reports look** — the `-o` line inside the job file is deliberately
+disabled, because `launch_job.sh` supplies the path per node. Without it the
+output lands in `slurm-<jobid>.out` in your working directory and no report will
+ever see it. (`--nice=0` puts it at the front of the queue; the sweep sits at
+`20`, and that tier is left empty for exactly this.)
+
+Submitting a job file yourself has a few more consequences than fit here —
+[how-to/submit-a-job-file-directly.md](../how-to/submit-a-job-file-directly.md)
+has the whole of it, including which jobs need which variables.
 
 Then read the verdict rather than the raw file:
 

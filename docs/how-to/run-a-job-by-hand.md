@@ -122,6 +122,13 @@ lets `status-check.sh -t <job>` and `verdict.sh` judge it. Two consequences:
   the "live" column for a running node in `status-check.sh`, which picks the
   newest result file in the directory and does not know the job was ad-hoc.
 
+`--test` is the supported way to run one job, and it is what you want almost
+always: it supplies the site's paths, the result path and the job name, none of
+which a job file can work out for itself. Calling `sbatch` on one of these files
+yourself is
+[submit-a-job-file-directly.md](submit-a-job-file-directly.md) — reach for it
+only when you need to change something `--test` does not expose.
+
 ## Re-running health checks by hand
 
 The health side has the same shape: `actions/node_health.sh` decides about the

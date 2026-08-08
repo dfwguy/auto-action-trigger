@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Build the benchmark jobs' container images as local .sqsh files in
-# /home/cmods/bringup/containers/, pulled once here instead of once per node.
+# CONTAINER_DIR, pulled once here instead of once per node.
 # See docs/explanation/containers.md.
 #
 #   ./build_containers.sh -L                 # write ~/.config/enroot/.credentials
@@ -25,8 +25,11 @@ set -u
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
 
-DEST=${CONTAINER_DIR:-/home/cmods/bringup/containers}
-STAGE=${STAGE_DIR:-/home/cmods/bringup/container-src}
+## The head node's view of the two shared directories, because that is where
+## every pass but -B runs. See docs/explanation/containers.md#one-share-two-mount-points.
+DEST=$CONTAINER_DIR_HEAD
+STAGE=$CONTAINER_STAGE_DIR_HEAD
+DEST_SET=0
 FORCE=0
 LIST=0
 LOGIN=0
@@ -517,7 +520,7 @@ while getopts ':fld:a:AFBSLh' opt; do
     case "$opt" in
         f) FORCE=1 ;;
         l) LIST=1 ;;
-        d) DEST="$OPTARG" ;;
+        d) DEST="$OPTARG"; DEST_SET=1 ;;
         a) arch="$OPTARG" ;;
         ## nvloom cannot be downloaded at all, so asking for everything is
         ## asking for the build.
@@ -532,6 +535,14 @@ while getopts ':fld:a:AFBSLh' opt; do
     esac
 done
 shift $((OPTIND - 1))
+
+## -B is the one pass that runs on a compute node -- `srun -N1` -- so it reaches
+## the same two directories by the nodes' mount point rather than the head
+## node's. See docs/explanation/containers.md#one-share-two-mount-points.
+if [[ "$MODE" == build ]]; then
+    [[ "$DEST_SET" -eq 1 ]] || DEST=$CONTAINER_DIR
+    STAGE=$CONTAINER_STAGE_DIR
+fi
 
 [[ -n "$(enroot_arch "$arch")" ]] || die "unknown architecture: $arch (want arm or x86)"
 
@@ -605,7 +616,7 @@ mkdir -p "$DEST" "$WORKDIR" "$ENROOT_CACHE_PATH" "$ENROOT_TEMP_PATH" \
          "$ENROOT_DATA_PATH" "$ENROOT_RUNTIME_PATH" ||
     die "cannot create $DEST -- check write access"
 ## Only -S/-F create the staging tree: a download-only run must not need write
-## access to it, or "no NGC credentials" becomes "cannot create /home/cmods/bringup".
+## access to it, or "no NGC credentials" becomes "cannot create $CONTAINER_STAGE_DIR".
 if [[ "$SOURCE_OK" -eq 1 && "$MODE" != build ]]; then
     mkdir -p "$STAGE" || die "cannot create $STAGE -- check write access"
 fi

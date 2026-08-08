@@ -36,6 +36,7 @@ Task-oriented, for someone who already knows the system.
 | Page | Covers |
 |------|--------|
 | [run-a-job-by-hand.md](how-to/run-a-job-by-hand.md) | `launch_job.sh` flags, sweeping a rack over `pdsh -R ssh -w`, and `--test` for a job outside the list |
+| [submit-a-job-file-directly.md](how-to/submit-a-job-file-directly.md) | Calling `sbatch` on a job file yourself: the site paths it needs on `--export`, and why `--test` is usually the answer instead |
 | [pause-and-resume.md](how-to/pause-and-resume.md) | The four pause switches, and `kill-jobs.sh` for emptying the queue now |
 | [manage-drains.md](how-to/manage-drains.md) | Turning the two drain switches on, and reading what drained |
 | [reset-results.md](how-to/reset-results.md) | `single-node-purge.sh`, and clearing the whole tree |

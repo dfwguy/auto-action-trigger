@@ -82,10 +82,42 @@ what the container saw. See
 [containers.md](containers.md) and
 [judging-benchmarks.md#host-hcas-are-not-container-hcas](judging-benchmarks.md#host-hcas-are-not-container-hcas).
 
+## One account name
+
+`JOB_USER` is the only place the automation account is written down. The tree
+path and the llmb install derive from it — `/home/$JOB_USER/bringup` and
+`/home/$JOB_USER/llmb` — so a site moving from a shared human account to an
+automation account of its own changes one line in `SETTINGS`.
+
+It did not start that way. The account was a literal in about thirty places:
+the `home=` at the top of each BCM action, the NFS container fallback in every
+`.sbatch`, and — worst, because it was a *comparison* rather than a path — the
+result-ownership check in `trigger-debug.sh`. That one had both failure modes at
+once. The top-level test was a prefix glob, so an account whose name began with
+the old one passed it; the per-node loop below was an exact match, so the same
+tree failed that. One check reported the fleet healthy and correct, the other
+reported every node's directory misowned, and neither was right.
+
+The reason a literal survives so long here is that nothing exercises the
+difference. Every suite ran as one account, and a name that is wrong everywhere
+is still *consistent* — the scripts agree with each other, the tests pass, and
+the fleet is broken only on the one cluster that changed it.
+`tests/job-user-test.sh` is the answer: it runs the sequencer twice under two
+accounts in two trees and requires the traces to be the same text once the name
+is substituted out. It also greps the tree, because the differential cannot see
+a name that is hardcoded on both sides.
+
+Two things deliberately do *not* derive from `JOB_USER`. The container
+directories are their own settings, for the reasons in
+[containers.md#one-share-two-mount-points](containers.md#one-share-two-mount-points).
+And the three BCM actions find the tree from their own path rather than from
+`BRINGUP_HOME`, because they have to load `settings.sh` before they can read it
+— see [../reference/layout.md#runtime-paths](../reference/layout.md#runtime-paths).
+
 ## The checkout is not the deployment
 
-The tree runs at `/home/cmods/bringup/` on cluster head nodes, exported over NFS
-to every compute node. A git checkout is a *source* of that tree, never the tree
+The tree runs at `$BRINGUP_HOME` — by default `/home/cmods/bringup/` — on
+cluster head nodes, exported over NFS to every compute node. A git checkout is a *source* of that tree, never the tree
 itself. Nothing in the repo updates the deployment.
 
 `SETTINGS` is gitignored on purpose: it is the site's file, and a tarball drop

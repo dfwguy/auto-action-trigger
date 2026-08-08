@@ -90,12 +90,16 @@ pieces fit together this way is
 
 ## Runtime paths
 
-Scripts assume the repo is deployed at `/home/cmods/bringup/` — the home
-directory of the `cmods` user. The two BCM actions carry that path literally,
-because BCM invokes them with no working directory to infer one from; every
-other script resolves its own location. Deploying elsewhere means editing
-`home=` in `actions/node_health.sh` and `actions/launch_job.sh`, and
-`BRINGUP_HOME` in `SETTINGS`.
+The tree is deployed at `$BRINGUP_HOME`, which defaults to
+`/home/$JOB_USER/bringup` — so `/home/cmods/bringup/` as shipped. Every script
+resolves its own location, the three BCM actions included: BCM invokes them by
+absolute path with no working directory to infer one from, but that path is
+inside the tree, so `${BASH_SOURCE[0]}` finds it. Deploying elsewhere means
+changing `JOB_USER` (or `BRINGUP_HOME`) in `SETTINGS` and nothing else.
+
+The actions cannot read `BRINGUP_HOME` to find themselves, because that setting
+lives in the file they are trying to locate. `LAUNCH_JOB_HOME`, `NODE_HEALTH_HOME`
+and `FILE_COPY_HOME` override the derivation; only the test suites set them.
 
 `pre-post/create-action-trigger.sh` is the exception to "resolves its own
 location": it reads `BRINGUP_HOME` and registers *that* path with BCM, not the
@@ -107,19 +111,19 @@ not the checked-out ones.
 
 | Path | Purpose |
 |------|---------|
-| `/home/cmods/bringup/logs/<node>/` | Per-node health check output files |
-| `/home/cmods/bringup/logs/<node>/.last-check` | When the checks last ran there and what they concluded, tab-separated. Drives the cadence — see [settings.md#health-check-cadence](settings.md#health-check-cadence) |
-| `/home/cmods/bringup/logs/<node>/refresh` | Present when a re-check has been asked for ahead of the cadence. Set by `health-check.sh --refresh`, consumed by the next cycle |
-| `/home/cmods/bringup/valid-config/default/` | Symlink to the reference baseline node |
-| `/home/cmods/bringup/results/<node>/` | Per-node benchmark result files |
-| `/home/cmods/bringup/results/<node>/trigger.log` | Per-cycle decision trace from `launch_job.sh` |
-| `/home/cmods/bringup/results/<node>/health.log` | Per-cycle decision trace from `node_health.sh` |
-| `/home/cmods/bringup/results/<node>/quick-view.txt` | One line per benchmark: `DONE` / `QUEUED` |
-| `/home/cmods/bringup/results/<node>/recover.log` | One line per drain cleared. The attempt history `RECOVER_MAX_ATTEMPTS` is counted from |
-| `/home/cmods/bringup/results/<node>/unkillable.stamp` | First-seen epoch and pid set of GPU processes that survived their step's kill. Tab separated; a changed pid set restarts the clock. See [explanation/drain-recovery.md#a-step-that-outlives-its-own-kill](../explanation/drain-recovery.md#a-step-that-outlives-its-own-kill) |
-| `/home/cmods/bringup/results/<node>/.not-a-compute-node` | Present when the host has decided it can never run a job. Holds the reason; every script that walks `results/*/` skips the directory. See [settings.md#hosts-that-are-not-compute-nodes](settings.md#hosts-that-are-not-compute-nodes) |
-| `/home/cmods/bringup/reports/` | Where `daily-report.sh -o` reports are kept by convention |
-| `/home/cmods/bringup/containers/` | Container images built by `build_containers.sh` |
+| `$BRINGUP_HOME/logs/<node>/` | Per-node health check output files |
+| `$BRINGUP_HOME/logs/<node>/.last-check` | When the checks last ran there and what they concluded, tab-separated. Drives the cadence — see [settings.md#health-check-cadence](settings.md#health-check-cadence) |
+| `$BRINGUP_HOME/logs/<node>/refresh` | Present when a re-check has been asked for ahead of the cadence. Set by `health-check.sh --refresh`, consumed by the next cycle |
+| `$BRINGUP_HOME/valid-config/default/` | Symlink to the reference baseline node |
+| `$BRINGUP_HOME/results/<node>/` | Per-node benchmark result files |
+| `$BRINGUP_HOME/results/<node>/trigger.log` | Per-cycle decision trace from `launch_job.sh` |
+| `$BRINGUP_HOME/results/<node>/health.log` | Per-cycle decision trace from `node_health.sh` |
+| `$BRINGUP_HOME/results/<node>/quick-view.txt` | One line per benchmark: `DONE` / `QUEUED` |
+| `$BRINGUP_HOME/results/<node>/recover.log` | One line per drain cleared. The attempt history `RECOVER_MAX_ATTEMPTS` is counted from |
+| `$BRINGUP_HOME/results/<node>/unkillable.stamp` | First-seen epoch and pid set of GPU processes that survived their step's kill. Tab separated; a changed pid set restarts the clock. See [explanation/drain-recovery.md#a-step-that-outlives-its-own-kill](../explanation/drain-recovery.md#a-step-that-outlives-its-own-kill) |
+| `$BRINGUP_HOME/results/<node>/.not-a-compute-node` | Present when the host has decided it can never run a job. Holds the reason; every script that walks `results/*/` skips the directory. See [settings.md#hosts-that-are-not-compute-nodes](settings.md#hosts-that-are-not-compute-nodes) |
+| `$BRINGUP_HOME/reports/` | Where `daily-report.sh -o` reports are kept by convention |
+| `$CONTAINER_DIR` | Container images built by `build_containers.sh`. Defaults under the tree, but need not be there — see [explanation/containers.md#one-share-two-mount-points](../explanation/containers.md#one-share-two-mount-points) |
 | `/tmp/containers/` (on each node) | Node-local cache of the above, rsync'd by `file_copy.sh` |
 
 ## Result-path ownership

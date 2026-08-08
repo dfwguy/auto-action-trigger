@@ -1,7 +1,7 @@
 # Why the images are local, and how they get built
 
 `build_containers.sh` builds the container images the jobs need as local `.sqsh`
-files in `/home/cmods/bringup/containers/`. `actions/file_copy.sh` rsyncs that
+files in `$CONTAINER_DIR`. `actions/file_copy.sh` rsyncs that
 directory to `/tmp/containers/` on each node, and every job prefers the
 node-local copy. **Nothing is pulled from a registry at job start.**
 
@@ -29,7 +29,7 @@ that pick the local copy:
 
 ```bash
 CONT=/tmp/containers/$IMG
-[[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
+[[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?...}/$IMG
 #CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
 ```
 
@@ -47,7 +47,7 @@ Three layers, each avoiding a different transfer:
 | Layer | Path | Populated by | Avoids |
 |-------|------|--------------|--------|
 | Build cache | `/tmp/enroot-cache/$UID`, docker's layer store | `build_containers.sh` | Re-pulling layers on rebuild |
-| Shared copy | `/home/cmods/bringup/containers/` | `build_containers.sh` | Per-node registry pulls |
+| Shared copy | `CONTAINER_DIR` | `build_containers.sh` | Per-node registry pulls |
 | Node-local cache | `/tmp/containers/` | `actions/file_copy.sh` | Reading the image over NFS at every job start |
 
 The last one is the one that matters at run time. A `.sqsh` is mounted, not
@@ -58,10 +58,17 @@ slowest part of a sweep. Each job resolves its image as:
 ```bash
 IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
-[[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
+[[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?...}/$IMG
 ```
 
 so a node the rsync has not reached yet still runs, just off NFS.
+
+`CONTAINER_DIR` arrives on `sbatch --export`, because a batch script runs from
+Slurm's spool copy: it can neither read `SETTINGS` nor work out where the tree
+is from its own path. It is `:?` rather than a default so that a job submitted
+without it stops and says so, instead of falling back to a directory that a site
+which moved its images no longer has — see
+[sequencing.md#what-a-submission-carries](sequencing.md#what-a-submission-carries).
 
 The build side keeps `ENROOT_CACHE_PATH` and `ENROOT_TEMP_PATH` on local disk
 (`/tmp`) rather than their defaults under `$HOME`, which is NFS here — an import
@@ -75,11 +82,45 @@ The compute nodes get writable values from `/etc/enroot/enroot.conf`; the
 headnode does not, so without the override the script fails on `mkdir` before it
 pulls anything. **Do not work around that by running the build as root** — the
 `.sqsh` files would come out root-owned, and `file_copy.sh` and the jobs read
-them as `cmods`.
+them as `$JOB_USER`.
 
 `file_copy.sh` uses `rsync -a`, not `-r`. Without `-t` (implied by `-a`) the
 destination mtimes are the copy time, the size+mtime quick check never matches,
 and every monitoring cycle re-transfers the whole directory.
+
+## One share, two mount points
+
+`CONTAINER_DIR` is its own setting rather than `$BRINGUP_HOME/containers`
+because the two directories have different shapes of problem. The tree is a few
+megabytes of shell that has to be identical everywhere; the images are tens of
+gigabytes that a site will want on whatever filesystem it bought for bulk data.
+Deriving one from the other forced the images onto `/home`, and `/home` is
+usually the smallest share a cluster has.
+
+Having made it separate, a second problem follows: a bulk share is often not
+mounted at the same path on the head node as on the compute nodes. `/data` on
+the nodes can be `/mnt/server-1-data` on the head node, and nothing in the tree
+can detect the difference — both paths exist, both are readable, and the only
+symptom of using the wrong one is `build_containers.sh` writing images into a
+directory the nodes never look in. That failure is silent for a whole sweep:
+every job falls back to an NFS path that has no image, and the jobs fail one at
+a time for what looks like an unrelated reason.
+
+So each of the two shared directories has a pair of settings:
+
+| Setting | Whose view | Read by |
+|---------|-----------|---------|
+| `CONTAINER_DIR` | the compute nodes | the `.sbatch` jobs, `actions/file_copy.sh`, `ib-visibility.sh` |
+| `CONTAINER_DIR_HEAD` | the head node | `build_containers.sh`, `build_llmb.sh` |
+| `CONTAINER_STAGE_DIR` | the compute nodes | `build_containers.sh -B`, which runs under `srun` |
+| `CONTAINER_STAGE_DIR_HEAD` | the head node | `build_containers.sh -S`/`-F` |
+
+Each `_HEAD` one defaults to the other, so a site with a single mount point
+never has to know they exist. The split is by *which script* rather than by a
+runtime test of which machine this is: every reader above is statically one or
+the other, and `-B` — the one pass of `build_containers.sh` that runs on a node
+rather than the head node — is told apart by the flag it was given, not guessed
+at. A wrong guess here would put the images somewhere plausible and useless.
 
 ## What the container gets from the host
 
@@ -145,7 +186,7 @@ it has no download path at all: it names what it wants instead of committing you
 to a build.
 
 One side effect worth knowing: a download-only run no longer needs write access
-to the staging directory (`STAGE_DIR`). Only `-S`/`-F` create it.
+to the staging directory (`CONTAINER_STAGE_DIR`). Only `-S`/`-F` create it.
 
 ## Cross-building for ARM nodes from an x86 headnode
 

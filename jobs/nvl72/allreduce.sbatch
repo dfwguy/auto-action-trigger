@@ -8,7 +8,7 @@
 #SBATCH -t 0:25:00
 #SBATCH --nice=20
 ## 20 is the sweep's tier; higher is later. See docs/reference/jobs.md#queue-priority.
-##SBATCH -o /home/cmods/bringup/results/%N/allreduce.txt
+##SBATCH -o <BRINGUP_HOME>/results/%N/allreduce.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
 ## implies --exact. See docs/reference/jobs.md#the-allocation-header.
@@ -43,10 +43,10 @@ srun --ntasks=1 bash -c '
 ## reached. See docs/explanation/containers.md#why-local-images.
 IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
-[[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
+[[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}/$IMG
 ## Registry alternative -- note enroot's `#` separator between host and path.
 #CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
-#HPLDATPATH=/home/cmods/bringup/jobs/nvl72/hpl/
+#HPLDATPATH=$BRINGUP_HOME/jobs/nvl72/hpl/
 
 export NCCL_SOCKET_IFNAME=bond0
 export NCCL_DEBUG=INFO

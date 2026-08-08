@@ -30,8 +30,13 @@ Options must come before image names — `getopts` stops at the first non-option
 argument. With no image named and no `-A`, the list is `CONTAINERS` from
 `SETTINGS`.
 
-Environment: `CONTAINER_DIR` (same as `-d`), `STAGE_DIR` (source staging,
-default `/home/cmods/bringup/container-src`), `ARCH` (same as `-a`), `WORKDIR`
+`CONTAINER_DIR` and `CONTAINER_STAGE_DIR` are `SETTINGS` keys, not just
+environment overrides, and each has a `_HEAD` pair for a share the head node
+mounts elsewhere — see
+[explanation/containers.md#one-share-two-mount-points](../explanation/containers.md#one-share-two-mount-points).
+`-d` overrides the destination for one run.
+
+Environment: `ARCH` (same as `-a`), `WORKDIR`
 (scratch, default `/tmp/container-build-$UID`), `ENROOT_CACHE_PATH`,
 `ENROOT_TEMP_PATH`, `ENROOT_DATA_PATH`, `ENROOT_RUNTIME_PATH`.
 

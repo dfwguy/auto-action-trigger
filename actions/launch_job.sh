@@ -4,12 +4,12 @@
 
 ## ── Settings ──────────────────────────────────────────────────────────────
 ##
-## Hardcoded path: BCM invokes this by absolute path with no working directory
-## to infer from. Missing settings.sh is fatal rather than defaulted -- an empty
-## BENCHMARKS reads as "everything passing" on every node. See docs/reference/settings.md.
-## LAUNCH_JOB_HOME exists for tests/inflight-test.sh, which runs this file
-## against a stub tree; nothing in the deployment sets it.
-home="${LAUNCH_JOB_HOME:-/home/cmods/bringup}"
+## Located from this file rather than a literal path, which is what lets the
+## tree move with the account. See docs/reference/layout.md#runtime-paths.
+## Missing settings.sh is fatal rather than defaulted -- an empty BENCHMARKS
+## reads as "everything passing" on every node. See docs/reference/settings.md.
+## LAUNCH_JOB_HOME is for the test suites; nothing in the deployment sets it.
+home="${LAUNCH_JOB_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 if [[ ! -f "$home/settings.sh" ]]; then
     echo "ERROR: $home/settings.sh is missing -- refusing to run, because an" >&2
     echo "       empty benchmark list reads as 'everything passing' on every node." >&2
@@ -101,7 +101,7 @@ TEST_LIST=""
 ## anyone reads, and neither does pdsh's until you ask with -v.
 VERBOSE=0; [[ -t 1 ]] && VERBOSE=1
 usage() {
-    cat <<'USAGE'
+    cat <<USAGE
 Usage: launch_job.sh [--explain] [--force] [--all] [--test JOB] [--verbose|--quiet]
 
   --explain, -n   dry run: print every gate, submit/drain/archive nothing
@@ -116,7 +116,7 @@ Usage: launch_job.sh [--explain] [--force] [--all] [--test JOB] [--verbose|--qui
 Decides about the node it runs on, and takes no node argument. To sweep a set
 of nodes, name them where they can be reached:
 
-  pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/launch_job.sh -f -v'
+  pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '$home/actions/launch_job.sh -f -v'
 
 With no arguments -- how BCM invokes it -- one job is submitted at a time, in
 BENCHMARKS order, and no job re-runs inside its own hourly window.
@@ -223,30 +223,26 @@ for _pair in $JOB_ENV; do
 done
 unset _pair
 
-## A host launcher needs LLMB_INSTALL, and it reaches the launcher the same way
-## JOB_ENV does -- through a string run by `su - $JOB_USER -c`. So it gets the
-## same allowlist, for the same reason: unvalidated, a SETTINGS value would run
-## as root on 200+ nodes. See docs/reference/settings.md#what-is-rejected.
+## The site's paths, which a job running from Slurm's spool copy cannot work out
+## for itself. Same allowlist as JOB_ENV, for the same reason -- the string is
+## run by `su - $JOB_USER -c`. Empty is left to the job to diagnose.
+## See docs/explanation/sequencing.md#what-a-submission-carries.
 ##
-## Empty is left to the launcher to diagnose: it knows whether it needs one.
-## The three beside LLMB_INSTALL carry an adopted install's layout, and are
-## empty unless a site set them or build_llmb.sh resolved them.
-## See docs/explanation/llmb.md#adopting-an-existing-install.
-## LLMB_EXPORT is the same list for the sbatch form: llm-pretrain-solo reads
-## LLMB_HF too, and --export takes commas where a command line takes spaces.
-LLMB_ARGS=""
-LLMB_EXPORT=""
-for _llmb in LLMB_INSTALL LLMB_BIN LLMB_HF LLMB_IMAGES; do
-    _value="${!_llmb:-}"
+## SITE_EXPORT is the same list for the sbatch form: --export takes commas
+## where a command line takes spaces.
+SITE_ARGS=""
+SITE_EXPORT=""
+for _var in BRINGUP_HOME CONTAINER_DIR LLMB_INSTALL LLMB_BIN LLMB_HF LLMB_IMAGES; do
+    _value="${!_var:-}"
     [[ -n "$_value" ]] || continue
     if [[ "$_value" =~ ^[A-Za-z0-9_.:/+@%=-]+$ ]]; then
-        LLMB_ARGS+=" $_llmb=$_value"
-        LLMB_EXPORT+=",$_llmb=$_value"
+        SITE_ARGS+=" $_var=$_value"
+        SITE_EXPORT+=",$_var=$_value"
     else
-        trace "WARNING: $_llmb contains characters outside [A-Za-z0-9_.:/+@%=-] -- dropped, and a host-launched job will refuse rather than run without it."
+        trace "WARNING: $_var contains characters outside [A-Za-z0-9_.:/+@%=-] -- dropped, and the job will refuse rather than run without it."
     fi
 done
-unset _llmb _value
+unset _var _value
 
 ## Without this line, results appearing off-cadence -- or a passing job suddenly
 ## re-running -- reads as the sequencer misbehaving rather than as a human.
@@ -1155,12 +1151,12 @@ submit_one() {
     ## back from the queue. See docs/explanation/sequencing.md#host-launched-jobs.
     if [[ "$launch" == *.sh ]]; then
         submit="source /etc/profile.d/modules.sh; module load slurm; \
-mkdir -p $logs && SBATCH_JOB_NAME=$jname RESULT_FILE=$file$LLMB_ARGS \
+mkdir -p $logs && SBATCH_JOB_NAME=$jname RESULT_FILE=$file$SITE_ARGS \
 ${JOB_ENV_PAIRS[*]} bash $launch"
     else
         submit="source /etc/profile.d/modules.sh; module load slurm; \
 mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
---export=ALL,RESULT_FILE=$file$JOB_ENV_ARGS$LLMB_EXPORT --output=$file $launch"
+--export=ALL,RESULT_FILE=$file$JOB_ENV_ARGS$SITE_EXPORT --output=$file $launch"
     fi
 
     ## The guard above already asked what was queued under our names, and the

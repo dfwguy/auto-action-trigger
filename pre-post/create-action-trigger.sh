@@ -32,8 +32,13 @@ rc=0
 ## Registers BRINGUP_HOME, not this script's own location -- and so preflights
 ## the deployed tree, not the checkout. See docs/reference/layout.md#runtime-paths.
 _home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-[[ -f "$_home/settings.sh" ]] && source "$_home/settings.sh"
-: "${BRINGUP_HOME:=/home/cmods/bringup}"
+[[ -f "$_home/settings.sh" ]] || {
+    echo "FAILED: no $_home/settings.sh -- it is what says which account and" >&2
+    echo "        which tree to register, and guessing either would point BCM" >&2
+    echo "        at a path that runs nothing. Incomplete checkout?" >&2
+    exit 1
+}
+source "$_home/settings.sh"
 
 NODE_HEALTH_SCRIPT="$BRINGUP_HOME/actions/node_health.sh"
 FILE_COPY_SCRIPT="$BRINGUP_HOME/actions/file_copy.sh"
@@ -104,6 +109,6 @@ cm_trigger LaunchJobTrigger launch_job_action || rc=1
 #cmsh -c "monitoring trigger; add LaunchJobTrigger; use LaunchJobTrigger; set disabled no; set severity 10; set duringactions launch_job_action; expression; use compare; set measurables spcx_node_ready; set operator ==; set value PASS; ..;..; set markentityasfailed no; set markentityasunknown no; commit"
 
 ## in progress health checks
-#cmsh -c 'monitoring setup; add healthcheck spcx_node_ready; use spcx_node_ready; set script /home/cmods/bringup/actions/valid-node-check.sh; set class Validation; set interval 1m; set disabled no; nodeexecutionfilters; add category spcx_hosts_only; set categories spcx-hosts; commit'
+#cmsh -c 'monitoring setup; add healthcheck spcx_node_ready; use spcx_node_ready; set script $BRINGUP_HOME/actions/valid-node-check.sh; set class Validation; set interval 1m; set disabled no; nodeexecutionfilters; add category spcx_hosts_only; set categories spcx-hosts; commit'
 
 exit "$rc"

@@ -136,10 +136,11 @@ if [[ "$DO_IMAGE" -eq 1 ]]; then
     ## /tmp/containers on each node like every other image. Without that, every
     ## node streams the same multi-GB squashfs off one filer at once.
     ## See docs/how-to/enable-llm-pretrain.md#1-install-on-the-head-node.
+    mkdir -p "$CONTAINER_DIR_HEAD" || die "cannot create $CONTAINER_DIR_HEAD"
     shopt -s nullglob
     staged=0
     for sqsh in "$images"/*.sqsh; do
-        cp -u "$sqsh" "$home/containers/" || die "cannot stage ${sqsh##*/} into $home/containers/"
+        cp -u "$sqsh" "$CONTAINER_DIR_HEAD/" || die "cannot stage ${sqsh##*/} into $CONTAINER_DIR_HEAD/"
         echo "staged ${sqsh##*/} for file_copy.sh"
         staged=$((staged + 1))
     done

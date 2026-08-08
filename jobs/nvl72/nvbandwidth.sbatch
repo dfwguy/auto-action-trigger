@@ -8,7 +8,7 @@
 #SBATCH -t 0:40:00
 #SBATCH --nice=20
 ## 20 is the sweep's tier; higher is later. See docs/reference/jobs.md#queue-priority.
-##SBATCH -o /home/cmods/bringup/results/%N/nvbandwidth.txt
+##SBATCH -o <BRINGUP_HOME>/results/%N/nvbandwidth.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
 ## implies --exact. See docs/reference/jobs.md#the-allocation-header.
@@ -43,7 +43,7 @@ srun --ntasks=1 bash -c '
 ## the shared path the fallback. See docs/explanation/containers.md#how-the-caching-works.
 IMG=nvbandwidth-v0.9-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=/tmp/containers/$IMG
-[[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
+[[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}/$IMG
 ## Registry alternative -- needs enroot credentials on every compute node:
 #case "$(uname -m)" in
 #    aarch64) CONT=docker://nvcr.io#0948245400141054/nvbandwidth-single-node:v0.9-arm ;;

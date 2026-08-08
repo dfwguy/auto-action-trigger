@@ -221,6 +221,7 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/report-format-test.sh  # node-list wrapping, if you touched report-format.sh
 ./tests/health-scan-test.sh    # the health verdict, if you touched health-scan.sh
 ./tests/health-report-test.sh  # the buckets and --drained, if you touched health-check.sh
+./tests/job-user-test.sh      # the two-account differential, if you touched JOB_USER, a path derived from it, or CONTAINER_DIR
 ./tests/doc-links-test.sh      # every docs/ anchor the code points at, if you moved or retitled one
 bash -n <changed script>       # these scripts run as root on 200+ nodes
 shellcheck -S warning <changed script>   # CI gates on this; see below

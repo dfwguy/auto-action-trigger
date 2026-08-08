@@ -47,7 +47,8 @@
 ## teams' checkouts. See docs/how-to/pause-and-resume.md#emptying-the-queue-now.
 self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 home=""
-for cand in "$self_dir" "${BRINGUP_HOME:-/home/cmods/bringup}"; do
+for cand in "$self_dir" "${BRINGUP_HOME:-}"; do
+    [[ -n "$cand" ]] || continue
     [[ -f "$cand/SETTINGS" || -f "$cand/SETTINGS.default" ]] && { home="$cand"; break; }
 done
 
@@ -100,11 +101,11 @@ if [[ "$pause" -eq 1 && "$dryrun" -eq 1 ]]; then
     if [[ -n "$home" ]]; then
         echo "WOULD SET PAUSE_JOBS=yes in $home/SETTINGS$([[ -f "$home/SETTINGS" ]] || printf ', created from SETTINGS.default')"
     else
-        echo "WOULD NOT PAUSE: no SETTINGS or SETTINGS.default beside $self_dir or at ${BRINGUP_HOME:-/home/cmods/bringup}"
+        echo "WOULD NOT PAUSE: no SETTINGS or SETTINGS.default beside $self_dir${BRINGUP_HOME:+ or at $BRINGUP_HOME}"
     fi
 elif [[ "$pause" -eq 1 ]]; then
     if [[ -z "$home" ]]; then
-        pause_failed="no SETTINGS or SETTINGS.default beside $self_dir or at ${BRINGUP_HOME:-/home/cmods/bringup} -- set BRINGUP_HOME to the deployed tree"
+        pause_failed="no SETTINGS or SETTINGS.default beside $self_dir${BRINGUP_HOME:+ or at $BRINGUP_HOME} -- set BRINGUP_HOME to the deployed tree"
     else
         settings="$home/SETTINGS"
         if [[ ! -f "$settings" ]]; then

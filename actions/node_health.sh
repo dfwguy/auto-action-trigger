@@ -20,12 +20,11 @@
 # Fires on every BCM monitoring cycle and re-checks on a cadence, tracing every
 # gate to results/<node>/health.log. See docs/explanation/health-cadence.md.
 
-## BCM invokes this by absolute path, so the tree is located by hardcoded path,
-## not $0. A missing settings.sh is fatal rather than defaulted: no check
-## directory means nothing runs and every node is reported healthy.
-## NODE_HEALTH_HOME exists for tests/health-cadence-test.sh, which runs this
-## file against a stub tree; nothing in the deployment sets it.
-home="${NODE_HEALTH_HOME:-/home/cmods/bringup}"
+## Located from this file, not a literal path. See docs/reference/layout.md#runtime-paths.
+## A missing settings.sh is fatal rather than defaulted: no check directory
+## means nothing runs and every node is reported healthy.
+## NODE_HEALTH_HOME is for the test suites; nothing in the deployment sets it.
+home="${NODE_HEALTH_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 if [[ ! -f "$home/settings.sh" ]]; then
     echo "########ERROR: $home/settings.sh is missing -- refusing to run, because" >&2
     echo "               no checks found would report every node as healthy." >&2
@@ -42,7 +41,7 @@ EXPLAIN=0
 FORCE=0
 VERBOSE=0; [[ -t 1 ]] && VERBOSE=1
 usage() {
-    cat <<'USAGE'
+    cat <<USAGE
 Usage: node_health.sh [--explain] [--force] [--verbose|--quiet]
 
   --explain, -n   dry run: print every gate, run no check, drain nothing
@@ -53,7 +52,7 @@ Usage: node_health.sh [--explain] [--force] [--verbose|--quiet]
 Decides about the node it runs on, and takes no node argument. To sweep a set
 of nodes, name them where they can be reached:
 
-  pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/node_health.sh -f -v'
+  pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '$home/actions/node_health.sh -f -v'
 
 With no arguments -- how BCM invokes it -- the checks re-run once every
 HEALTH_INTERVAL_HOURS, or sooner if the last run found something.

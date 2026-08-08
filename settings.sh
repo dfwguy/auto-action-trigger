@@ -113,11 +113,19 @@ fi
 ## Deliberately not exported -- launch_job.sh is the only reader and hands it
 ## to sbatch --export. See docs/reference/settings.md#extra-environment-for-every-job.
 : "${JOB_ENV=}"
+## The only account name in the tree; the paths derive from it.
+## See docs/reference/settings.md#accounts-and-paths.
 : "${JOB_USER:=cmods}"
-: "${BRINGUP_HOME:=/home/cmods/bringup}"
+: "${BRINGUP_HOME:=/home/$JOB_USER/bringup}"
+## Its own share, and the _HEAD pair is the head node's mount point for it.
+## See docs/explanation/containers.md#one-share-two-mount-points.
+: "${CONTAINER_DIR:=$BRINGUP_HOME/containers}"
+: "${CONTAINER_DIR_HEAD:=$CONTAINER_DIR}"
+: "${CONTAINER_STAGE_DIR:=$BRINGUP_HOME/container-src}"
+: "${CONTAINER_STAGE_DIR_HEAD:=$CONTAINER_STAGE_DIR}"
 ## `=` not `:=`, like CONTAINERS: empty means no llmb install.
 ## See docs/explanation/llmb.md#where-the-install-lives.
-: "${LLMB_INSTALL=/home/cmods/llmb}"
+: "${LLMB_INSTALL=/home/$JOB_USER/llmb}"
 : "${LLMB_REF=v26.06.01}"
 ## `=` not `:=`: empty means "search for it", which is how an install this tree
 ## did not build is adopted. llmb_check.py owns the search order.

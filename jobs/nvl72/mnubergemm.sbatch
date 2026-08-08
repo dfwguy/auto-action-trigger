@@ -46,7 +46,7 @@ srun --ntasks=1 bash -c '
 ## copy rsync'd by actions/file_copy.sh.
 IMG=mnubergemm-26.03-v1.17-arm.sqsh
 CONT=/tmp/containers/$IMG
-[[ -f "$CONT" ]] || CONT=/home/cmods/bringup/containers/$IMG
+[[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}/$IMG
 
 # Important for manual/hand-rolled container launches
 #unset XDG_CACHE_HOME
