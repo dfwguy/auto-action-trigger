@@ -42,8 +42,11 @@ plan to violate by using fewer of them. Every derived quantity is a function of
 the GPU count — `GBS = MBS × GA × DP = 2 × 8 × GPUs`, exactly the `GPUs×16` in
 the table — and that identity holds at 4 and at 1 just as it does at 8.
 
-8B replicated per GPU is roughly 128 GB of Adam state against a GB200's ~186 GB.
-It fits, which is why the recipe shards nothing in the first place.
+It fits, which is why the recipe shards nothing in the first place. Measured on
+a GB300 tray at four GPUs, from the run's own report: weight and optimizer
+**68.9 GB** theoretical, **59.9 GB** allocated, **193.8 GB** reserved. The
+reserved figure is the one that decides whether a scale fits, and it is most of
+the device — which is why nothing smaller than this recipe has room to spare.
 
 **What it costs.** Numbers from a forced 4-GPU run are *not* comparable to
 NVIDIA's published 8-GPU figures: different global batch size, uncharacterised
@@ -375,8 +378,11 @@ two are the halves of the install that the frozen job still needs —
 
 Two things in `llm-pretrain-solo.sbatch` do this, and both are load-bearing:
 
-- `--gpus-per-task=1` gives each task its own `CUDA_VISIBLE_DEVICES`, so rank N
-  sees GPU N and nothing else.
+- `--gres=gpu:4 --gpu-bind=single:1` gives each task its own
+  `CUDA_VISIBLE_DEVICES`, so rank N sees GPU N and nothing else. `--gpus-per-task=1`
+  reads as the same thing and is not: the first run of this job that reached a
+  node gave a device to rank 0 and none to ranks 1–3, which fail at
+  `Megatron requires CUDA` rather than at anything mentioning GPUs.
 - `WORLD_SIZE=1 RANK=0 LOCAL_RANK=0` inside the step. NeMo reads the `SLURM_*`
   rank variables and would otherwise form one four-way distributed group across
   the tasks — which is `llm-pretrain`, not this job, and would report a single
@@ -385,6 +391,35 @@ Two things in `llm-pretrain-solo.sbatch` do this, and both are load-bearing:
 
 `srun --label` prefixes each line with its task id. That prefix is the only
 thing tying a step time to a GPU, and `verdict.sh` parses it — do not remove it.
+
+## Why the solo job turns CUDA graphs off
+
+At `--num_gpus 1` there is no data-parallel group, so the distributed optimizer
+has nothing to shard its state across and each copy carries the whole thing.
+Measured on a GB300, from the two runs' own reports:
+
+| | `llm-pretrain` (4 GPUs) | `llm-pretrain-solo` (1 GPU) |
+|---|---|---|
+| weight + optimizer, theoretical | 68.9 GB | **137.9 GB** |
+| allocated | 59.9 GB | **156.3 GB** |
+| CUDA graph private pools | — | 131.3 GB |
+| in use, against 276.5 GB | — | **276.0 GB** |
+
+The first attempt died at iteration 4, immediately after `CUDA graph capture
+done`, failing to allocate 448 MiB. 156 GB of weights and optimizer fits on the
+device with room to spare; 156 plus 131 GB of full-iteration graph pools does
+not. `--cuda_graph_impl none` is the whole fix, and it is the cheapest of the
+levers the recipe exposes — the others (`--recompute_num_layers`,
+`--activation_offload_layers`, `--use_megatron_fsdp`) cost step time, or in
+FSDP's case do nothing at all when there is one rank.
+
+**The two jobs are therefore not measured under the same execution mode**, and
+that is accepted rather than tolerated. `llm-pretrain` asks whether the node can
+train; `llm-pretrain-solo` asks which of its four GPUs is slow, and answers it
+by comparing the four against each other in the same run. Neither question needs
+the two jobs' step times to be comparable, and making them comparable would
+mean giving up either the graphs on the four-way run or the job's ability to run
+at all. Do not "fix" this by aligning them.
 
 ## Judging the four step times
 

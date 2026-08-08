@@ -93,9 +93,9 @@ export TRANSFORMERS_OFFLINE=1
 
 ## ── The four independent ranks ────────────────────────────────────────────
 ## Three things are load-bearing here and all three are explained in
-## docs/explanation/llmb.md#keeping-the-four-solo-copies-independent: --gpus-per-task=1 (one GPU
-## per rank), WORLD_SIZE=1 (stops NeMo forming one four-way group across them),
-## and --label (the task-id prefix verdict.sh parses).
+## docs/explanation/llmb.md#keeping-the-four-solo-copies-independent: --gpu-bind=single:1 (one
+## GPU per rank), WORLD_SIZE=1 (stops NeMo forming one four-way group across
+## them), and --label (the task-id prefix verdict.sh parses).
 unset CUDA_VISIBLE_DEVICES
 
 ## The recipe's own environment, the same block the sibling job carries.
@@ -119,7 +119,7 @@ case "$HF_HOME" in
 esac
 
 srun --time="$STEP_TIMELIMIT" --label --export=ALL \
-        --ntasks=4 --gpus-per-task=1 \
+        --ntasks=4 --gres=gpu:4 --gpu-bind=single:1 \
         --cpu-bind=cores \
         --container-image="${CONT}" \
         --container-mounts="${MOUNTS}" \
@@ -131,7 +131,8 @@ srun --time="$STEP_TIMELIMIT" --label --export=ALL \
     echo "gpu $SLURM_PROCID: $(nvidia-smi --query-gpu=uuid --format=csv,noheader)"
     ## The sibling recipe with --num_gpus 1, captured from a scale-1 submission.
     ## Single-process by construction: no torchrun, no distributed launcher.
-    ## See docs/how-to/capture-an-sbatch-from-llmb-run.md.
+    ## --cuda_graph_impl none is what makes it fit on one GPU; see
+    ## docs/explanation/llmb.md#why-the-solo-job-turns-cuda-graphs-off.
     python '"$PERF_DIR"'/run_script.py \
         --model_family_name llama \
         --model_recipe_name llama3_8b \
@@ -139,6 +140,7 @@ srun --time="$STEP_TIMELIMIT" --label --export=ALL \
         --container_image '"$CONT"' \
         --num_gpus 1 \
         --gpus_per_node 4 \
+        --cuda_graph_impl none \
         --offline \
         --max_steps=50 \
         --custom_mounts='"$HF_HOME"' \
