@@ -385,3 +385,95 @@ only state any of this keeps between runs. Past the cap the drain is left
 which would hand the node to the sequencer's own resume path and start the
 flapping again by another route. The node stays out of service with Slurm's
 reason on it, and the count is in the trace and in `recover.log`.
+
+## A step that outlives its own kill
+
+Everything above assumes the condition behind a drain eventually clears, so a
+hold is temporary and the next cycle is free to look again. One condition never
+clears, and it is the one that produces the most convincing-looking hold.
+
+When a step ignores `SIGKILL` for longer than `UnkillableStepTimeout`, slurmd
+gives up and Slurm drains the node with `Kill task failed (JobId=… StepId=…)`.
+That reason is in the shipped `RECOVER_REASONS` — correctly, because most of the
+time the processes do die a moment later and the node is fine. When they do not,
+the recovery reaches the GPU-process gate every cycle, finds the same pids, and
+writes the same `recover held:` line forever. Nothing is wrong with that
+judgement. A resume would be actively harmful: the node would take work while a
+previous job's ranks still hold its GPUs.
+
+The case this was built from was a `nvl72` NVLink-only `allreduce`, a job with a
+25-minute walltime, whose four `all_reduce_perf` ranks were still on the GPUs
+four and a half hours later in state `Rl` — running, not blocked. A rank
+spinning inside a CUDA kernel cannot be reaped, because the pending `SIGKILL` is
+only delivered when the kernel returns and the kernel is waiting on a peer that
+NVLink can no longer reach. The node had been held every 45 seconds since, and
+the only thing that would have told anyone was somebody happening to read one
+node's `trigger.log`.
+
+So past `RECOVER_UNKILLABLE_AFTER_SECS` the condition is named, and — where the
+site allows it — the node is taken out of service and handed over.
+
+The naming and the acting are separate on purpose. `RECOVER_DOWN_UNKILLABLE`
+gates only the `scontrol update state=DOWN`; the detection runs either way, and
+a node that meets every condition says so in its trace with the switch off. A
+site running `DRAIN_AFTER_FAILED_HEALTH_CHECK=no` and
+`DRAIN_AFTER_FAILED_BENCHMARK=no` has said it wants this tree to observe and not
+to take nodes out of service, and gating the *finding* on the switch would leave
+exactly that site with the repeating held line and nothing else — which is the
+failure this section exists to fix, not a configuration of it.
+
+When it does act:
+
+- **`DOWN`, not `DRAIN`.** A drained node keeps its allocation, which is exactly
+  the state it is already stuck in. Marking it `DOWN` makes slurmctld stop
+  waiting for a confirmation slurmd is never going to send, and release the job.
+  That is also why this is **off by default**: on a multi-node allocation it
+  releases everybody's ranks, not just the wedged node's, and that is a decision
+  a site makes rather than inherits.
+- **The reason text is the mechanism.** It is written as
+  `unkillable job: N GPU process(es) survived …s past their step kill — needs
+  manual intervention`, and every word of that is chosen not to match
+  `RECOVER_REASONS` and not to contain `DRAIN_MARKER`. Classified back it comes
+  out `operator`, which
+  [nothing in this tree ever clears](#how-an-operators-drain-is-protected).
+  Quote the original `Kill task failed` into it and the class flips to
+  `machine`, and the next cycle resumes the node this just condemned — so
+  `tests/recover-test.sh` classifies the string the code actually writes, rather
+  than a copy of it, and does the same again with Slurm's ` : Not responding`
+  appended.
+- **Keyed on the pid set, not on elapsed time alone.** The first-seen epoch and
+  the pids live in `results/<node>/unkillable.stamp`, the second and last piece
+  of state any of this keeps. A changed pid set is a different incident and
+  restarts the clock, which is what keeps a node whose steps are being killed
+  and replaced normally from accumulating its way to `DOWN`.
+- **And Slurm has to agree, independently.** A stationary pid set is suggestive,
+  not conclusive — a long job that has settled into a steady set of ranks looks
+  identical. So the second proof is asked of Slurm: no job assigned to the node
+  may still be inside its own time limit. This is read from `squeue -o '%e'`,
+  which is start plus the job's limit as an absolute time, so nothing here
+  parses a Slurm duration in a format that varies by release. A step kill can
+  fail on one step while the job legitimately carries on with the next, and that
+  job is not a wedge.
+- **An unlimited job is never enough.** `%e` reports `N/A` when there is no time
+  limit, and there is then no limit to have exceeded — no evidence separating a
+  wedged step from a long one. Those nodes stay held and go to an operator, as
+  does anything else `%e` cannot be read from. The gate is asymmetric on
+  purpose: the failure it can cause is a node taken out of service and an
+  allocation released, so every unknown resolves to *not that*.
+- **Narrowed to the one reason that means Slurm already tried.** Every drain
+  holds on busy GPUs; only `RECOVER_UNKILLABLE_REASONS` means slurmd has already
+  failed to kill what is on them. A `Prolog error` with live GPU processes is a
+  node someone else is legitimately using.
+
+Nothing about this is recorded in `recover.log`. That file is the attempt
+history the rate limit reads, and it counts *resumes* — a node marked `DOWN`
+resumed nothing, and spending an attempt on it would make the fleet's recovery
+budget depend on how many nodes had wedged.
+
+Two limits worth knowing before relying on it. A node already past
+`RECOVER_MAX_ATTEMPTS` returns `rate-limited` before the readiness gates run, so
+it is never reached here — it is already left for an operator, with a worse
+reason on it. And once the node is `DOWN`, every later cycle classifies it
+`operator` and traces `recover skipped:`, once per cycle, for as long as it sits
+there. That is the same standing-noise trade the rest of this file makes:
+a line that repeats is how a node that is not coming back stays visible.

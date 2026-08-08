@@ -78,6 +78,11 @@ fi
 ## See docs/explanation/drain-recovery.md#a-rogue-process-drain-names-its-process.
 : "${RECOVER_PREJOB_LOGS:=/cm/local/apps/slurm/var/pre-post-job-logs/failed-pre-jobs}"
 : "${RECOVER_PREJOB_SLACK_SECS:=900}"
+## Off by default: marking a node DOWN releases whatever allocation it holds.
+## See docs/explanation/drain-recovery.md#a-step-that-outlives-its-own-kill.
+: "${RECOVER_DOWN_UNKILLABLE:=no}"
+: "${RECOVER_UNKILLABLE_REASONS:=Kill task failed|unkillable}"
+: "${RECOVER_UNKILLABLE_AFTER_SECS:=3600}"
 ## `=` not `:=`, like CONTAINERS: empty is the shipped answer and a real one --
 ## it means "one worker per core". See docs/reference/settings.md#reporting.
 : "${SCAN_JOBS=}"

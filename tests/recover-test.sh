@@ -44,8 +44,13 @@ fi
 exit 0
 EOF
 
+## Two questions, told apart by the format: `%i` is the job-assigned gate, `%e`
+## is the end time the unkillable gate reads. STUB_JOB_ENDS is verbatim squeue
+## output, so a case can say `N/A` as easily as a timestamp.
 cat > "$stub/squeue" <<'EOF'
 #!/bin/bash
+for a in "$@"; do [[ "$a" == "%e" ]] && { [[ -n "$STUB_JOB_ENDS" ]] &&
+    printf '%s\n' "$STUB_JOB_ENDS"; exit 0; }; done
 [[ -n "$STUB_JOBS" ]] && printf '%s\n' $STUB_JOBS
 exit 0
 EOF
@@ -143,6 +148,9 @@ run_case() {
         export PATH="$stub:$PATH" STUB_DIR="$dir"
         export STUB_STATE="drained" STUB_SETTER="slurm" STUB_WHEN="2026-07-28T04:12:00"
         export STUB_REASON="" STUB_JOBS="" STUB_GPU_PIDS="" STUB_SINFO_EMPTY=""
+        ## Empty is "no allocation left here at all", which is the orphaned-
+        ## process case and not a job still owed time.
+        export STUB_JOB_ENDS=""
         export STUB_RESTART_WORKS="" STUB_SCONTROL_ERROR=""
         ## A node whose hardware is all present, so only a case that says
         ## otherwise exercises the short-count path.
@@ -552,6 +560,138 @@ run_case "cap, but outside the window" resumed STUB_REASON="Prolog error"
 run_case "a recovery is recorded" resumed STUB_REASON="Prolog error"
 [[ "$(grep -c . "$CASE_DIR/recover.log" 2>/dev/null)" == "1" ]] ||
     bad "  ... but nothing was written to recover.log"
+
+echo "== a step that outlives its own kill =="
+
+downed_node() { grep -q 'state=DOWN' "$CASE_DIR/scontrol.calls" 2>/dev/null; }
+
+## Shipped default. The switch gates the action only -- a site that never lets
+## this tree take a node out of service still has to be told the node is wedged,
+## or the held line repeats forever saying nothing new.
+setup='printf "%s\t%s\n" "$(( $(date +%s) - 7200 ))" "1847634 1847662" \
+           > "$STUB_DIR/unkillable.stamp"'
+run_case "unkillable, but the switch is off" not-ready \
+    STUB_REASON="Kill task failed (JobId=132603 StepId=2)" \
+    STUB_GPU_PIDS="1847634 1847662"
+downed_node && bad "  ... and it marked the node DOWN with the switch off"
+grep -q "outlived its own kill" "$CASE_DIR/trace" ||
+    bad "  ... and the held line did not name what it had found"
+grep -q "clear-an-unkillable-step" "$CASE_DIR/trace" ||
+    bad "  ... and it did not say where to read what to do about it"
+
+run_case "unkillable, first sighting" not-ready \
+    RECOVER_DOWN_UNKILLABLE="yes" \
+    STUB_REASON="Kill task failed (JobId=132603 StepId=2)" \
+    STUB_GPU_PIDS="1847634 1847662"
+downed_node && bad "  ... and it marked DOWN before the clock had run"
+grep -q "unchanged for 0s" "$CASE_DIR/trace" ||
+    bad "  ... and the held line did not say the clock was running"
+
+setup='printf "%s\t%s\n" "$(( $(date +%s) - 7200 ))" "1847634 1847662" \
+           > "$STUB_DIR/unkillable.stamp"'
+run_case "unkillable, past the threshold" downed \
+    RECOVER_DOWN_UNKILLABLE="yes" \
+    STUB_REASON="Kill task failed (JobId=132603 StepId=2)" \
+    STUB_GPU_PIDS="1847634 1847662"
+downed_node || bad "  ... but no scontrol update was issued"
+resumed_node && bad "  ... and it resumed the node as well"
+[[ -f "$CASE_DIR/recover.log" ]] && bad "  ... and it spent a resume attempt on it"
+
+## The reason written above is the whole mechanism: classified back, it has to
+## come out `operator`, or the next cycle recovers the node it just condemned.
+down_reason=$(sed -n 's/.*state=DOWN reason=//p' "$CASE_DIR/scontrol.calls" | head -1)
+[[ -n "$down_reason" ]] || bad "  ... and no reason was recorded to classify"
+(
+    source "$home/settings.sh"
+    source "$home/slurm-recovery.sh"
+    [[ "$(recover_classify "$down_reason" "root")" == "operator" ]]
+) || bad "  ... and the reason it wrote classifies as '$(
+    source "$home/settings.sh"; source "$home/slurm-recovery.sh"
+    recover_classify "$down_reason" "root")', so recovery would clear it"
+
+## Slurm appends this to whatever reason a node already had; the base of it
+## still has to classify as operator.
+(
+    source "$home/settings.sh"
+    source "$home/slurm-recovery.sh"
+    [[ "$(recover_classify "$(recover_base_reason "$down_reason : Not responding")" "slurm")" == "operator" ]]
+) || bad "  ... and it stops being an operator reason once Slurm appends to it"
+
+## Different pids are a different incident, however old the stamp is.
+setup='printf "%s\t%s\n" "$(( $(date +%s) - 7200 ))" "111 222" \
+           > "$STUB_DIR/unkillable.stamp"'
+run_case "unkillable, but the pid set changed" not-ready \
+    RECOVER_DOWN_UNKILLABLE="yes" \
+    STUB_REASON="Kill task failed (JobId=132603 StepId=2)" \
+    STUB_GPU_PIDS="1847634 1847662"
+downed_node && bad "  ... and it marked DOWN on a restarted clock"
+
+## Every other drain reason keeps the GPUs busy too. Only the one that means
+## Slurm has already failed to kill the step may take a node out of service.
+setup='printf "%s\t%s\n" "$(( $(date +%s) - 7200 ))" "1847634 1847662" \
+           > "$STUB_DIR/unkillable.stamp"'
+run_case "GPUs busy under some other drain" not-ready \
+    RECOVER_DOWN_UNKILLABLE="yes" \
+    STUB_REASON="Prolog error" STUB_GPU_PIDS="1847634 1847662"
+downed_node && bad "  ... and it marked DOWN a node Slurm never failed to kill"
+
+## Slurm's own end time is the second proof, and an unlimited job has none:
+## there is no limit to have exceeded, so nothing here may take the node out of
+## service. Same for an end time this cannot read.
+for end in "N/A" "UNLIMITED" "Unknown" "not-a-timestamp"; do
+    setup='printf "%s\t%s\n" "$(( $(date +%s) - 7200 ))" "1847634 1847662" \
+               > "$STUB_DIR/unkillable.stamp"'
+    run_case "unkillable, job end time '$end'" not-ready \
+        RECOVER_DOWN_UNKILLABLE="yes" \
+        STUB_REASON="Kill task failed (JobId=132603 StepId=2)" \
+        STUB_GPU_PIDS="1847634 1847662" STUB_JOB_ENDS="$end"
+    downed_node && bad "  ... and it marked DOWN a node whose job may still be owed time"
+done
+grep -q "no time limit" "$CASE_DIR/trace" ||
+    grep -q "cannot read" "$CASE_DIR/trace" ||
+    bad "  ... and the held line did not say why it stopped short"
+
+## Past its limit by an hour, and still on the GPUs: both proofs agree.
+setup='printf "%s\t%s\n" "$(( $(date +%s) - 7200 ))" "1847634 1847662" \
+           > "$STUB_DIR/unkillable.stamp"'
+run_case "unkillable, job an hour past its limit" downed \
+    RECOVER_DOWN_UNKILLABLE="yes" \
+    STUB_REASON="Kill task failed (JobId=132603 StepId=2)" \
+    STUB_GPU_PIDS="1847634 1847662" \
+    STUB_JOB_ENDS="$(date -d '1 hour ago' '+%Y-%m-%dT%H:%M:%S')"
+
+## Inside its limit is a job someone is legitimately still running, whatever
+## an earlier step's kill did to the node.
+setup='printf "%s\t%s\n" "$(( $(date +%s) - 7200 ))" "1847634 1847662" \
+           > "$STUB_DIR/unkillable.stamp"'
+run_case "unkillable, job still inside its limit" not-ready \
+    RECOVER_DOWN_UNKILLABLE="yes" \
+    STUB_REASON="Kill task failed (JobId=132603 StepId=2)" \
+    STUB_GPU_PIDS="1847634 1847662" \
+    STUB_JOB_ENDS="$(date -d '2 hours' '+%Y-%m-%dT%H:%M:%S')"
+downed_node && bad "  ... and it marked DOWN a job that was still inside its limit"
+
+## One wedged job past its limit does not license downing the node while a
+## second is still owed time.
+setup='printf "%s\t%s\n" "$(( $(date +%s) - 7200 ))" "1847634 1847662" \
+           > "$STUB_DIR/unkillable.stamp"'
+run_case "unkillable, one job past its limit and one not" not-ready \
+    RECOVER_DOWN_UNKILLABLE="yes" \
+    STUB_REASON="Kill task failed (JobId=132603 StepId=2)" \
+    STUB_GPU_PIDS="1847634 1847662" \
+    STUB_JOB_ENDS="$(date -d '1 hour ago' '+%Y-%m-%dT%H:%M:%S')
+$(date -d '2 hours' '+%Y-%m-%dT%H:%M:%S')"
+downed_node && bad "  ... and it released an allocation that was still owed time"
+
+setup='printf "%s\t%s\n" "$(( $(date +%s) - 7200 ))" "1847634 1847662" \
+           > "$STUB_DIR/unkillable.stamp"'
+run_case "unkillable, dry run" downed \
+    RECOVER_DOWN_UNKILLABLE="yes" RECOVER_DRY_RUN="1" \
+    STUB_REASON="Kill task failed (JobId=132603 StepId=2)" \
+    STUB_GPU_PIDS="1847634 1847662"
+downed_node && bad "  ... but --explain issued a scontrol update"
+grep -q "WOULD MARK DOWN" "$CASE_DIR/trace" ||
+    bad "  ... and --explain did not say what it would have done"
 
 echo "== switches and edges =="
 
