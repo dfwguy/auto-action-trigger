@@ -146,10 +146,46 @@ absent "and never pooled across them" "    alpha                      2 nodes" "
 ## one node.
 absent "a node is counted once in its block header" "Slurm state: idle — 2 nodes" "$split"
 
+## ── --individual ──────────────────────────────────────────────────────────
+## Groups nodes by the whole check file rather than by pass/fail, so the values
+## the fleet actually carries are visible. beta splits 3 good against 1 bad.
+
+ind=$(run --individual beta)
+
+check "every node with that check file" "beta — 4 nodes" "$ind"
+
+## Identical files group together however far apart the nodes sort, and the
+## group carries the file that produced it.
+check "the matching nodes are one group" $'3 nodes\n  node02,node03,node05' "$ind"
+check "and the odd one out is its own" $'1 node\n  node01' "$ind"
+check "the file content is under each group" "BAD" "$ind"
+
+## Largest first, so the value most of the fleet carries leads.
+order=$(grep -E '^[0-9]+ nodes?$' <<< "$ind" | paste -sd, -)
+check "largest group first" "3 nodes,1 node" "$order"
+
+## The logs are the whole input: no Slurm state is read, so nothing about
+## drains can appear here.
+absent "no Slurm state is read" "drained" "$ind"
+absent "and no failure grouping" "FAILED HEALTH CHECKS" "$ind"
+
+## The node pattern is the second argument, the check name the first.
+narrowed=$(run --individual beta 'node0[12]')
+check "the node pattern still filters" "beta — 2 nodes" "$narrowed"
+
+## Both of these are silent as an empty report, so both are named.
+check "a check name is required" "rc=2" "$(run --individual >/dev/null 2>&1; echo "rc=$?")"
+check "an unknown check says so" "No logs/<node>/nosuch found" "$(run --individual nosuch)"
+
 ## ── The two roll-ups are reports, not filters ─────────────────────────────
 
 both=$(run --summary --drained; echo "rc=$?")
 check "--summary and --drained do not combine" "rc=2" "$both"
+
+## --individual reads its first argument as a check name, so combining it would
+## silently reinterpret the caller's pattern.
+check "--individual does not combine either" "rc=2" \
+    "$(run --individual beta --summary >/dev/null 2>&1; echo "rc=$?")"
 
 echo
 if [[ "$fails" -eq 0 ]]; then

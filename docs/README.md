@@ -24,6 +24,7 @@ guides assume you already have.
 | [first-bringup.md](tutorials/first-bringup.md) | Fresh tree → one node → one passing benchmark → reading its result. Start here at a new site |
 | [understanding-the-triggers.md](tutorials/understanding-the-triggers.md) | Follow one BCM monitoring cycle end to end, and learn why "nothing happened" is written down |
 | [reading-the-fleet.md](tutorials/reading-the-fleet.md) | The three status reports, what each one reads, why two can disagree, and the order to run them in |
+| [reading-health-checks.md](tutorials/reading-health-checks.md) | The three `health-check.sh` views — `--drained`, `--summary`, `--individual` — and the refresh-and-retest loop that verifies a fix |
 | [troubleshooting-with-slurm.md](tutorials/troubleshooting-with-slurm.md) | Move between what Slurm knows about a node and what `results/` knows. Read-only throughout |
 
 ## How-to guides
