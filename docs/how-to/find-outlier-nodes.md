@@ -98,14 +98,14 @@ Because every GPU does identical work in the solo job, **an outlier step time
 names a slow device rather than a slow node**:
 
 ```
-per-GPU step times disagree -- spread above 0.05
-cov 0.074, slowest gpu 2 at 0.4740s vs 0.4202s mean
+per-GPU step times disagree -- spread above 0.02
+cov 0.074, slowest gpu 2 at 3612.4 vs 3341.0 mean per step
 ```
 
-Note that `VERDICT_MAX_COV_LLM_SOLO` ships as `0`, which **skips** the spread
-check entirely — the house convention for a floor with no established band. If
-that job is passing everywhere, check whether the gate is actually running
-before trusting it. See
+`VERDICT_MAX_COV_LLM_SOLO` is `0.02`, four times the `0.005` a healthy tray
+shows, so it fires at a GPU roughly 5% slower than its neighbours. A tray whose
+four GPUs disagree by less than that is not hiding a slow device — it is a
+normal tray. See
 [explanation/llmb.md#judging-the-four-step-times](../explanation/llmb.md#judging-the-four-step-times).
 
 ## 5. Know which direction the finding points

@@ -5,7 +5,7 @@
 #SBATCH --mem=0
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
-#SBATCH -t 1:10:00
+#SBATCH -t 0:30:00
 #SBATCH --nice=20
 ## --nice 20 is the sweep's tier; higher is LATER. See
 ## docs/reference/jobs.md#queue-priority.
@@ -28,7 +28,7 @@ totalRuns=1
 
 ## Handed to srun --time below; #SBATCH -t is this plus a margin so the step
 ## limit fires first. See docs/reference/jobs.md#two-time-limits-and-the-order-they-fire-in.
-STEP_TIMELIMIT=1:00:00
+STEP_TIMELIMIT=0:20:00
 
 ## ------------- job info starts here ------------- ##
 
@@ -44,17 +44,28 @@ srun --ntasks=1 bash -c '
 }
 
 ## Node-local copy first, NFS as fallback. See docs/explanation/containers.md#why-local-images.
-IMG=$(cd /tmp/containers 2>/dev/null && ls llama3.1*.sqsh 2>/dev/null | head -1)
-CONT=/tmp/containers/$IMG
-if [[ -z "$IMG" || ! -f "$CONT" ]]; then
-    shared=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}
-    IMG=$(cd "$shared" 2>/dev/null && ls llama3.1*.sqsh 2>/dev/null | head -1)
-    CONT=$shared/$IMG
-fi
+## The other architecture's image sorts FIRST and pyxis reports the mismatch as
+## `Exec format error`, so it is excluded by name.
+## See docs/explanation/containers.md#matching-the-architecture.
+_other=x86
+[[ "$(uname -m)" == x86_64 ]] && _other=arm
+nemo_image() {
+    local f
+    for f in "$1"/nvidia+nemo+*.sqsh; do
+        [[ -f "$f" && "$f" != *-"$_other".sqsh ]] && { printf '%s\n' "$f"; return 0; }
+    done
+    return 1
+}
+
+shared=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}
+CONT=$(nemo_image /tmp/containers)
+[[ -n "$CONT" ]] || CONT=$(nemo_image "$shared")
+
 ## An empty glob would reach srun as --container-image= and fail as something else.
-[[ -n "$IMG" && -f "$CONT" ]] || {
-    echo "no llama3.1 image in /tmp/containers or $shared"
-    echo "run ./build_llmb.sh on the head node -- see docs/explanation/llmb.md"
+[[ -n "$CONT" && -f "$CONT" ]] || {
+    echo "no nvidia+nemo image for $(uname -m) in /tmp/containers or $shared"
+    echo "build it with the right -a, or copy it out of the llmb install --"
+    echo "see docs/how-to/build-containers.md#nemo"
     echo "exit status: 1"
     echo FAIL
     exit 0
@@ -63,53 +74,90 @@ fi
 ## The sibling's recipe at scale 1. Why one GPU is a valid configuration:
 ## docs/explanation/llmb.md#running-below-the-characterised-scale.
 LLMB_INSTALL=${LLMB_INSTALL:?not set -- launch_job.sh exports it; a bare sbatch must too}
-WORKLOAD=pretrain_llama3.1
-MODEL_SIZE=8b
-DTYPE=fp8
+WORKLOAD_DIR=$LLMB_INSTALL/workloads/pretrain_llama3.1
+PERF_DIR=$WORKLOAD_DIR/Megatron-Bridge/scripts/performance
+
+[[ -f "$PERF_DIR/run_script.py" ]] || {
+    echo "no $PERF_DIR/run_script.py -- the recipe half of the llmb install is missing"
+    echo "exit status: 1"
+    echo FAIL
+    exit 0
+}
 
 ## A cache miss on a node with no route out must fail, not stall.
 ## See docs/explanation/llmb.md#running-offline.
-export HF_HOME="${LLMB_HF:-$LLMB_INSTALL/hf}"
+export HF_HOME="${LLMB_HF:-$LLMB_INSTALL/.cache/huggingface}"
 export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 
 ## ── The four independent ranks ────────────────────────────────────────────
 ## Three things are load-bearing here and all three are explained in
-## docs/explanation/llmb.md#keeping-the-four-solo-copies-independent: --gpus-per-task=1 (one GPU
-## per rank), WORLD_SIZE=1 (stops NeMo forming one four-way group across them),
-## and --label (the task-id prefix verdict.sh parses).
+## docs/explanation/llmb.md#keeping-the-four-solo-copies-independent: the
+## per-rank CUDA_VISIBLE_DEVICES below (one GPU each), WORLD_SIZE=1 (stops NeMo
+## forming one four-way group), and --label (the prefix verdict.sh parses).
 unset CUDA_VISIBLE_DEVICES
 
+## The recipe's own environment, the same block the sibling job carries.
+## See docs/explanation/llmb.md#the-captured-environment.
+export NCCL_NVLS_ENABLE=0
+export NVTE_FWD_LAYERNORM_SM_MARGIN=16
+export NVTE_BWD_LAYERNORM_SM_MARGIN=16
+export TOKENIZERS_PARALLELISM=False
+export TORCH_NCCL_AVOID_RECORD_STREAMS=1
+export TORCH_NCCL_HIGH_PRIORITY=1
+export PYTHONUNBUFFERED=1
+
+## Not read-only: the recipe writes its experiment directory under --log_dir.
 ## An adopted install can keep its HF cache outside the install root, and a
 ## mount that does not cover HF_HOME is an offline cache miss inside the
 ## container. See docs/explanation/llmb.md#adopting-an-existing-install.
-MOUNTS="${LLMB_INSTALL}:${LLMB_INSTALL}:ro"
+MOUNTS="${LLMB_INSTALL}:${LLMB_INSTALL}"
 case "$HF_HOME" in
     "$LLMB_INSTALL"/*) ;;
-    *) MOUNTS="${MOUNTS},${HF_HOME}:${HF_HOME}:ro" ;;
+    *) MOUNTS="${MOUNTS},${HF_HOME}:${HF_HOME}" ;;
 esac
 
 srun --time="$STEP_TIMELIMIT" --label --export=ALL \
-        --ntasks=4 --gpus-per-task=1 \
+        --ntasks=4 \
         --cpu-bind=cores \
         --container-image="${CONT}" \
         --container-mounts="${MOUNTS}" \
+        --container-workdir=/tmp \
+        --no-container-mount-home --container-writable \
         bash -c '
+    export CUDA_VISIBLE_DEVICES=$SLURM_LOCALID
     export WORLD_SIZE=1 RANK=0 LOCAL_RANK=0
+    ## One rendezvous per copy, or the four collide on one port with EADDRINUSE.
+    ## See docs/explanation/llmb.md#keeping-the-four-solo-copies-independent.
+    export MASTER_ADDR=127.0.0.1
+    export MASTER_PORT=$(( 29500 + SLURM_LOCALID ))
     export CUDA_DEVICE_MAX_CONNECTIONS=1
     echo "gpu $SLURM_PROCID: $(nvidia-smi --query-gpu=uuid --format=csv,noheader)"
-    ## ---------------------------------------------------------------------
-    ## TRAINING COMMAND -- fill this in from
-    ##   llmb-run submit -w '"$WORKLOAD"' -s '"$MODEL_SIZE"' --dtype '"$DTYPE"' \
-    ##                   --scale 1 --force --dry-run
-    ## run on the head node. Take the training invocation out of the generated
-    ## script, not the sbatch wrapper around it. It must be a SINGLE-PROCESS
-    ## invocation: no torchrun, no srun, no distributed launcher. See
-    ## docs/how-to/enable-llm-pretrain.md#3-filling-in-the-solo-training-command.
-    ## ---------------------------------------------------------------------
-    echo "llm-pretrain-solo: no training command configured -- see docs/how-to/enable-llm-pretrain.md#3-filling-in-the-solo-training-command" >&2
-    exit 1
+    ## The sibling recipe with --num_gpus 1, captured from a scale-1 submission.
+    ## Single-process by construction: no torchrun, no distributed launcher.
+    ## --cuda_graph_impl none is what makes it fit on one GPU; see
+    ## docs/explanation/llmb.md#why-the-solo-job-turns-cuda-graphs-off.
+    python '"$PERF_DIR"'/run_script.py \
+        --model_family_name llama \
+        --model_recipe_name llama3_8b \
+        --gpu gb300 \
+        --container_image '"$CONT"' \
+        --num_gpus 1 \
+        --gpus_per_node 4 \
+        --cuda_graph_impl none \
+        --offline \
+        --max_steps=50 \
+        --custom_mounts='"$HF_HOME"' \
+        --compute_dtype fp8_cs \
+        --enable_pct_binding false \
+        --config_variant v2 \
+        --account "$SLURM_JOB_ACCOUNT" \
+        --partition "$SLURM_JOB_PARTITION" \
+        --log_dir '"$WORKLOAD_DIR"' \
+        --time_limit '"$STEP_TIMELIMIT"' \
+        --packager none \
+        train.manual_gc=true train.manual_gc_interval=100
 '
 rc=$?
 

@@ -203,6 +203,39 @@ silently produce the wrong image. Update `IMG` in
 `RUN_BURNIN` is turned on. See
 [enable-a-benchmark.md#turn-burn-in-on](enable-a-benchmark.md#turn-burn-in-on).
 
+### nemo
+
+Public NGC catalog image, imported like `hpc-benchmarks`. **Name the
+architecture** — the compute nodes are ARM and the head node may not be:
+
+```bash
+./build_containers.sh -a arm nemo
+```
+
+A registry pull cross-builds for free, so this finishes on the head node. Get it
+wrong and the job fails at container start with `Exec format error`, which names
+nothing useful — see
+[explanation/containers.md#matching-the-architecture](../explanation/containers.md#matching-the-architecture).
+
+It is the image both LLM jobs run, and it is large — budget tens of gigabytes.
+The tag is pinned in `build_containers.sh` as `NEMO_TAG` and **must match the
+recipe the jobs were captured against**; the framework version is the only thing
+tying a step time to a recipe now that `llmb-run` is not in the launch path. See
+[explanation/llmb.md#the-frozen-recipe](../explanation/llmb.md#the-frozen-recipe).
+
+The llmb installer imports the same image into `$LLMB_INSTALL/images/`. If you
+already have an install, copying it across is faster than importing it twice:
+
+```bash
+cp "$LLMB_INSTALL"/images/nvidia+nemo+*.sqsh "$CONTAINER_DIR"/
+```
+
+Either way the jobs find it by the glob `nvidia+nemo+*.sqsh`, so the installer's
+name and this script's `-${arch}` suffixed one both work. What the jobs still
+need from `$LLMB_INSTALL` after that — the recipe scripts and the Hugging Face
+cache — is
+[capture-an-sbatch-from-llmb-run.md#getting-the-image-onto-the-nodes](capture-an-sbatch-from-llmb-run.md#getting-the-image-onto-the-nodes).
+
 ## Verify an image before enabling its job
 
 ```bash

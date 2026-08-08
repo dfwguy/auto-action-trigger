@@ -139,7 +139,7 @@ is:
 | `644` | `llmb_check.py` | `build_llmb.sh` runs it as `python3 llmb_check.py`, like the health checks below |
 | `644` | `health-checks/*/NN-*.sh` | `node_health.sh` runs each as `bash "$check_file"` — deliberately, so one check's `exit 1` cannot truncate the set of 38 |
 | `644` | `jobs/*/*.sbatch`, including `example.sbatch` | `sbatch` reads them; it does not exec them. `example.sbatch` is a template that gets `cp`'d, so a stray `755` propagates into every new job |
-| `644` | `jobs/*/*.sh` — host launchers like `llm-pretrain.sh`, and the sourced `nccl-hca.sh` | `launch_job.sh` runs a host launcher as `bash "$launch"`, like the health checks. A launcher is told apart from a sourced helper by a `job_launch=host` line, not by its mode or name — see `docs/explanation/sequencing.md#host-launched-jobs` |
+| `644` | `jobs/*/*.sh` — the sourced `nccl-hca.sh`, and any host launcher | `launch_job.sh` runs a host launcher as `bash "$launch"`, like the health checks. A launcher is told apart from a sourced helper by a `job_launch=host` line, not by its mode or name — see `docs/explanation/sequencing.md#host-launched-jobs`. No job ships as one today |
 
 Check the whole tree with:
 

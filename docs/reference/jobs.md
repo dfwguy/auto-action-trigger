@@ -28,7 +28,7 @@ this framework.
 | `ethr` | North-south management + storage NIC | Exhaustive | ethr |
 | `nvloom` | MNNVL fabric — optional / exploratory | Exhaustive | nvloom |
 | `mnubergemm` | Burn-in | Hybrid / Exhaustive | MNUberGEMM Burn-In |
-| `llm-pretrain` | Single-node LLM pre-training gate — host-launched | Hybrid / Exhaustive | Single-Node LLM Pre-Training |
+| `llm-pretrain` | Single-node LLM pre-training gate — frozen from an `llmb-run` capture | Hybrid / Exhaustive | Single-Node LLM Pre-Training |
 | `llm-pretrain-solo` | 4 independent 1-GPU pre-training copies; finds *which* GPU is slow | Hybrid / Exhaustive | — |
 | `hpl` `cublasmatmul` | Remediation-only single-node GEMM — run by hand | Remediation | HPL / cuBlasMatMul |
 
@@ -112,18 +112,21 @@ generic header would get wrong.
   KILL for one that will not go. `timeout` reports 124 when the command took the
   TERM and exited, and 137 when the KILL had to fire — and ignoring a TERM is
   exactly what a wedged diagnostic does, so both count as an overrun.
-- **`llm-pretrain` is not an `.sbatch`.** `llmb-run` submits its own Slurm job,
-  so the job is a host launcher — `llm-pretrain.sh`, run on the node rather than
-  submitted. Its `--scale 4` matches the nvl72 node's four GPUs; on another
-  platform both move together. Enabling it is
-  [how-to/enable-llm-pretrain.md](../how-to/enable-llm-pretrain.md).
+- **`llm-pretrain` is a frozen capture.** Its allocation, container, mounts,
+  environment and training command were taken from a real `llmb-run` submission
+  and checked in; nothing on the node calls `llmb-run`. Its four ranks match the
+  nvl72 node's four GPUs; on another platform both move together. Re-deriving it
+  is [how-to/capture-an-sbatch-from-llmb-run.md](../how-to/capture-an-sbatch-from-llmb-run.md),
+  and why it is frozen is
+  [explanation/llmb.md#the-frozen-recipe](../explanation/llmb.md#the-frozen-recipe).
 - **Both LLM jobs run below the recipe's characterised scale, with `--force`.**
   The numbers are good for comparing nodes to each other, and are **not**
   comparable to NVIDIA's published 8-GPU figures. See
   [explanation/llmb.md#running-below-the-characterised-scale](../explanation/llmb.md#running-below-the-characterised-scale).
-- **`llm-pretrain-solo` ships with its training command unfilled** and refuses
-  to run until it is set. See
-  [how-to/enable-llm-pretrain.md#3-filling-in-the-solo-training-command](../how-to/enable-llm-pretrain.md#3-filling-in-the-solo-training-command).
+- **`llm-pretrain-solo` is the same frozen recipe at `--num_gpus 1`**, run as
+  four independent copies under one `srun --label`. Its training command was
+  captured the same way as its sibling's; only the GPU count and the batch size
+  differ.
 - **`nvsm` is not a container job.** It is installed on the host alongside
   `dcgmi`, refuses to run as anyone but root, and a batch task has no tty for a
   password prompt — so it needs a NOPASSWD sudoers grant on every compute node
@@ -313,7 +316,8 @@ checked against how its neighbours were sized:
 | `stressapptest` | `4:00:00` | `4:10:00` | 2× `RUN_SECONDS=7200`; the plan's row is 2–4 hr |
 | `fio` | `0:30:00` per pass | `2:10:00` | 2× the plan's ~1 hr, divided over four passes (`read`, `write`, `randread`, `randwrite`) |
 | `ethr` | `0:30:00` per pass | `1:10:00` | 2× the plan's ~30 min; two passes per interface, and the walltime holds **one** interface |
-| `llm-pretrain` | `2:00:00` | `2:10:00` | 2× the plan's ~30–60 min, upper end |
+| `llm-pretrain` | `0:20:00` | `0:30:00` | ~4× a captured 50-step run's 4:30, because the first run on a node also pays the image copy and model init |
+| `llm-pretrain-solo` | `0:20:00` | `0:30:00` | the same, from a captured scale-1 run's 3:14; four copies share the node's cores, so the margin is not halved |
 | `hpl` | `1:50:00` | `2:00:00` | the plan gives no estimate for the remediation GEMM, so this is a bound rather than a doubling |
 | `cublasmatmul` | `0:20:00` | `0:30:00` | 2× its own `DURATION=600`, for the same reason |
 | `mnubergemm` | `6:30:00` | `6:41:00` | `--time_to_run 21420` (5:57) **plus half an hour**, not 2× — see below |

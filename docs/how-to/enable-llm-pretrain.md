@@ -80,8 +80,9 @@ either way. See
 In order, because each step is checkable on its own:
 
 1. `./build_llmb.sh` on the head node, then `-l` to confirm.
-2. `llmb-run submit ... --scale 4 --force --dry-run`, and confirm the generated
-   submission is what you expect.
+2. `cp "$LLMB_INSTALL"/images/nvidia+nemo+*.sqsh "$CONTAINER_DIR"/` — the job
+   reads the image from the container share, not from the install. See
+   [capture-an-sbatch-from-llmb-run.md#getting-the-image-onto-the-nodes](capture-an-sbatch-from-llmb-run.md#getting-the-image-onto-the-nodes).
 3. `actions/launch_job.sh --test llm-pretrain --explain` on one node — it prints
    the launch it would run without running it.
 4. Drop `--explain` on that one node and read `results/<node>/trigger.log` and
@@ -90,24 +91,23 @@ In order, because each step is checkable on its own:
    `_v_gate_llm_pretrain` with `./tests/verdict-test.sh`.
 6. Only then add `llm-pretrain` to `BENCHMARKS`.
 
-`--scale` and the tray's GPU count have to agree; both are set for `nvl72` in
-`jobs/nvl72/llm-pretrain.sh`. On a platform with a different GPU count, both
-move together.
+The job's four ranks and the tray's GPU count have to agree; both are set for
+`nvl72` in `jobs/nvl72/llm-pretrain.sbatch`. On a platform with a different GPU
+count, both move together — and so does the NUMA divisor, which is
+[explanation/llmb.md#the-numa-binding](../explanation/llmb.md#the-numa-binding).
 
 ## 3. Filling in the solo training command
 
-`jobs/nvl72/llm-pretrain-solo.sbatch` carries a marked block where the training
-command goes, and ships refusing to run — it echoes what is missing and exits
-non-zero rather than appearing to work.
+`jobs/nvl72/llm-pretrain-solo.sbatch` now carries the command, captured from a
+real scale-1 submission — it is the sibling's `run_script.py` invocation with
+`--num_gpus 1`. Nothing to fill in; this section is what to check if you change
+it.
 
-Get the command from the head node:
+`--dry-run` will **not** give you a replacement. It prints the task list and
+nothing about the script; the command has to come from the generated artifacts,
+which is [capture-an-sbatch-from-llmb-run.md](capture-an-sbatch-from-llmb-run.md).
 
-```bash
-llmb-run submit -w pretrain_llama3.1 -s 8b --dtype fp8 --scale 1 --force --dry-run
-```
-
-Take the training invocation out of the generated script, **not** the `sbatch`
-wrapper around it. It has to be a **single-process** invocation: no `torchrun`,
+Whatever replaces it has to be a **single-process** invocation: no `torchrun`,
 no `srun`, no distributed launcher. The four copies are already four Slurm
 tasks, and a launcher inside them would fan out again.
 
@@ -118,17 +118,18 @@ they go is quiet. See
 
 ## 4. Set the spread floor
 
-`VERDICT_MAX_COV_LLM_SOLO` ships as **0**, which skips the spread check
-entirely. Set it from what a healthy node on this platform actually shows, once
-one has run the job — a made-up floor either drains the fleet on day one or
-never fires.
+`VERDICT_MAX_COV_LLM_SOLO` ships as **0.02**, four times the `0.005` a healthy
+GB300 tray showed. It came from one node and one run, so check it against the
+second and third trays to finish the job: a healthy tray sitting near the line
+means widen it, not that the tray is bad. `0` skips the check. See
+[explanation/llmb.md#judging-the-four-step-times](../explanation/llmb.md#judging-the-four-step-times).
 
 ## If a launch is refused
 
 Every refusal writes `FAIL` and its reason into the result file, so
-`results/<node>/llm-pretrain.txt` names it. In order: no `RESULT_FILE` or
-`SBATCH_JOB_NAME` (run by hand rather than through the sequencer), no install at
-`$LLMB_INSTALL`, no `llmb-run` on `PATH`, and no pre-staged `$HF_HOME`.
+`results/<node>/llm-pretrain.txt` names it. In order: the step did not receive
+the whole node, no `nvidia+nemo` image in `/tmp/containers` or `$CONTAINER_DIR`,
+no `run_script.py` under `$LLMB_INSTALL`, and no pre-staged `$HF_HOME`.
 
-Anything absent from `$LLMB_INSTALL/hf` at launch is a failed run, not a slow
-one. `build_llmb.sh -d` is what fixes it, and it runs on the head node.
+Anything absent from `$HF_HOME` at launch is a failed run, not a slow one.
+`build_llmb.sh -d` is what fixes it, and it runs on the head node.

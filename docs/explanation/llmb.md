@@ -5,7 +5,7 @@ shapes:
 
 | | `llm-pretrain` | `llm-pretrain-solo` |
 |---|---|---|
-| Launch | host-launched `.sh` via `llmb-run submit` | ordinary `.sbatch` |
+| Launch | ordinary `.sbatch`, frozen from an `llmb-run` capture | ordinary `.sbatch` |
 | Shape | one run, 4-way data parallel across the tray | 4 independent copies, one GPU each |
 | Exercises | framework, container, data pipeline **and the gradient all-reduce**, together | per-device compute only — no collectives at all |
 | Answers | is this node able to train | *which GPU* on it is slow |
@@ -42,8 +42,11 @@ plan to violate by using fewer of them. Every derived quantity is a function of
 the GPU count — `GBS = MBS × GA × DP = 2 × 8 × GPUs`, exactly the `GPUs×16` in
 the table — and that identity holds at 4 and at 1 just as it does at 8.
 
-8B replicated per GPU is roughly 128 GB of Adam state against a GB200's ~186 GB.
-It fits, which is why the recipe shards nothing in the first place.
+It fits, which is why the recipe shards nothing in the first place. Measured on
+a GB300 tray at four GPUs, from the run's own report: weight and optimizer
+**68.9 GB** theoretical, **59.9 GB** allocated, **193.8 GB** reserved. The
+reserved figure is the one that decides whether a scale fits, and it is most of
+the device — which is why nothing smaller than this recipe has room to spare.
 
 **What it costs.** Numbers from a forced 4-GPU run are *not* comparable to
 NVIDIA's published 8-GPU figures: different global batch size, uncharacterised
@@ -56,7 +59,13 @@ same reason.
 
 ## Why `llm-pretrain` is not an `.sbatch`
 
-`llm-pretrain` is the only job in the tree that does not run as a batch script.
+**Superseded.** `llm-pretrain` is now `jobs/$JOBS/llm-pretrain.sbatch`, frozen
+from a captured submission — [The frozen recipe](#the-frozen-recipe) below. This
+section records why the host-launched form existed, because the constraint it
+describes is still true of `llmb-run` and is the reason the tree stopped calling
+it.
+
+`llm-pretrain` was the only job in the tree that did not run as a batch script.
 `llmb-run` builds and submits its own Slurm job, so the framework cannot treat
 it as a payload — it hands it the node, the job name and the result path, and
 gets out of the way. How the sequencer treats a `.sh` job is
@@ -152,7 +161,8 @@ Three failures this exists to catch, none of which look like failures:
   put on `PATH`.
 - **The CLI lives outside the install.** `llmb_venv/` is frequently a sibling of
   `LLMB_INSTALL`, so `llmb-run` is not under the root at all and is on no
-  node's `PATH`. `llm-pretrain.sh` prepends `LLMB_BIN` for exactly this.
+  node's `PATH`. `LLMB_BIN` is what `build_llmb.sh -l` resolves and what a
+  capture run needs on the head node; no job reads it any more.
 - **The HF cache is somewhere else.** With `HF_HUB_OFFLINE=1` a miss is an
   immediate failure, so `llm-pretrain-solo.sbatch` extends
   `--container-mounts` when `HF_HOME` falls outside the install root. Without
@@ -242,8 +252,8 @@ traces `SUBMIT FAILED` naming the launcher and its exit status if not.
 
 ### The post-processing job
 
-`llmb-run` submits a **second** Slurm job for post-processing. Both jobs set
-`LLMB_SKIP_PP=1` to stop it.
+`llmb-run` submits a **second** Slurm job for post-processing. `LLMB_SKIP_PP=1`
+stops it, and a capture run must set it.
 
 That job would carry neither of this node's two job names, so the foreign-job
 gate in `launch_job.sh` would read it as somebody else's work and leave the node
@@ -270,27 +280,121 @@ same miss fails immediately and says what was missing.
 The corollary: anything absent from `$LLMB_INSTALL/hf` at launch is a failed
 run, not a slow one.
 
+## The frozen recipe
+
+`llmb-run` is a generator, and generators drift. The tree needs one comparable
+number per node across a bringup that runs for weeks, and a submitter that
+rebuilds its job from installed recipe metadata on every call cannot promise
+that: a reinstall, a `--config_variant` fallback, or a recipe version bump
+changes the job without changing anything in this repo. The first captured run
+showed all three risks at once — `gpu_type` resolved to `gb300`, the v2
+configuration for it did not exist and silently fell back to v1, and the install
+reported a version that was not `LLMB_REF`.
+
+So the recipe is captured once and checked in. `jobs/$JOBS/llm-pretrain.sbatch`
+holds the allocation shape, the container, the mounts, the environment and the
+training command that a real submission produced, and nothing on the node calls
+`llmb-run`. Re-deriving it when the collection moves is
+[how-to/capture-an-sbatch-from-llmb-run.md](../how-to/capture-an-sbatch-from-llmb-run.md).
+
+What this does not remove is the install. The recipe scripts under
+`Megatron-Bridge/scripts/performance` and the Hugging Face cache are still read
+from `$LLMB_INSTALL`; only the submitter is gone. The image is the exception and
+is copied into `CONTAINER_DIR`, so it reaches the nodes through
+`file_copy.sh` like every other image rather than over NFS per run.
+
+### The captured environment
+
+Eight variables come out of the generated script unchanged, and they are not
+tidiness — they are the recipe's performance configuration:
+
+| Variable | What it does |
+|---|---|
+| `CUDA_DEVICE_MAX_CONNECTIONS=32` | Set by the recipe's perf plugin; not the CUDA default |
+| `NCCL_NVLS_ENABLE=0` | NVLink SHARP off for this recipe |
+| `NVTE_FWD_LAYERNORM_SM_MARGIN=16`, `NVTE_BWD_LAYERNORM_SM_MARGIN=16` | SM reserved for communication overlap |
+| `TORCH_NCCL_AVOID_RECORD_STREAMS=1`, `TORCH_NCCL_HIGH_PRIORITY=1` | NCCL stream behaviour |
+| `TOKENIZERS_PARALLELISM=False` | Silences a fork warning that otherwise floods the result file |
+| `PYTHONUNBUFFERED=1` | Without it the step timings arrive in blocks and a killed run looks like a run that never stepped |
+
+The three offline flags are separate and are
+[Running offline](#running-offline) above. That the generated script sets them
+independently is a confirmation of that reasoning, not a coincidence.
+
+### Two step-timing formats
+
+The gates look for step timings, and which string a healthy run prints is a
+property of the training framework in the image, not of the job or the node:
+
+| Framework | Prints |
+|---|---|
+| Megatron-Bridge | `iteration 12/50 | … elapsed time per iteration (ms): 862.5 | lm loss: …` |
+| NeMo | `train_step_timing in s: 0.4010`, `reduced_train_loss` |
+
+This is not a detail. The gates originally knew only the NeMo strings, and the
+captured runs — both of them, at scale 4 and scale 1 — printed **zero** of them
+and fifty of the other. A healthy 50-step run would have been reported as `no
+training step timings`, which reads as a node that failed to train: a hardware
+verdict for a string mismatch, on every node, silently.
+
+`VERDICT_STEP_TIMING` in `parsers/$PARSERS/verdict.sh` holds both, and the solo
+spread check parses whichever appeared. Seconds against milliseconds does not
+matter there — a coefficient of variation is a ratio, so the unit cancels, and
+one run never mixes the two.
+
+The general form of this: a gate keyed on an upstream log string is a dependency
+on that string, and nothing upstream promises to keep it. When a recipe version
+changes, re-reading the log for the strings the gate wants is part of the
+capture — [how-to/capture-an-sbatch-from-llmb-run.md](../how-to/capture-an-sbatch-from-llmb-run.md).
+
+### The NUMA binding
+
+```
+numactl --cpunodebind=$((SLURM_LOCALID/2)) --membind=$((SLURM_LOCALID/2))
+```
+
+Four local ranks across two NUMA nodes, pinning each rank's memory to the node
+its GPU hangs off. It is captured verbatim because it is part of the measured
+configuration, and it is the line to revisit first on any tray that is not a
+4-GPU GB200/GB300 — the divisor is the tray layout, written as arithmetic.
+
 ## When the launch is refused
 
-Every refusal in `llm-pretrain.sh` writes `FAIL` and its reason into
-`RESULT_FILE` before exiting, rather than only to stderr.
+Every refusal in both LLM jobs prints its reason and `FAIL` into the result file
+and exits **zero**, rather than dying with a status and no output.
 
-The script returns before the training starts, so there is no later chance to
-explain itself. A refusal that only went to stderr would leave no result file,
-which the sweep reads as "not run yet" and retries every cycle forever — a node
-that has quietly stopped testing. See
+A refusal that only went to stderr would leave a result file the sweep reads as
+"not run yet", and it would retry every cycle forever — a node that has quietly
+stopped testing. See
 [architecture.md#silence-is-the-enemy](architecture.md#silence-is-the-enemy).
 
-The refusals, in order: no `RESULT_FILE` or `SBATCH_JOB_NAME` (run by hand
-rather than through the sequencer), no install at `$LLMB_INSTALL`, no `llmb-run`
-on `PATH`, and no pre-staged `$HF_HOME`.
+The refusals in `llm-pretrain.sbatch`, in order: the step did not receive the
+whole node, no `nvidia+nemo` image in `/tmp/containers` or `$CONTAINER_DIR`, no
+`run_script.py` under `$LLMB_INSTALL`, and no pre-staged `$HF_HOME`. The middle
+two are the halves of the install that the frozen job still needs —
+[The frozen recipe](#the-frozen-recipe).
 
 ## Keeping the four solo copies independent
 
 Two things in `llm-pretrain-solo.sbatch` do this, and both are load-bearing:
 
-- `--gpus-per-task=1` gives each task its own `CUDA_VISIBLE_DEVICES`, so rank N
-  sees GPU N and nothing else.
+- `MASTER_ADDR=127.0.0.1` and `MASTER_PORT=29500+$SLURM_LOCALID`. Each copy is
+  its own one-process distributed group and still needs a rendezvous, and four
+  of them on one node default to the same port: three die with
+  `EADDRINUSE ... address already in use` while the fourth trains, which reads
+  as three failed GPUs. A private port per rank is the whole fix.
+- `CUDA_VISIBLE_DEVICES=$SLURM_LOCALID`, set inside the step, so rank N uses GPU
+  N and nothing else. **Slurm's own GPU-binding flags do not work here**, and
+  they fail in a way that reads like a hardware fault: `--gpus-per-task=1` and
+  then `--gres=gpu:4 --gpu-bind=single:1` each delivered exactly one device to
+  the step, with the *winning rank varying between runs* — rank 0 on one
+  attempt, rank 1 on the next. The three ranks that got nothing die at
+  `Megatron requires CUDA`, which mentions no GPUs at all.
+
+  The sibling job is the evidence for the fix: `llm-pretrain` gives all four
+  ranks a device and its `srun` names no GPU flags whatsoever, inheriting the
+  job's `--gres=gpu:4` so every task sees all four. Adding step-level GPU flags
+  is what breaks it, so this job asks for nothing and does the pinning itself.
 - `WORLD_SIZE=1 RANK=0 LOCAL_RANK=0` inside the step. NeMo reads the `SLURM_*`
   rank variables and would otherwise form one four-way distributed group across
   the tasks — which is `llm-pretrain`, not this job, and would report a single
@@ -299,6 +403,54 @@ Two things in `llm-pretrain-solo.sbatch` do this, and both are load-bearing:
 
 `srun --label` prefixes each line with its task id. That prefix is the only
 thing tying a step time to a GPU, and `verdict.sh` parses it — do not remove it.
+
+## Why the solo job turns CUDA graphs off
+
+At `--num_gpus 1` there is no data-parallel group, so the distributed optimizer
+has nothing to shard its state across and each copy carries the whole thing.
+Measured on a GB300, from the two runs' own reports:
+
+| | `llm-pretrain` (4 GPUs) | `llm-pretrain-solo` (1 GPU) |
+|---|---|---|
+| weight + optimizer, theoretical | 68.9 GB | **137.9 GB** |
+| allocated | 59.9 GB | **156.3 GB** |
+| CUDA graph private pools | — | 131.3 GB |
+| in use, against 276.5 GB | — | **276.0 GB** |
+
+The first attempt died at iteration 4, immediately after `CUDA graph capture
+done`, failing to allocate 448 MiB. 156 GB of weights and optimizer fits on the
+device with room to spare; 156 plus 131 GB of full-iteration graph pools does
+not. `--cuda_graph_impl none` is the whole fix, and it is the cheapest of the
+levers the recipe exposes — the others (`--recompute_num_layers`,
+`--activation_offload_layers`, `--use_megatron_fsdp`) cost step time, or in
+FSDP's case do nothing at all when there is one rank.
+
+**The two jobs are therefore not measured under the same execution mode**, and
+that is accepted rather than tolerated. `llm-pretrain` asks whether the node can
+train; `llm-pretrain-solo` asks which of its four GPUs is slow, and answers it
+by comparing the four against each other in the same run. Neither question needs
+the two jobs' step times to be comparable, and making them comparable would
+mean giving up either the graphs on the four-way run or the job's ability to run
+at all. Do not "fix" this by aligning them.
+
+## Judging the step time
+
+The spread check below asks whether a tray's four GPUs agree with each other. It
+cannot see a tray where all four are slow together — agreement hides that
+perfectly. So both jobs also carry an absolute ceiling on the **median**
+iteration, `VERDICT_MAX_STEP_MS_LLM_PRETRAIN` and `VERDICT_MAX_STEP_MS_LLM_SOLO`.
+
+Median, not mean, and for a reason visible in every run: iteration 1 costs
+12.2 s to initialise and iteration 4 costs 5.8 s to capture CUDA graphs, against
+a steady state of 3.3 s. A mean over 50 iterations carries roughly 0.3 s of
+warmup that has nothing to do with the hardware; the median does not notice it.
+
+The shipped numbers are **estimates at +5%** of one healthy tray — 3310 ms at
+four GPUs, 3341 ms per solo copy. That is deliberately loose: the job of a
+starting band is to catch a node that is plainly slow while a real floor is
+being assembled from several trays. A tray that trips it at 5% is worth looking
+at before assuming the number is wrong, and a fleet where nothing ever trips it
+should be tightened rather than trusted.
 
 ## Judging the four step times
 
@@ -319,14 +471,30 @@ device. The reason string is identical on every node failing this way, so
 
 ```
 per-GPU step times disagree -- spread above 0.05
-cov 0.074, slowest gpu 2 at 0.4740s vs 0.4202s mean
+cov 0.074, slowest gpu 2 at 0.4740 vs 0.4202 mean per step
 ```
 
-`VERDICT_MAX_COV_LLM_SOLO` ships as **0**, which skips the spread check — the
-house convention for a floor with no established band, and honest here: no node
-has run this job, so any number would be invented. A made-up floor either drains
-the fleet on day one or never fires. Set it from what a healthy node actually
-shows.
+`VERDICT_MAX_COV_LLM_SOLO` ships as **0.02**, and where that came from matters
+more than the number. It shipped as `0` — the check skipped — for as long as no
+node had run the job, because a floor invented at a desk either drains the fleet
+on day one or never fires.
+
+The first healthy GB300 tray to complete it showed:
+
+| | median step | above fastest |
+|---|---|---|
+| gpu 0 | 3319.5 ms | — |
+| gpu 3 | 3330.9 ms | 0.3% |
+| gpu 1 | 3349.7 ms | 0.9% |
+| gpu 2 | 3363.8 ms | 1.3% |
+
+**cov 0.0051** — 44 ms of spread on a 3.34 s step. `0.02` is four times that,
+and the arithmetic of what it catches is worth stating: with one outlier among
+four, `cov ≈ 0.43 × d`, so `0.02` fires at a GPU about **5% slower** than its
+neighbours and `0.05` would need 12%.
+
+One node, one run. If a second healthy tray lands nearer the line, widen it —
+that is a real finding about the spread, not a failure.
 
 Because 0 makes the spread check silent, `tests/verdict-test.sh` sets a band
 explicitly and asserts the outlier is caught *and named* — otherwise shipping 0

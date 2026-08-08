@@ -65,7 +65,7 @@ want the minimum:
 |-----------|------|
 | `CONTAINER_DIR` | `allreduce`, `allreduce-forcesharp`, `alltoall`, `cublasmatmul`, `mnubergemm`, `nvbandwidth`, `nvloom`, `stream` |
 | `CONTAINER_DIR` + `BRINGUP_HOME` | `hpl`, `allreduce-nonvlink`, `alltoall-nonvlink` |
-| `CONTAINER_DIR` + `LLMB_INSTALL` | `llm-pretrain-solo` |
+| `CONTAINER_DIR` + `LLMB_INSTALL` | `llm-pretrain`, `llm-pretrain-solo` |
 | none | `dcgmi-r1`…`r4`, `ethr`, `fio`, `memtester`, `nvsm`, `stress-ng`, `stressapptest` |
 
 `BRINGUP_HOME` is what `hpl` finds its `.dat` files through and what the two
