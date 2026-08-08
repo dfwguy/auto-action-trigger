@@ -82,12 +82,31 @@ printf '%s\n' "$*" >> "$STUB_DIR/scancel.calls"
 exit 0
 EOF
 
+## The cancel drops to YIELD_USER when it is root, and CI runs its jobs as root
+## while a developer does not -- so without this the suite tests a different
+## branch depending on who ran it, and was green locally and red in CI.
+## See docs/explanation/sequencing.md#the-prefix-is-the-gate.
+cat > "$stub/su" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "$STUB_DIR/su.calls"
+[[ -n "$STUB_SU_OUT" ]] && { printf '%s\n' "$STUB_SU_OUT"; exit 1; }
+## What a login shell is for here is putting the client tools on PATH, which
+## the stub PATH has already done: run the scancel, not the module lines.
+cmd=""
+for ((i = 1; i <= $#; i++)); do
+    [[ "${!i}" == "-c" ]] && { j=$((i + 1)); cmd="${!j}"; }
+done
+exec bash -c "${cmd##*;}"
+EOF
+
 chmod 755 "$stub"/*
 
 pass=0
 fail=0
 ok()  { printf '  ok   %s\n' "$*"; pass=$((pass + 1)); }
 bad() { printf '  FAIL %s\n' "$*"; fail=$((fail + 1)); }
+## Counted as neither: a case this uid cannot reach has not passed.
+skip() { printf '  skip %s\n' "$*"; }
 
 NODE=ink50-dh01-i01-13
 OURS="bringup-$NODE burnin-$NODE"
@@ -106,7 +125,7 @@ run_case() {
     (
         export PATH="$stub:$PATH" STUB_DIR="$dir"
         export STUB_PENDING="$WAITER" STUB_JOB="$JOB_OK"
-        export STUB_SQUEUE_FAIL="" STUB_SCANCEL_OUT=""
+        export STUB_SQUEUE_FAIL="" STUB_SCANCEL_OUT="" STUB_SU_OUT=""
 
         source "$home/settings.sh"
         GET_OUT_OF_THE_WAY=yes
@@ -298,6 +317,33 @@ cancel_case "train-70b"                     refused
 cancel_case ""                              refused
 ## Not a prefix match by accident: the framework's name has to start the string.
 cancel_case "not-a-bringup-job"             refused
+
+echo "== dropping to YIELD_USER =="
+
+## The uid decides which half of the cancel runs, and only one of them can be
+## exercised per run. Named, so a green suite says which half it proved rather
+## than implying both. docs/explanation/sequencing.md#the-prefix-is-the-gate
+run_case "the cancel path taken by this uid" yielded YIELD_AFTER_SECS=0
+if [[ "$EUID" -eq 0 ]]; then
+    [[ -f "$CASE_DIR/su.calls" ]] &&
+        ok "root: dropped to YIELD_USER rather than cancelling as itself" ||
+        bad "root: cancelled as root, without dropping to YIELD_USER"
+else
+    [[ -f "$CASE_DIR/su.calls" ]] &&
+        bad "uid $EUID: dropped to YIELD_USER without being root" ||
+        ok "uid $EUID: cancelled directly (root takes the su path; CI runs as root)"
+fi
+
+## What CI hit for real: JOB_USER does not exist on the node. su reports it and
+## fails, and the node must not be recorded as given up. Only reachable as root,
+## so it is skipped rather than counted where it cannot run.
+if [[ "$EUID" -eq 0 ]]; then
+    run_case "the user we drop to does not exist" cancel-failed \
+        STUB_SU_OUT="su: user cmods does not exist"
+    nothing_killed || bad "  ... and it cancelled anyway"
+else
+    skip "the user we drop to does not exist (needs root; CI runs as root)"
+fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]
