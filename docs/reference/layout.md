@@ -115,6 +115,8 @@ not the checked-out ones.
 | `/home/cmods/bringup/results/<node>/trigger.log` | Per-cycle decision trace from `launch_job.sh` |
 | `/home/cmods/bringup/results/<node>/health.log` | Per-cycle decision trace from `node_health.sh` |
 | `/home/cmods/bringup/results/<node>/quick-view.txt` | One line per benchmark: `DONE` / `QUEUED` |
+| `/home/cmods/bringup/results/<node>/recover.log` | One line per drain cleared. The attempt history `RECOVER_MAX_ATTEMPTS` is counted from |
+| `/home/cmods/bringup/results/<node>/unkillable.stamp` | First-seen epoch and pid set of GPU processes that survived their step's kill. Tab separated; a changed pid set restarts the clock. See [explanation/drain-recovery.md#a-step-that-outlives-its-own-kill](../explanation/drain-recovery.md#a-step-that-outlives-its-own-kill) |
 | `/home/cmods/bringup/results/<node>/.not-a-compute-node` | Present when the host has decided it can never run a job. Holds the reason; every script that walks `results/*/` skips the directory. See [settings.md#hosts-that-are-not-compute-nodes](settings.md#hosts-that-are-not-compute-nodes) |
 | `/home/cmods/bringup/reports/` | Where `daily-report.sh -o` reports are kept by convention |
 | `/home/cmods/bringup/containers/` | Container images built by `build_containers.sh` |

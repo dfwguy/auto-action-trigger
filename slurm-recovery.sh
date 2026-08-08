@@ -365,9 +365,11 @@ recover_boot_settled() {
 ## cannot be satisfied is a node that never comes back. Sets RECOVER_NOT_READY
 ## to why. docs/explanation/drain-recovery.md#why-a-resume-is-not-enough-on-its-own
 RECOVER_NOT_READY=""
+RECOVER_GPU_PIDS=""
 recover_node_ready() {
     local node="$1" reason="$2" when="$3" pids jobs
     RECOVER_NOT_READY=""
+    RECOVER_GPU_PIDS=""
 
     ## First: a node still booting cannot answer any of the questions below,
     ## and restarting its slurmd mid-boot is its own race.
@@ -391,6 +393,9 @@ recover_node_ready() {
     if command -v nvidia-smi >/dev/null 2>&1; then
         pids=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | tr -d ' ' | grep -v '^$' | tr '\n' ' ')
         if [[ -n "$pids" ]]; then
+            ## Published for the unkillable-step gate, which needs the pid set
+            ## itself and not just the fact that there was one.
+            RECOVER_GPU_PIDS="${pids% }"
             RECOVER_NOT_READY="compute processes still on the GPUs (pids ${pids% })"
             return 1
         fi
@@ -430,8 +435,8 @@ recover_node_ready() {
     return 0
 }
 
-## Attempt history -- the only state this carries between runs. Tab separated
-## with the reason last: a Slurm reason is free text with spaces in it.
+## Attempt history, one of the two state files this keeps between runs. Tab
+## separated with the reason last: a Slurm reason is free text with spaces.
 recover_record() {
     local epoch="$1" class="$2" state="$3" setter="$4" reason="$5"
     [[ -n "$RECOVER_LOG" ]] || return 0
@@ -456,12 +461,124 @@ recover_attempts_in_window() {
     printf '%s' "${n:-0}"
 }
 
+## ── A step that outlives its own kill ─────────────────────────────────────
+##
+## Second state file, beside recover.log: the epoch this pid set was first
+## seen, so a hold can be told from a wedge. A changed pid set is a different
+## incident and restarts the clock.
+## docs/explanation/drain-recovery.md#a-step-that-outlives-its-own-kill
+recover_unkillable_stamp() {
+    [[ -n "$RECOVER_LOG" ]] || return 1
+    printf '%s/unkillable.stamp' "$(dirname "$RECOVER_LOG")"
+}
+
+recover_unkillable_elapsed() {
+    local pids="$1" now="$2" file seen_epoch="" seen_pids=""
+    file=$(recover_unkillable_stamp) || return 1
+    [[ -r "$file" ]] && IFS=$'\t' read -r seen_epoch seen_pids < "$file"
+    if [[ "$seen_pids" != "$pids" || ! "$seen_epoch" =~ ^[0-9]+$ ]]; then
+        mkdir -p "$(dirname "$file")" 2>/dev/null
+        printf '%s\t%s\n' "$now" "$pids" > "$file" 2>/dev/null || return 1
+        printf '0'
+        return 0
+    fi
+    printf '%s' "$(( now - seen_epoch ))"
+}
+
+## `%e` is start plus the job's own limit, absolute, so nothing here parses a
+## Slurm duration. An unlimited job reports `N/A` and is never taken out of
+## service automatically -- there is no limit to have exceeded, so no evidence
+## the step is wedged rather than long.
+## docs/explanation/drain-recovery.md#a-step-that-outlives-its-own-kill
+RECOVER_LIMIT_WHY=""
+recover_jobs_past_limit() {
+    local node="$1" now="$2" end epoch live=0
+    RECOVER_LIMIT_WHY=""
+    if ! command -v squeue >/dev/null 2>&1; then
+        RECOVER_LIMIT_WHY="no squeue here to ask whether its job is past its limit"
+        return 1
+    fi
+    while IFS= read -r end; do
+        [[ -n "$end" ]] || continue
+        case "${end,,}" in
+            n/a|unknown|unlimited|infinite)
+                RECOVER_LIMIT_WHY="a job on $node has no time limit -- taking a node out of service over an unlimited job is left to an operator"
+                return 1 ;;
+        esac
+        epoch=$(date -d "$end" +%s 2>/dev/null)
+        if [[ ! "$epoch" =~ ^[0-9]+$ ]]; then
+            RECOVER_LIMIT_WHY="squeue gave an end time this cannot read ('$end')"
+            return 1
+        fi
+        [[ "$epoch" -gt "$now" ]] && live=1
+    done < <(squeue -h -w "$node" -o '%e' 2>/dev/null)
+    if [[ "$live" -eq 1 ]]; then
+        RECOVER_LIMIT_WHY="a job on $node is still inside its own time limit"
+        return 1
+    fi
+    return 0
+}
+
+## Appended to the held line while the clock runs, so the countdown is visible
+## before it fires rather than only after.
+RECOVER_UNKILLABLE_IN=""
+## Returns 0 when the node was marked DOWN, or would have been under
+## --explain. Deliberately not recorded in recover.log: that history is the
+## rate limit on *resumes*, and nothing here resumed anything.
+recover_down_unkillable() {
+    local node="$1" reason="$2" now="$3" pids="$4" elapsed count text out
+    RECOVER_UNKILLABLE_IN=""
+    [[ -n "$pids" ]] || return 1
+    [[ -n "$RECOVER_UNKILLABLE_REASONS" ]] || return 1
+    grep -qEi -- "$RECOVER_UNKILLABLE_REASONS" <<<"$reason" || return 1
+
+    elapsed=$(recover_unkillable_elapsed "$pids" "$now") || return 1
+    if [[ "$elapsed" -lt "$RECOVER_UNKILLABLE_AFTER_SECS" ]]; then
+        RECOVER_UNKILLABLE_IN="; unchanged for ${elapsed}s of ${RECOVER_UNKILLABLE_AFTER_SECS}s before this counts as a step that outlived its own kill"
+        return 1
+    fi
+
+    ## Two independent proofs, because either alone is survivable: the pid set
+    ## has not moved, *and* Slurm agrees nothing here is still owed time.
+    if ! recover_jobs_past_limit "$node" "$now"; then
+        RECOVER_UNKILLABLE_IN="; unchanged for ${elapsed}s, but $RECOVER_LIMIT_WHY -- not a wedged step as far as this can tell"
+        return 1
+    fi
+
+    ## Detection is not gated on the switch, only the action is: a step that
+    ## outlived its kill is a reboot whoever does it, and this is the only
+    ## thing that says so. docs/how-to/clear-an-unkillable-step.md
+    if ! setting_enabled "$RECOVER_DOWN_UNKILLABLE"; then
+        RECOVER_UNKILLABLE_IN="; unchanged for ${elapsed}s and past every job's time limit -- the step outlived its own kill and $node needs a reboot. RECOVER_DOWN_UNKILLABLE=$RECOVER_DOWN_UNKILLABLE, so nothing here marks it DOWN. See docs/how-to/clear-an-unkillable-step.md"
+        return 1
+    fi
+
+    ## The wording is load-bearing: it must not match RECOVER_REASONS or carry
+    ## DRAIN_MARKER, or this hands the node straight back to the recovery it
+    ## exists to stop. tests/recover-test.sh asserts the class.
+    count=$(wc -w <<<"$pids")
+    text="unkillable job: ${count// /} GPU process(es) survived ${elapsed}s past their step kill -- needs manual intervention"
+
+    if [[ "$RECOVER_DRY_RUN" -eq 1 ]]; then
+        recover_log "WOULD MARK DOWN $node: $text (pids $pids)"
+        return 0
+    fi
+
+    out=$(scontrol update nodename="$node" state=DOWN reason="$text" 2>&1)
+    if [[ -n "$out" ]]; then
+        recover_log "DOWN FAILED $node: scontrol update state=DOWN -- $out"
+        return 1
+    fi
+    recover_log "DOWN $node: $text (pids $pids). Nothing here clears this -- see docs/how-to/clear-an-unkillable-step.md"
+    return 0
+}
+
 ## ── Entry point ───────────────────────────────────────────────────────────
 ##
 ## Returns 0 only when the node was resumed (or would have been, under
 ## --explain), so a caller can re-read the node state on 0. RECOVER_RESULT
 ## carries the outcome: resumed, not-drained, disabled, class, not-ready,
-## rate-limited, unknown-node.
+## downed, rate-limited, unknown-node.
 RECOVER_RESULT=""
 slurm_recover_node() {
     local node="${1:-$HOSTNAME}"
@@ -513,7 +630,11 @@ slurm_recover_node() {
     fi
 
     if ! recover_node_ready "$node" "$base" "$when"; then
-        recover_log "recover held: $node is $state ('${reason:-<empty>}', $class) but $RECOVER_NOT_READY"
+        if recover_down_unkillable "$node" "$base" "$now" "$RECOVER_GPU_PIDS"; then
+            RECOVER_RESULT="downed"
+            return 1
+        fi
+        recover_log "recover held: $node is $state ('${reason:-<empty>}', $class) but ${RECOVER_NOT_READY}${RECOVER_UNKILLABLE_IN}"
         RECOVER_RESULT="not-ready"
         return 1
     fi

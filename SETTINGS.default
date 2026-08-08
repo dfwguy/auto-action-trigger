@@ -68,6 +68,13 @@ RECOVER_MIN_UPTIME_SECS=300
 RECOVER_PREJOB_LOGS=/cm/local/apps/slurm/var/pre-post-job-logs/failed-pre-jobs
 RECOVER_PREJOB_SLACK_SECS=900
 
+## ── Steps that outlive their own kill ─────────────────────────────────────
+## Off by default: marking DOWN releases the whole allocation. See
+## docs/explanation/drain-recovery.md#a-step-that-outlives-its-own-kill.
+RECOVER_DOWN_UNKILLABLE=no
+RECOVER_UNKILLABLE_REASONS="Kill task failed|unkillable"
+RECOVER_UNKILLABLE_AFTER_SECS=3600
+
 ## ── Retry and drain policy ────────────────────────────────────────────────
 ## 0 is no cap. See docs/settings.md#the-fleet-wide-cap.
 MAX_QUEUED_JOBS=500

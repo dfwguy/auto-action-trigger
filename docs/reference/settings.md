@@ -230,6 +230,36 @@ and both actions call it. What each shipped pattern means, what has to be true
 before a drain is cleared, and how an operator's drain is protected from all of
 it, is [explanation/drain-recovery.md](../explanation/drain-recovery.md).
 
+### Steps that outlive their own kill
+
+| Key | Default | Value |
+|-----|---------|-------|
+| `RECOVER_DOWN_UNKILLABLE` | `no` | `yes` marks a node `DOWN` when a step has survived its own kill. **Gates the action only** — the condition is detected and traced either way |
+| `RECOVER_UNKILLABLE_REASONS` | `Kill task failed\|unkillable` | Case-insensitive ERE. The drain reasons that mean Slurm has already failed to kill what is on the GPUs |
+| `RECOVER_UNKILLABLE_AFTER_SECS` | `3600` | How long the same GPU pids must persist before the node is taken out of service |
+
+```bash
+RECOVER_DOWN_UNKILLABLE=no
+RECOVER_UNKILLABLE_REASONS="Kill task failed|unkillable"
+RECOVER_UNKILLABLE_AFTER_SECS=3600
+```
+
+Ships **off**, unlike the recovery above: marking a node `DOWN` releases
+whatever allocation it still holds, and on a multi-node job that is every rank,
+not just the wedged node's. Both conditions have to hold — the pid set unchanged
+for `RECOVER_UNKILLABLE_AFTER_SECS`, *and* no job on the node still inside its
+own time limit. A job with no time limit never qualifies.
+
+The switch gates only the `scontrol update state=DOWN`. Detection runs
+regardless, and a node that meets both conditions says so in its trace with the
+switch off — a site that never lets this tree take nodes out of service, which
+is what `DRAIN_AFTER_FAILED_*=no` above says, still needs to know a node is
+wedged rather than watching it hold silently. The reason it writes
+classifies as `operator`, so nothing in this tree clears it afterwards; see
+[explanation/drain-recovery.md#a-step-that-outlives-its-own-kill](../explanation/drain-recovery.md#a-step-that-outlives-its-own-kill)
+and, for what to do with the node,
+[how-to/clear-an-unkillable-step.md](../how-to/clear-an-unkillable-step.md).
+
 ## Restricting which nodes run jobs
 
 | Setting | Default | Meaning |

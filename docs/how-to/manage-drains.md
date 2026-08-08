@@ -97,6 +97,11 @@ the node finished booting, `slurmd` answering, no compute processes left holding
 the GPUs, no job still assigned. Past `RECOVER_MAX_ATTEMPTS` inside
 `RECOVER_WINDOW_HOURS` the drain is left exactly as Slurm set it.
 
+One condition never clears: a step that ignored `SIGKILL`, leaving GPU processes
+nothing will reap and a `machine` drain that is held every cycle forever. Those
+nodes are recognised separately and marked `DOWN` for an operator —
+[clear-an-unkillable-step.md](clear-an-unkillable-step.md).
+
 ## Reading what the recovery did
 
 ```bash

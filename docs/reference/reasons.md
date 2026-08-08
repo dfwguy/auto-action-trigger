@@ -136,3 +136,10 @@ node is cabled into the wrong rack. See
 Not every drain is a health check. `slurm-recovery.sh` sorts drains into four
 classes and **an operator drain is never cleared by anything in this tree** —
 see [how-to/manage-drains.md](../how-to/manage-drains.md).
+
+Two reasons this tree writes itself, rather than reads:
+
+| Reason | Set by | Means |
+|--------|--------|-------|
+| contains `auto-retry` (`DRAIN_MARKER`) | `launch_job.sh` | Drained over a benchmark, and cleared by the sequencer once they pass |
+| `unkillable job: N GPU process(es) survived …` | `slurm-recovery.sh`, under `RECOVER_DOWN_UNKILLABLE=yes` | State `DOWN`, not drained. A step outlived its own kill and the node needs a reboot — [how-to/clear-an-unkillable-step.md](../how-to/clear-an-unkillable-step.md) |

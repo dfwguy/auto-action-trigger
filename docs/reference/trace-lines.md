@@ -53,6 +53,13 @@ two per monitoring cycle, forever.
 | `PAUSE_JOBS: job <id> still RUNNING for <t> -- left to finish` | A running job is not killed; the id is named so an operator can `scancel` it deliberately |
 | `--force does not override PAUSE_JOBS: it is a site switch, not a timing gate.` | Appended when a forced run hits the pause |
 | `RECOVER …` / `state after recovery=<state>` | A drain Slurm set itself was cleared and the node state re-read — see [explanation/drain-recovery.md](../explanation/drain-recovery.md) |
+| `recover held: … compute processes still on the GPUs (pids …)` | A resume would put work on a node whose GPUs a previous job still holds. The same pids every cycle is a step that outlived its own kill — [how-to/clear-an-unkillable-step.md](../how-to/clear-an-unkillable-step.md) |
+| `… unchanged for <n>s of <n>s before this counts as a step that outlived its own kill` | Appended to the held line while the clock runs |
+| `… unchanged for <n>s, but <why> -- not a wedged step as far as this can tell` | The pid set qualified but Slurm did not: a job on the node is still inside its time limit, or has no limit at all |
+| `… the step outlived its own kill <n>s ago and <node> needs a reboot -- RECOVER_DOWN_UNKILLABLE=no` | Both conditions met, and the switch is off. The finding is named; the node is left exactly as Slurm set it |
+| `DOWN <node>: unkillable job: …` | Both proofs agreed and the node was taken out of service. The reason classifies as `operator`, so nothing here clears it — [how-to/clear-an-unkillable-step.md](../how-to/clear-an-unkillable-step.md) |
+| `WOULD MARK DOWN <node>: …` | The same, under `--explain`. Nothing was changed |
+| `DOWN FAILED <node>: scontrol update state=DOWN -- <output>` | `scontrol` refused it, usually a privilege problem — see [layout.md#slurm-permissions](layout.md#slurm-permissions) |
 | `WARNING: <home>/slurm-recovery.sh is missing` | A deployment that predates the file. Named rather than skipped quietly, because its absence is invisible from outside: nodes simply stay drained |
 
 ## The queue
