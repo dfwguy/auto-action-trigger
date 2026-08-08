@@ -3,9 +3,9 @@
 Every entry point, what it takes and what it prints. Everything here runs from
 the headnode and is safe to run while the triggers are live.
 
-Nine of these implement `-h`/`--help` by printing their own header comment —
+Eight of these implement `-h`/`--help` by printing their own header comment —
 `status-check.sh`, `health-check.sh`, `overall_report.sh`, `daily-report.sh`,
-`sync-check.sh`, `trigger-log.sh`, `kill-jobs.sh`, `check_squeue.sh` and
+`trigger-log.sh`, `kill-jobs.sh`, `check_squeue.sh` and
 `build_llmb.sh`. **That header is the authoritative option list**, and it is
 deliberately not restated here: two copies of a command surface drift, and only
 one of them is testable.
@@ -207,6 +207,7 @@ bash health-check.sh --drained            # every drain, grouped by reason
 bash health-check.sh --summary            # the per-check roll-up, complete
 bash health-check.sh --by-state          # that roll-up, split by Slurm state
 bash health-check.sh --individual ib-firmware   # aggregate that check across all nodes
+bash health-check.sh --diff node001       # why one node failed, check by check
 bash health-check.sh --explain            # the cadence: when each node re-checks
 bash health-check.sh --refresh node001    # queue a re-check ahead of the cadence
 ```
@@ -357,6 +358,49 @@ ib-firmware — 2003 nodes
 The default report tells you *which nodes* failed a check; this tells you *what
 values* the fleet has and which nodes share each one. It reads no Slurm state.
 
+### `--diff`
+
+```bash
+bash health-check.sh --diff ink50-dh01-h01-11
+bash health-check.sh --diff --all ink50-dh01-h01-11
+```
+
+Why one node failed: each check it fails, diffed against `valid-config/default`.
+
+```
+ink50-dh01-h01-11  (drained: nvlinks)
+  <  this node
+  >  baseline (ink50-dh01-h05-22)
+
+--- nvlinks
+2c2
+< links 0
+---
+> links 228
+
+2 of 38 checks differ
+```
+
+**`<` is the node and `>` is the baseline.** Read backwards, one bad baseline
+reads as a fleet of bad nodes.
+
+Which checks are diffed comes from `logs/<node>` against the baseline — the same
+verdict every other view here uses — **not** from the Slurm drain reason. The
+drain on the header line is context: it is what Slurm was told, and it goes stale
+in both directions. A fault appearing after the drain was set is not in the
+reason, and with `DRAIN_AFTER_FAILED_HEALTH_CHECK=no` there is no reason at all,
+yet the node still diffs.
+
+`--all` diffs every gated check rather than only the failing ones and lists the
+matching names at the end — the view to use when the baseline itself is
+suspect. Informational checks are excluded from both forms, because they are
+recorded per rack and never judged against a cluster-wide baseline; read those
+directly with `less logs/<node>/<check>`. See
+[health-checks.md#informational-checks](health-checks.md#informational-checks).
+
+The argument is a node pattern like every other one here, so a rack prefix
+diffs the rack. One node per failure group is normally enough.
+
 ### `--explain` and `--refresh`
 
 The report above reads a snapshot of the logs, which says what the last health
@@ -391,7 +435,6 @@ It needs write access to `logs/<node>/` and contacts no node. See
 
 | Script | What it does |
 |---|---|
-| `sync-check.sh <node>` | Diffs the node's health output against the baseline for each check named in its Slurm drain reason — the fastest way to see why `node_health.sh` took a node down |
 | `set-valid-default.sh <node>` | Captures a validated node's `logs/` as the new baseline — see [health-checks.md](health-checks.md) |
 | `watch-rack.sh <nodelist>` | Refreshes every 20 seconds, showing only nodes that are DOWN or drained |
 | `trigger-log.sh` | Reads `results/<node>/trigger.log` and `health.log` across the cluster — five sections, described in [how-to/diagnose-nothing-running.md](../how-to/diagnose-nothing-running.md). `--include-excluded` also reads the hosts the reports leave out |

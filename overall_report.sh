@@ -483,7 +483,7 @@ emit_report() {
     ## ── WHAT TO RUN NEXT ──
     printf '── WHAT TO RUN NEXT ────────────────────────────────────────\n'
     printf '  bash trigger-log.sh                 why nothing is being submitted\n'
-    printf '  bash sync-check.sh <node>           the health diff behind a check name above\n'
+    printf '  bash health-check.sh --diff <node>  the health diff behind a check name above\n'
     printf '  bash status-check.sh -t <benchmark> one column, every node, pass included\n'
     printf '  bash daily-report.sh                the numbers behind every pass\n'
     printf '  sinfo -R                            every drained node, from Slurm itself\n'

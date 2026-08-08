@@ -230,12 +230,18 @@ your node's drain reason is a list of check names rather than prose:
 
 ```bash
 sinfo -n "$N" -o '%E'
-bash sync-check.sh "$N"
+bash health-check.sh --diff "$N"
 ```
 
-`sync-check.sh` reads that reason, and for each check named in it, diffs this
-node's health output against the baseline. That is the fastest route from
-"drained" to "what is actually different about this machine".
+`--diff` diffs each check this node fails against the baseline. That is the
+fastest route from "drained" to "what is actually different about this
+machine".
+
+Note which of those two commands is authoritative: the drain reason is what
+Slurm was *told*, and the diff is what is *true*. They part company routinely —
+a fault that appeared after the drain was set is not in the reason, and with
+`DRAIN_AFTER_FAILED_HEALTH_CHECK=no` there is no reason at all. `--diff` reads
+`logs/<node>` either way, so it answers even for a node nothing drained.
 
 Across the fleet, group them:
 
@@ -257,7 +263,7 @@ The route you just walked is the one to repeat, in this order:
 4. `trigger.log` — what the node itself decided, and why it stopped
 5. `status-check.sh` / `daily-report.sh` — what the results say, against the
    Slurm state
-6. `sync-check.sh` — for a health drain, what is different about this machine
+6. `health-check.sh --diff` — what is actually different about this machine
 
 The habit worth taking away is step 1 before everything: **the same symptom
 means different things depending on whose drain it is**, and that is readable

@@ -177,6 +177,49 @@ check "the node pattern still filters" "beta — 2 nodes" "$narrowed"
 check "a check name is required" "rc=2" "$(run --individual >/dev/null 2>&1; echo "rc=$?")"
 check "an unknown check says so" "No logs/<node>/nosuch found" "$(run --individual nosuch)"
 
+## ── --diff ────────────────────────────────────────────────────────────────
+## Which checks are diffed comes from the logs, not from the drain reason, so
+## a node nothing drained still explains itself. This is the whole reason the
+## diff moved off sync-check.sh, which read the reason field and so printed
+## nothing at all with DRAIN_AFTER_FAILED_HEALTH_CHECK=no.
+
+## node01 fails both checks and is in the queue -- no drain, no reason.
+d1=$(run --diff node01)
+
+check "an undrained node still diffs" "2 of 2 checks differ" "$d1"
+check "the failing check is diffed" "--- alpha" "$d1"
+check "and so is the other one" "--- beta" "$d1"
+
+## The direction is the thing most likely to be misread: reversing it turns one
+## bad baseline into a fleet of bad nodes.
+check "the node side is labelled" "<  this node" "$d1"
+check "and the baseline side" ">  baseline" "$d1"
+
+## node02 is drained naming alpha, but only alpha actually differs -- beta
+## matches. The count is over the gated checks, not over the reason.
+d2=$(run --diff node02)
+check "the drain is shown as context" "node02  (drained: alpha)" "$d2"
+check "and only the differing check is diffed" "1 of 2 checks differ" "$d2"
+absent "a matching check is not diffed" "--- beta" "$d2"
+
+## --all widens it to every gated check and names the ones that match, which is
+## what to reach for when the baseline itself is suspect.
+d2all=$(run --diff --all node02)
+check "--all names the matching checks" "Matching:  beta" "$d2all"
+
+## A node with nothing wrong says so rather than printing an empty report.
+check "a clean node is explicit" "0 of 2 checks differ" "$(run --diff node05)"
+
+## Both of these are silent as an empty report, so both are named.
+check "an unknown node says so" "nothing to diff" "$(run --diff nosuchnode 2>&1)"
+check "--diff is its own report" "rc=2" \
+    "$(run --diff node01 --summary >/dev/null 2>&1; echo "rc=$?")"
+
+## --all steers only --diff, so accepting it elsewhere would read as a filter
+## that quietly did nothing.
+check "--all alone is refused" "rc=2" \
+    "$(run --all node01 >/dev/null 2>&1; echo "rc=$?")"
+
 ## ── The two roll-ups are reports, not filters ─────────────────────────────
 
 both=$(run --summary --drained; echo "rc=$?")

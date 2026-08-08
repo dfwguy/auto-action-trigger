@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# Shared drain-reason -> check-name translation for health-check.sh and
-# sync-check.sh; one copy, because the two drifting apart is what made
-# sync-check.sh diff files called "Check", "BIOS" and "missing".
+# Drain-reason -> check-name translation for health-check.sh, which uses it to
+# tell a health drain from an operator's. Kept out of the script because the
+# strings are historical rather than structural -- see the note below.
 # See docs/reference/health-checks.md#reading-the-reason-field.
 #
 # Nothing new emits these strings -- they are pre-health-checks/ reason text

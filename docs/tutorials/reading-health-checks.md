@@ -235,11 +235,56 @@ this system disagree, check what each one read before assuming one is broken.**
 
 ## 5. Diagnosing one node
 
-Before you fix anything, get the actual diff. The reports name the node for you:
+The three views above all stop at *which check* failed. To see *what is
+different*, diff the node against the baseline:
 
 ```bash
-bash sync-check.sh ink50-dh01-h01-11
+bash health-check.sh --diff ink50-dh01-h01-11
 ```
+
+```
+ink50-dh01-h01-11  (drained: nvlinks)
+  <  this node
+  >  baseline (ink50-dh01-h05-22)
+
+--- nvlinks
+2c2
+< links 0
+---
+> links 228
+
+--- ib-firmware
+2c2
+< fw 40.47.2628
+---
+> fw 40.48.1126
+
+2 of 38 checks differ
+```
+
+**Read the diff direction before you act on it.** `<` is this node and `>` is
+the baseline. Backwards, `< 0` against `> 228` looks like the baseline is broken,
+and "fixing" the baseline turns one bad node into sixty bad nodes.
+
+**The checks it diffs come from the logs, not from the drain reason.** That
+distinction is the whole reason this lives here rather than in a separate tool.
+The drain on the first line is *context* — it is what Slurm was told — and the
+diff below it is what is actually true. In the example the node is drained for
+`nvlinks`, but `ib-firmware` broke afterwards and no drain ever mentioned it.
+And with `DRAIN_AFTER_FAILED_HEALTH_CHECK=no` there is no reason at all, so a
+tool reading the reason field would have nothing to say about a node failing two
+checks.
+
+Reach for `--all` when the baseline itself is in question:
+
+```bash
+bash health-check.sh --diff --all ink50-dh01-h01-11
+```
+
+That diffs every gated check rather than only the failing ones, and names the
+matching ones at the end. It pairs with `--individual` from step 3: if that
+showed your node in a group of 1998 rather than a group of 4, the node is fine
+and the baseline is the outlier.
 
 **One node per group is enough.** The rest of the group failed the same checks,
 and sixty copies of one diff buries the answer.

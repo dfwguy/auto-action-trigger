@@ -109,8 +109,8 @@ comparison is direct.
 ## Drain reasons
 
 `sinfo -R` gives a reason; `health-check.sh` groups nodes by the *set* of checks
-they failed, and `sync-check.sh <node>` diffs one node against the baseline for
-each check named. One node per group is enough — the rest failed the same way.
+they failed, and `health-check.sh --diff <node>` diffs one node against the baseline for
+each check it fails. One node per group is enough — the rest failed the same way.
 
 Broad mapping from the 38 checks:
 
@@ -129,7 +129,7 @@ Broad mapping from the 38 checks:
 Three checks — `nvidia-smi-cuuid`, `imex-node-config`, `imex-status` — are
 informational and can never drain a node, because they compare something
 per-rack against a cluster-wide baseline. Read them by hand with
-`sync-check.sh --all <node>`; they are often the fastest confirmation that a
+`health-check.sh --diff --all <node>`; they are often the fastest confirmation that a
 node is cabled into the wrong rack. See
 [health-checks.md#informational-checks](health-checks.md#informational-checks).
 

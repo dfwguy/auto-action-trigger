@@ -191,7 +191,7 @@ lines over sixty node lists reads as 2,280 incidents.
 The report ends by naming one node to diagnose:
 
 ```
-Why a node failed:  bash sync-check.sh ink50-dh01-h20-36
+Why a node failed:  bash health-check.sh --diff ink50-dh01-h20-36
 ```
 
 **One node per group is enough.** The rest of the group failed the same checks;

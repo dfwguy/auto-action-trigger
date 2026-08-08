@@ -2,6 +2,7 @@
 #
 # Usage: health-check.sh [--drained] [--summary [--by-state]] [pattern]
 #        health-check.sh --individual|-i <check> [pattern]
+#        health-check.sh --diff|-D [--all] <node|pattern>
 #        health-check.sh --explain [pattern]
 #        health-check.sh --refresh <node|nodelist> [...]
 #
@@ -43,6 +44,16 @@
 #            content under each. Shows the actual values across the fleet.
 #            Reads no Slurm state.
 #
+#   --diff|-D [--all] <node|pattern>
+#            why one node failed: each of its failing checks diffed against
+#            valid-config/default. Read the direction carefully -- `<` is the
+#            node and `>` is the baseline, and reading it backwards turns one
+#            bad baseline into a fleet of bad nodes. Which checks are diffed
+#            comes from the logs, not from the Slurm drain reason, so a node
+#            nothing drained still explains itself. --all diffs every gated
+#            check rather than only the failing ones, which is what to reach
+#            for when the baseline itself is in question.
+#
 #   --refresh <node|nodelist> [...]
 #            queue an immediate re-check on the named nodes by setting the
 #            refresh sentinel, instead of waiting out HEALTH_INTERVAL_HOURS.
@@ -59,8 +70,8 @@
 # the same comparison node_health.sh drains on -- so this is complete whether or
 # not DRAIN_AFTER_FAILED_HEALTH_CHECK is on. Slurm is asked for node state and
 # for drains this framework did not write, nothing else. No node is contacted
-# and no check is re-run: use --refresh for that, and sync-check.sh for the diff
-# behind a check name below.
+# and no check is re-run: use --refresh for that, and --diff for the per-node
+# diff behind a check name below.
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -74,6 +85,8 @@ summary=0
 by_state=0
 explain=0
 individual=0
+diff_mode=0
+all=0
 refresh=0
 args=()
 for arg in "$@"; do
@@ -83,8 +96,10 @@ for arg in "$@"; do
         --by-state|-b)   by_state=1; summary=1 ;;
         --explain|-n)    explain=1 ;;
         --individual|-i) individual=1 ;;
+        --diff|-D)       diff_mode=1 ;;
+        --all|-a)        all=1 ;;
         --refresh|-r)    refresh=1 ;;
-        -h|--help)     sed -n '2,63p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        -h|--help)     sed -n '2,74p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         *)             args+=("$arg") ;;
     esac
 done
@@ -101,6 +116,18 @@ if [[ "$individual" -eq 1 && ( "$summary" -eq 1 || "$drained" -eq 1 ) ]]; then
     echo "ERROR: --individual is its own report -- it takes a check name, not a" >&2
     echo "       node pattern, so it cannot be combined with --summary or" >&2
     echo "       --drained. Ask for one of them." >&2
+    exit 2
+fi
+if [[ "$diff_mode" -eq 1 && ( "$summary" -eq 1 || "$drained" -eq 1 || "$individual" -eq 1 ) ]]; then
+    echo "ERROR: --diff is its own report -- it prints one node's checks against" >&2
+    echo "       the baseline, not a fleet roll-up. Ask for one of them." >&2
+    exit 2
+fi
+## --all only widens the set --diff walks; silently ignoring it elsewhere would
+## read as a filter that did nothing.
+if [[ "$all" -eq 1 && "$diff_mode" -ne 1 ]]; then
+    echo "ERROR: --all only means something with --diff, where it diffs every" >&2
+    echo "       check rather than the failing ones. Nothing else elides by check." >&2
     exit 2
 fi
 if ! command -v sinfo &>/dev/null; then
@@ -286,7 +313,7 @@ if [[ "${#known_check[@]}" -eq 0 ]]; then
 fi
 
 # node_health.sh's reason headers do not all match the log file they came from.
-# Shared with sync-check.sh so the two cannot drift.
+# Shared with overall_report.sh so the two cannot drift.
 if [[ ! -f "$home/reason-map.sh" ]]; then
     echo "ERROR: $home/reason-map.sh is missing -- it carries the reason-to-check" >&2
     echo "       name mapping and without it every drain reason parses as text." >&2
@@ -307,6 +334,83 @@ declare -A health_fail_count health_fail_list health_node_state
 declare -a no_baseline_checks health_scan_notes
 source "$home/health-scan.sh"
 health_scan "$pattern"
+
+## One node against the baseline, check by check. Driven by the logs rather than
+## by the drain reason, so a node Slurm was never told about still diffs.
+## See docs/reference/scripts.md#--diff.
+if [[ "$diff_mode" -eq 1 ]]; then
+    if [[ "$have_baseline" -ne 1 ]]; then
+        for line in "${health_scan_notes[@]}"; do
+            print_wrapped "ERROR: " "$line" >&2
+        done
+        exit 1
+    fi
+    baseline_node=$(readlink "$valid_dir" 2>/dev/null)
+    baseline_node="${baseline_node##*/}"
+
+    declare -A diff_state diff_reason
+    while IFS='|' read -r dnode dstate dreason; do
+        [[ -z "$dnode" || -n "${diff_state[$dnode]}" ]] && continue
+        diff_state["$dnode"]="$dstate"
+        [[ "$dreason" != "none" ]] && diff_reason["$dnode"]="$dreason"
+    done < <(sinfo -N -h -o '%N|%T|%E' 2>/dev/null)
+
+    shown=0
+    for dir in "$logs_dir"/*/; do
+        node=$(basename "$dir")
+        # shellcheck disable=SC2053  # $pattern is the caller's node glob
+        [[ "$node" == $pattern ]] || continue
+        ((shown++))
+
+        ## The drain, when there is one, is context rather than the input: it is
+        ## what Slurm was told, and the diff below is what is actually true.
+        label="${diff_state[$node]:-unknown}"
+        [[ -n "${diff_reason[$node]}" ]] && label+=": ${diff_reason[$node]}"
+        printf '%s  (%s)\n' "$node" "$label"
+        printf '  <  this node\n'
+        printf '  >  baseline%s\n\n' "${baseline_node:+ ($baseline_node)}"
+
+        if [[ "$all" -eq 1 ]]; then
+            mapfile -t names < <(printf '%s\n' "${!gated_check[@]}" | sort)
+        else
+            mapfile -t names < <(tr ',' '\n' <<< "${health_fail_list[$node]}" | sort -u)
+        fi
+
+        differing=0
+        matching=""
+        for name in "${names[@]}"; do
+            [[ -z "$name" ]] && continue
+            node_file="$dir$name"
+            base_file="$valid_dir/$name"
+            if [[ ! -f "$node_file" ]]; then
+                printf -- '--- %s\n    no logs/%s/%s — the check did not run here\n\n' \
+                    "$name" "$node" "$name"
+                ((differing++))
+                continue
+            fi
+            out=$(diff "$node_file" "$base_file" 2>&1)
+            if [[ -z "$out" ]]; then
+                matching+="$name, "
+                continue
+            fi
+            ((differing++))
+            printf -- '--- %s\n' "$name"
+            printf '%s\n\n' "$out"
+        done
+
+        printf '%d of %d %s differ\n' "$differing" "${#gated_check[@]}" \
+            "$([[ "${#gated_check[@]}" -eq 1 ]] && echo check || echo checks)"
+        [[ -n "$matching" ]] && print_wrapped "Matching:  " "${matching%, }"
+        echo
+    done
+
+    if [[ "$shown" -eq 0 ]]; then
+        echo "No node under $logs_dir matches '${args[0]:-*}' — nothing to diff." >&2
+        echo "       A node absent from logs/ has never run node_health.sh." >&2
+        exit 1
+    fi
+    exit 0
+fi
 
 declare -A seen_node reason_nodes drain_nodes sig_nodes check_count
 total=0 failing=0 other=0 passing=0 unchecked=0 undrained=0 stale=0 out=0
@@ -409,7 +513,7 @@ if [[ "$drained" -eq 1 ]]; then
     echo
     [[ "$stale" -gt 0 ]] &&
         echo "Marked lines are drains nothing supports any more — the checks pass now."
-    echo "Why a node failed:  bash sync-check.sh <node>"
+    echo "Why a node failed:  bash health-check.sh --diff <node>"
     echo "Resume by hand:     scontrol update NodeName=<node|nodelist> State=RESUME"
     exit 0
 fi
@@ -559,7 +663,7 @@ if [[ "$failing" -gt 0 ]]; then
     # and 60 copies of one diff buries the answer.
     first_sig="${groups[0]#*|}"
     first_node="${sig_nodes[$first_sig]%%,*}"
-    echo "Why a node failed:  bash sync-check.sh $first_node"
+    echo "Why a node failed:  bash health-check.sh --diff $first_node"
     [[ "${#groups[@]}" -gt 1 ]] && echo "                    (one node from pattern 1; each pattern needs its own diff)"
     echo "Per check, in full: bash health-check.sh --summary"
     echo "Re-run the checks:  bash health-check.sh --refresh <node|nodelist>"
