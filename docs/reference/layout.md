@@ -22,6 +22,7 @@ pieces fit together this way is
 ├── settings.sh                    # Loads SETTINGS, else SETTINGS.default; backfills unset keys
 ├── reason-map.sh                  # Slurm drain reason → check names (health-check.sh, sync-check.sh)
 ├── report-format.sh               # Node-list compression, wrapping and elision (health-check.sh, overall_report.sh)
+├── health-scan.sh                 # The health verdict from logs/ against the baseline (health-check.sh, overall_report.sh)
 ├── slurm-recovery.sh              # Clears drains Slurm set itself, never an operator's (both actions)
 ├── get-out-of-the-way.sh          # Cancels this node's own job when somebody else is queued for it (launch_job.sh)
 ├── verdict-scan.sh                # Judges every cell of the fleet in parallel (status-check.sh, daily-report.sh)
@@ -198,6 +199,7 @@ The `test` stage runs the suites — `tests/verdict-test.sh`,
 `tests/health-runner-test.sh`, `tests/recover-test.sh`, `tests/inflight-test.sh`,
 `tests/yield-test.sh`, `tests/help-text-test.sh`, `tests/scan-cache-test.sh`,
 `tests/llmb-check-test.sh`, `tests/exclude-test.sh`, `tests/report-format-test.sh`,
+`tests/health-scan-test.sh`,
 `tests/doc-links-test.sh` — as one job each, so a failure names the gate that broke without anyone opening
 a log.
 

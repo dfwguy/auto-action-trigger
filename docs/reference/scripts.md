@@ -202,71 +202,77 @@ resumes nothing; `-o` is the only thing it writes.
 ```bash
 bash health-check.sh                      # every node
 bash health-check.sh ink50-dh01-h20       # one rack (bare prefix)
-bash health-check.sh --full               # nothing elided
-bash health-check.sh --summary            # roll-up: where every node stands
+bash health-check.sh --drained            # only what Slurm has taken out
+bash health-check.sh --summary            # the per-check roll-up, complete
 bash health-check.sh --explain            # the cadence: when each node re-checks
 bash health-check.sh --refresh node001    # queue a re-check ahead of the cadence
 ```
 
-Reads the Slurm drain reasons and groups nodes by the *set* of checks they
-failed, largest group first, so 60 nodes failing the same 38 checks read as one
-incident with one fix rather than 38 check lists over 60 node lists. Also
-separates operator drains from health drains — grouped by reason, so a
-powered-off rack is one line — and flags any check with no entry in
-`valid-config/default/`, because those can never pass: `node_health.sh` is
-diffing against a file that is not there.
+Groups nodes by the *set* of checks they failed, largest group first, so 60
+nodes failing the same 38 checks read as one incident with one fix rather than
+38 check lists over 60 node lists. Also separates the drains it cannot account
+for from the health failures — grouped by reason, so a powered-off rack is one
+line — and flags any check with no entry in `valid-config/default/`, because
+those are never compared and so can never pass.
 
-Long lists are elided with a count; `--full` prints everything. Node lists are
-compressed and wrapped at range boundaries, so they paste straight into
-`health-check.sh --refresh`. Nothing is contacted or re-run: it reports what the
-last health run concluded.
+The verdict comes from `logs/<node>/<check>` against `valid-config/default`, the
+same byte-for-byte comparison `node_health.sh` drains on and the same one
+`overall_report.sh` prints — one library, `health-scan.sh`, so the two reports
+cannot disagree. Slurm is asked for node state and for drain reasons, nothing
+else. A failing node therefore appears here whether or not
+`DRAIN_AFTER_FAILED_HEALTH_CHECK` is on; see
+[../how-to/manage-drains.md#running-with-drains-off](../how-to/manage-drains.md#running-with-drains-off).
+
+Long lists are elided with a count; `--summary` is the complete list. Node lists
+are compressed and wrapped at range boundaries, so they paste straight into
+`health-check.sh --refresh`. Nothing is contacted or re-run: it reports the logs
+the last health run left behind.
 
 A missing or dangling `valid-config/default` is reported first, above the
-groups, because it makes every check fail on every node that ran and none of
-those failures are real — the report under it is an artifact of the baseline,
-not a description of the cluster.
+groups, because nothing can be compared without it — every node then reads as
+passing, and an empty report looks exactly like a healthy cluster.
+
+### `--drained`
+
+The report reads the logs, so with the shipped
+`DRAIN_AFTER_FAILED_HEALTH_CHECK=no` most of the nodes it names are still in the
+queue. `--drained` narrows it to the ones Slurm has actually taken out — down,
+drained, failing or unknown — which is the set a scheduling problem is about
+rather than a hardware one.
+
+It does not combine with `--summary`, which is read from `logs/<node>` and
+carries no drain state; asking for both is an error rather than a silently
+ignored flag.
 
 ### `--summary`
 
-The default report answers "what do I fix". `--summary` answers "where does
-every node stand" — each node lands in exactly one bucket, and the buckets add
-up to the node count:
+The per-check roll-up instead of the grouped report: one line per failing check
+with every node under it, largest first, then the checks with no baseline entry
+and the nodes that have never been checked. Nothing elides.
 
 ```
-SUMMARY — 576 nodes
+── HEALTH CHECKS ───────────────────────────────────────────
+3 checks failing on 60 nodes (logs/<node> against valid-config/default)
 
-PASSING — 76 nodes (checks ran, nothing mismatched the baseline)
-  ink50-dh01-h01-[11,14,17,29,32,35],ink50-dh01-h02-[11,14,17,29,32,35],...
-
-FAILING HEALTH CHECKS — 60 nodes (drained by node_health.sh)
-  ink50-dh01-h01-36,ink50-dh01-h02-[16,18,31],...
-
-NOT CHECKED — 3 nodes (available, but no logs/<node> — checks have never run)
-  ink50-dh01-h15-14,ink50-dh01-h19-11,ink50-dh01-h22-11
-
-OTHER DRAINS — 437 nodes (operator or sequencer; health state not visible in Slurm)
-  ink50-dh01-h01-[12-13,15-16,18,28,30-31,33-34,37],...
+    nvlinks                   60 nodes
+      ink50-dh01-h01-[11-36],ink50-dh01-h02-[11-34]
+    ib-firmware                8 nodes
+      ink50-dh01-h01-[11-18]
 ```
 
-Two distinctions worth knowing:
+This is the same block `overall_report.sh` prints under HEALTH, rendered by the
+same function from the same numbers, so the two can be compared line for line.
+The default report groups by node — "what do I fix" — and this one groups by
+check — "how far does each fix reach".
 
-- **PASSING vs NOT CHECKED.** Both are available with no drain reason. Only the
-  first has a `logs/<node>` to show for it. A node that has never run
-  `node_health.sh` is not a node that passed, and is not counted as one.
-- **OTHER DRAINS is not a health verdict.** Those nodes are down or drained for
-  a reason `node_health.sh` did not write, so it overwrote nothing and Slurm
-  carries no health result for them either way. They may be perfectly healthy;
-  Slurm cannot say.
-
-`PASSING` also depends on the baseline being present — with a missing or
-dangling `valid-config/default`, nodes reach it by having no reason recorded
-rather than by matching anything, and the summary says so.
+A node with no `logs/<node>` at all is listed separately as never checked. It is
+not a passing node, and is not counted as one.
 
 ### `--explain` and `--refresh`
 
-The report above reads Slurm, which knows what the last health run concluded and
-nothing about when the next one is due. `--explain` answers that instead, from
-the `logs/<node>/.last-check` stamps:
+The report above reads a snapshot of the logs, which says what the last health
+run concluded and nothing about when the next one is due. `--explain` answers
+that instead, from the `logs/<node>/.last-check` stamps:
 
 ```
 NODE                         LAST RUN             OUTCOME  NEXT DUE

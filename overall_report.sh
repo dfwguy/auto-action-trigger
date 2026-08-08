@@ -46,6 +46,7 @@ home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
 results_dir="$home/results"
 logs_dir="$home/logs"
+# shellcheck disable=SC2034  # read by health-scan.sh, which nothing follows at lint time
 valid_dir="$home/valid-config/default"
 jobs_dir="$JOBS_DIR"
 
@@ -230,100 +231,21 @@ for n in "${!our_job[@]}"; do
 done > "$running_file"
 
 ## ── Health checks, from the files rather than from Slurm ──────────────────
-## node_health.sh diffs logs/<node>/<check> against the baseline byte for byte,
-## so equal checksums are exactly the checks it would not have drained on.
-## See docs/explanation/reading-the-whole-fleet.md#health-read-from-the-files.
-
-declare -A gated_check base_hash check_fail_nodes
-declare -A health_fail_list health_fail_count
-declare -a no_baseline_checks
-have_baseline=0
-## One awk for the set, not three processes per check file. The FNR window is
-## node_health.sh's own: a whole-file match would catch a check that greps for
-## the same words. See docs/reference/health-checks.md#the-check-file-format.
-declare -A informational
-while IFS= read -r f; do
-    name="${f##*/}"; name="${name%.sh}"; name="${name#*-}"
-    informational["$name"]=1
-done < <(awk 'FNR <= 10 && /^# informational: *yes/ { hit[FILENAME] = 1 }
-              END { for (f in hit) print f }' "$HEALTHCHECKS_DIR"/[0-9]*.sh 2>/dev/null)
-for f in "$HEALTHCHECKS_DIR"/[0-9]*.sh; do
-    [[ -f "$f" ]] || continue
-    name="${f##*/}"; name="${name%.sh}"; name="${name#*-}"
-    ## Recorded and never drained on -- per-rack values cannot match one
-    ## cluster-wide baseline. See docs/reference/health-checks.md#informational-checks.
-    [[ -n "${informational[$name]}" ]] && continue
-    gated_check["$name"]=1
-done
-
-if [[ ${#gated_check[@]} -eq 0 ]]; then
-    note "No check files under $HEALTHCHECKS_DIR -- the HEALTH section has nothing to compare and is left out."
-elif [[ ! -d "$valid_dir" ]]; then
-    dangling=""
-    [[ -L "$valid_dir" ]] && dangling=" (the symlink points at $(readlink "$valid_dir"), which does not exist)"
-    note "No baseline: $valid_dir does not resolve$dangling. Every check would diff against a missing file, so HEALTH below would be an artifact of the baseline rather than a description of the cluster, and is left out. Fix it first: rm -f $valid_dir && bash set-valid-default.sh <validated-node>"
-else
-    have_baseline=1
-    while read -r h f; do base_hash["${f##*/}"]="$h"; done < <(md5sum "$valid_dir"/* 2>/dev/null)
-    for name in "${!gated_check[@]}"; do
-        [[ -n "${base_hash[$name]}" ]] || no_baseline_checks+=("$name")
-    done
+## Shared with health-check.sh, so the two cannot disagree about which nodes
+## are failing. See docs/explanation/reading-the-whole-fleet.md#health-read-from-the-files.
+if [[ ! -f "$home/health-scan.sh" ]]; then
+    echo "ERROR: $home/health-scan.sh is missing -- it carries the health verdict" >&2
+    echo "       this report's HEALTH section is built from." >&2
+    exit 1
 fi
-
-# Every failing (node, check) pair, aggregated both ways, in one awk.
-#
-# The comparison is over one checksum per log file -- 21,888 of them on a
-# 576-node fleet -- and a `while read` around that is the single most expensive
-# thing this report can do: bash reads a pipe a byte at a time, which cost 5.3s
-# of an 8.5s run before this was moved out. awk returns the two aggregates
-# already built, so bash only ever reads the failures, which are few.
-# See docs/explanation/reading-the-whole-fleet.md#health-read-from-the-files.
-health_scan() {
-    [[ "$have_baseline" -eq 1 ]] || return 0
-    local gatedf basef
-    gatedf=$(mktemp) || return 0
-    basef=$(mktemp) || { rm -f "$gatedf"; return 0; }
-    printf '%s\n' "${!gated_check[@]}" > "$gatedf"
-    md5sum "$valid_dir"/* 2>/dev/null > "$basef"
-
-    ## Sorted by path, so a node's checks and a check's nodes both come out of
-    ## awk in order and neither needs sorting again downstream.
-    while IFS=$'\t' read -r kind key count list; do
-        case "$kind" in
-            N) health_fail_count["$key"]="$count"; health_fail_list["$key"]="$list" ;;
-            C) check_fail_nodes["$key"]="$list" ;;
-        esac
-    done < <(
-        find "$logs_dir" -mindepth 2 -maxdepth 2 -type f -print0 2>/dev/null |
-        sort -z |
-        xargs -0 -r md5sum 2>/dev/null |
-        awk -v gatedf="$gatedf" -v basef="$basef" -v logs="$logs_dir/" '
-            FILENAME == gatedf { gated[$0] = 1; next }
-            FILENAME == basef  { n = substr($0, 35); sub(/.*\//, "", n)
-                                 base[n] = substr($0, 1, 32); next }
-            ## Fixed offsets, not fields: md5sum prints a 32-char digest, two
-            ## spaces, then a path that may contain spaces of its own.
-            {
-                p = substr($0, 35)
-                if (substr(p, 1, length(logs)) != logs) next
-                rest = substr(p, length(logs) + 1)
-                i = index(rest, "/")
-                if (i == 0) next
-                node = substr(rest, 1, i - 1); chk = substr(rest, i + 1)
-                if (!(chk in gated) || !(chk in base)) next
-                if (substr($0, 1, 32) == base[chk]) next
-                nfail[node] = nfail[node] (nfail[node] ? "," : "") chk
-                ncount[node]++
-                cfail[chk] = cfail[chk] (cfail[chk] ? "," : "") node
-            }
-            END {
-                for (n in nfail) printf "N\t%s\t%d\t%s\n", n, ncount[n], nfail[n]
-                for (c in cfail) printf "C\t%s\t0\t%s\n", c, cfail[c]
-            }' "$gatedf" "$basef" -
-    )
-    rm -f "$gatedf" "$basef"
-}
-health_scan
+## Declared here as well as in the library: nothing follows a `source` at lint
+## time, so these would read as undefined at every use below.
+declare -A health_fail_count health_fail_list
+declare -a health_scan_notes
+have_baseline=0
+source "$home/health-scan.sh"
+health_scan "$pattern"
+for line in "${health_scan_notes[@]}"; do note "$line"; done
 
 # A node with no logs/<node> at all has not been checked, which is not the same
 # as passing. Builtins only -- this runs over the whole fleet.
@@ -534,46 +456,9 @@ emit_report() {
     fi
 
     ## ── HEALTH ──
-    if [[ "$have_baseline" -eq 1 ]]; then
-        printf '── HEALTH CHECKS ───────────────────────────────────────────\n'
-        local n_nodes_failing=${#health_fail_count[@]} n_checks=${#check_fail_nodes[@]}
-        if [[ "$n_checks" -eq 0 ]]; then
-            printf 'No check differs from the baseline on any node reported here.\n\n'
-        else
-            printf '%d %s failing on %d %s (logs/<node> against valid-config/default)\n\n' \
-                "$n_checks" "$([[ "$n_checks" -eq 1 ]] && echo check || echo checks)" \
-                "$n_nodes_failing" "$(plural "$n_nodes_failing")"
-            shown=0; hidden=0
-            while IFS='|' read -r count name; do
-                if [[ "$shown" -ge "$max_checks" ]]; then
-                    ((hidden++)); continue
-                fi
-                ((shown++))
-                printf '    %-24s %3d %s\n' "$name" "$count" "$(plural "$count")"
-                print_wrapped "      " "$(compress "$(sort_list "${check_fail_nodes[$name]}")")" 2
-            done < <(
-                for name in "${!check_fail_nodes[@]}"; do
-                    printf '%s|%s\n' "$(count_list "${check_fail_nodes[$name]}")" "$name"
-                done | sort -t'|' -k1,1nr -k2,2)
-            [[ "$hidden" -gt 0 ]] &&
-                printf '    ... %d more %s — rerun with --full\n' \
-                    "$hidden" "$([[ "$hidden" -eq 1 ]] && echo check || echo checks)"
-            echo
-        fi
-        if [[ ${#no_baseline_checks[@]} -gt 0 ]]; then
-            printf 'No entry in %s — %d %s can never pass:\n' "$valid_dir" \
-                "${#no_baseline_checks[@]}" \
-                "$([[ ${#no_baseline_checks[@]} -eq 1 ]] && echo check || echo checks)"
-            print_wrapped "    " "$(printf '%s\n' "${no_baseline_checks[@]}" | sort | paste -sd',' -)"
-            echo
-        fi
-        if [[ ${#never_checked[@]} -gt 0 ]]; then
-            printf 'Never checked — %d %s with no logs/<node> at all:\n' \
-                "${#never_checked[@]}" "$(plural "${#never_checked[@]}")"
-            print_wrapped "    " "$(compress "$(printf '%s\n' "${!never_checked[@]}" | sort | paste -sd',' -)")" 2
-            echo
-        fi
-    fi
+    ## Rendered by health-scan.sh; `health-check.sh --summary` prints it too.
+    health_section "$max_checks" \
+        "$(printf '%s\n' "${!never_checked[@]}" | sort | paste -sd',' -)"
 
     ## ── NODES ──
     printf '── NODES ───────────────────────────────────────────────────\n'

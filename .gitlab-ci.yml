@@ -192,6 +192,12 @@ report-format:
   script:
     - ./tests/report-format-test.sh
 
+health-scan:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/health-scan-test.sh
+
 recover:
   extends: .base
   stage: test
