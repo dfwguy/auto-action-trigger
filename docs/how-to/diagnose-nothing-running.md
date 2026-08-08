@@ -121,8 +121,8 @@ is left alone, and its `trigger.log` line names the reason.
 `launch failed requeued held` in the same column is a different state and is
 worth reading separately — a held job sits at priority 0 and never starts, so it
 will not clear when the queue drains. The sequencer cancels those and resubmits,
-but only once the marker goes stale, which is that job's own walltime plus
-`INFLIGHT_GRACE_MINUTES`. One outliving that window by a good margin is a real
+but only once the marker goes stale, which is `INFLIGHT_GRACE_MINUTES` after
+submission. One outliving that window by a good margin is a real
 problem; one inside it is the mechanism working. See
 [explanation/sequencing.md#when-a-marker-goes-stale](../explanation/sequencing.md#when-a-marker-goes-stale).
 

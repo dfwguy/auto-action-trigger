@@ -387,23 +387,6 @@ inflight_read() {
     return 1
 }
 
-## How long to believe a job that has not started. Its own `#SBATCH -t`, since
-## one fixed window cannot fit both dcgmi-r1 and mnubergemm.
-## See docs/explanation/sequencing.md#when-a-marker-goes-stale.
-job_walltime_secs() {
-    local launch="$1" t d=0 h=0 m=0 s=0
-    t=$(grep -oE '^#SBATCH[[:space:]]+(-t|--time=?)[[:space:]]*[0-9:-]+' "$launch" 2>/dev/null |
-        head -1 | grep -oE '[0-9:-]+$')
-    [[ -n "$t" ]] || { printf '%s' $(( MAX_JOB_HOURS * 3600 )); return 0; }
-    [[ "$t" == *-* ]] && { d=${t%%-*}; t=${t#*-}; }
-    case "$t" in
-        *:*:*) IFS=: read -r h m s <<<"$t" ;;
-        *:*)   if [[ "$d" -gt 0 ]]; then IFS=: read -r h m <<<"$t"; else IFS=: read -r m s <<<"$t"; fi ;;
-        *)     if [[ "$d" -gt 0 ]]; then h=$t; else m=$t; fi ;;
-    esac
-    printf '%s' $(( 10#${d:-0} * 86400 + 10#${h:-0} * 3600 + 10#${m:-0} * 60 + 10#${s:-0} ))
-}
-
 ## Every job running here, ours and everyone else's, from the local slurmstepds
 ## rather than slurmctld. `listjobs` prints a JOBID header then one bare id per
 ## line. See docs/explanation/sequencing.md#what-the-node-can-answer-by-itself.
@@ -496,90 +479,6 @@ yield_job() {
     return 1
 }
 
-## ── The in-flight gate ────────────────────────────────────────────────────
-##
-## Four answers, and only the last costs a query. Every branch prefers waiting
-## to submitting. See docs/explanation/sequencing.md#one-job-at-a-time.
-if inflight_read; then
-    if_file=$(result_file "$IF_JOB" "$IF_RUN" "$IF_TOTAL")
-    if_age=$(( $(date +%s) - IF_EPOCH ))
-
-    ## Asked once and remembered: the answer is used twice below, and even a
-    ## local query is a process spawn per node per cycle.
-    if_running=0; job_running_locally "$IF_JOBID" && if_running=1
-
-    if [[ "$if_running" -eq 1 && "$if_age" -lt $(( MAX_JOB_HOURS * 3600 )) ]]; then
-        if yield_job "$IF_JOBID"; then
-            ## The result file is left where it is: an interrupted run is
-            ## already INCOMPLETE, and the resubmission archives it as the
-            ## previous attempt like any other. See
-            ## docs/explanation/sequencing.md#getting-out-of-the-way.
-            inflight_clear
-            trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) cancelled after ${if_age}s to free $HOSTNAME; it is re-queued once the node is free again"
-            exit 0
-        fi
-        trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) running here for ${if_age}s -- ${YIELD_TRACE:-slurmctld not asked}"
-        exit 0
-    elif [[ "$if_running" -eq 1 ]]; then
-        ## Still going, but past the limit. The only branch that reads on: the
-        ## drain needs the node state, which costs the one query below.
-        ## See docs/explanation/sequencing.md#retry-and-drain-behaviour.
-        inflight_overrun="job timeout after $(( if_age / 3600 ))h (RUNNING, job $IF_JOBID)"
-    elif result_complete "$if_file"; then
-        trace "$IF_JOB run $IF_RUN (job $IF_JOBID) finished after ${if_age}s: $VERDICT_STATUS${VERDICT_REASON:+ -- $VERDICT_REASON}"
-        inflight_clear
-    elif [[ "$if_age" -lt $(( $(job_walltime_secs "$(job_launcher "$IF_JOB")") + INFLIGHT_GRACE_MINUTES * 60 )) ]]; then
-        ## Not started yet, most likely queued behind somebody. Believed without
-        ## asking: the alternative is a query per node per cycle while it waits.
-        trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) submitted ${if_age}s ago, not running here yet -- waiting; slurmctld not asked"
-        exit 0
-    elif [[ "$EXPLAIN" -eq 1 ]]; then
-        trace "WOULD ASK squeue about job $IF_JOBID -- $IF_JOB run $IF_RUN is ${if_age}s old, past its walltime plus ${INFLIGHT_GRACE_MINUTES}m grace"
-        inflight_clear
-    else
-        ## The one place the controller is asked on a quiet node, and the only
-        ## thing that can tell "queued behind a long job" from "gone".
-        ## %r last: a Slurm reason is free text with spaces in it. stderr is
-        ## kept rather than discarded, because it carries the only thing that
-        ## tells "this job is gone" from "the controller did not answer", and
-        ## both print nothing on stdout.
-        ## See docs/explanation/sequencing.md#when-the-controller-does-not-answer.
-        if_queued=$(squeue -h -j "$IF_JOBID" -o '%T %r' 2>&1)
-        if_rc=$?
-        if [[ "$if_rc" -ne 0 || "$if_queued" == *"error:"* ]]; then
-            if [[ "$if_queued" == *"Invalid job id"* ]]; then
-                ## Slurm has forgotten the job entirely: it is gone, and the
-                ## branch below is the right one.
-                if_queued=""
-            else
-                trace "EXIT: 'squeue -j $IF_JOBID' would not answer, so it is not known whether $IF_JOB run $IF_RUN is still queued -- the marker is kept and nothing is archived or resubmitted: ${if_queued:-<no output>}"
-                exit 0
-            fi
-        fi
-        if [[ -n "$if_queued" ]]; then
-            ## A job held after a failed launch reads as PENDING at priority 0
-            ## and never starts, so waiting on it waits forever. Ours by
-            ## construction -- the marker holds the id we submitted.
-            ## See docs/explanation/sequencing.md#jobs-the-scheduler-has-given-up-on.
-            if [[ -n "$LAUNCH_FAILED_HELD" && "$if_queued" == *"$LAUNCH_FAILED_HELD"* ]]; then
-                if_out=$(scancel "$IF_JOBID" 2>&1)
-                trace "CANCELLED $IF_JOBID -- $IF_JOB run $IF_RUN held after a failed launch ('$LAUNCH_FAILED_HELD') for ${if_age}s; the next cycle resubmits${if_out:+ -- $if_out}"
-                inflight_clear
-            else
-                trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) still queued after ${if_age}s, past its own walltime -- left alone ($if_queued); 'scancel $IF_JOBID' to give up on it"
-                exit 0
-            fi
-        else
-        ## Gone without finishing its result file: cancelled, killed, or the
-        ## node was drained under it. Archived so the slot is free and the
-        ## attempt is still on disk. See docs/explanation/sequencing.md#when-a-marker-goes-stale.
-            trace "$IF_JOB run $IF_RUN (job $IF_JOBID) is gone from the queue after ${if_age}s with no end marker -- archiving the partial result and moving on"
-            [[ -f "$if_file" ]] && archive_result "$if_file" fail
-            inflight_clear
-        fi
-    fi
-fi
-
 ## ── Node state, and only when something needs it ──────────────────────────
 ##
 ## The one thing a node cannot answer about itself: State and Reason live in
@@ -614,38 +513,144 @@ node_reason() {
 ## --explain reads through this the same way it reads through PAUSE_JOBS: a
 ## dry-run recovery issues no scontrol, restarts no slurmd and records no
 ## attempt, so the pause has nothing to protect it from.
-recovery_paused=0
-if setting_enabled "$PAUSE_RECOVERY"; then
-    if [[ "$EXPLAIN" -eq 1 ]]; then
-        trace "PAUSE_RECOVERY=$PAUSE_RECOVERY in ${SETTINGS_FILE:-<none>} -- explaining anyway; nothing below would be resumed while it is set"
+## Called from inside the in-flight gate as well as after it; a node stuck
+## behind its own undelivered job would otherwise never reach it. See
+## docs/explanation/sequencing.md#a-queued-job-must-not-outrank-a-drain.
+recovery_ran=0
+recover_slurm_drains() {
+    local recovery_paused=0
+    [[ "$recovery_ran" -eq 1 ]] && return 0
+    recovery_ran=1
+
+    if setting_enabled "$PAUSE_RECOVERY"; then
+        if [[ "$EXPLAIN" -eq 1 ]]; then
+            trace "PAUSE_RECOVERY=$PAUSE_RECOVERY in ${SETTINGS_FILE:-<none>} -- explaining anyway; nothing below would be resumed while it is set"
+        else
+            trace "recovery paused: PAUSE_RECOVERY=$PAUSE_RECOVERY in ${SETTINGS_FILE:-<none>} -- drains Slurm set itself are left exactly where they are"
+            recovery_paused=1
+        fi
+    fi
+
+    if [[ "$recovery_paused" -eq 1 ]]; then
+        :
+    elif [[ -n "${inflight_overrun:-}" ]]; then
+        ## The only way to reach here with a job of ours still on the node. It is
+        ## drained below, and recovery would do nothing but hold on it.
+        :
+    elif [[ -f "$home/slurm-recovery.sh" ]]; then
+        recover_log() { trace "$@"; }
+        ## SC2034: read by slurm-recovery.sh, sourced below, which shellcheck
+        ## cannot follow from inside a function. `export` would put them in
+        ## every job's environment. Repeated: it covers one assignment.
+        # shellcheck disable=SC2034
+        RECOVER_ACCEPT="machine"
+        RECOVER_LOG="$logs/recover.log"
+        # shellcheck disable=SC2034
+        RECOVER_DRY_RUN="$EXPLAIN"
+        source "$home/slurm-recovery.sh"
+        if slurm_recover_node "$HOSTNAME"; then
+            [[ "$EXPLAIN" -eq 1 ]] || { NODE_INFO=""; NODE_ASKED=0; node_info; }
+            ensure_file_owned "$RECOVER_LOG"
+            trace "state after recovery=$(printf '%s' "$state" | tr '\n' ',')"
+        fi
     else
-        trace "recovery paused: PAUSE_RECOVERY=$PAUSE_RECOVERY in ${SETTINGS_FILE:-<none>} -- drains Slurm set itself are left exactly where they are"
-        recovery_paused=1
+        ## Named rather than skipped quietly: the tell for a deployment predating
+        ## the file, whose absence is otherwise invisible -- nodes just stay drained.
+        trace "WARNING: $home/slurm-recovery.sh is missing -- drains set by Slurm itself (prolog, rogue process, no reason) will not be cleared. Stale deployment?"
+    fi
+}
+
+
+## ── The in-flight gate ────────────────────────────────────────────────────
+##
+## Four answers, and only the last costs a query. Every branch prefers waiting
+## to submitting. See docs/explanation/sequencing.md#one-job-at-a-time.
+if inflight_read; then
+    if_file=$(result_file "$IF_JOB" "$IF_RUN" "$IF_TOTAL")
+    if_age=$(( $(date +%s) - IF_EPOCH ))
+
+    ## Asked once and remembered: the answer is used twice below, and even a
+    ## local query is a process spawn per node per cycle.
+    if_running=0; job_running_locally "$IF_JOBID" && if_running=1
+
+    if [[ "$if_running" -eq 1 && "$if_age" -lt $(( MAX_JOB_HOURS * 3600 )) ]]; then
+        if yield_job "$IF_JOBID"; then
+            ## The result file is left where it is: an interrupted run is
+            ## already INCOMPLETE, and the resubmission archives it as the
+            ## previous attempt like any other. See
+            ## docs/explanation/sequencing.md#getting-out-of-the-way.
+            inflight_clear
+            trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) cancelled after ${if_age}s to free $HOSTNAME; it is re-queued once the node is free again"
+            exit 0
+        fi
+        trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) running here for ${if_age}s -- ${YIELD_TRACE:-slurmctld not asked}"
+        exit 0
+    elif [[ "$if_running" -eq 1 ]]; then
+        ## Still going, but past the limit. The only branch that reads on: the
+        ## drain needs the node state, which costs the one query below.
+        ## See docs/explanation/sequencing.md#retry-and-drain-behaviour.
+        inflight_overrun="job timeout after $(( if_age / 3600 ))h (RUNNING, job $IF_JOBID)"
+    elif result_complete "$if_file"; then
+        trace "$IF_JOB run $IF_RUN (job $IF_JOBID) finished after ${if_age}s: $VERDICT_STATUS${VERDICT_REASON:+ -- $VERDICT_REASON}"
+        inflight_clear
+    elif [[ "$if_age" -lt $(( INFLIGHT_GRACE_MINUTES * 60 )) ]]; then
+        ## Not started yet, most likely queued behind somebody. Believed without
+        ## asking: the alternative is a query per node per cycle while it waits.
+        ## Recovery still runs -- a drain on this node is why it may never start.
+        recover_slurm_drains
+        trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) submitted ${if_age}s ago, not running here yet -- waiting; slurmctld not asked"
+        exit 0
+    elif [[ "$EXPLAIN" -eq 1 ]]; then
+        trace "WOULD ASK squeue about job $IF_JOBID -- $IF_JOB run $IF_RUN is ${if_age}s old, past the ${INFLIGHT_GRACE_MINUTES}m grace"
+        inflight_clear
+    else
+        ## The one place the controller is asked on a quiet node, and the only
+        ## thing that can tell "queued behind a long job" from "gone".
+        ## %r last: a Slurm reason is free text with spaces in it. stderr is
+        ## kept rather than discarded, because it carries the only thing that
+        ## tells "this job is gone" from "the controller did not answer", and
+        ## both print nothing on stdout.
+        ## See docs/explanation/sequencing.md#when-the-controller-does-not-answer.
+        if_queued=$(squeue -h -j "$IF_JOBID" -o '%T %r' 2>&1)
+        if_rc=$?
+        if [[ "$if_rc" -ne 0 || "$if_queued" == *"error:"* ]]; then
+            if [[ "$if_queued" == *"Invalid job id"* ]]; then
+                ## Slurm has forgotten the job entirely: it is gone, and the
+                ## branch below is the right one.
+                if_queued=""
+            else
+                recover_slurm_drains
+                trace "EXIT: 'squeue -j $IF_JOBID' would not answer, so it is not known whether $IF_JOB run $IF_RUN is still queued -- the marker is kept and nothing is archived or resubmitted: ${if_queued:-<no output>}"
+                exit 0
+            fi
+        fi
+        if [[ -n "$if_queued" ]]; then
+            ## A job held after a failed launch reads as PENDING at priority 0
+            ## and never starts, so waiting on it waits forever. Ours by
+            ## construction -- the marker holds the id we submitted.
+            ## See docs/explanation/sequencing.md#jobs-the-scheduler-has-given-up-on.
+            if [[ -n "$LAUNCH_FAILED_HELD" && "$if_queued" == *"$LAUNCH_FAILED_HELD"* ]]; then
+                if_out=$(scancel "$IF_JOBID" 2>&1)
+                trace "CANCELLED $IF_JOBID -- $IF_JOB run $IF_RUN held after a failed launch ('$LAUNCH_FAILED_HELD') for ${if_age}s; the next cycle resubmits${if_out:+ -- $if_out}"
+                inflight_clear
+            else
+                recover_slurm_drains
+                trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) still queued after ${if_age}s -- left alone ($if_queued); 'scancel $IF_JOBID && rm $inflight' to give up on it"
+                exit 0
+            fi
+        else
+        ## Gone without finishing its result file: cancelled, killed, or the
+        ## node was drained under it. Archived so the slot is free and the
+        ## attempt is still on disk. See docs/explanation/sequencing.md#when-a-marker-goes-stale.
+            trace "$IF_JOB run $IF_RUN (job $IF_JOBID) is gone from the queue after ${if_age}s with no end marker -- archiving the partial result and moving on"
+            [[ -f "$if_file" ]] && archive_result "$if_file" fail
+            inflight_clear
+        fi
     fi
 fi
 
-if [[ "$recovery_paused" -eq 1 ]]; then
-    :
-elif [[ -n "${inflight_overrun:-}" ]]; then
-    ## The only way to reach here with a job of ours still on the node. It is
-    ## drained below, and recovery would do nothing but hold on it.
-    :
-elif [[ -f "$home/slurm-recovery.sh" ]]; then
-    recover_log() { trace "$@"; }
-    RECOVER_ACCEPT="machine"
-    RECOVER_LOG="$logs/recover.log"
-    RECOVER_DRY_RUN="$EXPLAIN"
-    source "$home/slurm-recovery.sh"
-    if slurm_recover_node "$HOSTNAME"; then
-        [[ "$EXPLAIN" -eq 1 ]] || { NODE_INFO=""; node_info; }
-        ensure_file_owned "$RECOVER_LOG"
-        trace "state after recovery=$(printf '%s' "$state" | tr '\n' ',')"
-    fi
-else
-    ## Named rather than skipped quietly: the tell for a deployment predating
-    ## the file, whose absence is otherwise invisible -- nodes just stay drained.
-    trace "WARNING: $home/slurm-recovery.sh is missing -- drains set by Slurm itself (prolog, rogue process, no reason) will not be cleared. Stale deployment?"
-fi
+## Every path that leaves the gate without exiting arrives here.
+recover_slurm_drains
 
 ## ── Pause ─────────────────────────────────────────────────────────────────
 ##

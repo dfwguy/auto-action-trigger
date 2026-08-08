@@ -36,8 +36,13 @@ a query:
 | absent | — | — | pick the next eligible job and submit it | 3 |
 | present | yes | — | leave it alone | **0** |
 | present | no | ends in a marker | job finished; clear and advance next cycle | **0** |
-| present | no | no end marker, inside its window | not started yet; wait | **0** |
+| present | no | no end marker, inside its window | not started yet; wait, and let recovery look | 1 |
 | present | no | no end marker, past its window | [stale](#when-a-marker-goes-stale) | 1 |
+
+The one query on the waiting row is recovery's `sinfo`, and it is the same one
+an idle node already makes every cycle — a node with a job queued is not asked
+about more often than one with nothing to do. Why it is there at all is
+[a queued job must not outrank a drain](#a-queued-job-must-not-outrank-a-drain).
 
 "Job running here" is `scontrol listjobs`, which contacts the local slurmstepd
 processes and not slurmctld — see [what the node can answer by
@@ -304,8 +309,8 @@ can come back empty has a caller that fails closed:
   *still running*, never as gone — see [one job at a time](#one-job-at-a-time).
 - **The stale branch.** `squeue -j` returning nothing on a **successful** query
   is the one case where empty *is* the answer, which is why that branch is only
-  reached after the job's own walltime plus `INFLIGHT_GRACE_MINUTES` have
-  passed, rather than on the first cycle a job is not seen. A query that
+  reached after `INFLIGHT_GRACE_MINUTES` have passed, rather than on the first
+  cycle a job is not seen. A query that
   *failed* is a different thing and is not allowed to look like it: the exit
   status and stderr are both kept, `Invalid job id specified` means the job is
   genuinely gone, and anything else keeps the marker and archives nothing.
@@ -612,12 +617,17 @@ node runs two copies of a job whose result is meant to judge the hardware; wait
 forever and the node is silently idle, which is the failure this whole tree is
 built to prevent.
 
-So the wait is bounded by the job's own `#SBATCH -t` plus
-`INFLIGHT_GRACE_MINUTES` (default 30). One fixed window could not serve both
-`dcgmi-r1` at 25 minutes and `mnubergemm` at six hours a run. Too low and a node
-queued behind somebody else's long job gets asked about every cycle; too high
-and a job that died leaves the node idle for that much longer. It is the only
-setting that trades those two against each other.
+So the wait is bounded by `INFLIGHT_GRACE_MINUTES` (default 30). Too low and a
+node queued behind somebody else's long job gets asked about every cycle; too
+high and a job that died leaves the node idle for that much longer. It is the
+only setting that trades those two against each other.
+
+It used to add the job's own `#SBATCH -t` on top, on the reasoning that one
+fixed window could not serve both `dcgmi-r1` at 25 minutes and `mnubergemm` at
+six hours. That reasoning does not survive contact with the question being
+asked: how long a job would *run* says nothing about how long it may sit
+*queued*, and the two cases below have immediate answers that were being waited
+out. On `mnubergemm` the wait was seven hours.
 
 Past that bound, and only then, one `squeue -j <id>` settles it:
 
@@ -625,13 +635,41 @@ Past that bound, and only then, one `squeue -j <id>` settles it:
   resubmits. A held job sits at priority 0 and never starts, so waiting on it
   waits forever.
 - **Still pending otherwise** — left alone, and the trace names the reason and
-  the `scancel` that would give up on it. Queued behind a long foreign job is a
-  legitimate state, not a fault.
+  what would give up on it. Queued behind a long foreign job is a legitimate
+  state, not a fault. The trace says `scancel <id> && rm <marker>` rather than
+  just `scancel`: cancelling the job leaves the marker, and the marker is what
+  pins the node until the next query — an operator who ran only the first half
+  watched the node stay put and reasonably concluded the advice was wrong.
 - **Not in the queue** — gone without finishing. The partial result is archived
   as `.fail<N>.txt` so the slot is free and the attempt is still on disk. "Not
   in the queue" means an answered query that named no job, or `squeue` replying
   `Invalid job id specified`; a query that did not complete leaves the marker
   alone and tries again next cycle.
+
+### A queued job must not outrank a drain
+
+The in-flight gate returns before everything below it, recovery included. That
+is right for a node that is busy and wrong for a node that is stuck, and the two
+were indistinguishable from inside the gate:
+
+```
+node drained  →  our job cannot start  →  gate sees a job in flight  →  exit
+                        ▲                                                │
+                        └──────── the recovery that would clear it ──────┘
+```
+
+The node writes a `waiting` line every cycle and does nothing, for as long as
+the bound above allows. Every ingredient of that deadlock is a correct decision:
+one job at a time, believe the marker, don't ask the controller on a quiet node.
+
+So `recover_slurm_drains` is a function, called from the gate's waiting paths as
+well as after it, and it runs at most once a cycle. The cost is one `sinfo` on a
+node that has a job queued — the same query an idle node already makes every
+cycle, so nothing new is asked of the controller on a healthy fleet.
+
+The exception it keeps: a job of *ours* **running** on the node means the node
+is working, and its drains are not ours to clear. That case still exits above
+recovery, as it always did.
 
 ### When a node is drained
 
@@ -726,11 +764,11 @@ Two bounds on it:
 - **Nothing bounds how often this repeats, and it should.** The hourly gate
   keys off result mtime, and a job that never ran writes no result, so that gate
   stays open: after the cancel, `inflight_clear` runs and the next cycle
-  submits again. The only thing pacing the loop is the job's own walltime plus
-  `INFLIGHT_GRACE_MINUTES`, which is how long the marker survives before the
-  cancel branch is reached at all. A node that cannot launch anything will
-  therefore cancel and resubmit indefinitely, at roughly one cycle per
-  walltime. This is a known gap, not a design: see
+  submits again. The only thing pacing the loop is `INFLIGHT_GRACE_MINUTES`,
+  which is how long the marker survives before the cancel branch is reached at
+  all. A node that cannot launch anything will therefore cancel and resubmit
+  indefinitely, at roughly one cycle per grace window — faster than it used to,
+  now that the job's walltime no longer pads it. This is a known gap, not a design: see
   [what the traces showed](#what-the-traces-showed).
 
 #### What the traces showed

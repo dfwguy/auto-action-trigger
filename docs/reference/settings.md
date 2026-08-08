@@ -341,7 +341,7 @@ Why the detection is that particular question, and not `sinfo -N -n`, is in
 | `RETRY_BACKOFF_MAX_HOURS` | `12` | Ceiling on the widened window. Ignored, with a warning, if it is not a whole number of hours at or above `RETRY_INTERVAL_HOURS` |
 | `MAX_JOB_HOURS` | `7` | A benchmark `RUNNING` longer than this drains the node |
 | `DRAIN_WINDOW_MINUTES` | `15` | Only failures newer than this drain |
-| `INFLIGHT_GRACE_MINUTES` | `30` | Added to a job's own walltime before a submitted job that never started is treated as stale |
+| `INFLIGHT_GRACE_MINUTES` | `30` | How long a submitted job that never started is believed before the controller is asked about it |
 | `DRAIN_MARKER` | `auto-retry` | Written into every drain reason this framework issues; only drains carrying it are ever cleared automatically |
 
 `DRAIN_WINDOW_MINUTES` has to sit above the BCM monitoring interval or the drain

@@ -207,6 +207,19 @@ run_case "started, no end marker, inside its window" >/dev/null
 check "marker kept"       'marker_kept'
 check "traced as waiting" 'traced "not running here yet -- waiting"'
 
+## PAUSE_RECOVERY is `yes` here, so its trace line is the proof the path is
+## reached at all. See docs/explanation/sequencing.md#a-queued-job-must-not-outrank-a-drain.
+setup='marker 40'
+run_case "queued, and recovery still gets a look" >/dev/null
+check "recovery reached"  'traced "recovery paused"'
+check "traced as waiting" 'traced "not running here yet -- waiting"'
+check "nothing submitted" '! submitted'
+
+## The exception the guard keeps: our job running here means the node works.
+setup='marker 40; STUB_LOCAL_JOBS=4242'
+run_case "running here, so recovery is left alone" >/dev/null
+check "recovery not reached" '! traced "recovery paused"'
+
 echo "== a job that has finished =="
 
 setup='marker 300; result_done'
@@ -220,14 +233,27 @@ check "marker kept"          'marker_kept'
 check "traced as running"    'traced "running here for"'
 check "controller not asked" '[[ ! -f "$CASE_DIR/squeue.calls" ]]'
 
-echo "== past its walltime, so the controller is asked =="
+echo "== past the grace, so the controller is asked =="
 
-## 20m walltime + 30m grace, so 4000s is past the bound.
+## 30m grace, so 4000s is past the bound and the 40s cases above are inside it.
 setup='marker 4000; STUB_SQUEUE_J="PENDING Resources"'
 run_case "still queued" >/dev/null
 check "marker kept"        'marker_kept'
 check "traced as queued"   'traced "still queued after"'
 check "nothing submitted"  '! submitted'
+
+## Past the 30m grace, inside the 20m walltime the bound used to add to it.
+setup='marker 2000; STUB_SQUEUE_J="PENDING Resources"'
+run_case "past the grace, inside what the walltime used to buy" >/dev/null
+check "controller asked" '[[ -f "$CASE_DIR/squeue.calls" ]]'
+check "traced as queued" 'traced "still queued after"'
+
+## Held at priority 0, so it never starts: given up on rather than waited out.
+setup='marker 4000; STUB_SQUEUE_J="PENDING launch failed requeued held"'
+run_case "held after a failed launch" >/dev/null
+check "cancelled"          '[[ -f "$CASE_DIR/scancel.calls" ]]'
+check "traced as cancelled" 'traced "held after a failed launch"'
+check "resubmitted"        'submitted'
 
 ## The marker is cleared and the cycle carries on to resubmit, so what proves
 ## the old one went is the new id in its place.
