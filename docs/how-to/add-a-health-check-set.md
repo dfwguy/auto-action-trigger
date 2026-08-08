@@ -54,7 +54,7 @@ Sets worth having:
 
 ```bash
 bash health-check.sh --summary     # where every node stands
-bash sync-check.sh <node>          # why one node was taken down
+bash health-check.sh --diff <node> # why one node was taken down
 ./tests/health-runner-test.sh      # the runner loop, offline
 ```
 

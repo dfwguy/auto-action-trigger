@@ -13,8 +13,8 @@ DRAIN_AFTER_FAILED_BENCHMARK=no      # launch_job.sh: failed sweep, and MAX_JOB_
 
 Nothing else changes with either off — checks and benchmarks still run, results
 are still recorded, and failures still re-queue hourly. The node is simply never
-taken out of service, so failures show up in `status-check.sh`, `sync-check.sh`
-and `daily-report.sh` rather than in `sinfo`.
+taken out of service, so failures show up in `status-check.sh`,
+`health-check.sh` and `daily-report.sh` rather than in `sinfo`.
 
 That is the state to be in during early bringup, when you want the full picture
 across a rack before nodes start dropping out, and while debugging a benchmark

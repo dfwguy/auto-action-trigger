@@ -77,7 +77,6 @@ The following scripts are run manually by an operator from the headnode and do n
 | `daily-report.sh` | `sinfo`, read access to `results/`; write access to wherever `-o` points |
 | `health-check.sh` | `sinfo`, `scontrol`, read access to `logs/` and `valid-config/` |
 | `health-check.sh --refresh` | write access to `logs/<node>/` |
-| `sync-check.sh` | read access to `logs/` and `valid-config/` |
 | `trigger-debug.sh` | `cmsh`, `sinfo`, read access to `results/` |
 | `trigger-log.sh` | read access to `results/` and `logs/` |
 | `watch-rack.sh` | `sinfo` |
@@ -222,7 +221,7 @@ A node that has been drained:
 ```bash
 bash health-check.sh                      # every failed health check, grouped by check
 sinfo -n node001 -o '%T %E'               # state and reason
-bash sync-check.sh node001                # diff its health output vs the baseline
+bash health-check.sh --diff node001       # diff its health output vs the baseline
 scontrol update nodename=node001 state=RESUME
 ```
 

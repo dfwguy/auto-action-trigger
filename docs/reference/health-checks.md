@@ -118,7 +118,7 @@ design, and enforcing them drains the fleet for its own topology:
 | `imex-node-config` | `nodes_config.cfg` lists that rack's IMEX domain members |
 | `imex-status` | live domain membership matrix — per-rack, and it changes every time a node in the rack goes down, so any baseline for it goes stale |
 
-Read them with `less logs/<node>/<check>` or `sync-check.sh --all <node>`.
+Read them with `less logs/<node>/<check>` or `health-check.sh --diff --all <node>`.
 
 This trades away automatic detection of a genuinely wrong ClusterUUID — a node
 cabled into the wrong rack no longer drains for it. That is caught by the
@@ -162,8 +162,8 @@ and used as filenames: `dmesg-xid` carries its own output into the reason
 checks moved into `health-checks/` also used hand-written headers that did not
 match the log file.
 
-`reason-map.sh` carries both cases and is shared by `health-check.sh` and
-`sync-check.sh`. Anything else reading the reason field needs to go through it
+`reason-map.sh` carries both cases and is used by `health-check.sh`.
+Anything else reading the reason field needs to go through it
 too: rewrite the multi-word legacy names first, resolve the single-token
 renames, then keep only tokens that name a check that exists — everything else
 is free text a check dragged in.
@@ -180,5 +180,5 @@ into the reason, and the check name is the filename, so the two cannot diverge
 again. They stay parseable because a node drained before the `health-checks/`
 split keeps its old reason text in Slurm until something resumes it — which, for
 a node nobody has touched, may be a long time. Deleting the rewrites turns those
-nodes into a group of unrecognized operator drains in `health-check.sh` and a
-set of files `sync-check.sh` cannot find.
+nodes into a group of unrecognized operator drains in `health-check.sh`, which
+is how a health drain stops being told apart from an operator's.

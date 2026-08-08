@@ -131,8 +131,8 @@ would take the whole fleet out over a missing `valid-config/`.
 `set-valid-default.sh` also strips `refresh` and `.last-check` out of the copy.
 Neither is a check, and a `.last-check` sitting in the baseline directory reads
 as a check name to every consumer that lists it —
-`health-check.sh` and `sync-check.sh` both filter it as well, because a baseline
-taken before this change still has one.
+`health-check.sh` filters it as well, because a baseline taken before this
+change still has one.
 
 ## Every cycle says what it decided
 

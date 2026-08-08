@@ -91,7 +91,7 @@ Two consequences worth knowing before you move any of it:
   several hundred times, and nothing renders those links, so a retitled heading
   resolves silently to the top of the page. `tests/doc-links-test.sh` is the
   gate; run it after touching a heading.
-- **The nine `--help` scripts are the exception.** Their header block *is* the
+- **The eight `--help` scripts are the exception.** Their header block *is* the
   command surface, and `docs/reference/scripts.md` points at it rather than
   restating it. Two copies of an option list drift, and only one of them is
   testable.
@@ -233,7 +233,7 @@ drifted twice by adding a top-level script and not listing it.
 ## Some scripts print their own header as `--help`
 
 `status-check.sh`, `health-check.sh`, `overall_report.sh`, `daily-report.sh`,
-`sync-check.sh`, `trigger-log.sh`, `kill-jobs.sh`, `check_squeue.sh` and
+`trigger-log.sh`, `kill-jobs.sh`, `check_squeue.sh` and
 `build_llmb.sh` implement `-h` as `sed -n '2,NNp'` over themselves — `tests/help-text-test.sh`
 discovers them rather than listing them, so the set is whatever greps for the
 idiom. The line

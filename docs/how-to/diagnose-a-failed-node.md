@@ -138,7 +138,7 @@ Collect, per affected node:
 ```bash
 bash status-check.sh <node>                       # what the gates say
 bash daily-report.sh | grep <node>                # the numbers, and Slurm state
-bash sync-check.sh <node>                         # health-check diffs vs baseline
+bash health-check.sh --diff <node>                # health-check diffs vs baseline
 sinfo -R -n <node>                                # the drain reason verbatim
 tail -40 results/<node>/trigger.log               # what the sequencer decided
 cat results/<node>/<failing-job>.txt              # the raw output, whole file
