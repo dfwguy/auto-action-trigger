@@ -21,6 +21,7 @@ pieces fit together this way is
 ├── SETTINGS.default               # Shipped configuration; copy to SETTINGS to change anything
 ├── settings.sh                    # Loads SETTINGS, else SETTINGS.default; backfills unset keys
 ├── reason-map.sh                  # Slurm drain reason → check names (health-check.sh, sync-check.sh)
+├── report-format.sh               # Node-list compression, wrapping and elision (health-check.sh, overall_report.sh)
 ├── slurm-recovery.sh              # Clears drains Slurm set itself, never an operator's (both actions)
 ├── get-out-of-the-way.sh          # Cancels this node's own job when somebody else is queued for it (launch_job.sh)
 ├── verdict-scan.sh                # Judges every cell of the fleet in parallel (status-check.sh, daily-report.sh)
@@ -81,6 +82,7 @@ pieces fit together this way is
 ├── check_squeue.sh                # The queue in one table; -j adds node state and reservations
 ├── status-check.sh                # Live per-node benchmark status (all nodes)
 ├── daily-report.sh                # Per-node table: slurm state, status, performance metrics
+├── overall_report.sh              # Everything without a pass, with everything known about it
 ├── sync-check.sh                  # Diff a drained node's health output vs baseline
 ├── trigger-debug.sh               # Walk the BCM → sbatch chain and name the broken link
 ├── trigger-log.sh                 # Read what the chain wrote: trigger.log across the cluster

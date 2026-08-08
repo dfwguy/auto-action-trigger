@@ -10,6 +10,11 @@ fleet that has stopped failing.
 The tables this procedure looks things up in are
 [reference/reasons.md](../reference/reasons.md).
 
+To see every node in this state at once, with its drain reason, its failing
+health checks and — for a node Slurm drained with `Prolog error` — the check
+that actually failed, start from `overall_report.sh`:
+[reference/scripts.md](../reference/scripts.md#overall_reportsh--everything-without-a-pass).
+
 ## 1. Count the nodes before reading the failure
 
 The same reason string means opposite things at different scales, and this is

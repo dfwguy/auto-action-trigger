@@ -3,11 +3,12 @@
 Every entry point, what it takes and what it prints. Everything here runs from
 the headnode and is safe to run while the triggers are live.
 
-Eight of these implement `-h`/`--help` by printing their own header comment —
-`status-check.sh`, `health-check.sh`, `daily-report.sh`, `sync-check.sh`,
-`trigger-log.sh`, `kill-jobs.sh`, `check_squeue.sh` and `build_llmb.sh`. **That
-header is the authoritative option list**, and it is deliberately not restated
-here: two copies of a command surface drift, and only one of them is testable.
+Nine of these implement `-h`/`--help` by printing their own header comment —
+`status-check.sh`, `health-check.sh`, `overall_report.sh`, `daily-report.sh`,
+`sync-check.sh`, `trigger-log.sh`, `kill-jobs.sh`, `check_squeue.sh` and
+`build_llmb.sh`. **That header is the authoritative option list**, and it is
+deliberately not restated here: two copies of a command surface drift, and only
+one of them is testable.
 `tests/help-text-test.sh` keeps the printed range in step with the text. Run
 `<script> -h` for the flags; this page is what the output means.
 
@@ -131,6 +132,70 @@ Both halves are laid out the same way, always, under one rule: **TSV at a
 terminal** is column-aligned for reading, and **anything else** — a pipe, a
 redirect, `-o`, or `-c` — is the raw separated rows. Getting it into a
 spreadsheet is [how-to/export-a-report.md](../how-to/export-a-report.md).
+
+## `overall_report.sh` — everything without a pass
+
+```bash
+bash overall_report.sh                    # every node
+bash overall_report.sh ink50-dh01-h20     # one rack (bare prefix)
+bash overall_report.sh --full             # nothing elided
+bash overall_report.sh -o reports/today.txt
+```
+
+The exception list. A node that passes appears nowhere in it, so a clean cluster
+produces three lines — the counts, the settings file that was read, and the
+sections saying they found nothing. Why it is inverted, and what that costs, is
+[explanation/reading-the-whole-fleet.md](../explanation/reading-the-whole-fleet.md).
+
+Four sections:
+
+| Section | Rows are | Read from |
+|---|---|---|
+| `BENCHMARKS` | one column, then one group per `(status, reason)`, largest first | `results/<node>/`, judged by `parsers/$PARSERS/verdict.sh` |
+| `HEALTH CHECKS` | one check, with the nodes whose log differs from the baseline | `logs/<node>/` against `valid-config/default/` |
+| `NODES` | one block per node with an outstanding column, worst first | everything above, plus Slurm and the node's own trace |
+| `WHAT TO RUN NEXT` | the commands that answer what the report raises | — |
+
+A `FAIL` group carries `[measured …]` when the column has a metric, so how far
+below a floor the nodes are is visible without opening `daily-report.sh`. The
+figures are the same ones that report prints, in the same units.
+
+The health section does **not** read Slurm drain reasons, so unlike
+`health-check.sh` it is complete with the shipped
+`DRAIN_AFTER_FAILED_HEALTH_CHECK=no`. Informational checks are excluded, because
+`node_health.sh` never drains on them.
+
+### A node block
+
+Every line is `<label>  <value>`, and a label that is absent means that source
+had nothing to say:
+
+```
+ink50-dh01-h20-35
+    slurm    drained — 'Prolog error' set by slurm at 2026-08-07T03:09:55
+    prolog   the pre-job check failed on [dmesg], 2026-08-07 03:10:12 (results/…/trigger.log)
+    drains   3 cleared in the last 24h; last was a machine drain, drained, Prolog error
+    queue    nothing of ours queued or running here
+    health   2 failing: bios, kernel-params
+    missing  allreduce (FAIL), alltoall (NOT_RUN)
+    trace    2026-08-07 03:10:13 EXIT: waiting on our own queue (RUNNING for 12m, limit 7h)
+```
+
+`prolog` is the line the rest of this tree cannot give you: Slurm records only
+that the prolog failed, and the check that actually failed is named nowhere a
+head node can read it — except in the note `slurm-recovery.sh` leaves in the
+node's own trace. When that note is absent the line says so and prints the `ssh`
+that reads the node-local log directly. See
+[explanation/reading-the-whole-fleet.md](../explanation/reading-the-whole-fleet.md#a-prolog-drain-does-not-say-why).
+
+`NODES` is capped by default and ordered so that what survives the cap is what
+nothing else explains — a node with no result, no drain and no job in the queue
+outranks one that simply has a benchmark running on it. `--full` lifts every cap
+in the report.
+
+Slurm is asked three times for the whole fleet, never once per node, so this is
+safe to run while the triggers are live. It submits nothing, drains nothing and
+resumes nothing; `-o` is the only thing it writes.
 
 ## `health-check.sh` — cluster-wide health summary
 
