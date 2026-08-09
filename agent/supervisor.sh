@@ -64,7 +64,7 @@ mkdir -p "$results" 2>/dev/null
 ## start it cannot run concurrently -- so a slow cycle is followed immediately
 ## by the next, and the fan-out never stops. Node-local, like the agent's.
 _sup_lock=/tmp/.bringup-supervisor.lock
-if exec 9>>"$_sup_lock" 2>/dev/null && ! flock -n 9 2>/dev/null; then
+if { exec 9>>"$_sup_lock"; } 2>/dev/null && ! flock -n 9 2>/dev/null; then
     exit 0
 fi
 

@@ -62,6 +62,32 @@ The cost is that an image built and no longer used is copied to every node until
 somebody deletes it from `CONTAINER_DIR`. That is a `rm` on one directory, and
 it is visible — `build_containers.sh -l` lists what is there.
 
+## A lock left by the old chain
+
+`file_copy.sh` ran as root under BCM, so `/tmp/.file_copy.lock` on a node that
+ever ran the old chain is root-owned. `/tmp` is sticky, so `$JOB_USER` can
+neither write it nor remove it, and the copy stops there until the node reboots.
+
+It says so, with the command:
+
+```
+EXIT: cannot open /tmp/.file_copy.lock as cmods -- owned by root. No copy was
+      started. Fix: sudo rm -f /tmp/.file_copy.lock (on this node)
+```
+
+Fleet-wide:
+
+```bash
+clush -w '<nodes>' 'sudo rm -f /tmp/.file_copy.lock'
+pdsh -R ssh -w '<nodes>' 'sudo rm -f /tmp/.file_copy.lock'
+```
+
+The failure used to escape to the journal instead, one line per node per cycle,
+because `exec 9>"$lock" 2>/dev/null` opens its redirections **left to right**:
+the open fails, and is reported, before stderr has been redirected anywhere.
+`{ exec 9>"$lock"; } 2>/dev/null` is what suppresses it — the same trap
+`launch_job.sh` documents on its trace writability check.
+
 ## The copy is its own unit
 
 A first sync is several gigabytes. It cannot finish inside an agent cycle, so it

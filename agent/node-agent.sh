@@ -103,8 +103,8 @@ started=/tmp/.bringup-agent.started
 if [[ "$EXPLAIN" -eq 0 ]] && command -v flock >/dev/null 2>&1; then
     ## Appended to, never truncated: an O_TRUNC open moves the mtime this cycle
     ## is about to read, so the start time lives in its own file.
-    if ! exec 9>>"$lock" 2>/dev/null; then
-        trace "NOTE: cannot open $lock -- this cycle runs without the one-at-a-time guard"
+    if ! { exec 9>>"$lock"; } 2>/dev/null; then
+        trace "NOTE: cannot open $lock as $(id -un) -- $(stat -c 'owned by %U' "$lock" 2>/dev/null || echo 'and /tmp is not writable here'). This cycle runs without the one-at-a-time guard. Fix: sudo rm -f $lock (on this node)"
     elif ! flock -n 9 2>/dev/null; then
         trace "EXIT: the cycle that started $(( $(date +%s) - $(stat -c %Y "$started" 2>/dev/null || date +%s) ))s ago still holds $lock -- this one does nothing"
         exit 0

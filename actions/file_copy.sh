@@ -98,7 +98,13 @@ if [[ -z "${FILE_COPY_DETACHED:-}" ]]; then
 fi
 
 if command -v flock >/dev/null 2>&1; then
-    exec 9>"$lock" 2>/dev/null || exit 0
+    ## The braces matter: `exec 9>file 2>/dev/null` opens left to right, so the
+    ## failure is reported before stderr is redirected and lands in the journal.
+    ## Same trap as the trace writability check in launch_job.sh.
+    if ! { exec 9>"$lock"; } 2>/dev/null; then
+        trace "EXIT: cannot open $lock as $(id -un) -- $(stat -c 'owned by %U' "$lock" 2>/dev/null || echo '/tmp is not writable here'). No copy was started. Fix: sudo rm -f $lock (on this node)"
+        exit 0
+    fi
     flock -n 9 || exit 0          # a copy from an earlier cycle is still running
 fi
 

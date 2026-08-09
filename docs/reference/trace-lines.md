@@ -194,6 +194,7 @@ per cycle saying so would bury the ones that matter.
 | `EXIT: no *.sqsh in <dir> -- nothing to copy yet` | The normal state until `build_containers.sh` has run |
 | `EXIT: <dir> does not exist here (CONTAINER_DIR from …)` | The share is not mounted on this node, or `CONTAINER_DIR` names somewhere that is not there |
 | `EXIT: PAUSE_CONTAINER_COPY=<value> in <settings file>` | No new copy; one already running finishes |
+| `EXIT: cannot open /tmp/.file_copy.lock … Fix: sudo rm -f …` | A lock left by the root cycles. `/tmp` is sticky, so it can be neither written nor removed by this account — run the command in the line. See [explanation/containers.md#a-lock-left-by-the-old-chain](../explanation/containers.md#a-lock-left-by-the-old-chain) |
 | `EXIT: rsync is not installed here` | Jobs read the image over the share instead, which works and is slower |
 | `copying: <n> of <n> image(s) here, from <dir>` | A copy just started, detached. The next line comes when it finishes, which may be several cycles later |
 | `copied: <n> of <n> image(s) now in /tmp/containers` | Done. `<n> of <n>` is the fact that matters — a job starts off local disk only when the count is complete |
