@@ -445,6 +445,20 @@ Median, not mean, and for a reason visible in every run: iteration 1 costs
 a steady state of 3.3 s. A mean over 50 iterations carries roughly 0.3 s of
 warmup that has nothing to do with the hardware; the median does not notice it.
 
+That median is also what `daily-report.sh` prints in both LLM columns, under the
+label `step_ms`, and it comes from the same `_v_llm_step_ms` the gate calls
+rather than from a second copy of the arithmetic. So the report's
+`min`/`median`/`mean`/`max` for `llm-pretrain` and `llm-pretrain-solo` read
+against `VERDICT_MAX_STEP_MS_LLM_PRETRAIN` and `VERDICT_MAX_STEP_MS_LLM_SOLO`
+directly, and the distance between the fleet's median and the ceiling is what
+says whether a band wants tightening. A run that printed fewer than five
+iterations has no median, is not gated on one, and prints its status word
+instead of a number — the two cases stay the same case.
+
+The solo column carries the step time and not the spread, because a cell holds
+one figure and the step time is the one the two jobs share. A tray failing on
+spread alone says so in its `FAIL` reason, with the offending GPU named.
+
 The shipped numbers are **estimates at +5%** of one healthy tray — 3310 ms at
 four GPUs, 3341 ms per solo copy. That is deliberately loose: the job of a
 starting band is to catch a node that is plainly slow while a real floor is
