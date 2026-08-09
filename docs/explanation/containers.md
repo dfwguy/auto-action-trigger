@@ -75,19 +75,23 @@ until the cycle is a systemd unit.
 `bringup-agent.service` is `Type=oneshot`, and systemd's default
 `KillMode=control-group` sends SIGTERM to everything remaining in the unit's
 cgroup as soon as the main process exits. `setsid` escapes the controlling
-terminal and the session; it does not escape the cgroup. So every detached copy
-was killed milliseconds after it started, on every node, every cycle — and
-because the copy was silent, the symptom was simply that `/tmp/containers` never
-filled and nothing anywhere said why. Under BCM the action was a plain process
-with no cgroup to be cleaned out of, which is why this only appeared with the
-timer.
+terminal and the session; it does not escape the cgroup. So the copy is killed
+when the *cycle* ends — which gives it however long the health run and the
+sequencer take after it, a few tens of seconds — rather than the hours a first
+sync of several images needs.
+
+It still completes, and that is what made this hard to see. `--partial` keeps
+what was transferred, so the next cycle resumes where the last one was cut off
+and the images arrive over many cycles instead of one. A fleet mid-fill looks
+like a fleet making slow progress, because it is: on 2,016 nodes it took hours,
+and the only symptom was that it was taking hours.
 
 `KillMode=process` in the service is the fix: systemd kills the main process and
-leaves the rest alone, which is exactly what a deliberately-detached background
-copy needs.
+leaves the rest alone, which is what a deliberately-detached background copy
+needs. It turns a copy that survives dozens of cycles into one that runs once.
 
-The signature in `results/<node>/copy.log`, if it ever comes back, is a
-`copying: 0 of N` line with no `copied:` line after it — ever, on every cycle.
+Under BCM the action was a plain process with no cgroup to be cleaned out of,
+which is why this only appeared with the timer.
 
 ## How the caching works
 
