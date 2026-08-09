@@ -174,7 +174,7 @@ fi
 ## See docs/explanation/running-unprivileged.md#a-lost-rule-must-stop-the-run.
 mapfile -t priv_cmds < <(grep -hoE 'sudo -n [a-z0-9_.-]+' "$HEALTHCHECKS_DIR"/[0-9]*.sh 2>/dev/null | awk '{print $3}' | sort -u)
 if [[ "${#priv_cmds[@]}" -gt 0 ]] && ! priv_ready "${priv_cmds[@]}"; then
-    trace "EXIT: sudo as $(id -un) would refuse: $PRIV_MISSING -- the checks needing them would report something other than what the baseline was captured from, so nothing was run and nothing was judged. Install agent/sudoers.default as /etc/sudoers.d/50-bringup."
+    trace "EXIT: sudo as $(id -un) would refuse: $PRIV_MISSING -- the checks needing them would report something other than what the baseline was captured from, so nothing was run and nothing was judged. Those rules come from the site's sudoers deployment; $home/agent/sudoers.default is the reference for what is missing."
     exit 1
 fi
 

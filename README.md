@@ -102,14 +102,38 @@ Draining and resuming nodes needs Slurm privilege — see [docs/reference/layout
 
 ## First-time setup
 
-### 1. Install the sudo rule and arm the head node
+### 1. Confirm sudo works, and arm the head node
 
-Check the paths in `agent/sudoers.default` against this cluster, then, as root on every node:
+Nothing here configures a node. Seven of the health checks read `dmesg`, three
+walk PCIe config space, one reads `dmidecode`, and the drain path calls
+`scontrol update` — all as `$JOB_USER`, all through `sudo -n`. Those rules are
+the site's to deploy, via the BCM software image so they survive a reprovision;
+`agent/sudoers.default` is the reference to hand to whoever owns that image, and
+[docs/explanation/running-unprivileged.md](docs/explanation/running-unprivileged.md)
+says what each entry is for.
+
+Confirm it is in place before arming anything:
 
 ```bash
-visudo -c -f agent/sudoers.default
-install -m 0440 agent/sudoers.default /etc/sudoers.d/50-bringup
+clush -w <node> 'sudo -n dmesg >/dev/null 2>&1 && echo sudo-ok || echo sudo-REFUSED'
+pdsh -R ssh -w <node> 'sudo -n dmesg >/dev/null 2>&1 && echo sudo-ok || echo sudo-REFUSED'
 ```
+
+Run it as `$JOB_USER`, from the head node, over a fan-out rather than a bare
+`ssh` — that reproduces how the agent will run it, and the same line checks a
+whole rack by widening `-w`. The authoritative check is the framework's own,
+which preflights every command this check set needs and names any that are
+missing:
+
+```bash
+clush -w <node> '/home/cmods/bringup/agent/node-agent.sh --explain'
+pdsh -R ssh -w <node> '/home/cmods/bringup/agent/node-agent.sh --explain'
+```
+
+A missing rule does not make a check fail — it changes its output, which the
+baseline diff reads as a hardware fault — so `node_health.sh` refuses to run at
+all rather than judge a node without it. `trigger-debug.sh --ask-nodes` asks the
+same question fleet-wide once nodes are armed.
 
 Then, as `$JOB_USER` on the head node:
 
@@ -119,9 +143,52 @@ bash agent/install-agent.sh
 
 It works out that this host is the head node — `slurmctld` installed and `slurmd` not — enables lingering, installs `bringup-supervisor.timer`, and starts it. Within `HEARTBEAT_STALE_MINUTES` the watchdog arms every idle node itself; nothing has to be installed node by node. It reports `ok:` or `FAILED:` per step and exits non-zero if any failed, because an arm that fails quietly is how you end up believing a node is being health-checked when it is not.
 
+It names the role it decided and why — `slurmctld is running here` on the head node. If it gets that wrong, `--head` and `--node` override it; a head node armed as a compute node runs an agent that correctly does nothing, and leaves nobody arming the fleet.
+
 Safe to re-run, and re-running is how a changed unit or interval is picked up. See [docs/how-to/arm-a-node.md](docs/how-to/arm-a-node.md).
 
-### 2. Download the container images
+### 2. Confirm the agents came up on the compute trays
+
+Nothing is installed tray by tray. The watchdog arms every `idle` or `drained` node itself, over one `clush`, within `HEARTBEAT_STALE_MINUTES` of its heartbeat going stale — so the first check is simply to watch it happen:
+
+```bash
+tail -f /home/cmods/bringup/results/supervisor.log
+```
+
+One line per cycle whether or not it armed anything. Within a few minutes you want to see it name the trays and then stop naming them:
+
+```
+14:22:03 ARM 18 node(s) whose heartbeat is older than 10m, over clush: ink50-dh01-h02-[11-28]
+14:24:05 checked 18 node(s): 18 fresh, 0 armed, 0 with work on them, 0 not answering, 0 filtered out
+```
+
+`18 fresh, 0 armed` is the answer: every tray is writing a heartbeat and none needs arming. To check it directly rather than watching:
+
+```bash
+bash trigger-log.sh                                     # section 0, fleet-wide
+stat -c '%y %n' /home/cmods/bringup/results/*/.heartbeat | sort   # newest write per tray
+```
+
+Every heartbeat should be within `AGENT_INTERVAL_MINUTES` — two minutes as shipped. A tray with no `.heartbeat` at all has never been armed; one whose heartbeat has stopped has a timer that is not firing, and `results/<tray>/arm.log` holds what the watchdog heard back from it on each attempt.
+
+To ask a tray itself:
+
+```bash
+clush -w 'ink50-dh01-h02-[11-28]' 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active bringup-agent.timer'
+pdsh -R ssh -w 'ink50-dh01-h02-[11-28]' 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active bringup-agent.timer'
+```
+
+`active` on every line. `trigger-debug.sh --ask-nodes` runs that plus the lingering and sudo checks across everything it found stale, and `bash trigger-debug.sh` on its own answers the same questions from NFS for free.
+
+Then watch a tray decide something:
+
+```bash
+tail -f /home/cmods/bringup/results/<tray>/agent.log
+```
+
+`idle: no job here -- file_copy node_health launch_job` is a working cycle. `BUSY: job(s) … running here` is a tray with work on it, which does nothing else by design. Nothing at all after a few minutes means the timer is not firing there — go back to `arm.log`. See [docs/how-to/arm-a-node.md](docs/how-to/arm-a-node.md) and [docs/tutorials/understanding-the-agent.md](docs/tutorials/understanding-the-agent.md).
+
+### 3. Download the container images
 
 ```bash
 ./build_containers.sh -L     # log in to nvcr.io — once per machine, needed for the private-org images
@@ -134,7 +201,7 @@ Run on the headnode, once per CPU architecture in the cluster. Which images it d
 
 Downloading is the default and, without `-S`, the only path: an image that cannot be pulled reports why rather than starting a source build. `-L` writes `~/.config/enroot/.credentials`. See [docs/explanation/containers.md](docs/explanation/containers.md).
 
-### 3. Establish a valid-config baseline
+### 4. Establish a valid-config baseline
 
 Run the health script manually on a node that has been fully validated, then capture its output as the reference:
 
@@ -147,7 +214,7 @@ This copies `logs/<node_name>/` to `valid-config/<node_name>/` and symlinks it a
 
 It is a **copy**, deliberately, and pointing `valid-config/default` at a live `logs/<node>/` instead is the one edit to avoid here: the checks re-run on a cadence, so the baseline would follow that node's drift and the fleet would keep agreeing with it. `node_health.sh` refuses to run rather than overwrite its own baseline. See [docs/explanation/health-cadence.md#the-golden-baseline](docs/explanation/health-cadence.md#the-golden-baseline).
 
-### 4. Make a SETTINGS file
+### 5. Make a SETTINGS file
 
 Everything configurable lives in one file. `SETTINGS.default` ships with the framework and is read when there is no `SETTINGS`; `SETTINGS` is what a site edits and is never overwritten by an upgrade.
 
@@ -157,7 +224,7 @@ cp SETTINGS.default SETTINGS
 
 Editing `SETTINGS.default` in place works until the next tarball drop replaces it. A `SETTINGS` only has to carry the lines you changed — anything it leaves out falls back to the shipped default. See [docs/reference/settings.md](docs/reference/settings.md).
 
-### 5. Choose the benchmark list
+### 6. Choose the benchmark list
 
 The active list is `BENCHMARKS` in `SETTINGS`; which subset a site should run depends on its delivery methodology. See [docs/reference/jobs.md](docs/reference/jobs.md).
 
@@ -166,7 +233,7 @@ BENCHMARKS="dcgmi-r1 dcgmi-r3 nvbandwidth allreduce allreduce-forcesharp \
             alltoall allreduce-nonvlink alltoall-nonvlink"
 ```
 
-### 6. Decide whether to burn in
+### 7. Decide whether to burn in
 
 Burn-in is a second list, queued alongside the sweep, and off until you ask for it:
 
@@ -179,7 +246,7 @@ BURNIN="mnubergemm"
 
 `MAX_JOB_HOURS` ships at `7` to clear a single burn-in run — lower it and the sequencer drains healthy nodes mid-run for a timeout. The image is downloaded by default even though the list is off, so turning it on does not mean a fleet-wide failure while the image catches up. See [docs/reference/settings.md](docs/reference/settings.md#burn-in).
 
-### 7. Decide whether failures should drain
+### 8. Decide whether failures should drain
 
 Both drain switches ship **off**, so no failure takes a node out of service:
 
@@ -190,7 +257,7 @@ DRAIN_AFTER_FAILED_BENCHMARK=no      # benchmark sweep failed, or a job ran past
 
 Turn them on once the failures being reported are real ones. Health-check drains are the riskier half — a bad baseline drains the whole cluster on the first agent cycle — so bring that one up only after `bash health-check.sh --summary` reads clean. See [docs/how-to/manage-drains.md](docs/how-to/manage-drains.md).
 
-### 8. Decide how often health checks re-run
+### 9. Decide how often health checks re-run
 
 ```bash
 HEALTH_INTERVAL_HOURS=4         # after a clean run
@@ -270,3 +337,53 @@ bash single-node-purge.sh node001
 ```
 
 Full command reference in [docs/reference/scripts.md](docs/reference/scripts.md); retry and drain rules in [docs/explanation/sequencing.md](docs/explanation/sequencing.md).
+
+## Removing the framework
+
+**Stop the watchdog first.** It re-arms any idle or drained node whose heartbeat goes stale, so disarming a rack while it is running gets the rack armed straight back within `HEARTBEAT_STALE_MINUTES`. On the head node, as `cmods`:
+
+```bash
+bash /home/cmods/bringup/agent/uninstall-agent.sh
+```
+
+Then empty the queue, or the last sweep runs on nodes nobody is watching:
+
+```bash
+bash kill-jobs.sh -n                      # what would be cancelled
+bash kill-jobs.sh                         # cancel it
+```
+
+Then disarm the trays:
+
+```bash
+clush -w 'ink50-dh01-h02-[11-28]' '/home/cmods/bringup/agent/uninstall-agent.sh'
+pdsh -R ssh -w 'ink50-dh01-h02-[11-28]' '/home/cmods/bringup/agent/uninstall-agent.sh'
+```
+
+Confirm nothing is left running, and that the heartbeats have stopped moving:
+
+```bash
+clush -w 'ink50-dh01-h02-[11-28]' 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active bringup-agent.timer'
+stat -c '%y %n' /home/cmods/bringup/results/*/.heartbeat | sort | tail -3
+```
+
+`inactive` on every line, and heartbeats that stop advancing.
+
+Finally, put back any node this framework drained. Only reasons containing `auto-retry` are ours:
+
+```bash
+sinfo -R -o '%50E %N' | grep auto-retry
+scontrol update nodename=<nodes> state=RESUME
+```
+
+### What removal leaves behind, deliberately
+
+| Left | Why |
+|---|---|
+| `results/`, `logs/`, `valid-config/` | The record of what this cluster did. Delete the tree when you want it gone; re-arming resumes from it |
+| Lingering for `cmods` | The site's setting for the account, not this framework's — turning it off would stop anything else that account runs |
+| The sudoers rules | The site deployed them, via the BCM software image. Removing them is that same path |
+| `/tmp/containers` on each tray | A node-local cache that costs a reboot to clear and nothing to leave |
+| Drains an operator set | Never touched, in either direction |
+
+`uninstall-agent.sh` stops and removes the timer and its unit and does nothing else. A node that is disarmed and then armed again picks the sweep up where it stopped. See [docs/how-to/arm-a-node.md#disarming-a-node](docs/how-to/arm-a-node.md#disarming-a-node).

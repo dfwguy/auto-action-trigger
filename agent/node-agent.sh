@@ -114,14 +114,25 @@ if [[ "$EXPLAIN" -eq 0 ]] && command -v flock >/dev/null 2>&1; then
 fi
 
 ## Local and contacts nothing, so it happens before the busy gate -- which needs
-## `scontrol`, and nothing else.
+## `scontrol`, and nothing else. The unit is a login shell, so a site that puts
+## the client tools on PATH from /etc/profile.d rather than from a module is
+## already covered by the time this runs.
+## See docs/how-to/run-slurm-commands-remotely.md.
+slurm_tried="unit runs bash -lc"
 if [[ -f /etc/profile.d/modules.sh ]]; then
     # shellcheck source=/dev/null
     source /etc/profile.d/modules.sh
-    module load slurm 2>/dev/null
+    if declare -F module >/dev/null 2>&1 || command -v module >/dev/null 2>&1; then
+        module load slurm 2>/dev/null
+        slurm_tried="$slurm_tried, sourced /etc/profile.d/modules.sh, 'module load slurm'"
+    else
+        slurm_tried="$slurm_tried, sourced /etc/profile.d/modules.sh but it defined no 'module'"
+    fi
+else
+    slurm_tried="$slurm_tried, no /etc/profile.d/modules.sh here"
 fi
 if ! command -v scontrol >/dev/null 2>&1; then
-    trace "EXIT: scontrol is not on PATH after 'module load slurm' (PATH=$PATH) -- whether a job is running here cannot be answered, and every step below needs Slurm anyway."
+    trace "EXIT: scontrol is not on PATH ($slurm_tried; PATH=$PATH) -- whether a job is running here cannot be answered, and every step below needs Slurm anyway. If it works in your login shell, whatever puts it there is not reaching this one."
     exit 0
 fi
 

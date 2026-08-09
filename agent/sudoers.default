@@ -1,8 +1,11 @@
-## Shipped reference for /etc/sudoers.d/50-bringup. Nothing in this tree installs
-## it -- putting a file in sudoers.d is the site's decision and needs root.
+## Reference for what this framework needs from sudo. Nothing in this tree
+## installs it, and nothing here configures a node: deploy it through the BCM
+## software image, as /etc/sudoers.d/50-bringup mode 0440, so it survives a
+## reprovision. `visudo -c -f` checks the syntax before you hand it over.
 ##
-##   visudo -c -f agent/sudoers.default          # check it before copying
-##   install -m 0440 agent/sudoers.default /etc/sudoers.d/50-bringup
+## Confirm it landed, as JOB_USER from the head node:
+##
+##   clush -w <nodes> 'sudo -n dmesg >/dev/null 2>&1 && echo sudo-ok || echo sudo-REFUSED'
 ##
 ## Replace cmods with JOB_USER if the site changed it, and check the paths: the
 ## Slurm client tools sit under /cm/local/apps/slurm/current/bin on a BCM node

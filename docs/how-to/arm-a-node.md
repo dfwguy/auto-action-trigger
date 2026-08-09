@@ -15,9 +15,17 @@ None of these are in the framework's gift, and each fails quietly:
 
 1. **Passwordless ssh from the head node as `$JOB_USER`.** Not as root — the
    watchdog runs as the automation account.
-2. **`/etc/sudoers.d/50-bringup` on every node**, from
-   `agent/sudoers.default`. Check the paths in it against this cluster before
-   installing; see
+2. **Working `sudo -n` for `$JOB_USER` on every node.** Nothing here configures
+   a node; the rules are deployed by the site, via the BCM software image so
+   they survive a reprovision. `agent/sudoers.default` is the reference to hand
+   to whoever owns that image. Confirm before arming:
+
+   ```bash
+   clush -w <node> 'sudo -n dmesg >/dev/null 2>&1 && echo sudo-ok || echo sudo-REFUSED'
+   pdsh -R ssh -w <node> 'sudo -n dmesg >/dev/null 2>&1 && echo sudo-ok || echo sudo-REFUSED'
+   ```
+
+   See
    [explanation/running-unprivileged.md#the-sudoers-drop-in](../explanation/running-unprivileged.md#the-sudoers-drop-in).
 3. **`results/` and `logs/` writable by `$JOB_USER`.** A tree that has been run
    by root cycles has root-owned directories in it, and nothing repairs them now:
@@ -97,6 +105,7 @@ the node in its summary line rather than sshing at it for ever. What
 | `FAILED: could not enable lingering` | polkit refuses, and there is no sudo rule for `loginctl`. `sudo loginctl enable-linger cmods` on the node |
 | `FAILED: … does not exist` | the node cannot see `$BRINGUP_HOME` — NFS not mounted, or mounted somewhere else |
 | `FAILED: systemctl --user enable --now …` | no user session bus. Almost always lingering that did not take; check it directly |
+| armed, but `agent.log` says `scontrol is not on PATH` | the unit is not reaching whatever puts the Slurm tools on `PATH`. Both units run `/bin/bash -lc` for this; a unit installed before that ran the script directly, so re-run `install-agent.sh`. See [run-slurm-commands-remotely.md](run-slurm-commands-remotely.md) |
 | `WARNING: sudo as cmods would refuse: …` | armed, and the health checks will not run. The sudoers drop-in is missing |
 | nothing at all | the node is not idle or drained, so the watchdog never considered it. `sinfo -n <node>` |
 
@@ -125,6 +134,37 @@ pdsh -R ssh -w <node> '/home/cmods/bringup/agent/node-agent.sh --verbose'   # a 
 submits nothing, drains nothing and archives nothing, so it is safe while the
 timer is live.
 
+## When the role is wrong
+
+`install-agent.sh` decides for itself whether this host is the head node, and
+says which it chose and why:
+
+```
+ok: ink50-hn1 is the head node (slurmctld is running here) -- installing bringup-supervisor
+ok: ink50-dh01-h02-11 is a compute node (slurmctld is not running here) -- installing bringup-agent
+```
+
+It asks three questions in order: does `EXCLUDE_NODES` name this host, is
+`slurmctld` running here, and — last — is `slurmctld` installed with `slurmd`
+absent. The running check comes first because the third one is the reporting
+test, `node_self_excluded`, which requires `slurmd` to be *missing*; a BCM
+software image usually installs that unit on every host including the head node,
+so on its own it reads a head node as a compute node.
+
+Getting it wrong is quiet in one direction and loud in neither: a head node
+armed as a compute node runs `node-agent.sh`, which correctly refuses to do
+anything on a host that is not a compute node — and leaves nobody arming the
+fleet. Override it when the detection is wrong:
+
+```bash
+bash /home/cmods/bringup/agent/install-agent.sh --head
+bash /home/cmods/bringup/agent/install-agent.sh --node
+```
+
+Naming the head node in `EXCLUDE_NODES` is the durable fix, and it is what keeps
+that host out of the reports as well. See
+[reference/settings.md#hosts-that-are-not-compute-nodes](../reference/settings.md#hosts-that-are-not-compute-nodes).
+
 ## Disarming a node
 
 ```bash
@@ -142,3 +182,8 @@ and it is idle or drained. To take a node out of the framework rather than
 restart it, use `EXCLUDE_NODES` or `NODE_FILTER` in `SETTINGS`, or
 `PAUSE_ARMING=yes` to stop the watchdog arming anything at all. See
 [pause-and-resume.md](pause-and-resume.md).
+
+**Removing the framework entirely starts at the head node**, for the same
+reason: disarm the watchdog first, then the trays, or the trays come back. The
+order and what removal deliberately leaves behind are in the README under
+*Removing the framework*.

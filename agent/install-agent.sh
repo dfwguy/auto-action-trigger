@@ -65,8 +65,23 @@ fi
 ## it; without it the failure reads as a missing unit.
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
-if [[ -z "$ROLE" ]]; then
-    if node_self_excluded || node_excluded "$HOSTNAME"; then ROLE="head"; else ROLE="node"; fi
+## ── Which role this host gets ─────────────────────────────────────────────
+##
+## Said out loud with its evidence, because getting it wrong is silent: a head
+## node armed as a node runs an agent that correctly does nothing, and nothing
+## is left arming the fleet. A running slurmctld is asked about first --
+## node_self_excluded needs slurmd to be *absent*, and a BCM image usually
+## installs that unit everywhere. See docs/how-to/arm-a-node.md#when-the-role-is-wrong.
+if [[ -n "$ROLE" ]]; then
+    role_why="--$ROLE was passed"
+elif node_excluded "$HOSTNAME"; then
+    ROLE="head"; role_why="EXCLUDE_NODES matches $HOSTNAME"
+elif systemctl is-active --quiet slurmctld 2>/dev/null; then
+    ROLE="head"; role_why="slurmctld is running here"
+elif node_self_excluded; then
+    ROLE="head"; role_why="slurmctld is installed here and slurmd is not"
+else
+    ROLE="node"; role_why="slurmctld is not running here"
 fi
 if [[ "$ROLE" == "head" ]]; then
     unit=bringup-supervisor
@@ -81,6 +96,7 @@ fi
     warn "interval for $unit is '$interval', which is not a whole number of minutes -- using 2"
     interval=2
 }
+ok "$HOSTNAME is $([[ "$ROLE" == "head" ]] && printf 'the head node' || printf 'a compute node') ($role_why) -- installing $unit"
 
 ## ── Preflight ─────────────────────────────────────────────────────────────
 ##
@@ -95,15 +111,21 @@ fi
 command -v systemctl >/dev/null 2>&1 || fail "systemctl is not installed -- this host cannot run a timer"
 [[ "$rc" -eq 0 ]] || { echo "refusing to arm $HOSTNAME while something is unusable" >&2; exit "$rc"; }
 
-## A missing sudo rule is a warning, not a refusal: two of the three steps need
-## no privilege at all, and node_health.sh is where the missing rule becomes
-## fatal -- for the run it would otherwise misjudge, not for the whole node.
+## Only what this role actually uses: the health checks run on a node and
+## nowhere else, and the watchdog's one privileged call is the MAX_JOB_HOURS
+## drain. A warning rather than a refusal -- the rules are the site's to deploy,
+## and everything needing no privilege still works without them.
 ## See docs/explanation/running-unprivileged.md#a-lost-rule-must-stop-the-run.
+priv_cmds=()
 if [[ "$ROLE" == "node" ]]; then
     mapfile -t priv_cmds < <(grep -hoE 'sudo -n [a-z0-9_.-]+' "$HEALTHCHECKS_DIR"/[0-9]*.sh 2>/dev/null | awk '{print $3}' | sort -u)
-    if [[ "${#priv_cmds[@]}" -gt 0 ]] && ! priv_ready "${priv_cmds[@]}"; then
-        warn "sudo as $me would refuse: $PRIV_MISSING -- the health checks needing them will not run. Install $home/agent/sudoers.default as /etc/sudoers.d/50-bringup."
-    fi
+    priv_what="the health checks that need them will not run here"
+elif [[ "${PRIV_SCONTROL,,}" != "direct" ]]; then
+    priv_cmds=(scontrol)
+    priv_what="a job past MAX_JOB_HOURS could not be drained from here"
+fi
+if [[ "${#priv_cmds[@]}" -gt 0 ]] && ! priv_ready "${priv_cmds[@]}"; then
+    warn "sudo as $me would refuse: $PRIV_MISSING -- $priv_what. Those rules are deployed by the site, via the BCM software image so they survive a reprovision; $home/agent/sudoers.default is the reference."
 fi
 
 ## ── Lingering ─────────────────────────────────────────────────────────────

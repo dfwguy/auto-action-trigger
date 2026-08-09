@@ -105,21 +105,26 @@ You should see around 38 files, one per check, and `valid-config/default` should
 now be a symlink. If `logs/<your-node>/` is empty, nothing is armed yet — that is
 the next step, so carry on and come back.
 
-## 6. Grant the sudo rule, and arm the head node
+## 6. Confirm sudo, and arm the head node
 
 Seven of the health checks read `dmesg`, one reads `dmidecode`, three walk PCIe
 config space, and the drains use `scontrol update`. None of that works from an
-unprivileged cycle without a rule. As root, on every node:
+unprivileged cycle without a sudo rule — and those rules are the site's to
+deploy, via the BCM software image so they survive a reprovision. Nothing here
+configures a node. `agent/sudoers.default` is the reference to hand to whoever
+owns that image.
+
+Check it is in place before arming anything:
 
 ```bash
-visudo -c -f agent/sudoers.default             # check the syntax and the paths
-install -m 0440 agent/sudoers.default /etc/sudoers.d/50-bringup
+clush -w <your-node> 'sudo -n dmesg >/dev/null 2>&1 && echo sudo-ok || echo sudo-REFUSED'
+pdsh -R ssh -w <your-node> 'sudo -n dmesg >/dev/null 2>&1 && echo sudo-ok || echo sudo-REFUSED'
 ```
 
-Check the paths inside it against this cluster first — a rule naming a `scontrol`
-that is not where yours lives is a rule that never matches. A missing rule does
-not make a check fail; it makes it produce *different* output, which reads as bad
-hardware. `node_health.sh` refuses to run at all rather than allow that. See
+A missing rule does not make a check fail; it makes it produce *different*
+output, which reads as bad hardware. `node_health.sh` refuses to run at all
+rather than allow that, so a `sudo-REFUSED` here is worth fixing before you go
+on. See
 [explanation/running-unprivileged.md](../explanation/running-unprivileged.md).
 
 Then, as `cmods` on the head node:

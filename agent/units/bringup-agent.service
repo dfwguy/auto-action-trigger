@@ -4,6 +4,10 @@ Documentation=file://@BRINGUP_HOME@/docs/explanation/the-agent-and-the-watchdog.
 
 [Service]
 Type=oneshot
-ExecStart=@BRINGUP_HOME@/agent/node-agent.sh --quiet
+# A login shell, not the script directly: systemd gives a service a minimal
+# PATH and reads no profile, so `scontrol` is missing on exactly the hosts
+# where it works when you log in. See
+# docs/how-to/run-slurm-commands-remotely.md.
+ExecStart=/bin/bash -lc "@BRINGUP_HOME@/agent/node-agent.sh --quiet"
 # A wedged cycle must not hold the flock for ever; see the doc above.
 TimeoutStartSec=600

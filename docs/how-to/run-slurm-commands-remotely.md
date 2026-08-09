@@ -66,6 +66,21 @@ command and want to see it fail loudly if a path is wrong.
   the module is already loaded by the time the library is sourced, so this is a
   symptom you see when running the sweep by hand over a fan-out, not on the
   cluster itself.
+- **The agent's own timer.** `systemd --user` gives a service a minimal `PATH`
+  and reads no profile at all, so the first `scontrol` fails on exactly the
+  hosts where it works when you log in. That is why both units run
+  `/bin/bash -lc "<script>"` rather than the script directly, and why the trace
+  says what it tried:
+
+  ```
+  EXIT: scontrol is not on PATH (unit runs bash -lc, no /etc/profile.d/modules.sh
+        here; PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin)
+        -- ... If it works in your login shell, whatever puts it there is not
+        reaching this one.
+  ```
+
+  A unit installed before that change runs the script directly; re-run
+  `agent/install-agent.sh` to pick the new one up.
 - **Anything reading a report over `clush` or `pdsh`.** `status-check.sh`,
   `health-check.sh`, `daily-report.sh`, `overall_report.sh` and `kill-jobs.sh`
   all call `module load slurm` themselves and say so when it did not help — that

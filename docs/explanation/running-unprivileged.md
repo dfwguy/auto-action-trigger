@@ -37,10 +37,23 @@ root and does not.
 
 ## The sudoers drop-in
 
-`agent/sudoers.default` is the shipped reference, to be installed by the site as
-`/etc/sudoers.d/50-bringup`. Nothing in this tree installs it — writing to
-`sudoers.d` needs root, which is the thing being removed, and a framework that
-grants itself privilege is not one anybody can audit.
+`agent/sudoers.default` is the shipped reference for what the site has to grant.
+Nothing in this tree installs it, and nothing in this tree configures a node at
+all: writing to `sudoers.d` needs root, which is the thing being removed, and a
+framework that grants itself privilege is not one anybody can audit.
+
+Deploy it through the BCM software image rather than by hand, so it survives a
+reprovision — `docs/how-to/enable-nvsm.md` takes the same route for the same
+reason. Confirm it landed with the check the framework itself uses:
+
+```bash
+clush -w <nodes> 'sudo -n dmesg >/dev/null 2>&1 && echo sudo-ok || echo sudo-REFUSED'
+pdsh -R ssh -w <nodes> 'sudo -n dmesg >/dev/null 2>&1 && echo sudo-ok || echo sudo-REFUSED'
+```
+
+`trigger-debug.sh --ask-nodes` asks it fleet-wide, and `node-agent.sh --explain`
+on a node preflights every command the check set needs and names the missing
+ones.
 
 Two things about it are easy to get wrong:
 
@@ -74,8 +87,9 @@ So the rules are preflighted before any check runs, and a missing one is a hard
 ```
 EXIT: sudo as cmods would refuse: /usr/bin/dmesg /usr/sbin/dmidecode -- the
       checks needing them would report something other than what the baseline
-      was captured from, so nothing was run and nothing was judged. Install
-      agent/sudoers.default as /etc/sudoers.d/50-bringup.
+      was captured from, so nothing was run and nothing was judged. Those rules
+      come from the site's sudoers deployment; agent/sudoers.default is the
+      reference for what is missing.
 ```
 
 Refusing to run is the safe direction here, and it is the opposite of the
@@ -96,6 +110,12 @@ Two of the three steps in a cycle need no privilege, and a node that copies
 containers and runs benchmarks is worth more than a node that does nothing; the
 refusal belongs at the point where a wrong answer would be produced, which is
 the health run itself.
+
+It also asks only about what that host's role uses. On a compute node that is
+the discovered check-set list; on the head node it is `scontrol` alone, and only
+when `PRIV_SCONTROL` is not `direct` — the watchdog's one privileged call is the
+`MAX_JOB_HOURS` drain, and warning a head node about `dmesg` and `ipmitool` it
+will never run is noise that teaches an operator to ignore the line.
 
 ## Draining without root
 
@@ -139,7 +159,8 @@ same outcome whoever runs it, including root.
 
 The migration itself needs root, once, and is the site's:
 
-1. `/etc/sudoers.d/50-bringup` on every node.
+1. The sudo rules on every node, through the software image — see
+   [the sudoers drop-in](#the-sudoers-drop-in).
 2. `chown -R $JOB_USER:$JOB_USER` over `$BRINGUP_HOME/results` and
    `$BRINGUP_HOME/logs`. Years of root cycles left files and directories in
    there owned by root; nothing repairs them now, because nothing has the
