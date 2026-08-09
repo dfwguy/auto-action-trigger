@@ -39,6 +39,10 @@
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"      ## for BRINGUP_HOME, in the closing hint
+# shellcheck source=/dev/null
+[[ -f "$home/fanout.sh" ]] && source "$home/fanout.sh"              ## fanout_example
+# shellcheck source=/dev/null
+[[ -f "$home/report-format.sh" ]] && source "$home/report-format.sh"  ## compress
 results_dir="$home/results"
 logs_dir="$home/logs"
 
@@ -136,6 +140,23 @@ normalize() {
     sed -E 's/[0-9]+/N/g; s/N+/N/g' <<<"$msg"
 }
 
+## A nodeset for the fan-out examples the sections below print, compressed when
+## scontrol is here. Callers pass bare names.
+nodeset() {
+    local joined; joined=$(IFS=,; printf '%s' "$*")
+    if declare -F compress >/dev/null; then compress "$joined"; else printf '%s' "$joined"; fi
+}
+
+## Both spellings, as everything that prints a command here does.
+## See docs/explanation/architecture.md#reaching-nodes-is-clush-or-pdsh.
+example() {
+    if declare -F fanout_example >/dev/null; then
+        fanout_example "$1" "$2"
+    else
+        printf "  clush -w %s '%s'\n  pdsh -R ssh -w %s '%s'\n" "$1" "$2" "$1" "$2"
+    fi | sed 's/^/    /'
+}
+
 declare -A last_reason_count last_reason_example
 declare -A event_count event_example
 missing_log=(); stale_log=(); empty_log=(); fresh=0
@@ -219,13 +240,27 @@ if [[ ! -f "$own_beat" ]]; then
     note "  bash $BRINGUP_HOME/agent/install-agent.sh   (as $JOB_USER, on the head node)"
 else
     beat_age=$(( now - $(stat -c %Y "$own_beat" 2>/dev/null || echo 0) ))
-    if [[ "$beat_age" -gt "$stale_secs" ]]; then
+    ## Every mtime read here comes from the NFS server and `now` from this host,
+    ## so a negative age is clock skew rather than a fault -- named, because a
+    ## watchdog that "cycled -1m ago" reads as a broken one.
+    ## See docs/explanation/the-agent-and-the-watchdog.md#whose-clock-decides.
+    if [[ "$beat_age" -lt 0 ]]; then
+        note "the watchdog cycled 0m ago -- this host's clock is $(( -beat_age ))s behind the share's, so every age below is short by that much"
+        note "  docs/explanation/the-agent-and-the-watchdog.md#whose-clock-decides"
+    elif [[ "$beat_age" -gt "$stale_secs" ]]; then
         bad "the watchdog last cycled $(( beat_age / 60 ))m ago -- nothing is arming nodes"
         note "  systemctl --user status bringup-supervisor.timer   (as $JOB_USER, on the head node)"
+        note "  journalctl --user -u bringup-supervisor.service -n 20 --no-pager"
+        note "  docs/how-to/arm-a-node.md#the-first-install"
     else
         note "the watchdog cycled $(( beat_age / 60 ))m ago"
     fi
-    [[ -f "$results_dir/supervisor.log" ]] && note "last said: $(tail -1 "$results_dir/supervisor.log")"
+    ## The summary line, not tail -1: the give-up list is followed by indented
+    ## continuation lines, and printing one of those loses the count it belongs to.
+    if [[ -f "$results_dir/supervisor.log" ]]; then
+        sup_last=$(grep -v '^[0-9-]\{10\} [0-9:]\{8\}   ' "$results_dir/supervisor.log" | tail -1)
+        [[ -n "$sup_last" ]] && note "last said: $sup_last"
+    fi
 fi
 
 beat_missing=(); beat_stale=(); beat_fresh=0
@@ -240,16 +275,80 @@ for node_dir in "${node_dirs[@]}"; do
     fi
 done
 note "$beat_fresh node(s) have written a heartbeat within ${stale_minutes}m"
+
+## Cheapest question first, and on a bad day it settles the whole list: a node
+## that does not answer this is off, and nothing below it is a framework fault.
+if [[ "${#beat_stale[@]}" -gt 0 || "${#beat_missing[@]}" -gt 0 ]]; then
+    note "  is the node even up? ask before reading anything else -- no answer means it is off, not that the agent is broken:"
+    example "$(nodeset "${beat_stale[@]}" "${beat_missing[@]}")" 'uptime'
+fi
+
+## The watchdog arms `idle` and `drained` and nothing else, so a silent node the
+## controller is not offering is the design working, not a fault to chase. The
+## state is read once, here, and every list below is split on it.
+## See docs/explanation/the-agent-and-the-watchdog.md#which-states-are-armed.
+declare -A node_state node_reason
+sinfo_said=0
+if [[ "${#beat_stale[@]}" -gt 0 || "${#beat_missing[@]}" -gt 0 ]] && command -v sinfo >/dev/null 2>&1; then
+    while read -r n s r; do
+        [[ -n "$n" ]] || continue
+        node_state["$n"]="$s"; node_reason["$n"]="$r"; sinfo_said=1
+    done < <(sinfo -N -h -o '%N %T %E' 2>/dev/null)
+fi
+
+## An unclassified node stays in the caller's list rather than being excused:
+## a controller that answered nothing is not a cluster where everything is fine.
+theirs=(); ours=()
+classify() {
+    theirs=(); ours=()
+    local n
+    for n in "$@"; do
+        case "${node_state[$n]:-}" in
+            ''|idle|drained) ours+=("$n") ;;
+            *)               theirs+=("$n") ;;
+        esac
+    done
+}
+
+state_block() {
+    note "  $1: slurm is not offering ${#theirs[@]} of these, so the watchdog never armed them -- not the framework's to fix"
+    local n
+    for n in "${theirs[@]:0:10}"; do
+        printf '       %-26s %-12s %s\n' "$n" "${node_state[$n]}" "${node_reason[$n]}"
+    done
+    [[ "${#theirs[@]}" -gt 10 ]] && note "     ... and $(( ${#theirs[@]} - 10 )) more"
+    note "     a trailing * is slurmd not answering at all. docs/explanation/the-agent-and-the-watchdog.md#which-states-are-armed"
+}
+
 if [[ "${#beat_stale[@]}" -gt 0 ]]; then
-    bad "${#beat_stale[@]} node(s) have stopped writing one -- their timer is not firing"
-    printf '     %s\n' "${beat_stale[@]:0:10}"
-    [[ "${#beat_stale[@]}" -gt 10 ]] && note "   ... and $(( ${#beat_stale[@]} - 10 )) more"
-    note "   results/<node>/arm.log is what the watchdog heard back from each"
+    classify "${beat_stale[@]}"
+    [[ "${#theirs[@]}" -gt 0 ]] && state_block "${#beat_stale[@]} node(s) have stopped writing a heartbeat"
+    if [[ "${#ours[@]}" -gt 0 ]]; then
+        bad "${#ours[@]} node(s) slurm is offering have stopped writing one -- their timer is not firing"
+        printf '     %s\n' "${ours[@]:0:10}"
+        [[ "${#ours[@]}" -gt 10 ]] && note "   ... and $(( ${#ours[@]} - 10 )) more"
+        note "  what the watchdog heard back, per attempt: tail results/<node>/arm.log"
+        note "  one cycle in the foreground, which prints every gate and submits nothing:"
+        example "$(nodeset "${ours[@]}")" "$BRINGUP_HOME/agent/cycle.sh --verbose"
+        note "  and what that node's own timer's runs said:"
+        example "$(nodeset "${ours[@]}")" 'journalctl --user -u bringup-agent.service -n 20 --no-pager'
+        note "  docs/how-to/arm-a-node.md#armed-but-never-heartbeats"
+    fi
 fi
 if [[ "${#beat_missing[@]}" -gt 0 ]]; then
-    bad "${#beat_missing[@]} node dir(s) have never written one -- the agent has never run there"
-    printf '     %s\n' "${beat_missing[@]:0:10}"
-    [[ "${#beat_missing[@]}" -gt 10 ]] && note "   ... and $(( ${#beat_missing[@]} - 10 )) more"
+    classify "${beat_missing[@]}"
+    [[ "${#theirs[@]}" -gt 0 ]] && state_block "${#beat_missing[@]} node dir(s) have never written a heartbeat"
+    if [[ "${#ours[@]}" -gt 0 ]]; then
+        bad "${#ours[@]} node dir(s) slurm is offering have never written one -- the agent has never run there"
+        printf '     %s\n' "${ours[@]:0:10}"
+        [[ "${#ours[@]}" -gt 10 ]] && note "   ... and $(( ${#ours[@]} - 10 )) more"
+        note "  arm them by hand rather than waiting for the watchdog:"
+        example "$(nodeset "${ours[@]}")" "$BRINGUP_HOME/agent/install-agent.sh"
+        note "  docs/how-to/arm-a-node.md#when-a-node-will-not-stay-armed"
+    fi
+fi
+if [[ "$sinfo_said" -eq 0 ]] && [[ "${#beat_stale[@]}" -gt 0 || "${#beat_missing[@]}" -gt 0 ]]; then
+    note "  sinfo did not answer, so no node above could be checked against its slurm state -- some of them may be ones nothing here arms"
 fi
 
 ##############################################################################
@@ -265,6 +364,22 @@ elif [[ "${#stale_log[@]}" -gt 0 ]]; then
     bad "${#stale_log[@]} node(s) stale, $fresh fresh -- the agent is firing, but the sequencer is not writing on these"
     printf '     %s\n' "${stale_log[@]:0:10}"
     [[ "${#stale_log[@]}" -gt 10 ]] && note "   ... and $(( ${#stale_log[@]} - 10 )) more"
+
+    ## A node with no heartbeat has no agent to run the sequencer, so it is
+    ## stale here for a reason section 0 already gave. Said, because otherwise
+    ## it is chased twice.
+    also=(); only=()
+    for e in "${stale_log[@]}"; do
+        n="${e%% *}"
+        if [[ " ${beat_stale[*]} ${beat_missing[*]} " == *" $n "* ]]; then also+=("$n"); else only+=("$n"); fi
+    done
+    [[ "${#also[@]}" -gt 0 ]] &&
+        note "  ${#also[@]} of these have no fresh heartbeat either -- same fault, and section 0 is where to fix it"
+    if [[ "${#only[@]}" -gt 0 ]]; then
+        note "  the agent is alive on the other ${#only[@]}, and the sequencer stops before writing. Ask it, no waiting:"
+        example "$(nodeset "${only[@]}")" "$BRINGUP_HOME/agent/node-agent.sh --explain"
+        note "  docs/how-to/diagnose-nothing-running.md#3-ask-one-node-directly"
+    fi
 else
     note "$fresh node(s) written within ${stale_minutes}m -- the sequencer is running"
 fi
@@ -273,6 +388,8 @@ if [[ "${#missing_log[@]}" -gt 0 ]]; then
     bad "${#missing_log[@]} node dir(s) have no trigger.log at all -- the script has never run there"
     printf '     %s\n' "${missing_log[@]:0:10}"
     [[ "${#missing_log[@]}" -gt 10 ]] && note "   ... and $(( ${#missing_log[@]} - 10 )) more"
+    note "  is the node armed at all? section 0, then:"
+    note "    docs/how-to/arm-a-node.md#is-this-node-armed"
 fi
 
 if [[ "${#empty_log[@]}" -gt 0 ]]; then
@@ -280,6 +397,9 @@ if [[ "${#empty_log[@]}" -gt 0 ]]; then
     note "an empty trace usually means the file is not writable by $JOB_USER -- a leftover from the years these cycles ran as root"
     printf '     %s\n' "${empty_log[@]:0:10}"
     [[ "${#empty_log[@]}" -gt 10 ]] && note "   ... and $(( ${#empty_log[@]} - 10 )) more"
+    note "  ls -l $results_dir/<node>/trigger.log     # owner, on the head node"
+    note "  sudo chown -R $JOB_USER:$JOB_USER $results_dir/<node>"
+    note "  docs/reference/layout.md#result-path-ownership"
 fi
 
 [[ "$newest_write" -gt 0 ]] && note "newest write $(date -d "@$newest_write" '+%F %T'), oldest $(date -d "@$oldest_write" '+%F %T')"

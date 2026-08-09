@@ -31,13 +31,32 @@ It prints six sections:
    cycling at all, and which nodes have stopped writing a heartbeat. Upstream of
    everything else: no watchdog means nothing re-arms a node that stopped, and a
    stale heartbeat means that node's timer is not firing. Neither has any other
-   symptom. See
+   symptom. Each list is followed by the command that answers it — starting with
+   `clush -w <nodes> uptime`, because a node that does not answer that is off and
+   nothing else in the section applies to it — then the `arm.log` to read and a
+   foreground cycle, and the page each is explained on. The next step is the same
+   every time and nobody should have to look it up while a fleet is idle.
+
+   The lists are also split on what `sinfo` says about each node. The watchdog
+   arms `idle` and `drained` and nothing else, so a silent node in `down*` or
+   `drained*` is the design working and is reported as such rather than counted
+   as a problem — otherwise every piece of dead hardware in the cluster is a
+   permanent pair of red lines, and a real fault hides among them. A controller
+   that answers nothing leaves the nodes unclassified and in the list, because
+   no answer is not an answer. See
    [explanation/the-agent-and-the-watchdog.md](../explanation/the-agent-and-the-watchdog.md).
+   A watchdog reported as cycling "0m ago" with a note about clock skew is not a
+   fault: ages come from the NFS server's clock and `now` from the head node's,
+   and the section says by how much they disagree rather than printing a
+   negative age. See
+   [explanation/the-agent-and-the-watchdog.md#whose-clock-decides](../explanation/the-agent-and-the-watchdog.md#whose-clock-decides).
 1. **Is the sequencer running?** — `results/<node>/trigger.log` write times.
    Every log stale means the sequencer is not being run anywhere; nothing below
    it can be trusted, because the decisions on screen are whatever was true when
    it stopped. Read with section 0: fresh heartbeats and stale trigger logs is a
-   different fault from both being stale.
+   different fault from both being stale, so the section splits the stale list on
+   exactly that and only prints a command for the half section 0 has not already
+   claimed. A node in both lists is one fault, not two.
 2. **What each node last decided** — the last traced line per node, grouped by
    reason with node names and numbers normalized out, so a fleet collapses to a
    handful of distinct reasons instead of one line per node.
