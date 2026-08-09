@@ -78,6 +78,7 @@ pieces fit together this way is
 ├── health-check.sh                # Cluster-wide health summary, plus --explain and --refresh
 ├── ib-visibility.sh               # Compare HCAs the host sees vs the container sees
 ├── single-node-purge.sh           # Clear benchmark results for a node
+├── dmesg-archive.sh               # Save, clear and resume nodes drained on a full dmesg
 ├── kill-jobs.sh                   # Cancel our queued and running jobs; -p also pauses
 ├── check_squeue.sh                # The queue in one table; -j adds node state and reservations
 ├── status-check.sh                # Live per-node benchmark status (all nodes)

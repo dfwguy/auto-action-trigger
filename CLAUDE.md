@@ -212,6 +212,7 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/verdict-test.sh        # parser gates against captured fixtures
 ./tests/health-runner-test.sh  # the health check runner loop
 ./tests/recover-test.sh        # drain classification in slurm-recovery.sh
+./tests/dmesg-archive-test.sh  # what dmesg-archive.sh refuses to clear, if you touched it
 ./tests/help-text-test.sh      # --help blocks, if you touched a header comment
 ./tests/scan-cache-test.sh     # the report cache, if you touched a gate or verdict-scan.sh
 ./tests/yield-test.sh          # the cancel gates, if you touched get-out-of-the-way.sh
