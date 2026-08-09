@@ -12,7 +12,9 @@
 #   --no-cache        judge every node from its files, ignoring
 #                     results/.result_cache.*. See
 #                     docs/explanation/verdicts-and-the-cache.md#the-verdict-cache.
-#   -o, --output <f>  also write the report to <f>, exactly as printed.
+#   -o, --output <f>  also write the report to <f>, exactly as printed. The
+#                     directory has to exist; naming a path is a statement
+#                     about where the report goes, and this creates nothing.
 #   pattern           optional node-name filter, read the same way as
 #                     status-check.sh's: a bare string matches every node whose
 #                     name starts with it, so a rack prefix covers the whole
@@ -60,7 +62,7 @@ while (($#)); do
         -o|--output)
             [[ -n "$2" ]] || { echo "ERROR: $1 needs a file to write" >&2; exit 1; }
             report_file="$2"; shift 2 ;;
-        -h|--help)    sed -n '2,42p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        -h|--help)    sed -n '2,44p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         -*)           echo "ERROR: unknown argument $1" >&2; exit 1 ;;
         *)            args+=("$1"); shift ;;
     esac
@@ -76,6 +78,23 @@ if [[ -z "$pattern" ]]; then
     pattern='*'
 elif [[ "$pattern" != *[\*\?\[]* ]]; then
     pattern="${pattern}*"
+fi
+
+## Checked here rather than at the write at the end: this report is a scan of
+## the whole fleet, and one that cannot be written has wasted it. Nothing is
+## created -- see docs/how-to/export-a-report.md.
+if [[ -n "$report_file" ]]; then
+    report_dir=$(dirname "$report_file")
+    if [[ ! -d "$report_dir" ]]; then
+        echo "ERROR: $report_dir does not exist, so -o $report_file cannot be written." >&2
+        echo "       Create it, or name a path that exists. Nothing was scanned." >&2
+        exit 1
+    fi
+    if [[ ! -w "$report_dir" ]]; then
+        echo "ERROR: $report_dir is not writable by $(id -un), so -o $report_file" >&2
+        echo "       cannot be written. Nothing was scanned." >&2
+        exit 1
+    fi
 fi
 
 # How much of each list is shown before it collapses to a count.
@@ -549,7 +568,6 @@ node_block() {
 }
 
 if [[ -n "$report_file" ]]; then
-    mkdir -p "$(dirname "$report_file")" || exit 1
     emit_report | tee "$report_file"
     printf '\nWritten to: %s\n' "$report_file"
 else

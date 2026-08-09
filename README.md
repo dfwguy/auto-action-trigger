@@ -51,7 +51,7 @@ A local user named by `JOB_USER` — `cmods` as shipped — must exist on the **
 - Every cycle runs as `$JOB_USER` under that account's `systemd --user`, so the account needs lingering enabled (`agent/install-agent.sh` does it) and passwordless ssh from the head node.
 - It needs a `sudo` rule for the handful of privileged commands the health checks and the drains use — `agent/sudoers.default` is the shipped reference. See [docs/explanation/running-unprivileged.md](docs/explanation/running-unprivileged.md).
 - `launch_job.sh` submits Slurm jobs as that account directly, so it must be a valid login user with access to the Slurm environment (`/etc/profile.d/modules.sh` and the `slurm` module), and with whatever Slurm association the site requires — an `sbatch` refused for a missing association lands in `trigger.log` rather than being swallowed.
-- It must have write access to `logs/`, `results/` and `reports/` under the deployment root on the headnode.
+- It must have write access to `logs/` and `results/` under the deployment root on the headnode.
 - If the home directory is shared via NFS or another network filesystem, compute nodes will inherit it automatically. If not, `$BRINGUP_HOME` must be accessible on each compute node (e.g., via a shared filesystem mount).
 
 The container images do **not** have to live under that home directory: `CONTAINER_DIR` is its own setting, so they can sit on whatever bulk share the site has, and `CONTAINER_DIR_HEAD` covers the case where the headnode mounts that share at a different path than the compute nodes do. See [docs/explanation/containers.md#one-share-two-mount-points](docs/explanation/containers.md#one-share-two-mount-points).
@@ -207,7 +207,7 @@ bash status-check.sh ink50-dh01-h20        # one rack (bare prefix)
 bash status-check.sh -t allreduce          # one benchmark (repeatable, globs OK)
 bash status-check.sh -s                    # node lists per status, no reasons
 bash daily-report.sh                      # TSV table: slurm state + status + metrics
-bash daily-report.sh -c -o reports/r.csv  # same rows as CSV, and keep a copy
+bash daily-report.sh -c -o ~/r.csv        # same rows as CSV, and keep a copy
 bash watch-rack.sh "rack01-node[1-32]"    # live view of DOWN/drained nodes
 bash check_squeue.sh                      # the whole queue in one table
 bash check_squeue.sh -j 121918            # one job, plus its nodes' state and any reservation

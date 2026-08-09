@@ -134,7 +134,6 @@ location and `BRINGUP_HOME` disagree.
 | `$BRINGUP_HOME/results/<node>/recover.log` | One line per drain cleared. The attempt history `RECOVER_MAX_ATTEMPTS` is counted from. Tab separated: epoch, date, class, state, setter, reason, and the pre-job check that failed. See [explanation/drain-recovery.md#and-it-has-to-outlive-the-trace](../explanation/drain-recovery.md#and-it-has-to-outlive-the-trace) |
 | `$BRINGUP_HOME/results/<node>/unkillable.stamp` | First-seen epoch and pid set of GPU processes that survived their step's kill. Tab separated; a changed pid set restarts the clock. See [explanation/drain-recovery.md#a-step-that-outlives-its-own-kill](../explanation/drain-recovery.md#a-step-that-outlives-its-own-kill) |
 | `$BRINGUP_HOME/results/<node>/.not-a-compute-node` | Present when the host has decided it can never run a job. Holds the reason; every script that walks `results/*/` skips the directory. See [settings.md#hosts-that-are-not-compute-nodes](settings.md#hosts-that-are-not-compute-nodes) |
-| `$BRINGUP_HOME/reports/` | Where `daily-report.sh -o` reports are kept by convention |
 | `$CONTAINER_DIR` | Container images built by `build_containers.sh`. Defaults under the tree, but need not be there — see [explanation/containers.md#one-share-two-mount-points](../explanation/containers.md#one-share-two-mount-points) |
 | `/tmp/containers/` (on each node) | Node-local cache of the above, rsync'd by `file_copy.sh` |
 

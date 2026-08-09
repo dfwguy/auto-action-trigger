@@ -82,7 +82,7 @@ submitted and not yet judged.
 bash daily-report.sh
 bash daily-report.sh ink50-dh01-h20                 # one rack (bare prefix)
 bash daily-report.sh 'ink50-dh0[12]*'               # glob, as written
-bash daily-report.sh -c -o reports/report-$(date '+%F').csv
+bash daily-report.sh -c -o ~/report-$(date '+%F').csv
 ```
 
 The node pattern is read exactly as `status-check.sh` reads its own: a bare
@@ -145,7 +145,7 @@ spreadsheet is [how-to/export-a-report.md](../how-to/export-a-report.md).
 bash overall_report.sh                    # every node
 bash overall_report.sh ink50-dh01-h20     # one rack (bare prefix)
 bash overall_report.sh --full             # nothing elided
-bash overall_report.sh -o reports/today.txt
+bash overall_report.sh -o ~/today.txt
 ```
 
 The exception list. A node that passes appears nowhere in it, so a clean cluster
