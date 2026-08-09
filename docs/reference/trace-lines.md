@@ -166,11 +166,11 @@ nothing — this host is the single point the fleet depends on.
 | Line | When |
 |------|------|
 | `checked <n> node(s): <n> fresh, <n> armed, <n> with work on them, <n> not answering, <n> filtered out` | The summary. Grows a clause for nodes waiting out `ARM_RETRY_MINUTES`, for jobs past `MAX_JOB_HOURS`, and for nodes over the arm limit |
-| `ARM <n> node(s) whose heartbeat is older than <n>m: <nodelist>` | One `pdsh` going out. The nodelist is compressed for pasting |
-| `ARM FAILED <node>: <what it said>` | That node's half of the `pdsh` output. `arm.log` keeps the full text per attempt |
+| `ARM <n> node(s) whose heartbeat is older than <n>m: <nodelist>` | One fan-out going out. The nodelist is compressed for pasting |
+| `ARM FAILED <node>: <what it said>` | That node's half of the fan-out output. `arm.log` keeps the full text per attempt |
 | `EXIT: 'sinfo -N -h' returned nothing` | No answer is not an answer: a busy controller looks identical to an empty cluster, so nothing is armed — see [explanation/sequencing.md#when-the-controller-does-not-answer](../explanation/sequencing.md#when-the-controller-does-not-answer) |
 | `EXIT: PAUSE_ARMING=<value> in <settings file>` | No node is armed. Agents already running are untouched and keep cycling |
-| `EXIT: pdsh is not installed on <host>` | Nothing was armed and no attempt was recorded, so nothing is spent against `ARM_MAX_ATTEMPTS` |
+| `EXIT: <neither clush nor pdsh is installed here>` | Nothing was armed and no attempt was recorded, so nothing is spent against `ARM_MAX_ATTEMPTS` |
 | `DRAIN <node>: job timeout after <n>h (RUNNING, job <id>)` | `MAX_JOB_HOURS`, issued from here because the node's own cycle stops at the busy gate. Carries no `DRAIN_MARKER`, so nothing clears it automatically |
 | `drain suppressed by DRAIN_AFTER_FAILED_BENCHMARK=<value>: <node> -- <reason>` | The same finding with drains off. What it would have done is still written down |
 | `WOULD ARM …` / `WOULD DRAIN …` | `--explain`. It reads `sinfo` and the markers and touches nothing |

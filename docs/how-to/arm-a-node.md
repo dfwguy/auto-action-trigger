@@ -44,12 +44,13 @@ tail -f /home/cmods/bringup/results/supervisor.log
 
 One line every `SUPERVISOR_INTERVAL_MINUTES`, whether or not it armed anything.
 Within `HEARTBEAT_STALE_MINUTES` it should start naming nodes and arming them
-over one `pdsh`. Nothing else is needed: the nodes are armed by the watchdog,
+over one `clush`. Nothing else is needed: the nodes are armed by the watchdog,
 not by you.
 
 To arm a rack yourself rather than wait:
 
 ```bash
+clush -w 'ink50-dh01-h02-[11-18]' '/home/cmods/bringup/agent/install-agent.sh'
 pdsh -R ssh -w 'ink50-dh01-h02-[11-18]' '/home/cmods/bringup/agent/install-agent.sh'
 ```
 
@@ -74,6 +75,9 @@ cat /home/cmods/bringup/results/<node>/arm.log    # what it heard back, per atte
 To ask the node itself:
 
 ```bash
+clush -w <node> 'loginctl show-user cmods -p Linger --value; \
+    XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active bringup-agent.timer'
+
 pdsh -R ssh -w <node> 'loginctl show-user cmods -p Linger --value; \
     XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active bringup-agent.timer'
 ```
@@ -89,7 +93,7 @@ the node in its summary line rather than sshing at it for ever. What
 
 | What `arm.log` holds | What it means |
 |---|---|
-| `no output from pdsh` | ssh as `$JOB_USER` is not working from the head node to that node |
+| `no output from clush` | ssh as `$JOB_USER` is not working from the head node to that node |
 | `FAILED: could not enable lingering` | polkit refuses, and there is no sudo rule for `loginctl`. `sudo loginctl enable-linger cmods` on the node |
 | `FAILED: … does not exist` | the node cannot see `$BRINGUP_HOME` — NFS not mounted, or mounted somewhere else |
 | `FAILED: systemctl --user enable --now …` | no user session bus. Almost always lingering that did not take; check it directly |
@@ -111,7 +115,9 @@ rm /home/cmods/bringup/results/<node>/arm.log
 ## Running one cycle now, without waiting
 
 ```bash
+clush -w <node> '/home/cmods/bringup/agent/node-agent.sh --explain'   # decides nothing
 pdsh -R ssh -w <node> '/home/cmods/bringup/agent/node-agent.sh --explain'   # decides nothing
+clush -w <node> '/home/cmods/bringup/agent/node-agent.sh --verbose'   # a real cycle
 pdsh -R ssh -w <node> '/home/cmods/bringup/agent/node-agent.sh --verbose'   # a real cycle
 ```
 
@@ -122,6 +128,7 @@ timer is live.
 ## Disarming a node
 
 ```bash
+clush -w <node> '/home/cmods/bringup/agent/uninstall-agent.sh'
 pdsh -R ssh -w <node> '/home/cmods/bringup/agent/uninstall-agent.sh'
 ```
 

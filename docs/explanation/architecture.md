@@ -13,7 +13,7 @@ bringup-supervisor.timer           bringup-agent.timer  → agent/node-agent.sh
   → agent/supervisor.sh                 │
       sinfo: idle or drained            ├── touch results/<node>/.heartbeat
       stat:  heartbeat stale?           ├── any job on this node? → say so, stop
-      pdsh:  install-agent.sh           │
+      clush: install-agent.sh           │
                                         ├── file_copy.sh
                                         │     Rsyncs containers/ to /tmp/containers/ so job
                                         │     start reads the image off local disk.
@@ -69,32 +69,67 @@ The same principle shapes several decisions that look unrelated:
 - A drain that could not be issued says so, rather than leaving a node that
   looks fine.
 
-## Reaching nodes is pdsh, not ssh
+## Reaching nodes is clush or pdsh
 
 Nothing in this tree, and nothing in these docs, reaches a node with a bare
-`ssh`. Every remote command is a `pdsh -R ssh -w <nodes> '<command>'`, and the
-reason is scale: a rack is 18 nodes and a cluster is 200-plus, so a command
-written as an `ssh` has to be rewritten — as a shell loop, sequentially, with
-its output interleaved and unattributed — the first time it is needed on more
-than one. Written as a `pdsh` it never has to be: widening `-w` from one node
-to a whole rack is the whole edit, output arrives labelled with the node it
-came from, and `dshbak` will group it. The reports print node lists as ranges
-for exactly this reason — see
+`ssh`. Every remote command is a fan-out over a nodeset, and the reason is
+scale: a rack is 18 nodes and a cluster is 200-plus, so a command written as an
+`ssh` has to be rewritten — as a shell loop, sequentially, with its output
+interleaved and unattributed — the first time it is needed on more than one.
+Written as a fan-out it never has to be: widening the nodeset from one node to a
+whole rack is the whole edit, and output arrives labelled with the node it came
+from. The reports print node lists as ranges for exactly this reason — see
 [../how-to/get-a-node-list.md](../how-to/get-a-node-list.md).
 
-`-R ssh` is spelled out every time rather than left to the default. `pdsh`
-picks its remote command module at build time, and the packaged builds do not
-agree: several default to `rsh`, which is not running here, so the same line
+Two tools do this, and this tree treats them as one:
+
+```bash
+clush -w 'ink50-dh01-h02-[11,13-18]' '<command>'
+clush -w 'ink50-dh01-h02-[11,13-18]' '<command>'
+pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '<command>'
+```
+
+They take the same nodeset syntax and both label output `<node>: <line>`, so a
+caller parses one format either way and an operator can paste either line. Every
+example in these docs is given in both spellings for that reason: a site has one
+of the two installed, and nobody should have to translate.
+
+**The automation uses clush.** `fanout.sh` is the one place either is invoked —
+`fanout_resolve` picks clush when it is installed, falls back to pdsh with the
+fact traced, and refuses with a named reason when neither is there.
+`FANOUT_TOOL` in `SETTINGS` pins it to one or the other where a site wants no
+ambiguity. clush is preferred because its nodeset handling is a library rather
+than a command-line convention — `nodeset`, `--diff` and the group files come
+with it — and because `-R ssh` is a wart pdsh forces on every caller.
+
+`-R ssh` is spelled out every time pdsh is used rather than left to the default.
+pdsh picks its remote command module at build time, and the packaged builds do
+not agree: several default to `rsh`, which is not running here, so the same line
 that works on the head node of one cluster fails on another with a connection
 refused that names neither `rsh` nor the module. Naming the module makes the
-transport a property of the command instead of a property of whichever `pdsh`
-package the site installed.
+transport a property of the command instead of a property of whichever pdsh
+package the site installed. clush has no equivalent problem — ssh is its
+default and its `--worker` alternatives are opt-in.
 
-Two exceptions, both deliberate: anything that must run *inside* Slurm's view of
-the node uses `srun -w <node>` instead — `ib-visibility.sh` does — and anything
-that must run inside the container asks the job's own payload. A remote shell of
-any kind lands on the host, which sees a complete and correct `/dev` no matter
-what the container saw. See
+### Nothing is pushed over it
+
+The fan-out carries commands, never files. Arming a node runs
+`agent/install-agent.sh` **on** that node, and everything that script installs —
+the unit files, the interval, the paths — it reads out of `$BRINGUP_HOME`, which
+the node already has mounted over NFS. There is no `scp`, no `rsync` to a node,
+and no step where the head node's copy of a file and a node's copy can differ.
+
+That is what makes arming idempotent and cheap enough to do without asking first
+whether it is needed, and it is why a tarball drop onto the head node reaches
+every node at once. The one thing that *is* copied is the unit file, from the
+NFS tree into `~/.config/systemd/user/`, by the node itself — see
+[the-agent-and-the-watchdog.md#why-lingering](the-agent-and-the-watchdog.md#why-lingering).
+
+Two exceptions to the fan-out, both deliberate: anything that must run *inside*
+Slurm's view of the node uses `srun -w <node>` instead — `ib-visibility.sh` does
+— and anything that must run inside the container asks the job's own payload. A
+remote shell of any kind lands on the host, which sees a complete and correct
+`/dev` no matter what the container saw. See
 [containers.md](containers.md) and
 [judging-benchmarks.md#host-hcas-are-not-container-hcas](judging-benchmarks.md#host-hcas-are-not-container-hcas).
 
@@ -164,7 +199,7 @@ test as `node_self_excluded` — and installs the watchdog instead where it is.
 `agent/uninstall-agent.sh` reverses it, leaving lingering and everything under
 `results/` alone.
 
-It is idempotent by design, because the watchdog runs it over `pdsh` on any node
+It is idempotent by design, because the watchdog runs it over `clush` on any node
 whose heartbeat has gone stale, without being able to ask first whether it is
 needed. It also preflights: a missing exec bit is restored, a missing script or
 `systemctl` is a refusal, and a missing sudoers rule is a warning rather than a

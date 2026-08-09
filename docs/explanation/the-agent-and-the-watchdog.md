@@ -20,7 +20,8 @@ systemd --user (lingering, JOB_USER)       systemd --user (lingering, JOB_USER)
         │  sinfo: who is idle or drained            │  touch .heartbeat
         │  stat:  whose heartbeat is stale          │  any job here? -> say so, stop
         │                                           │
-        └──── pdsh -R ssh -w ──────────────►        ├── actions/file_copy.sh
+        └──── clush -w ──────────────►        ├── actions/file_copy.sh
+        └──── clush -w ────────────────────►        ├── actions/file_copy.sh
               agent/install-agent.sh                ├── actions/node_health.sh
                                                     └── actions/launch_job.sh
                         ▲                                  │
@@ -159,7 +160,7 @@ worst case between a node's timer dying and its being armed again is
 `HEARTBEAT_STALE_MINUTES` plus one supervisor interval.
 
 `RandomizedDelaySec=30` in the node timer exists so that two hundred nodes armed
-in the same `pdsh` do not then hit the same NFS server in the same second for
+in the same fan-out do not then hit the same NFS server in the same second for
 the rest of the day.
 
 ## Arming is idempotent, and bounded
@@ -179,9 +180,9 @@ The shape is deliberately the same as `RECOVER_MAX_ATTEMPTS` in
 is not working is a fact to report, not a thing to keep doing. Every attempt and
 what came back from it is appended to `results/<node>/arm.log`.
 
-The arm goes out as a single `pdsh -R ssh -w` over the whole list rather than a
+The arm goes out as a single `clush -w` over the whole list rather than a
 loop of sshes, per
-[architecture.md#reaching-nodes-is-pdsh-not-ssh](architecture.md#reaching-nodes-is-pdsh-not-ssh).
+[architecture.md#reaching-nodes-is-clush-or-pdsh](architecture.md#reaching-nodes-is-clush-or-pdsh).
 Per-node output is attributed back and traced, which is how `ARM FAILED` lines
 get a node name on them.
 

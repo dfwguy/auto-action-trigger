@@ -16,19 +16,22 @@ is only ever an operator's. Why each gate answers the way it does is in
 
 Every decision the script makes is about `$HOSTNAME`, because the agent runs
 on the node it is deciding about. There is no node argument: sweeping a set of
-nodes is a `pdsh`, and `-v` is worth adding there because stdout across `pdsh`
+nodes is a fan-out, and `-v` is worth adding there because stdout across it
 is a pipe rather than a terminal, so the trace would otherwise only reach each
 node's own log.
 
 ```bash
+clush -w 'ink50-dh01-h02-[11,13-18],ink50-dh01-h04-[11-13]' \
+      '/home/cmods/bringup/actions/launch_job.sh -f -v'
+
 pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18],ink50-dh01-h04-[11-13]' \
      '/home/cmods/bringup/actions/launch_job.sh -f -v'
 ```
 
-Every command in these docs that reaches a node goes through `pdsh`, never a
+Every command in these docs that reaches a node goes through `clush` or `pdsh`, never a
 bare `ssh`, so the same line works unchanged whether `-w` names one node or a
 whole rack — see
-[explanation/architecture.md#reaching-nodes-is-pdsh-not-ssh](../explanation/architecture.md#reaching-nodes-is-pdsh-not-ssh)
+[explanation/architecture.md#reaching-nodes-is-clush-or-pdsh](../explanation/architecture.md#reaching-nodes-is-clush-or-pdsh)
 for why `-R ssh` is always spelled out.
 
 Anything the script does not recognise — a node list included — is refused with
@@ -38,7 +41,7 @@ saying the host is not a compute node — see
 
 Run it as `root` or as `JOB_USER` (`cmods`). Root becomes `JOB_USER` with
 `su -`, and `JOB_USER` submits directly — `su` would ask itself for a password,
-and over `pdsh` there is no terminal to ask on. As anyone else, the submission
+and over a fan-out there is no terminal to ask on. As anyone else, the submission
 is refused with that reason rather than attempted.
 
 ## What `--force` does not open
@@ -66,6 +69,7 @@ re-queues appear in `quick-view.txt` as `QUEUED  <- re-queued by --all`.
 Combine either with `--explain` to see the batch before committing to it:
 
 ```bash
+clush -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --all --explain'
 pdsh -R ssh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --all --explain'
 ```
 
@@ -78,6 +82,7 @@ the fleet is judged on, and adding a job to it to try it once changes what every
 node is expected to pass and what the daily report calls a hole.
 
 ```bash
+clush -w ink50-dh01-h02-11 '/home/cmods/bringup/actions/launch_job.sh -t ethr -v'
 pdsh -R ssh -w ink50-dh01-h02-11 '/home/cmods/bringup/actions/launch_job.sh -t ethr -v'
 ```
 
@@ -132,9 +137,10 @@ only when you need to change something `--test` does not expose.
 ## Re-running health checks by hand
 
 The health side has the same shape: `actions/node_health.sh` decides about the
-node it runs on and takes no node argument, so a sweep is `pdsh` over the nodes.
+node it runs on and takes no node argument, so a sweep is a `clush` over the nodes.
 
 ```bash
+clush -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/node_health.sh -f -v'
 pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/node_health.sh -f -v'
 ```
 
@@ -142,7 +148,7 @@ pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/node_hea
 |---|---|
 | `--explain`, `-n` | print every gate, run no check, drain nothing |
 | `--force`, `-f` | ignore the cadence gate and run the checks now |
-| `--verbose`, `-v` | mirror the trace to stdout — the default on a tty, off under the agent and `pdsh` |
+| `--verbose`, `-v` | mirror the trace to stdout — the default on a tty, off under the agent and a fan-out |
 | `--quiet`, `-q` | never mirror it |
 
 `--force` opens the cadence gate and nothing else. `PAUSE_HEALTH_CHECKS`, the

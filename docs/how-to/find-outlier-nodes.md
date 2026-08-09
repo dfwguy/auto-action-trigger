@@ -80,6 +80,7 @@ caught contention or a transient.
 To take a fresh measurement without waiting for the hourly cadence:
 
 ```bash
+clush -w <node> '/home/cmods/bringup/actions/launch_job.sh -t allreduce -v'
 pdsh -R ssh -w <node> '/home/cmods/bringup/actions/launch_job.sh -t allreduce -v'
 ```
 

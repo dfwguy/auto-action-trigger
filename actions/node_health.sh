@@ -36,7 +36,7 @@ source "$home/priv.sh"
 ## ── Flags ─────────────────────────────────────────────────────────────────
 ##
 ## The same surface as launch_job.sh, and for the same reason: this decides
-## about the node it runs on, so a sweep is pdsh over the nodes.
+## about the node it runs on, so a sweep is a clush or pdsh over the nodes.
 ## See docs/how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand.
 EXPLAIN=0
 FORCE=0
@@ -53,6 +53,7 @@ Usage: node_health.sh [--explain] [--force] [--verbose|--quiet]
 Decides about the node it runs on, and takes no node argument. To sweep a set
 of nodes, name them where they can be reached:
 
+  clush -w 'ink50-dh01-h02-[11,13-18]' '$home/actions/node_health.sh -f -v'
   pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '$home/actions/node_health.sh -f -v'
 
 With no arguments -- how the node agent invokes it -- the checks re-run once every

@@ -9,7 +9,7 @@ bringup-supervisor.timer           bringup-agent.timer  → agent/node-agent.sh
   → agent/supervisor.sh                 │
       sinfo: idle or drained            ├── touch results/<node>/.heartbeat
       stat:  heartbeat stale?           ├── any job on this node? → say so, stop
-      pdsh:  install-agent.sh           │
+      clush: install-agent.sh           │
                                         ├── file_copy.sh
                                         │     Rsyncs containers/ to /tmp/containers/ so
                                         │     job start reads the image off local disk.
@@ -63,7 +63,7 @@ The container images do **not** have to live under that home directory: `CONTAIN
 | Software | Used by |
 |----------|---------|
 | `systemd` (`systemctl --user`, `loginctl`) | `agent/install-agent.sh`, and the two timers |
-| `pdsh` | `agent/supervisor.sh` (arming nodes), and every remote command in the docs |
+| `clush` (ClusterShell), or `pdsh` | `agent/supervisor.sh` (arming nodes), and every remote command in the docs. `FANOUT_TOOL` picks; `auto` prefers clush |
 | `sudo` | `node_health.sh` (7 of 38 checks), `slurm-recovery.sh` — see [docs/explanation/running-unprivileged.md](docs/explanation/running-unprivileged.md) |
 | Slurm (`sinfo`, `scontrol`, `sbatch`, `squeue`) | `node_health.sh`, `launch_job.sh`, all `.sbatch` jobs |
 | `nvidia-smi` | `node_health.sh` (GPU checks) |
@@ -90,7 +90,7 @@ The following scripts are run manually by an operator from the headnode and do n
 | `daily-report.sh` | `sinfo`, read access to `results/`; write access to wherever `-o` points |
 | `health-check.sh` | `sinfo`, `scontrol`, read access to `logs/` and `valid-config/` |
 | `health-check.sh --refresh` | write access to `logs/<node>/` |
-| `trigger-debug.sh` | `sinfo`, read access to `results/`; `--ask-nodes` also needs `pdsh` |
+| `trigger-debug.sh` | `sinfo`, read access to `results/`; `--ask-nodes` also needs `clush` or `pdsh` |
 | `trigger-log.sh` | read access to `results/` and `logs/` |
 | `watch-rack.sh` | `sinfo` |
 | `single-node-purge.sh` | write access to `results/` |

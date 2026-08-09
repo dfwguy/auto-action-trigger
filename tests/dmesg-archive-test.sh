@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Checks dmesg-archive.sh against stubbed pdsh/scontrol/sinfo on PATH.
+# Checks dmesg-archive.sh against a stubbed fan-out, scontrol and sinfo on PATH.
 #
 # This is the one script in the tree that destroys evidence on purpose, so the
 # assertions here are mostly about what it refuses to do: a node whose buffer
@@ -50,6 +50,22 @@ done
 exit 0
 EOF
 
+## The same answers from clush, which fanout() prefers. Both stubs are on PATH so
+## the suite exercises whichever the resolution picks, and the assertions below
+## are written not to care.
+cat > "$stub/clush" <<'EOF'
+#!/bin/bash
+printf 'clush %s\n' "$*" >> "$STUB_CALLS"
+case "$*" in
+    *"dmesg -C"*) exit 0 ;;
+esac
+for n in $STUB_DMESG_NODES; do
+    printf '%s: [2026-08-09T00:00:01,000] INFO: task nv:1 blocked for more than 120 seconds.\n' "$n"
+    printf '%s: [2026-08-09T00:00:02,000] Call Trace: with: colons: inside\n' "$n"
+done
+exit 0
+EOF
+
 cat > "$stub/hostname" <<'EOF'
 #!/bin/bash
 printf 'test-hn1\n'
@@ -85,7 +101,10 @@ run() {
     RUN_NAME="$name"
 }
 
-cleared()  { grep -q "pdsh -R ssh -w $1 dmesg -C" "$RUN_DIR/calls"; }
+## The fan-out tool is whichever of clush/pdsh is installed, so the assertion is
+## on the node list and the command, not on the spelling.
+## See docs/explanation/architecture.md#reaching-nodes-is-clush-or-pdsh.
+cleared()  { grep -q -- "-w $1 .*dmesg -C" "$RUN_DIR/calls"; }
 resumed()  { grep -q "scontrol update NodeName=$1 State=RESUME" "$RUN_DIR/calls"; }
 any_clear(){ grep -q 'dmesg -C' "$RUN_DIR/calls"; }
 

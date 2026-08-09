@@ -99,7 +99,7 @@ FORCE=0
 FORCE_ALL=0
 TEST_LIST=""
 ## Default on for a terminal, off otherwise: the agent's own output goes nowhere
-## anyone reads, and neither does pdsh's until you ask with -v.
+## anyone reads, and neither does clush's or pdsh's until you ask with -v.
 VERBOSE=0; [[ -t 1 ]] && VERBOSE=1
 usage() {
     cat <<USAGE
@@ -117,6 +117,7 @@ Usage: launch_job.sh [--explain] [--force] [--all] [--test JOB] [--verbose|--qui
 Decides about the node it runs on, and takes no node argument. To sweep a set
 of nodes, name them where they can be reached:
 
+  clush -w 'ink50-dh01-h02-[11,13-18]' '$home/actions/launch_job.sh -f -v'
   pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '$home/actions/launch_job.sh -f -v'
 
 With no arguments -- how the node agent invokes it -- one job is submitted at a time, in
@@ -305,7 +306,7 @@ node_in_scope() {
 
 if ! node_in_scope; then
     ## --test names both a job and, by running here, a node, so it opens this;
-    ## --force does not. A forced sweep is normally issued over pdsh across a
+    ## --force does not. A forced sweep is normally issued fleet-wide across a
     ## whole rack, and that must not quietly test nodes the site excluded.
     ## See docs/reference/settings.md#restricting-which-nodes-run-jobs.
     if [[ -n "$TEST_LIST" ]]; then
@@ -313,7 +314,7 @@ if ! node_in_scope; then
     elif [[ "$EXPLAIN" -eq 1 ]]; then
         trace "NODE_FILTER='$NODE_FILTER' does not match $HOSTNAME -- explaining anyway; a real cycle would stop here"
     else
-        trace "EXIT: NODE_FILTER='$NODE_FILTER' in ${SETTINGS_FILE:-<no settings file found>} does not match $HOSTNAME -- no jobs submitted here.$([[ "$FORCE" -eq 1 ]] && printf ' --force does not override it: a forced sweep is usually a whole rack over pdsh, and this node is not in the set.') Health checks and reporting are unaffected."
+        trace "EXIT: NODE_FILTER='$NODE_FILTER' in ${SETTINGS_FILE:-<no settings file found>} does not match $HOSTNAME -- no jobs submitted here.$([[ "$FORCE" -eq 1 ]] && printf ' --force does not override it: a forced sweep is usually a whole rack at once, and this node is not in the set.') Health checks and reporting are unaffected."
         exit 0
     fi
 fi

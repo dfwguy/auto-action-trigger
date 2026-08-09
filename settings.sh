@@ -138,6 +138,9 @@ fi
 ## sudo, or direct for a site that gave JOB_USER Slurm AdminLevel=Operator.
 ## See docs/explanation/running-unprivileged.md#draining-without-root.
 : "${PRIV_SCONTROL:=sudo}"
+## How more than one node is reached: auto prefers clush and falls back to pdsh.
+## See docs/explanation/architecture.md#reaching-nodes-is-clush-or-pdsh.
+: "${FANOUT_TOOL:=auto}"
 ## `=` not `:=`, like CONTAINERS: empty is the shipped answer and a real one.
 ## Deliberately not exported -- launch_job.sh is the only reader and hands it
 ## to sbatch --export. See docs/reference/settings.md#extra-environment-for-every-job.

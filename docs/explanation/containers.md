@@ -151,7 +151,7 @@ particularly good at looking like success:
 - The run completes, writes a valid summary, and passes at roughly 1 GB/s.
 
 That is how `allreduce-nonvlink` ran entirely over `bond0` for weeks. Checking
-by hand from a shell on the node cannot catch it, because a `pdsh` — like any
+by hand from a shell on the node cannot catch it, because a fan-out — like any
 other remote shell — puts you on the host, where the HCA list is complete and
 correct the whole time. The `-nonvlink` jobs therefore
 do two things: mount the devices with

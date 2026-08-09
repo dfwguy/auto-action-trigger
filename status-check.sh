@@ -26,7 +26,7 @@
 #
 #   -s, --summary
 #            roll-up instead of the per-column report: one compressed node list
-#            per status, for feeding to scancel/pdsh/scontrol. Reasons are
+#            per status, for feeding to scancel/clush/pdsh/scontrol. Reasons are
 #            dropped -- this answers "which nodes" and the default report
 #            answers "why".
 #
@@ -264,7 +264,7 @@ if [[ "$summary" -ne 1 ]]; then
     exit 0
 fi
 
-# Ranges rather than a bare comma list, for pasting into scancel/pdsh -R ssh -w. The
+# Ranges rather than a bare comma list, for pasting into scancel/clush -w. The
 # raw list is still valid input to most of the same tools, so falling back is ok.
 compress() {
     local out

@@ -32,7 +32,9 @@ the head node, and both belong to `$JOB_USER` rather than to root:
 Ask the node itself:
 
 ```bash
+clush -w "$N" 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user list-timers bringup-agent.timer'
 pdsh -R ssh -w "$N" 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user list-timers bringup-agent.timer'
+clush -w "$N" 'loginctl show-user cmods -p Linger --value'
 pdsh -R ssh -w "$N" 'loginctl show-user cmods -p Linger --value'
 ```
 
@@ -126,6 +128,7 @@ Now the second step in this tutorial that changes something. Stop one node's
 timer, and watch it come back:
 
 ```bash
+clush -w "$N" 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user stop bringup-agent.timer'
 pdsh -R ssh -w "$N" 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user stop bringup-agent.timer'
 ```
 
@@ -140,7 +143,7 @@ picks it up:
 2026-08-09 14:33:05 ARM 1 node(s) whose heartbeat is older than 10m: ink50-dh01-h20-11
 ```
 
-It sshes in once, over `pdsh`, and runs `agent/install-agent.sh`, which re-enables
+It reaches in once, over `clush`, and runs `agent/install-agent.sh`, which re-enables
 the timer. Within a couple of minutes `agent.log` starts again and the heartbeat
 moves. Confirm what it heard back:
 
@@ -188,6 +191,7 @@ detached and returns immediately; the copy carries on afterwards, and a `flock`
 stops the next cycle stacking a second one on top.
 
 ```bash
+clush -w "$N" 'ls -la /tmp/containers/ 2>/dev/null | head'
 pdsh -R ssh -w "$N" 'ls -la /tmp/containers/ 2>/dev/null | head'
 ```
 
@@ -200,6 +204,7 @@ drains nothing and writes nothing but its own trace, so it is safe while the
 timer is live:
 
 ```bash
+clush -w "$N" '/home/cmods/bringup/agent/node-agent.sh --explain'
 pdsh -R ssh -w "$N" '/home/cmods/bringup/agent/node-agent.sh --explain'
 ```
 
@@ -301,7 +306,7 @@ discover a node was simply waiting out its hour.
 - The heartbeat says the timer fired; every other file says what a cycle
   decided. One file cannot answer both questions.
 - The watchdog arms `idle` and `drained` nodes whose heartbeat has gone stale,
-  over one `pdsh`, and gives up after `ARM_MAX_ATTEMPTS` rather than sshing for
+  over one `clush`, and gives up after `ARM_MAX_ATTEMPTS` rather than sshing for
   ever.
 - A node with any job on it does nothing but say so.
 - Every gate writes down why it stopped, because a broken chain and an idle

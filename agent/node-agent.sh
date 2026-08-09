@@ -31,6 +31,7 @@ Decides about the node it runs on and takes no node argument. Normally fired by
 the systemd --user timer installed by agent/install-agent.sh; to run one cycle
 across a rack by hand:
 
+  clush -w 'ink50-dh01-h02-[11,13-18]' '$home/agent/node-agent.sh -v'
   pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '$home/agent/node-agent.sh -v'
 USAGE
 }

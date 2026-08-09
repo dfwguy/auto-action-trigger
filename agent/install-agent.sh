@@ -2,7 +2,7 @@
 #
 # Arm this host: enable lingering for JOB_USER, install the systemd --user units
 # out of agent/units/, and start the timer. Idempotent and safe to re-run -- it
-# is what the head-node watchdog runs over pdsh on a node whose heartbeat has
+# is what the head-node watchdog runs over clush on a node whose heartbeat has
 # gone stale, as well as what an operator runs by hand.
 #
 # The role is decided here, not by the caller: a host that runs slurmctld and no

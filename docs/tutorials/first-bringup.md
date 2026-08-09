@@ -145,6 +145,7 @@ tail -f results/supervisor.log
 Do not wait for the hourly cadence. Ask the node what it would do:
 
 ```bash
+clush -w <your-node> '/home/cmods/bringup/agent/node-agent.sh --explain'
 pdsh -R ssh -w <your-node> '/home/cmods/bringup/agent/node-agent.sh --explain'
 ```
 
@@ -159,11 +160,12 @@ itself. Fix what it says and re-run; nothing here has side effects.
 When the `WOULD SUBMIT` looks right, do it for real:
 
 ```bash
+clush -w <your-node> '/home/cmods/bringup/actions/launch_job.sh --force -v'
 pdsh -R ssh -w <your-node> '/home/cmods/bringup/actions/launch_job.sh --force -v'
 squeue -n bringup-<your-node>
 ```
 
-`-v` mirrors the trace back through `pdsh`; without it the output only reaches
+`-v` mirrors the trace back through the fan-out; without it the output only reaches
 the node's own log.
 
 ## 8. Read the result

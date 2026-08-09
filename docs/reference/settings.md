@@ -248,6 +248,18 @@ Anything other than `direct` reads as `sudo`. Only `update` goes through it —
 and run unprivileged. There is deliberately no autodetection; see
 [explanation/running-unprivileged.md#draining-without-root](../explanation/running-unprivileged.md#draining-without-root).
 
+## Reaching more than one node
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `FANOUT_TOOL` | `auto` | `auto` prefers `clush` and falls back to `pdsh`; `clush` or `pdsh` pins it and fails with a named reason when that one is missing |
+
+`fanout.sh` is the only place either is invoked, and every trace line that
+reaches a node says which was used. A pinned value that is not installed is a
+refusal rather than a silent fall back — a site that chose `clush` and is
+quietly getting `pdsh` has a preference nobody honoured. See
+[explanation/architecture.md#reaching-nodes-is-clush-or-pdsh](../explanation/architecture.md#reaching-nodes-is-clush-or-pdsh).
+
 ## Pause switches
 
 | Setting | Default | Stops |

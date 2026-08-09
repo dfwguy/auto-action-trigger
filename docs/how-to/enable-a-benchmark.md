@@ -108,6 +108,7 @@ days. See
 `SETTINGS`:
 
 ```bash
+clush -w ink50-dh01-h02-11 '/home/cmods/bringup/actions/launch_job.sh -t ethr -v'
 pdsh -R ssh -w ink50-dh01-h02-11 '/home/cmods/bringup/actions/launch_job.sh -t ethr -v'
 ```
 

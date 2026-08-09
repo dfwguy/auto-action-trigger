@@ -1,0 +1,178 @@
+#!/bin/bash
+#
+# fanout.sh: the one place this tree reaches more than one node. The failure to
+# guard against is a preference nobody chose -- a site that installed clush and
+# is quietly getting pdsh, or a pinned tool that is missing and falls back
+# without saying so.
+# See docs/explanation/architecture.md#reaching-nodes-is-clush-or-pdsh.
+
+home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+both="$work/both"; only_pdsh="$work/only-pdsh"; only_clush="$work/only-clush"; neither="$work/neither"
+mkdir -p "$both" "$only_pdsh" "$only_clush" "$neither"
+
+pass=0; fail=0
+ok()  { printf '  ok   %s\n' "$*"; pass=$((pass + 1)); }
+bad() { printf '  FAIL %s\n' "$*"; fail=$((fail + 1)); }
+
+for d in "$both" "$only_clush"; do
+    cat > "$d/clush" <<'EOF'
+#!/bin/bash
+printf 'clush %s\n' "$*"
+EOF
+    chmod 755 "$d/clush"
+done
+for d in "$both" "$only_pdsh"; do
+    cat > "$d/pdsh" <<'EOF'
+#!/bin/bash
+printf 'pdsh %s\n' "$*"
+EOF
+    chmod 755 "$d/pdsh"
+done
+
+## A PATH with nothing on it but the stubs and coreutils, so `command -v` is
+## answering about the stubs rather than about this machine.
+run() {
+    local dir="$1" tool="$2" script="$3"
+    ( export PATH="$dir:/usr/bin:/bin" FANOUT_TOOL="$tool"
+      # shellcheck source=/dev/null
+      source "$home/fanout.sh"
+      eval "$script" )
+}
+
+echo "== auto prefers clush =="
+
+out=$(run "$both" auto 'fanout n[1-4] "hostname"')
+case "$out" in
+    clush*) ok "with both installed, auto picks clush: $out" ;;
+    *)      bad "auto did not pick clush: $out" ;;
+esac
+[[ "$out" == *"-w n[1-4]"* ]] &&
+    ok "the nodeset is passed through as written" ||
+    bad "the nodeset was mangled: $out"
+
+out=$(run "$only_pdsh" auto 'fanout n[1-4] "hostname"')
+case "$out" in
+    pdsh*) ok "with only pdsh installed, auto falls back to it" ;;
+    *)     bad "the fallback did not happen: $out" ;;
+esac
+## The fall back is a fact the caller has to be able to trace, or a site that
+## meant to use clush cannot tell it is not.
+out=$(run "$only_pdsh" auto 'fanout_resolve; printf "%s|%s" "$FANOUT_CMD" "$FANOUT_WHY"')
+[[ "$out" == "pdsh|clush is not installed here, falling back to pdsh" ]] &&
+    ok "and says so in FANOUT_WHY" ||
+    bad "the fallback was silent: [$out]"
+
+out=$(run "$both" auto 'fanout_resolve; printf "%s|%s" "$FANOUT_CMD" "$FANOUT_WHY"')
+[[ "$out" == "clush|" ]] &&
+    ok "and there is nothing to say when clush was there all along" ||
+    bad "a note was made about a choice with no surprise in it: [$out]"
+
+echo "== -R ssh is spelled out =="
+
+## pdsh picks its rcmd module at build time and several packaged builds default
+## to rsh, so the default is not portable between sites.
+out=$(run "$only_pdsh" auto 'fanout n[1-4] "hostname"')
+[[ "$out" == *"-R ssh -w"* ]] &&
+    ok "the pdsh form names its transport: $out" ||
+    bad "pdsh was called without -R ssh: $out"
+
+out=$(run "$only_clush" auto 'fanout n[1-4] "hostname"')
+[[ "$out" == *"-R"* ]] &&
+    bad "the clush form carries pdsh's flag: $out" ||
+    ok "the clush form does not: $out"
+
+echo "== a pinned tool is not quietly substituted =="
+
+out=$(run "$both" pdsh 'fanout n[1-4] "hostname"')
+case "$out" in
+    pdsh*) ok "FANOUT_TOOL=pdsh uses pdsh even where clush exists" ;;
+    *)     bad "a pinned pdsh was overridden: $out" ;;
+esac
+
+out=$(run "$only_clush" clush 'fanout n[1-4] "hostname"')
+case "$out" in
+    clush*) ok "FANOUT_TOOL=clush uses clush" ;;
+    *)      bad "a pinned clush was not used: $out" ;;
+esac
+
+## The case that must not fall back: the site named a tool and it is missing.
+run "$only_pdsh" clush 'fanout n[1-4] "hostname"' >/dev/null 2>&1 &&
+    bad "FANOUT_TOOL=clush fell back to pdsh instead of refusing" ||
+    ok "a pinned tool that is missing refuses rather than substituting"
+out=$(run "$only_pdsh" clush 'fanout_resolve; printf "%s" "$FANOUT_WHY"')
+[[ "$out" == *"clush is not installed"* ]] &&
+    ok "and names the tool it could not find: $out" ||
+    bad "the refusal did not say why: [$out]"
+
+echo "== neither installed =="
+
+run "$neither" auto 'fanout n[1-4] "hostname"' >/dev/null 2>&1 &&
+    bad "fanout returned success with no tool to run" ||
+    ok "fanout fails when there is nothing to run it with"
+out=$(run "$neither" auto 'fanout_resolve; printf "%s" "$FANOUT_WHY"')
+[[ "$out" == "neither clush nor pdsh is installed here" ]] &&
+    ok "and says which two it looked for" ||
+    bad "the reason is not usable: [$out]"
+
+echo "== the example an operator is given =="
+
+## Both spellings, always: a site has one of the two and nobody should have to
+## translate. This is the line trigger-debug.sh and dmesg-archive.sh print.
+out=$(run "$both" auto "fanout_example 'n[1-4]' 'dmesg | tail -5'")
+if grep -q "clush -w n\[1-4\] 'dmesg | tail -5'" <<<"$out" &&
+   grep -q "pdsh -R ssh -w n\[1-4\] 'dmesg | tail -5'" <<<"$out"; then
+    ok "prints both forms of the same command"
+else
+    bad "the example is not both spellings: $out"
+fi
+[[ "$(wc -l <<<"$out")" -eq 2 ]] &&
+    ok "two lines, nothing else" ||
+    bad "expected two lines: $out"
+
+echo "== every caller goes through it =="
+
+## The rule is that nothing calls clush or pdsh directly. A new direct call is
+## how the FANOUT_TOOL setting stops meaning anything.
+##
+## Heredoc bodies are skipped rather than pattern-matched away: every --help
+## block in the tree prints both spellings for an operator to paste, and those
+## are the thing this rule exists to produce, not to forbid.
+find_strays() {
+    local f
+    for f in $(git -C "$home" ls-files '*.sh' 2>/dev/null); do
+        case "$f" in tests/*|fanout.sh) continue ;; esac
+        awk -v file="$f" '
+            ## <<WORD or <<-WORD or <<"WORD": body runs until the delimiter.
+            heredoc != "" {
+                line = $0; gsub(/^[ \t]+/, "", line)
+                if (line == heredoc) heredoc = ""
+                next
+            }
+            match($0, /<<-?[ ]*['"'"'"]?[A-Za-z_][A-Za-z0-9_]*/) {
+                d = substr($0, RSTART, RLENGTH)
+                gsub(/^<<-?[ ]*['"'"'"]?/, "", d)
+                heredoc = d
+                next
+            }
+            ## A comment, or a quoted string: not a command.
+            /^[ \t]*#/ { next }
+            ## clush or pdsh as the first word of a command.
+            /(^|[;&|(]|[[:space:]]then|[[:space:]]do|\$\()[[:space:]]*(clush|pdsh)[[:space:]]/ {
+                printf "%s:%d:%s\n", file, NR, $0
+            }
+        ' "$home/$f"
+    done
+}
+strays=$(find_strays)
+if [[ -z "$strays" ]]; then
+    ok "no script calls clush or pdsh outside fanout.sh"
+else
+    bad "a direct call bypasses FANOUT_TOOL:"
+    printf '       %s\n' "$strays"
+fi
+
+printf '\n%d passed, %d failed\n' "$pass" "$fail"
+[[ "$fail" -eq 0 ]]

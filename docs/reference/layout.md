@@ -24,6 +24,7 @@ pieces fit together this way is
 ├── SETTINGS.default               # Shipped configuration; copy to SETTINGS to change anything
 ├── settings.sh                    # Loads SETTINGS, else SETTINGS.default; backfills unset keys
 ├── priv.sh                        # The one place a command needing root is run from a cycle that is not
+├── fanout.sh                      # The one place a command is run on more than one node: clush, else pdsh
 ├── reason-map.sh                  # Slurm drain reason → check names (health-check.sh)
 ├── report-format.sh               # Node-list compression, wrapping and elision (health-check.sh, overall_report.sh)
 ├── health-scan.sh                 # The health verdict from logs/ against the baseline (health-check.sh, overall_report.sh)
@@ -252,7 +253,7 @@ they are gates rather than review items:
   in every report. See
   [explanation/sequencing.md#a-host-that-is-not-a-compute-node](../explanation/sequencing.md#a-host-that-is-not-a-compute-node).
 - `report-format` — `wrap_list` decides where a node list breaks, and half a
-  `[14,29,34]` range is a string neither `scontrol` nor `pdsh -R ssh -w` will take
+  `[14,29,34]` range is a string neither `scontrol` nor `clush -w` will take
   while looking exactly like a whole one. The suite keeps the bash
   implementation equivalent to the awk it replaced for speed.
 - `doc-links` — the comment convention puts reasoning in `docs/` and leaves a

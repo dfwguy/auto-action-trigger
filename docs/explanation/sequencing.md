@@ -1145,7 +1145,7 @@ the same questions a normal cycle is and each one traces that `--force` did not
 override it.
 
 `NODE_FILTER` is the one most likely to be forced over by accident: `-f` is
-normally issued across a whole rack over `pdsh`, and it must not quietly test
+normally issued across a whole rack at once, and it must not quietly test
 nodes the site took out.
 
 `--test` **does** open `NODE_FILTER`. Naming a job and running the command on a

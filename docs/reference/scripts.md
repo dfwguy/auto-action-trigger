@@ -54,7 +54,7 @@ active, rather than printing an empty report that reads like a clean cluster.
 
 `-s` replaces the per-column report with one compressed node list per status
 (FAIL / INCOMPLETE / RETRY / NOT_RUN / DONE), reasons dropped, for pasting into
-`scancel`, `pdsh -R ssh -w` or `scontrol`:
+`scancel`, `clush -w` or `scontrol`:
 
 ```
 SUMMARY — judged on: allreduce
@@ -191,7 +191,7 @@ ink50-dh01-h20-35
 `prolog` is the line the rest of this tree cannot give you: Slurm records only
 that the prolog failed, and the check that actually failed is named nowhere a
 head node can read it — except in the note `slurm-recovery.sh` leaves in the
-node's own trace. When that note is absent the line says so and prints the `pdsh`
+node's own trace. When that note is absent the line says so and prints the fan-out line
 that reads the node-local log directly. See
 [explanation/reading-the-whole-fleet.md](../explanation/reading-the-whole-fleet.md#a-prolog-drain-does-not-say-why).
 
@@ -444,11 +444,11 @@ It needs write access to `logs/<node>/` and contacts no node. See
 | `set-valid-default.sh <node>` | Captures a validated node's `logs/` as the new baseline — see [health-checks.md](health-checks.md) |
 | `watch-rack.sh <nodelist>` | Refreshes every 20 seconds, showing only nodes that are DOWN or drained |
 | `trigger-log.sh` | Reads the heartbeats, `results/<node>/trigger.log` and `health.log` across the cluster — six sections, described in [how-to/diagnose-nothing-running.md](../how-to/diagnose-nothing-running.md). `--include-excluded` also reads the hosts the reports leave out |
-| `agent/node-agent.sh` | One cycle on the node it runs on: heartbeat, busy gate, then the three steps. Fired by `bringup-agent.timer`; `--explain`/`--verbose` for a hand-run over `pdsh` |
+| `agent/node-agent.sh` | One cycle on the node it runs on: heartbeat, busy gate, then the three steps. Fired by `bringup-agent.timer`; `--explain`/`--verbose` for a hand-run over `clush` or `pdsh` |
 | `agent/supervisor.sh` | The head node's watchdog. Fired by `bringup-supervisor.timer`; `--explain` names what it would arm and drain, and does neither |
 | `agent/install-agent.sh` | Arms this host — lingering, the units, the timer. Idempotent; `--node`/`--head` override the role it works out for itself. See [how-to/arm-a-node.md](../how-to/arm-a-node.md) |
 | `agent/uninstall-agent.sh` | Stops and removes the timer and its unit. Leaves lingering and everything under `results/` alone |
-| `actions/node_health.sh` | The health runner, second of the agent's three steps. Also runnable over `pdsh` with `--explain`/`--force`/`--verbose` — see [how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand](../how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand) |
+| `actions/node_health.sh` | The health runner, second of the agent's three steps. Also runnable over `clush` or `pdsh` with `--explain`/`--force`/`--verbose` — see [how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand](../how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand) |
 | `trigger-debug.sh` | Walks the watchdog → `sbatch` chain and names the broken link. Read-only. `--ask-nodes` adds the per-node systemd and sudo checks |
 | `check_squeue.sh` | The queue in one aligned table, whole cluster; `-j <id>` adds node state and reservations |
 | `kill-jobs.sh` | Cancels this framework's jobs; `-p` also sets `PAUSE_JOBS=yes`. See [how-to/pause-and-resume.md](../how-to/pause-and-resume.md) |

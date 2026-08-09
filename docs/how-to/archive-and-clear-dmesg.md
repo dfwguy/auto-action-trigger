@@ -20,6 +20,7 @@ trace has rotated — read `recover.log`, whose seventh field keeps the same fac
 or go to BCM's own log on the node:
 
 ```bash
+clush -w <node> 'grep FAIL $(ls -t /cm/local/apps/slurm/var/pre-post-job-logs/failed-pre-jobs/job.*.log | head -1)'
 pdsh -R ssh -w <node> 'grep FAIL $(ls -t /cm/local/apps/slurm/var/pre-post-job-logs/failed-pre-jobs/job.*.log | head -1)'
 ```
 
@@ -34,7 +35,7 @@ rather than the record. `dmesg-archive.sh` confirms that per node before it
 clears anything, and reports the answer as `syslog:yes` or `NO SYSLOG`.
 
 **The check is local.** It is a `grep` over the syslog of the host you run the
-script from — not a `pdsh`, and the nodes are not asked anything about it. Only
+script from — not a fan-out, and the nodes are not asked anything about it. Only
 the `dmesg` read and the `dmesg -C` go out to the fleet. So run this from the
 head node the cluster forwards to, and read the `long-term copy: … on <host>`
 line the run prints to confirm which host that was. On a cluster with more than

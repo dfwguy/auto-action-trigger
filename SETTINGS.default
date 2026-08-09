@@ -116,6 +116,10 @@ ARM_WINDOW_HOURS=24
 ## See docs/explanation/running-unprivileged.md#draining-without-root.
 PRIV_SCONTROL=sudo
 
+## ── Reaching more than one node ───────────────────────────────────────────
+## auto prefers clush and falls back to pdsh. clush or pdsh pins it.
+FANOUT_TOOL=auto
+
 ## ── Getting out of the way (experimental) ─────────────────────────────────
 ## Cancels this node's own running job when somebody else is queued for the
 ## node. See docs/reference/settings.md#getting-out-of-the-way.

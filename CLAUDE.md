@@ -135,7 +135,7 @@ is:
 | Mode | What | Why |
 |------|------|-----|
 | `755` | Entry points — anything a human or a systemd unit invokes directly, `agent/*.sh` included | Must be `exec`able. The unit names a path and runs it; a `644` agent script installs fine and silently runs nothing, which is why `install-agent.sh` preflights the bit |
-| `644` | Sourced libraries: `settings.sh`, `priv.sh`, `reason-map.sh`, `slurm-recovery.sh`, `get-out-of-the-way.sh`, `verdict-scan.sh`, `report-format.sh`, `health-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is also *run*, but as `bash verdict-scan.sh` from its own `xargs`, like the health checks below |
+| `644` | Sourced libraries: `settings.sh`, `priv.sh`, `fanout.sh`, `reason-map.sh`, `slurm-recovery.sh`, `get-out-of-the-way.sh`, `verdict-scan.sh`, `report-format.sh`, `health-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is also *run*, but as `bash verdict-scan.sh` from its own `xargs`, like the health checks below |
 | `644` | `agent/units/*.service`, `agent/units/*.timer`, `agent/sudoers.default` | Read, never run. `install-agent.sh` copies the units with `@BRINGUP_HOME@` and `@INTERVAL@` substituted; the sudoers file is a reference the site installs itself, at `0440` |
 | `644` | `llmb_check.py` | `build_llmb.sh` runs it as `python3 llmb_check.py`, like the health checks below |
 | `644` | `health-checks/*/NN-*.sh` | `node_health.sh` runs each as `bash "$check_file"` — deliberately, so one check's `exit 1` cannot truncate the set of 38 |
@@ -148,18 +148,38 @@ Check the whole tree with:
 git ls-files -s | awk '{print $1, $4}' | sort
 ```
 
-## Reaching a node is `pdsh -R ssh -w`, never a bare `ssh`
+## Reaching a node is `clush -w` or `pdsh -R ssh -w`, never a bare `ssh`
 
-Every remote command in the tree and in `docs/` — including the ones scripts
-*print* for an operator to paste — is written `pdsh -R ssh -w <nodes> '<cmd>'`.
-A command written as an `ssh` has to be rewritten the first time it is wanted on
-more than one node; written as a `pdsh` it scales by widening `-w`. `-R ssh` is
-always spelled out: `pdsh` picks its rcmd module at build time and several
-packaged builds default to `rsh`, so the default is not portable between sites.
+**The automation uses clush.** `fanout.sh` is the only place either tool is
+invoked: `fanout_resolve` prefers `clush`, falls back to `pdsh` with the fact
+traced, and refuses with a named reason when neither is installed. `FANOUT_TOOL`
+pins it. Nothing calls `clush` or `pdsh` directly, and nothing calls `ssh` at
+all — a command written as an `ssh` has to be rewritten the first time it is
+wanted on more than one node.
+
+**Every example gives both spellings**, in `docs/` and in the lines scripts
+*print* for an operator to paste:
+
+```bash
+clush -w '<nodes>' '<cmd>'
+pdsh -R ssh -w '<nodes>' '<cmd>'
+```
+
+A site has one of the two installed and nobody should have to translate; the two
+take the same nodeset syntax and both label output `<node>: <line>`, so a caller
+parses one format either way. `fanout_example` prints the pair. `-R ssh` is
+always spelled out on the pdsh form: `pdsh` picks its rcmd module at build time
+and several packaged builds default to `rsh`, so the default is not portable
+between sites.
+
+**The fan-out carries commands, never files.** Arming a node runs
+`agent/install-agent.sh` *on* that node, and everything it installs it reads out
+of `$BRINGUP_HOME` over NFS. There is no `scp` and no push, which is what makes
+arming idempotent and a tarball drop on the head node reach every node at once.
 
 The exceptions are `srun -w <node>` where the command must run inside Slurm's
 view, and the job payload itself where it must run inside the container. See
-`docs/explanation/architecture.md#reaching-nodes-is-pdsh-not-ssh`.
+`docs/explanation/architecture.md#reaching-nodes-is-clush-or-pdsh`.
 
 ## Platform sets are directories, not files
 
@@ -232,6 +252,7 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/agent-test.sh          # the heartbeat, the busy gate and the lock, if you touched node-agent.sh
 ./tests/supervisor-test.sh     # which nodes get armed, if you touched supervisor.sh
 ./tests/priv-test.sh           # the sudo layer, if you touched priv.sh or a check that needs root
+./tests/fanout-test.sh         # clush before pdsh, if you touched fanout.sh
 ./tests/doc-links-test.sh      # every docs/ anchor the code points at, if you moved or retitled one
 bash -n <changed script>       # these scripts run as root on 200+ nodes
 shellcheck -S warning <changed script>   # CI gates on this; see below

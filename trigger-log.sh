@@ -431,5 +431,6 @@ cat <<EOF
   Heartbeat stale (section 0)         -> ./trigger-debug.sh
   Logs stale or missing (section 1)   -> ./trigger-debug.sh
   Logs fresh, gate closed (section 2) -> ask the node itself, no waiting:
+      clush -w <node> '$BRINGUP_HOME/agent/node-agent.sh --explain'
       pdsh -R ssh -w <node> '$BRINGUP_HOME/agent/node-agent.sh --explain'
 EOF

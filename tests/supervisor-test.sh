@@ -35,11 +35,13 @@ cat > "$stub/scontrol" <<'EOF'
 printf '%s\n' "$*" >> "$STUB_DIR/scontrol.calls"
 exit 0
 EOF
+## Records the whole invocation, then answers as install-agent.sh would for each
+## node in -w. STUB_ARM_FAIL names one node that refuses. Both tools are on PATH
+## so the suite exercises whichever fanout() picks -- clush, as it ships.
+## See docs/explanation/architecture.md#reaching-nodes-is-clush-or-pdsh.
 cat > "$stub/pdsh" <<'EOF'
 #!/bin/bash
-## Records the whole invocation, then answers as install-agent.sh would for
-## each node in -w. STUB_ARM_FAIL names one node that refuses.
-printf '%s\n' "$*" >> "$STUB_DIR/pdsh.calls"
+printf '%s\n' "$*" >> "$STUB_DIR/fanout.calls"
 want=""
 for ((i = 1; i <= $#; i++)); do
     [[ "${!i}" == "-w" ]] && { j=$((i + 1)); want="${!j}"; }
@@ -53,9 +55,10 @@ for n in ${want//,/ }; do
 done
 exit 0
 EOF
+sed 's|/pdsh.calls|/fanout.calls|' "$stub/pdsh" > "$stub/clush"
 chmod 755 "$stub"/*
 
-cp "$home/settings.sh" "$home/priv.sh" "$home/report-format.sh" "$tree/"
+cp "$home/settings.sh" "$home/priv.sh" "$home/fanout.sh" "$home/report-format.sh" "$tree/"
 cp "$home/agent/supervisor.sh" "$tree/agent/"
 cat > "$tree/SETTINGS" <<EOF
 JOB_USER=$(id -un)
@@ -80,13 +83,13 @@ beat() {
 }
 
 run_sup() {
-    rm -f "$work/pdsh.calls" "$work/scontrol.calls"
+    rm -f "$work/fanout.calls" "$work/scontrol.calls"
     ( export PATH="$stub:$PATH" HOSTNAME=headnode AGENT_HOME="$tree" STUB_DIR="$work" \
              STUB_SINFO="$1" STUB_SQUEUE="${STUB_SQUEUE:-}" STUB_ARM_FAIL="${STUB_ARM_FAIL:-}"
       "$tree/agent/supervisor.sh" "${2:---quiet}" >/dev/null 2>&1 )
 }
 
-armed()      { grep -q "\b$1\b" "$work/pdsh.calls" 2>/dev/null; }
+armed()      { grep -q "\b$1\b" "$work/fanout.calls" 2>/dev/null; }
 last_line()  { tail -1 "$results/supervisor.log" 2>/dev/null; }
 
 echo "== which states are armed =="
@@ -110,14 +113,23 @@ for n in n-alloc n-mixed n-down n-draining n-maint n-noresp; do
     armed "$n" && bad "$n was armed" || ok "$n is left alone"
 done
 
-echo "== one pdsh, not a loop of sshes =="
+echo "== one fan-out, not a loop of sshes =="
 
-[[ "$(wc -l < "$work/pdsh.calls")" -eq 1 ]] &&
+[[ "$(wc -l < "$work/fanout.calls")" -eq 1 ]] &&
     ok "two stale nodes went out in one call" ||
-    bad "$(wc -l < "$work/pdsh.calls") pdsh calls for one cycle"
-grep -q -- '-R ssh -w' "$work/pdsh.calls" &&
-    ok "spelled 'pdsh -R ssh -w', as everything in this tree is" ||
-    bad "the pdsh was not '-R ssh -w': $(cat "$work/pdsh.calls")"
+    bad "$(wc -l < "$work/fanout.calls") calls for one cycle"
+grep -q -- '-w ' "$work/fanout.calls" &&
+    ok "as a nodeset on -w, not a node at a time: $(cat "$work/fanout.calls")" ||
+    bad "the fan-out took no -w: $(cat "$work/fanout.calls")"
+
+## clush ships preferred, and a site that installed it must not be silently
+## getting pdsh -- so the trace names which one went out. The resolution itself
+## is tests/fanout-test.sh.
+if grep -q 'over clush' "$results/supervisor.log"; then
+    ok "and the trace names the tool it used: clush"
+else
+    bad "the trace does not name clush as the tool that armed them: $(grep ARM "$results/supervisor.log" | tail -1)"
+fi
 
 echo "== fresh heartbeats are left alone =="
 
@@ -141,7 +153,7 @@ echo "== no answer is not an answer =="
 rm -rf "$results"
 beat 3600 n-stale
 run_sup ''
-if [[ -s "$work/pdsh.calls" ]]; then
+if [[ -s "$work/fanout.calls" ]]; then
     bad "an empty sinfo armed something -- a busy controller looks exactly like this"
 else
     ok "empty sinfo output arms nothing: $(last_line)"
@@ -162,7 +174,7 @@ armed n-recent && bad "a node armed two minutes ago was armed again" ||
 rm -rf "$results"
 beat 3600 n-hopeless
 for i in 3 2 1; do
-    printf '%s\tno output from pdsh\n' "$(( $(date +%s) - i * 3600 ))" >> "$results/n-hopeless/arm.log"
+    printf '%s\tno output from clush\n' "$(( $(date +%s) - i * 3600 ))" >> "$results/n-hopeless/arm.log"
 done
 run_sup 'n-hopeless idle'
 if armed n-hopeless; then
@@ -177,7 +189,7 @@ fi
 rm -rf "$results"
 beat 3600 n-oldfails
 for i in 100 99 98; do
-    printf '%s\tno output from pdsh\n' "$(( $(date +%s) - i * 3600 ))" >> "$results/n-oldfails/arm.log"
+    printf '%s\tno output from clush\n' "$(( $(date +%s) - i * 3600 ))" >> "$results/n-oldfails/arm.log"
 done
 run_sup 'n-oldfails idle'
 armed n-oldfails && ok "attempts older than ARM_WINDOW_HOURS do not count" ||
@@ -206,7 +218,7 @@ rm -rf "$results"
 beat 3600 n-stale
 sed -i 's/^PAUSE_ARMING=no/PAUSE_ARMING=yes/' "$tree/SETTINGS"
 run_sup 'n-stale idle'
-[[ -s "$work/pdsh.calls" ]] && bad "PAUSE_ARMING=yes still armed a node" ||
+[[ -s "$work/fanout.calls" ]] && bad "PAUSE_ARMING=yes still armed a node" ||
     ok "PAUSE_ARMING=yes arms nothing: $(last_line)"
 sed -i 's/^PAUSE_ARMING=yes/PAUSE_ARMING=no/' "$tree/SETTINGS"
 
@@ -265,7 +277,7 @@ rm -rf "$results"
 beat 3600 n-stale
 printf '4242\tmnubergemm\t1\t12\t%s\n' "$(( $(date +%s) - 8 * 3600 ))" > "$results/n-stale/.in-flight"
 STUB_SQUEUE='4242 RUNNING' run_sup 'n-stale idle' --explain
-[[ -s "$work/pdsh.calls" ]] && bad "--explain armed a node" || ok "--explain armed nothing"
+[[ -s "$work/fanout.calls" ]] && bad "--explain armed a node" || ok "--explain armed nothing"
 ## Not "scontrol was never called": compress() reads `scontrol show hostlistsorted`
 ## to print the node list, and a read is not a change.
 grep -q 'state=DRAIN' "$work/scontrol.calls" 2>/dev/null &&

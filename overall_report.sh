@@ -513,7 +513,7 @@ node_block() {
         else
             printf '    prolog   nothing in results/%s/trigger.log names the check that failed.\n' "$node"
             if [[ -n "$RECOVER_PREJOB_LOGS" ]]; then
-                printf '             Its log is node-local:  pdsh -R ssh -w %s '"'"'grep FAIL $(ls -t %s/job.*.log | head -1)'"'"'\n' \
+                printf '             Its log is node-local:  clush -w %s '"'"'grep FAIL $(ls -t %s/job.*.log | head -1)'"'"'\n' \
                     "$node" "$RECOVER_PREJOB_LOGS"
             else
                 printf '             RECOVER_PREJOB_LOGS is empty, so nothing reads it. See docs/explanation/drain-recovery.md.\n'

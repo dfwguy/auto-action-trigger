@@ -9,9 +9,9 @@
 #
 #   pattern     node filter, same rules as status-check.sh: bare string matches
 #               by prefix, globs honored as written. Per-node sections only.
-#   --ask-nodes pdsh the matching nodes for their timer and sudo state. Off by
-#               default: links 1-2 are answered from NFS, and this is a shell
-#               on every node.
+#   --ask-nodes fan out to the matching nodes for their timer and sudo state,
+#               over clush or pdsh. Off by default: links 1-2 are answered from
+#               NFS, and this is a shell on every node.
 #
 # The links, which the section headers below number against:
 #
@@ -26,6 +26,8 @@ results_dir="$home/results"
 ## Absence is reported in section 0 rather than here, so the whole answer
 ## arrives in one place. Nothing is faked: such a tree cannot run anyway.
 [[ -f "$home/settings.sh" ]] && source "$home/settings.sh"
+# shellcheck source=/dev/null
+[[ -f "$home/fanout.sh" ]] && source "$home/fanout.sh"
 
 ASK_NODES=0
 pattern=""
@@ -259,11 +261,19 @@ hdr "3-4. Linger, timer and sudo on the nodes"
 
 ## Off unless asked for: this is a shell on every matching node, and links 1-2
 ## have already answered the same question from NFS for free.
+ask_cmd="loginctl show-user $JOB_USER -p Linger --value; \
+XDG_RUNTIME_DIR=/run/user/\$(id -u) systemctl --user is-active bringup-agent.timer; \
+sudo -n -l >/dev/null 2>&1 && echo sudo-ok || echo sudo-REFUSED"
+
 if [[ "$ASK_NODES" -eq 0 ]]; then
-    note "not asked (--ask-nodes runs it). One node by hand:"
-    note "  pdsh -R ssh -w <node> 'loginctl show-user $JOB_USER -p Linger --value; XDG_RUNTIME_DIR=/run/user/\$(id -u) systemctl --user is-active bringup-agent.timer'"
-elif ! command -v pdsh >/dev/null 2>&1; then
-    bad "pdsh is not on PATH -- --ask-nodes cannot reach the nodes"
+    note "not asked (--ask-nodes runs it). One node by hand, in either spelling:"
+    if declare -F fanout_example >/dev/null; then
+        fanout_example "<node>" "loginctl show-user $JOB_USER -p Linger --value; systemctl --user is-active bringup-agent.timer"
+    fi
+elif ! declare -F fanout_resolve >/dev/null; then
+    bad "$home/fanout.sh is missing -- --ask-nodes cannot reach the nodes"
+elif ! fanout_resolve; then
+    bad "$FANOUT_WHY -- --ask-nodes cannot reach the nodes"
 else
     ask=("${stale[@]}" "${never[@]}")
     [[ "${#ask[@]}" -eq 0 ]] && ask=("${beat_dirs[@]##*/}")
@@ -271,10 +281,8 @@ else
     if [[ -z "$joined" ]]; then
         note "no nodes to ask"
     else
-        pdsh -R ssh -w "$joined" "loginctl show-user $JOB_USER -p Linger --value; \
-            XDG_RUNTIME_DIR=/run/user/\$(id -u) systemctl --user is-active bringup-agent.timer; \
-            sudo -n -l >/dev/null 2>&1 && echo sudo-ok || echo sudo-REFUSED" 2>&1 |
-            sed 's/^/  /'
+        note "asking ${joined//,/ } over $FANOUT_CMD"
+        fanout "$joined" "$ask_cmd" | sed 's/^/  /'
     fi
 fi
 
@@ -353,11 +361,13 @@ cat <<EOF
 
 Next step -- ask one node directly, without waiting for its timer:
 
+  clush -w <node> '$BRINGUP_HOME/agent/node-agent.sh --explain'
   pdsh -R ssh -w <node> '$BRINGUP_HOME/agent/node-agent.sh --explain'
 
 That prints every gate the agent and the three steps under it evaluate, as a dry
 run: it submits nothing, drains nothing, and archives nothing, so it is safe
 while the timer is live. To arm a node that has gone silent:
 
+  clush -w <node> '$BRINGUP_HOME/agent/install-agent.sh'
   pdsh -R ssh -w <node> '$BRINGUP_HOME/agent/install-agent.sh'
 EOF

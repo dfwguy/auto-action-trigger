@@ -102,7 +102,7 @@ permissions:
 
       # Sourced libraries. verdict-scan.sh is also run, but as
       # `bash verdict-scan.sh` from xargs, like the health checks below.
-      for f in settings.sh priv.sh reason-map.sh slurm-recovery.sh verdict-scan.sh \
+      for f in settings.sh priv.sh fanout.sh reason-map.sh slurm-recovery.sh verdict-scan.sh \
                get-out-of-the-way.sh report-format.sh health-scan.sh \
                $(git ls-files 'parsers/*/verdict.sh'); do
         check 100644 "$f"
@@ -143,7 +143,7 @@ permissions:
       # handled above.
       for f in $(git ls-files -- '*.sh' | grep -v '/'); do
         case "$f" in
-          settings.sh|priv.sh|reason-map.sh|slurm-recovery.sh|verdict-scan.sh) continue ;;
+          settings.sh|priv.sh|fanout.sh|reason-map.sh|slurm-recovery.sh|verdict-scan.sh) continue ;;
           get-out-of-the-way.sh|report-format.sh|health-scan.sh)               continue ;;
         esac
         check 100755 "$f"
@@ -306,6 +306,14 @@ priv:
   stage: test
   script:
     - ./tests/priv-test.sh
+
+# The one place this tree reaches more than one node. A silent fall back to pdsh
+# on a site that installed clush is a preference nobody chose.
+fanout:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/fanout-test.sh
 
 # The code points at docs/ by anchor and nothing renders those links, so a
 # reworded heading silently lands the reader on the wrong section.

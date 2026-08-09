@@ -22,6 +22,12 @@ source "$home/settings.sh"
 source "$home/priv.sh"
 # shellcheck source=/dev/null
 [[ -f "$home/report-format.sh" ]] && source "$home/report-format.sh"
+if [[ ! -f "$home/fanout.sh" ]]; then
+    echo "########ERROR: $home/fanout.sh is missing -- it is the only thing here that" >&2
+    echo "               reaches a node, so nothing could be armed." >&2
+    exit 1
+fi
+source "$home/fanout.sh"
 
 EXPLAIN=0
 VERBOSE=0; [[ -t 1 ]] && VERBOSE=1
@@ -174,27 +180,30 @@ done <<< "$states"
 
 ## ── Arm them ──────────────────────────────────────────────────────────────
 ##
-## One pdsh across the whole list, not a loop of sshes: output arrives labelled
-## with the node it came from, and widening the set costs nothing.
-## See docs/explanation/architecture.md#reaching-nodes-is-pdsh-not-ssh.
+## One fan-out across the whole list, not a loop of sshes: output arrives
+## labelled with the node it came from, and widening the set costs nothing.
+## Nothing is pushed over it -- install-agent.sh reads the units out of this
+## same tree, over NFS, on the node.
+## See docs/explanation/architecture.md#reaching-nodes-is-clush-or-pdsh.
 armed_list=""
 if [[ "${#arm[@]}" -gt 0 ]]; then
     joined=$(IFS=,; printf '%s' "${arm[*]}")
     armed_list=$(declare -F compress >/dev/null && compress "$joined" || printf '%s' "$joined")
 
     if [[ "$EXPLAIN" -eq 1 ]]; then
-        trace "WOULD ARM ${#arm[@]} node(s): $armed_list"
-    elif ! command -v pdsh >/dev/null 2>&1; then
-        trace "EXIT: pdsh is not installed on $HOSTNAME, so ${#arm[@]} node(s) cannot be armed: $armed_list. Nothing was retried and no attempt was recorded."
+        fanout_resolve
+        trace "WOULD ARM ${#arm[@]} node(s) with ${FANOUT_CMD:-no fan-out tool}: $armed_list"
+    elif ! fanout_resolve; then
+        trace "EXIT: $FANOUT_WHY, so ${#arm[@]} node(s) on $HOSTNAME cannot be armed: $armed_list. Nothing was retried and no attempt was recorded."
         exit 0
     else
-        trace "ARM ${#arm[@]} node(s) whose heartbeat is older than ${stale_min}m: $armed_list"
-        out=$(pdsh -R ssh -w "$joined" "XDG_RUNTIME_DIR=/run/user/\$(id -u) $home/agent/install-agent.sh" 2>&1)
+        trace "ARM ${#arm[@]} node(s) whose heartbeat is older than ${stale_min}m, over $FANOUT_CMD: $armed_list${FANOUT_WHY:+ ($FANOUT_WHY)}"
+        out=$(fanout "$joined" "XDG_RUNTIME_DIR=/run/user/\$(id -u) $home/agent/install-agent.sh")
         for node in "${arm[@]}"; do
             said=$(grep "^$node:" <<<"$out" | sed "s/^$node: *//" | tr '\n' ' ')
-            printf '%s\t%s\n' "$now" "${said:-no output from pdsh}" >> "$results/$node/arm.log" 2>/dev/null
+            printf '%s\t%s\n' "$now" "${said:-no output from $FANOUT_CMD}" >> "$results/$node/arm.log" 2>/dev/null
             case "$said" in
-                *FAILED*|"") trace "ARM FAILED $node: ${said:-pdsh said nothing; is ssh as $JOB_USER working from here?}" ;;
+                *FAILED*|"") trace "ARM FAILED $node: ${said:-$FANOUT_CMD said nothing; is ssh as $JOB_USER working from here?}" ;;
             esac
         done
     fi
