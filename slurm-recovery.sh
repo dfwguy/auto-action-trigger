@@ -244,26 +244,44 @@ recover_rogue_matches() {
 ## What the pre-job check objected to, and whether it is still there. Also sets
 ## RECOVER_PREJOB_FAILED to every check that failed, which is the only record of
 ## why a `Prolog error` drain happened at all.
+## RECOVER_PREJOB_NONE carries why there was nothing to read, so that every
+## exit here is traceable. See
+## docs/explanation/drain-recovery.md#when-nothing-names-the-check.
 RECOVER_ROGUE=""
 RECOVER_PREJOB_FAILED=""
+RECOVER_PREJOB_NONE=""
 recover_rogue_still_running() {
     local when="$1"
     local dir="${RECOVER_PREJOB_LOGS:-}" log line flagged pids pid args owner drained mtime
     RECOVER_ROGUE=""
     RECOVER_PREJOB_FAILED=""
-    [[ -n "$dir" && -d "$dir" ]] || return 1
+    RECOVER_PREJOB_NONE=""
+    if [[ -z "$dir" ]]; then
+        RECOVER_PREJOB_NONE="RECOVER_PREJOB_LOGS is empty, so nothing reads it"
+        return 1
+    fi
+    if [[ ! -d "$dir" ]]; then
+        RECOVER_PREJOB_NONE="$dir does not exist on this node"
+        return 1
+    fi
 
     ## Only failures land here, one file per job, and nothing prunes them.
     # shellcheck disable=SC2012  # sorting by mtime is the point; these are
                                  # job.<id>.log and cannot contain a newline
     log=$(ls -1t "$dir"/job.*.log 2>/dev/null | head -1)
-    [[ -n "$log" && -r "$log" ]] || return 1
+    if [[ -z "$log" || ! -r "$log" ]]; then
+        RECOVER_PREJOB_NONE="no readable job.*.log in $dir"
+        return 1
+    fi
 
     ## So the newest log can be a record of an incident that is long over. Only
     ## one written around this drain can be the one that caused it.
     if [[ -n "$when" ]] && drained=$(date -d "$when" +%s 2>/dev/null); then
         mtime=$(stat -c %Y "$log" 2>/dev/null || printf 0)
-        [[ "$mtime" -ge $(( drained - RECOVER_PREJOB_SLACK_SECS )) ]] || return 1
+        if [[ "$mtime" -lt $(( drained - RECOVER_PREJOB_SLACK_SECS )) ]]; then
+            RECOVER_PREJOB_NONE="the newest log in $dir is ${log##*/}, written $(( drained - mtime ))s before the drain (slack ${RECOVER_PREJOB_SLACK_SECS}s), so it is a different incident"
+            return 1
+        fi
     fi
 
     while IFS= read -r line; do
@@ -292,6 +310,8 @@ recover_rogue_still_running() {
             return 0
         done
     done < "$log"
+    [[ -n "$RECOVER_PREJOB_FAILED" ]] ||
+        RECOVER_PREJOB_NONE="${log##*/} in $dir names no failed check"
     return 1
 }
 
@@ -414,8 +434,11 @@ recover_node_ready() {
         ## The drain reason says `Prolog error` and no more. Naming the check
         ## that failed is the difference between a node that flaps for a reason
         ## nobody can see and one that says `dmesg is FAIL ... hardware error`.
-        [[ -n "$RECOVER_PREJOB_FAILED" ]] &&
+        if [[ -n "$RECOVER_PREJOB_FAILED" ]]; then
             recover_log "recover note: the pre-job check that drained $node failed on [$RECOVER_PREJOB_FAILED]; nothing it named is still running, so this is a resume rather than a hold. Repeats here are that check failing again, not this."
+        elif [[ -n "$RECOVER_PREJOB_NONE" ]]; then
+            recover_log "recover note: nothing on $node names the check that drained it -- $RECOVER_PREJOB_NONE. This resume is blind, and a repeat here cannot be told from a new fault."
+        fi
     fi
 
     if command -v squeue >/dev/null 2>&1; then
@@ -437,13 +460,20 @@ recover_node_ready() {
 
 ## Attempt history, one of the two state files this keeps between runs. Tab
 ## separated with the reason last: a Slurm reason is free text with spaces.
+## Field 7 is the pre-job check, because `Prolog error` in field 6 does not say
+## which. trigger.log carries the same fact and rotates inside a day; this file
+## is what is left. docs/explanation/drain-recovery.md#when-nothing-names-the-check
 recover_record() {
-    local epoch="$1" class="$2" state="$3" setter="$4" reason="$5"
+    local epoch="$1" class="$2" state="$3" setter="$4" reason="$5" cause
     [[ -n "$RECOVER_LOG" ]] || return 0
     mkdir -p "$(dirname "$RECOVER_LOG")" 2>/dev/null
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+    cause="${RECOVER_PREJOB_FAILED:-${RECOVER_PREJOB_NONE:+unnamed: $RECOVER_PREJOB_NONE}}"
+    ## Expansion rather than a `tr` herestring, which appended the herestring's
+    ## own newline to the last field as a trailing space.
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$epoch" "$(date -d "@$epoch" '+%F %T' 2>/dev/null)" "$class" "$state" "$setter" \
-        "$(tr '\t\n' '  ' <<<"$reason")" >> "$RECOVER_LOG" 2>/dev/null
+        "${reason//[$'\t\n']/ }" "${cause//[$'\t\n']/ }" \
+        >> "$RECOVER_LOG" 2>/dev/null
     ## Same 200 kB / tail -500 bound as trigger.log; this file only ever grows.
     if [[ "$(stat -c %s "$RECOVER_LOG" 2>/dev/null || echo 0)" -gt 200000 ]]; then
         tail -500 "$RECOVER_LOG" > "$RECOVER_LOG.tmp" 2>/dev/null &&
@@ -582,7 +612,7 @@ recover_down_unkillable() {
 RECOVER_RESULT=""
 slurm_recover_node() {
     local node="${1:-$HOSTNAME}"
-    local line state setter when reason base class now attempts out
+    local line state setter when reason base class now attempts out art
     RECOVER_RESULT=""
 
     if ! setting_enabled "$RECOVER_SLURM_DRAINS"; then
@@ -613,7 +643,8 @@ slurm_recover_node() {
     if [[ " $RECOVER_ACCEPT " != *" $class "* ]]; then
         ## Named, not silent: "nothing happened" and "an operator drained this
         ## and we respected it" look identical from outside.
-        recover_log "recover skipped: $node is $state for a $class reason -- '${reason:-<empty>}'${setter:+ set by $setter}${when:+ at $when}. This caller clears [${RECOVER_ACCEPT:-nothing}]."
+        art="a"; [[ "$class" == operator ]] && art="an"
+        recover_log "recover skipped: $node is $state for $art $class reason -- '${reason:-<empty>}'${setter:+ set by $setter}${when:+ at $when}. This caller clears [${RECOVER_ACCEPT:-nothing}]."
         RECOVER_RESULT="class"
         return 1
     fi
