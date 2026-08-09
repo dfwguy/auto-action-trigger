@@ -146,6 +146,18 @@ fi
 ## cannot read through an NFS stall is a node that does not come back.
 dst="$HOME/.config/systemd/user"
 mkdir -p "$dst" || fail "cannot create $dst"
+
+## The role can change -- a head node armed as a compute node before the
+## detection was fixed has the wrong timer, and installing the right one does
+## not remove it. Two timers on one host is the failure this is here to stop.
+other=$([[ "$unit" == "bringup-agent" ]] && printf 'bringup-supervisor' || printf 'bringup-agent')
+if [[ -f "$dst/$other.timer" || -f "$dst/$other.service" ]]; then
+    systemctl --user disable --now "$other.timer" >/dev/null 2>&1
+    rm -f "$dst/$other.timer" "$dst/$other.service"
+    ok "removed $other, left over from this host having had the other role"
+fi
+
+changed=0
 for suffix in service timer; do
     src="$home/agent/units/$unit.$suffix"
     [[ -f "$src" ]] || { fail "$src is missing"; continue; }
@@ -156,7 +168,7 @@ for suffix in service timer; do
         rm -f "$tmp"
         ok "$unit.$suffix already current"
     else
-        mv "$tmp" "$dst/$unit.$suffix" && ok "installed $dst/$unit.$suffix"
+        mv "$tmp" "$dst/$unit.$suffix" && { changed=1; ok "installed $dst/$unit.$suffix"; }
     fi
 done
 [[ "$rc" -eq 0 ]] || { echo "refusing to start $unit.timer with a unit missing" >&2; exit "$rc"; }
@@ -167,6 +179,14 @@ if out=$(systemctl --user enable --now "$unit.timer" 2>&1); then
     ok "$unit.timer enabled and started on $HOSTNAME"
 else
     fail "systemctl --user enable --now $unit.timer -- $out"
+fi
+
+## `enable --now` does not restart a timer that is already running, so a changed
+## interval or ExecStart would not take effect until the next reboot.
+if [[ "$changed" -eq 1 ]]; then
+    systemctl --user restart "$unit.timer" 2>/dev/null &&
+        ok "restarted $unit.timer to pick up the new unit" ||
+        warn "could not restart $unit.timer -- it is still running the previous unit"
 fi
 
 exit "$rc"
