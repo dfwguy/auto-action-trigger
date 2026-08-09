@@ -23,9 +23,9 @@ bash status-check.sh -s                    # node lists per status, no reasons
 ```
 
 Reads `results/` and prints per-node status for each benchmark column, grouped
-by identical status via `dshbak`. A host that is not a compute node gets no row
-and is named on stderr instead — see
-[settings.md#hosts-that-are-not-compute-nodes](settings.md#hosts-that-are-not-compute-nodes).
+by identical status — see [grouping identical rows](#grouping-identical-rows).
+A host that is not a compute node gets no row and is named on stderr instead —
+see [settings.md#hosts-that-are-not-compute-nodes](settings.md#hosts-that-are-not-compute-nodes).
 
 | Status | Meaning |
 | --- | --- |
@@ -41,7 +41,7 @@ attempt had just been archived as one that had never been attempted. A column
 with archives is a different thing from one with no history at all.
 
 The line carries no attempt count. It is per node, so two nodes in the same
-state would print different lines and `dshbak` would split one block into a
+state would print different lines and the grouping would split one block into a
 block per count; the `.fail<N>.txt` archives on disk are the record of how many
 tries a column took.
 
@@ -75,6 +75,34 @@ burn-in list does not leave a permanent `NOT_RUN` column that reads like work
 outstanding. Per node, `results/<node>/quick-view.txt` carries the state
 directly: `BURN-IN OFF` when the switch is off, and `IN QUEUE` for anything
 submitted and not yet judged.
+
+### Grouping identical rows
+
+Two hundred nodes reporting the same thing is one fact, not two hundred lines,
+so the report is piped through a tool that collapses `<node>: <line>` input into
+one block per distinct line under a compressed nodeset. Either of two will do:
+
+| Tool | Ships with | Called as |
+|---|---|---|
+| `clubak` | ClusterShell, alongside `clush` | `clubak -b` |
+| `dshbak` | `pdsh` | `dshbak -c` |
+
+`bak_resolve` in `fanout.sh` prefers `clubak`, honours `FANOUT_TOOL` when it is
+pinned, and falls back to `dshbak`. **A site installing ClusterShell for `clush`
+gets `clubak` in the same package and needs nothing else** — `pdsh` is not
+required just for the grouped report.
+
+With neither installed the report prints one line per node and says so on
+stderr. That is the whole reason the check exists: a missing grouping tool
+empties stdout while the pipeline still exits 0, which is indistinguishable from
+"no nodes match".
+
+The lines are built to group well. The reason is on the line rather than in a
+column, and the line carries no per-node attempt count, so nodes failing the
+same way collapse into one block instead of one block per count. `verdict.sh`
+keeps `REASON` identical across nodes for the same fault and puts the varying
+part — the offending GPU, the measured bandwidth — in the detail. See
+[explanation/judging-benchmarks.md](../explanation/judging-benchmarks.md).
 
 ## `daily-report.sh` — per-node table with metrics
 

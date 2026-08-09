@@ -53,3 +53,26 @@ fanout() {
 fanout_example() {
     printf "  clush -w %s '%s'\n  pdsh -R ssh -w %s '%s'\n" "$1" "$2" "$1" "$2"
 }
+
+## ── Grouping `<node>: <line>` output ──────────────────────────────────────
+##
+## clubak is ClusterShell's dshbak and ships in the same package as clush, so a
+## site that installed either tool family has the pair. Both read stdin and
+## collapse identical lines under a compressed nodeset.
+## See docs/reference/scripts.md#grouping-identical-rows.
+BAK_CMD=()
+bak_resolve() {
+    [[ "${#BAK_CMD[@]}" -gt 0 ]] && return 0
+    case "${FANOUT_TOOL:-auto}" in
+        clush) command -v clubak >/dev/null 2>&1 && BAK_CMD=(clubak -b) ;;
+        pdsh)  command -v dshbak >/dev/null 2>&1 && BAK_CMD=(dshbak -c) ;;
+        *)     if command -v clubak >/dev/null 2>&1; then BAK_CMD=(clubak -b)
+               elif command -v dshbak >/dev/null 2>&1; then BAK_CMD=(dshbak -c); fi ;;
+    esac
+    [[ "${#BAK_CMD[@]}" -gt 0 ]]
+}
+
+bak() {
+    bak_resolve || return 127
+    "${BAK_CMD[@]}"
+}

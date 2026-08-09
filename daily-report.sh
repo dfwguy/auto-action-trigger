@@ -172,8 +172,9 @@ for node in "${nodes[@]}"; do
     heartbeat_stale "$results_dir" "$node" && silent+=("$node")
 done
 if [[ ${#silent[@]} -gt 0 ]]; then
-    echo "NOTE: ${#silent[@]} node(s) have not cycled in ${HEARTBEAT_STALE_MINUTES}m, so their rows are stale: ${silent[*]}" >&2
-    echo "      ./trigger-log.sh section 0 says what the watchdog heard back from each." >&2
+    echo "NOTE: ${#silent[@]} node(s) have not cycled in ${HEARTBEAT_STALE_MINUTES}m, so their rows are the last thing written rather than what is true now: ${silent[*]}" >&2
+    echo "      Their timers are not firing. ./trigger-log.sh section 0 is the fleet view;" >&2
+    echo "      results/<node>/arm.log is what the watchdog heard back from each." >&2
 fi
 
 if [[ ${#nodes[@]} -eq 0 ]]; then

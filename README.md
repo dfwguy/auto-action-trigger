@@ -76,7 +76,7 @@ The container images do **not** have to live under that home directory: `CONTAIN
 | `nvidia-imex-ctl` | `node_health.sh` (IMEX checks, GB series only) |
 | `enroot` | `build_containers.sh` (headnode for the fetch pass, compute nodes for the source-build pass; pyxis already needs it there) |
 | `squashfs-tools` | `build_containers.sh` (optional — shrinks the staged package set) |
-| `dshbak` | `status-check.sh` |
+| `clubak` (ClusterShell), or `dshbak` (pdsh) | `status-check.sh`, to group identical rows. Ships with `clush`/`pdsh` respectively, so installing either family covers both |
 | `rsync` | `actions/file_copy.sh` (optional) |
 
 ### Operational scripts (headnode only)
@@ -85,7 +85,7 @@ The following scripts are run manually by an operator from the headnode and do n
 
 | Script | Requires |
 |--------|---------|
-| `status-check.sh` | `sinfo`, `dshbak`, read access to `results/` |
+| `status-check.sh` | `sinfo`, `clubak` or `dshbak`, read access to `results/` |
 | `check_squeue.sh` | `squeue`; `-j` also uses `sinfo` and `scontrol` |
 | `daily-report.sh` | `sinfo`, read access to `results/`; write access to wherever `-o` points |
 | `health-check.sh` | `sinfo`, `scontrol`, read access to `logs/` and `valid-config/` |

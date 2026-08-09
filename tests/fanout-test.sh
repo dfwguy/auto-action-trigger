@@ -132,6 +132,43 @@ fi
     ok "two lines, nothing else" ||
     bad "expected two lines: $out"
 
+echo "== grouping identical rows =="
+
+## clubak ships with clush and dshbak with pdsh, so a site that installed either
+## family has the pair -- nobody needs pdsh just for the grouped report.
+for d in "$both" "$only_clush"; do
+    printf '#!/bin/bash\necho clubak "$*"\n' > "$d/clubak"; chmod 755 "$d/clubak"
+done
+for d in "$both" "$only_pdsh"; do
+    printf '#!/bin/bash\necho dshbak "$*"\n' > "$d/dshbak"; chmod 755 "$d/dshbak"
+done
+
+out=$(run "$both" auto 'bak_resolve && printf "%s" "${BAK_CMD[*]}"')
+[[ "$out" == "clubak -b" ]] &&
+    ok "with both installed, clubak is preferred" ||
+    bad "expected 'clubak -b', got [$out]"
+
+out=$(run "$only_pdsh" auto 'bak_resolve && printf "%s" "${BAK_CMD[*]}"')
+[[ "$out" == "dshbak -c" ]] &&
+    ok "with only pdsh installed, dshbak is used" ||
+    bad "expected 'dshbak -c', got [$out]"
+
+out=$(run "$both" pdsh 'bak_resolve && printf "%s" "${BAK_CMD[*]}"')
+[[ "$out" == "dshbak -c" ]] &&
+    ok "FANOUT_TOOL=pdsh takes dshbak, so one setting picks both tools" ||
+    bad "the pinned family was not honoured for the grouping: [$out]"
+
+## The guard that matters: a missing tool empties stdout while the pipeline
+## still exits 0, which reads exactly like "no nodes match".
+run "$neither" auto 'bak_resolve' &&
+    bad "bak_resolve claimed a tool with neither installed" ||
+    ok "with neither installed it refuses, so the caller can print ungrouped"
+
+out=$(run "$both" auto 'printf "n1: DONE\n" | bak')
+[[ "$out" == "clubak -b" ]] &&
+    ok "bak pipes stdin through the resolved tool" ||
+    bad "bak did not run the tool: [$out]"
+
 echo "== every caller goes through it =="
 
 ## The rule is that nothing calls clush or pdsh directly. A new direct call is

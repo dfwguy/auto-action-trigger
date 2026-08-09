@@ -41,7 +41,7 @@ bash status-check.sh
 
 One line per node per benchmark column, grouped by identical status so a rack
 behaving the same way is one block rather than eighteen lines. The grouping is
-`dshbak`, from `pdsh` (`clush -b` groups the same way) — if it is not installed the script says so and prints
+`clubak`, from ClusterShell — or `dshbak`, from `pdsh`. If neither is installed the script says so and prints
 ungrouped rather than silently printing nothing.
 
 Each line reads `node: column: status`, with a reason appended when there is one:

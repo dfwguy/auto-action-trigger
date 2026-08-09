@@ -546,7 +546,7 @@ variation across the four medians — the same measure `_v_nvb_unstable` uses.
 Median rather than mean because the first steps of a run are warmup and are
 legitimately slower on every GPU; one slow step must not read as one slow
 device. The reason string is identical on every node failing this way, so
-`dshbak` keeps them in one block, while the detail names the offending GPU:
+the grouping keeps them in one block, while the detail names the offending GPU:
 
 ```
 per-GPU step times disagree -- spread above 0.05

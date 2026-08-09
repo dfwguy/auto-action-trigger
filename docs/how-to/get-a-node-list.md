@@ -116,7 +116,7 @@ pdsh -R ssh -w 'ink50-dh01-h20-[03,17]' '/home/cmods/bringup/actions/launch_job.
 is why a node list is the only thing that changes between running against one
 node and against the whole fleet — see
 [explanation/architecture.md#reaching-nodes-is-clush-or-pdsh](../explanation/architecture.md#reaching-nodes-is-clush-or-pdsh).
-Pipe the output through `dshbak -c` when the list is long enough that
+Pipe the output through `clubak -b` (or `dshbak -c`) when the list is long enough that
 per-node lines stop being readable.
 
 **Quote the list.** The `[03,17]` range syntax contains glob characters, and an

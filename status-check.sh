@@ -51,6 +51,7 @@
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
+source "$home/fanout.sh"
 results_dir="$home/results"
 jobs_dir="$JOBS_DIR"
 
@@ -198,8 +199,9 @@ for node in "${nodes[@]}"; do
     heartbeat_stale "$results_dir" "$node" && silent+=("$node")
 done
 if [[ ${#silent[@]} -gt 0 ]]; then
-    echo "NOTE: ${#silent[@]} node(s) have not cycled in ${HEARTBEAT_STALE_MINUTES}m, so their rows are stale: ${silent[*]}" >&2
-    echo "      ./trigger-log.sh section 0 says what the watchdog heard back from each." >&2
+    echo "NOTE: ${#silent[@]} node(s) have not cycled in ${HEARTBEAT_STALE_MINUTES}m, so their rows are the last thing written rather than what is true now: ${silent[*]}" >&2
+    echo "      Their timers are not firing. ./trigger-log.sh section 0 is the fleet view;" >&2
+    echo "      results/<node>/arm.log is what the watchdog heard back from each." >&2
 fi
 
 if [[ ${#nodes[@]} -eq 0 ]]; then
@@ -222,7 +224,7 @@ export SCAN_METRICS=0      # no numbers in this report, only statuses
 # See docs/reference/scripts.md.
 RANKS='FAIL 6 INCOMPLETE 5 RETRY 4 NOT_RUN 3 RUNNING 2 DONE 1'
 
-# Scan rows to report lines. The reason is on the line so dshbak collapses
+# Scan rows to report lines. The reason is on the line so the grouping collapses
 # nodes failing the same way; no attempt count, which would split one block into
 # one per count. In awk because this is tens of thousands of rows and no state.
 # See docs/reference/scripts.md.
@@ -251,14 +253,15 @@ if setting_enabled "$PAUSE_JOBS"; then
 fi
 
 if [[ "$summary" -ne 1 ]]; then
-    # dshbak (from pdsh) only groups lines. Guarded because a missing dshbak
-    # empties stdout while the pipeline still exits 0 -- silently identical to
-    # "no nodes match". Print ungrouped and say why instead.
-    if command -v dshbak >/dev/null 2>&1; then
-        scan_fleet "${nodes[@]}" | report_lines | sort | dshbak -c
+    # clubak (ClusterShell) or dshbak (pdsh) only groups lines. Guarded because
+    # a missing one empties stdout while the pipeline still exits 0 -- silently
+    # identical to "no nodes match". Print ungrouped and say why instead.
+    if bak_resolve; then
+        scan_fleet "${nodes[@]}" | report_lines | sort | bak
     else
-        echo "NOTE: dshbak is not on PATH (it ships with pdsh) -- printing one" >&2
-        echo "      line per node instead of grouping identical statuses." >&2
+        echo "NOTE: neither clubak (ships with clush) nor dshbak (ships with pdsh)" >&2
+        echo "      is on PATH -- printing one line per node instead of grouping" >&2
+        echo "      identical statuses. Install ClusterShell to get the grouped form." >&2
         scan_fleet "${nodes[@]}" | report_lines | sort
     fi
     exit 0
