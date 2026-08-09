@@ -85,6 +85,22 @@ comparison is direct.
 | `missing peer transfer -- N/A off the matrix diagonal` | A GPU pair that cannot talk. `N/A` on the diagonal is normal — off it is a dead path |
 | `slowest GPU measured <n> TFLOPS` | One GPU below its siblings — the per-GPU spread is the finding |
 
+### The two LLM jobs
+
+| Reason | Implicates |
+|--------|-----------|
+| `no training step timings` | The run produced no training output at all. Staging or the container, not the node — check the image, `$LLMB_INSTALL` and `$HF_HOME` before touching hardware |
+| `fewer than <n> training step timings` | `llm-pretrain` started and stopped. The wall limit, a rank dying quietly, or a container exiting mid-run. The median it did produce is not evidence of health |
+| `fewer than <n> GPUs reported step timings` | `llm-pretrain-solo`: a GPU produced nothing while its siblings trained. `VERDICT_DETAIL` names which ranks did report, so the missing one is the finding |
+| `a GPU reported fewer than <n> step timings` | All four started, one stopped early. Names the GPU and its count. A single-device fault, not a node-wide one |
+| `per-GPU step times disagree -- spread above <n>` | The four copies ran to completion and one was slow. `VERDICT_DETAIL` names the GPU and its margin — the most specific per-device finding in the tree |
+| `step time above <n> ms` | The whole tray is slow together, which the spread check passes by construction. Read it against the fleet median before assuming the node |
+
+The first four are all "the run did not finish", and they are ordered by how
+much of it did. Only the last two are performance findings; the rest are a run
+that never got far enough to have a performance. See
+[explanation/llmb.md#a-run-that-stopped-early](../explanation/llmb.md#a-run-that-stopped-early).
+
 ### Memory, GPUs and the node itself
 
 | Reason | Implicates |

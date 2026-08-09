@@ -150,6 +150,45 @@ there are few of those on a cluster in bringup — which is what keeps the
 Losing any of this is not fatal. Each section names the answer it lost rather
 than printing a blank, for the same reason the trace exists at all.
 
+## The spread column
+
+`daily-report.sh`'s metric summary carries `n`, `min`, `median`, `mean`, `max`
+and `cov` — the coefficient of variation, standard deviation over mean, across
+the cells that held a number.
+
+`min` and `max` are single nodes, and a fleet is not usefully described by its
+two most extreme members: one dead node drags `min` somewhere the other 2,000
+never went, and reading it tells you about that node rather than about the
+cluster. `cov` is the whole distribution in one figure, and it is unit-free, so
+`nvbandwidth` at GB/s and `llm-pretrain` at milliseconds can be compared for
+*tightness* even though their numbers cannot be compared at all.
+
+It is the same measure the per-node gates band on — `VERDICT_MAX_COV_NVBANDWIDTH`
+across one node's transfers, `VERDICT_MAX_COV_LLM_SOLO` across one tray's four
+GPUs — one level up, across the fleet instead of within a node. That is
+deliberate: a number an operator already reads at the node level means the same
+thing at the top of the report.
+
+What to do with it:
+
+| `cov` | Reading |
+|---|---|
+| under ~0.01 | Tight. Every node agrees; a floor set off one node generalises |
+| ~0.01–0.05 | Ordinary silicon spread. Read `min` against the floor |
+| above ~0.05 | Two populations, not one wide one. Look for a rack, an image or a config that splits the fleet, before treating any single node as an outlier |
+
+The last row is the one that earns the column. A bimodal fleet — most nodes
+healthy, a rack of them failing hard — has a `median` that looks perfect and a
+`cov` that does not, and the `cov` is the only figure in the block that says so
+without reading 2,000 rows.
+
+**It is taken over failing cells too**, like every other statistic in that block
+— see the note on `min` in
+[reference/scripts.md](../reference/scripts.md#daily-reportsh--per-node-table-with-metrics).
+So a fleet with a handful of hard failures reports a `cov` those failures
+dominate. That is the intended reading for spotting them; it is the wrong sample
+for re-deriving a pass floor, which wants the passing cells only.
+
 ## What a report costs
 
 This one crosses every result file, every health log and the whole queue, so it

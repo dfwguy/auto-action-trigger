@@ -31,7 +31,7 @@
 #
 # The table goes to stdout, and a summary follows on stderr -- how many nodes
 # are in each slurm state, how many cells hold each status, min/median/mean/max
-# per job for the cells that hold a number, and last a pass/fail count per job,
+# and cov per job for the cells that hold a number, and last a pass/fail count per job,
 # which is the only summary a job like dcgmi-r3 gets: it has no number to take a
 # median of, and pooled status counts do not say which job failed. The summary
 # is on stderr and not in the rows on purpose: the file written by -o and a
@@ -307,8 +307,9 @@ count_rows() {
     done
 }
 
-## Sorted first so awk can index for the median. The five statistics come back
+## Sorted first so awk can index for the median. The six statistics come back
 ## as separate fields, not "min=..." text, because they are columns now.
+## See docs/explanation/reading-the-whole-fleet.md#the-spread-column for cov.
 stats_row() {
     sort -g | awk '
         { v[NR] = $1; sum += $1 }
@@ -316,7 +317,10 @@ stats_row() {
             if (NR == 0) exit
             mid = int((NR + 1) / 2)
             med = (NR % 2) ? v[mid] : (v[mid] + v[mid + 1]) / 2
-            printf "%d\t%.6g\t%.6g\t%.6g\t%.6g\n", NR, v[1], med, sum / NR, v[NR]
+            mean = sum / NR
+            for (i = 1; i <= NR; i++) sq += (v[i] - mean) ^ 2
+            cov = (mean != 0) ? sqrt(sq / NR) / mean : 0
+            printf "%d\t%.6g\t%.6g\t%.6g\t%.6g\t%.4f\n", NR, v[1], med, mean, v[NR], cov
         }'
 }
 
@@ -355,7 +359,7 @@ if [[ ${#job_values[@]} -gt 0 ]]; then
         metric_rows+=("$job ($(metric_label "$job"))"$'\t'"$stats")
     done
     if [[ ${#metric_rows[@]} -gt 0 ]]; then
-        metric_rows=("job (metric)"$'\t'"n"$'\t'"min"$'\t'"median"$'\t'"mean"$'\t'"max"
+        metric_rows=("job (metric)"$'\t'"n"$'\t'"min"$'\t'"median"$'\t'"mean"$'\t'"max"$'\t'"cov"
                      "${metric_rows[@]}")
     fi
 fi

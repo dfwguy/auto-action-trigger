@@ -110,9 +110,14 @@ Nothing is written to disk unless `-o` names a file, and `-c` switches the
 separator to commas.
 
 Under the table, on stderr, a summary counts the nodes in each Slurm state and
-the cells holding each status, then gives `min`/`median`/`mean`/`max` per job
-over the cells that hold a number, failing runs included — the min is the worst
-node on the cluster, not the worst node that passed. The statistics are per job
+the cells holding each status, then gives `min`/`median`/`mean`/`max`/`cov` per
+job over the cells that hold a number, failing runs included — the min is the
+worst node on the cluster, not the worst node that passed. `cov` is the
+coefficient of variation across those cells, which is how tightly the fleet
+agrees with itself; it is unit-free, so it is the one column comparable between
+jobs. See
+[explanation/reading-the-whole-fleet.md#the-spread-column](../explanation/reading-the-whole-fleet.md#the-spread-column).
+The statistics are per job
 rather than pooled: Gflops, GB/s and MB/s share a table but not a scale. It
 stays on stderr so neither `-o` nor a redirect ever gets prose mixed into the
 data.

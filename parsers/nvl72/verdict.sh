@@ -33,6 +33,10 @@ VERDICT_MAX_COV_LLM_SOLO=0.02
 ## failure this catches, and it is invisible to a check that only requires the
 ## pattern to appear at all.
 VERDICT_MIN_LLM_SOLO_RANKS=4
+## The recipe's whole run: a short run is a failed run, not a fast one. Per GPU
+## for the solo job; per timing line for the four-way one. 0 skips the check.
+## See docs/explanation/llmb.md#a-run-that-stopped-early.
+VERDICT_MIN_LLM_ITERATIONS=50
 
 ## nvbandwidth run-to-run instability, from MOP section 6.2. Set above the MOP's
 ## 0.02: the one_to_all and host_to_all families print 0.01-0.04 on healthy
@@ -505,6 +509,10 @@ _v_llm_step_median() {
 _v_gate_llm_pretrain() {
     local file="$1"
     _v_require  "$file" "training step timings" "$VERDICT_STEP_TIMING" || return 1
+    ## Separate from the line above: nothing at all and a run that stopped after
+    ## ten iterations are different faults and group separately under dshbak.
+    _v_require_count "$file" "training step timings" "$VERDICT_STEP_TIMING" \
+        "$VERDICT_MIN_LLM_ITERATIONS" || return 1
     _v_forbid   "$file" "run error"             "$VERDICT_RUN_ERRORS" || return 1
     _v_forbid_i "$file" "training aborted"      'traceback|cuda error|nccl error|out of memory' || return 1
     _v_llm_step_median "$file" "$VERDICT_MAX_STEP_MS_LLM_PRETRAIN" || return 1
@@ -519,13 +527,24 @@ _v_gate_llm_pretrain() {
 ## printing forty timings while three print none is exactly the failure being
 ## looked for, and a plain count of matching lines would pass it.
 _v_llm_solo_ranks() {
-    local file="$1" min="$2" n reported
-    reported=$(grep -oE "^[0-9]+:.*($VERDICT_STEP_TIMING)" "$file" 2>/dev/null |
-        cut -d: -f1 | sort -u)
-    n=$(printf '%s' "$reported" | grep -c .)
-    [[ "$n" -ge "$min" ]] && return 0
-    VERDICT_REASON="fewer than $min GPUs reported step timings"
-    VERDICT_DETAIL="reported: $(printf '%s' "$reported" | paste -sd, )"
+    local file="$1" min="$2" iters="$3" counts n short
+    ## "<timings> <rank>" per reporting rank, from the one pass that used to
+    ## answer only how many ranks there were.
+    counts=$(grep -oE "^[0-9]+:.*($VERDICT_STEP_TIMING)" "$file" 2>/dev/null |
+        cut -d: -f1 | sort -n | uniq -c)
+    n=$(printf '%s' "$counts" | grep -c .)
+    if [[ "$n" -lt "$min" ]]; then
+        VERDICT_REASON="fewer than $min GPUs reported step timings"
+        VERDICT_DETAIL="reported: $(awk '{ printf "%s%s", s, $2; s="," }' <<<"$counts")"
+        return 1
+    fi
+    ## 0 skips, the same convention as every other floor here.
+    awk -v m="$iters" 'BEGIN { exit !(m + 0 > 0) }' || return 0
+    short=$(awk -v m="$iters" '$1 + 0 < m + 0 { printf "%sgpu %s at %s", s, $2, $1; s=", " }' \
+        <<<"$counts")
+    [[ -z "$short" ]] && return 0
+    VERDICT_REASON="a GPU reported fewer than $iters step timings"
+    VERDICT_DETAIL="$short"
     return 1
 }
 
@@ -585,7 +604,8 @@ _v_llm_solo_spread() {
 
 _v_gate_llm_pretrain_solo() {
     local file="$1"
-    _v_llm_solo_ranks  "$file" "$VERDICT_MIN_LLM_SOLO_RANKS" || return 1
+    _v_llm_solo_ranks  "$file" "$VERDICT_MIN_LLM_SOLO_RANKS" \
+        "$VERDICT_MIN_LLM_ITERATIONS" || return 1
     _v_forbid   "$file" "run error"        "$VERDICT_RUN_ERRORS" || return 1
     _v_forbid_i "$file" "training aborted" 'traceback|cuda error|nccl error|out of memory' || return 1
     _v_llm_solo_spread "$file" "$VERDICT_MAX_COV_LLM_SOLO" || return 1

@@ -452,8 +452,14 @@ rather than from a second copy of the arithmetic. So the report's
 against `VERDICT_MAX_STEP_MS_LLM_PRETRAIN` and `VERDICT_MAX_STEP_MS_LLM_SOLO`
 directly, and the distance between the fleet's median and the ceiling is what
 says whether a band wants tightening. A run that printed fewer than five
-iterations has no median, is not gated on one, and prints its status word
-instead of a number — the two cases stay the same case.
+iterations has no median and prints its status word instead of a number; what
+stops that from being a free pass is [A run that stopped
+early](#a-run-that-stopped-early) below.
+
+Read that summary block with one correction: `daily-report.sh` prints a number
+for a `FAIL` cell as well as a `DONE` one, so the `min`/`median`/`mean`/`max`
+pool both. Re-deriving a band from it means filtering to `DONE` first, or the
+sample includes the nodes the band rejected.
 
 The solo column carries the step time and not the spread, because a cell holds
 one figure and the step time is the one the two jobs share. A tray failing on
@@ -465,6 +471,65 @@ starting band is to catch a node that is plainly slow while a real floor is
 being assembled from several trays. A tray that trips it at 5% is worth looking
 at before assuming the number is wrong, and a fleet where nothing ever trips it
 should be tightened rather than trusted.
+
+## A run that stopped early
+
+A ceiling on the median asks whether the steps were fast. It does not ask
+whether there were any, and the gap between those two questions was a hole big
+enough to pass a broken node.
+
+`_v_llm_step_ms` needs five timings before it will report a median, and returned
+nothing below that. `_v_llm_step_median` reads that nothing as "no band to apply
+here" and returns success, which is right when the ceiling is unset and wrong
+when the run simply died. So a run that printed four iterations and stopped —
+without emitting any of the `VERDICT_RUN_ERRORS` strings — cleared every check
+the four-way gate had, and reported `DONE`.
+
+Worse, the failure got *less* visible the further the run got. Iterations 1 and
+4 are warmup and are several times the steady-state cost, so a run that stopped
+at four has a median dragged upwards and would likely have tripped the ceiling
+anyway. One that stopped at twenty has a median indistinguishable from a healthy
+node's, because the twenty iterations it did manage really were healthy. The
+node then reads as a pass on the strength of the part of the run that worked.
+
+`VERDICT_MIN_LLM_ITERATIONS` closes it, and ships as **50** — the whole run. The
+recipe trains a fixed 50 iterations, so anything less is a run that stopped, and
+a run that stopped is a failed node rather than a fast one. There is no band of
+"enough to judge" between the two worth defending: the wall limit firing, a rank
+dying quietly and a container exiting mid-run all land in the same place, and
+all of them are findings.
+
+The two jobs count it differently, and the unit is worth knowing before moving
+the number:
+
+| Job | What is counted | Where |
+|---|---|---|
+| `llm-pretrain` | timing lines in the file | `_v_require_count`, after the check that any appeared at all |
+| `llm-pretrain-solo` | timing lines **per GPU** | `_v_llm_solo_ranks`, in the pass that already counts the ranks |
+
+Per GPU for the solo job because a pooled count is exactly the failure that job
+exists to find — one rank printing two hundred timings while three print five
+sums to plenty. The four-way job logs once per iteration and has no rank to
+attribute a line to, so lines and iterations are the same count there.
+
+**The dependency this creates.** 50 is the recipe's iteration count, not a
+property of the log, and the gate counts *lines*. They are the same number only
+while the recipe logs every iteration. A recipe whose log interval is not 1
+prints fewer lines than it ran iterations, and this floor would then fail every
+healthy node in the fleet on the first sweep. Confirming that against a real
+result file is part of re-capturing the `.sbatch` —
+[how-to/capture-an-sbatch-from-llmb-run.md](../how-to/capture-an-sbatch-from-llmb-run.md)
+— and the check is one command:
+
+```bash
+## Both should print 50 on a node that passed before this floor existed.
+grep -c 'elapsed time per iteration' results/<node>/llm-pretrain.txt
+grep -oE '^[0-9]+:.*train_step_timing' results/<node>/llm-pretrain-solo.txt |
+    cut -d: -f1 | sort -n | uniq -c
+```
+
+Nothing else in the tree ties a gate to a count the recipe chose, which is why
+this one is written down rather than left in the constant.
 
 ## Judging the four step times
 
