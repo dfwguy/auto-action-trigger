@@ -183,7 +183,7 @@ done
 
 ## ── Start it ──────────────────────────────────────────────────────────────
 systemctl --user daemon-reload 2>/dev/null || warn "systemctl --user daemon-reload failed"
-out=$(systemctl --user enable --now "$unit.timer" 2>&1)
+out=$(systemctl --user enable "$unit.timer" 2>&1)
 if [[ "$out" == *masked* ]]; then
     ## Nothing in this tree masks a unit, so this is an empty file seen through a
     ## manager that has not reloaded, or somebody's deliberate mask.
@@ -198,12 +198,18 @@ else
     fail "systemctl --user enable --now $unit.timer -- $out"
 fi
 
-## `enable --now` does not restart a timer that is already running, so a changed
-## interval or ExecStart would not take effect until the next reboot.
-if [[ "$changed" -eq 1 ]]; then
-    systemctl --user restart "$unit.timer" 2>/dev/null &&
-        ok "restarted $unit.timer to pick up the new unit" ||
-        warn "could not restart $unit.timer -- it is still running the previous unit"
+## Restarted every time, not only when this host rewrote the file. $HOME is
+## shared, so the first node to run this replaces the unit for the whole fleet
+## and every other node sees "already current" -- while its own manager is still
+## running whatever it loaded when it was last armed. `changed` says what
+## happened on disk, which is not what this manager has in memory. A calendar
+## timer's next elapse is the same wall-clock tick either way, so restarting
+## costs nothing. See docs/explanation/the-agent-and-the-watchdog.md#one-unit-for-both-roles.
+if systemctl --user restart "$unit.timer" 2>/dev/null; then
+    [[ "$changed" -eq 1 ]] && ok "restarted $unit.timer on the unit this run installed" \
+                           || ok "restarted $unit.timer so this manager is running the current unit"
+else
+    fail "could not restart $unit.timer -- it may still be running an older unit"
 fi
 
 ## ── Confirm what was just armed ───────────────────────────────────────────
@@ -224,7 +230,7 @@ else
         next=$(systemctl --user show "$unit.timer" -p NextElapseUSecMonotonic --value 2>/dev/null)
     case "$next" in
         ""|0|infinity|n/a)
-            fail "$unit.timer is active but has no next elapse, so it will never fire again. 'systemctl --user cat $unit.timer' and 'systemctl --user show $unit.timer -p NextElapseUSecRealtime' on this host" ;;
+            fail "$unit.timer is active but has no next elapse even after a reload and a restart, so it will never fire again. 'systemctl --user cat $unit.timer' on this host -- a unit still using OnUnitActiveSec= behaves exactly this way" ;;
         *)  ok "$unit.timer is scheduled, next elapse $(systemctl --user list-timers "$unit.timer" --no-pager 2>/dev/null | awk 'NR==2 {print $1, $2, $3}')" ;;
     esac
 fi
