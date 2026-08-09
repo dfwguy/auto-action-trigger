@@ -90,6 +90,7 @@ pieces fit together this way is
 ├── status-check.sh                # Live per-node benchmark status (all nodes)
 ├── daily-report.sh                # Per-node table: slurm state, status, performance metrics
 ├── overall_report.sh              # Everything without a pass, with everything known about it
+├── pause-agents.sh                # Stop every agent timer in the fleet, and start them again
 ├── trigger-debug.sh               # Walk the watchdog → sbatch chain and name the broken link
 ├── trigger-log.sh                 # Read what the chain wrote: trigger.log and health.log
 └── watch-rack.sh                  # Watch a nodelist for DOWN/drained nodes

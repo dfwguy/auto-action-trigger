@@ -340,7 +340,13 @@ Full command reference in [docs/reference/scripts.md](docs/reference/scripts.md)
 
 ## Removing the framework
 
-**Stop the watchdog first.** It re-arms any idle or drained node whose heartbeat goes stale, so disarming a rack while it is running gets the rack armed straight back within `HEARTBEAT_STALE_MINUTES`. On the head node, as `cmods`:
+**Stop the watchdog first.** It re-arms any idle or drained node whose heartbeat goes stale, so disarming a rack while it is running gets the rack armed straight back within `HEARTBEAT_STALE_MINUTES`. `pause-agents.sh` does it in the right order, and writes nothing to the share:
+
+```bash
+bash pause-agents.sh          # the watchdog here, then every node timer
+```
+
+That is also the thing to run before copying a new tree over the deployment — see [docs/how-to/pause-and-resume.md#replacing-the-tree](docs/how-to/pause-and-resume.md#replacing-the-tree). To remove the framework rather than stop it, carry on: on the head node, as `cmods`,
 
 ```bash
 bash /home/cmods/bringup/agent/uninstall-agent.sh

@@ -19,37 +19,57 @@ from telling you what state the nodes came back in. Why each behaves as it does
 is in
 [explanation/sequencing.md#what-a-pause-is-for](../explanation/sequencing.md#what-a-pause-is-for).
 
+## Replacing the tree
+
+Copying a new tree over `$BRINGUP_HOME` while two thousand agents are cycling out
+of it replaces scripts under running processes — a cycle that sourced the old
+`settings.sh` and then execs the new `node-agent.sh` fails in ways that are
+genuinely hard to read. It is also slow, because the copy competes with every
+node reading the tree.
+
+Quiesce first, copy, then bring it back:
+
+```bash
+bash pause-agents.sh              # stop the watchdog here, then every node timer
+cp -R auto-action-trigger-*/* /cluster/bringup/
+bash pause-agents.sh --resume     # re-arm the nodes, then start the watchdog
+```
+
+`--resume` re-arms through `agent/install-agent.sh`, so it also picks up a unit
+or an interval that changed in the drop — which a bare `systemctl start` would
+not. `-n` prints what either would touch and does neither, and a node pattern
+narrows both to one rack.
+
+```bash
+bash pause-agents.sh --status              # what is running now, from NFS, asking no node
+bash pause-agents.sh -n ink50-dh01-h02     # what stopping one rack would reach
+```
+
 ## Stopping it when the share is the problem
 
 Every switch above lives in `SETTINGS`, on the exported tree — which makes them
 unreachable in the one case where you most want them: a share so loaded that a
 write to it hangs. The pause you cannot save is not a pause.
 
-The watchdog is the amplifier in that state. It arms every node whose heartbeat
-has gone stale, each arm is an ssh and a cycle, and a fleet that has stopped
-cycling for any reason is a fleet where *every* node qualifies, every interval.
-Stopping its timer is local, needs no NFS, and stops the loop at the source:
+`pause-agents.sh` is the answer to that too, because it writes nothing to the
+share. It stops the watchdog **first**, and locally: the watchdog arms every node
+whose heartbeat has gone stale, and a fleet that has stopped cycling for any
+reason is a fleet where every node qualifies, every interval. Stopping the nodes
+while it runs puts them straight back.
+
+If even that script cannot start — the share is where it lives — the one command
+that matters is local and needs nothing:
 
 ```bash
 cd /                                                # not the shared tree
 systemctl --user stop bringup-agent.timer           # as JOB_USER, on the head node
 ```
 
-`results/supervisor.log` stops growing within a cycle. Nothing else changes:
-every node keeps its own timer, its results, and its drains.
-
-To quiesce the fleet as well, once the head node is quiet:
-
-```bash
-clush -w '<nodes>' 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user stop bringup-agent.timer'
-pdsh -R ssh -w '<nodes>' 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user stop bringup-agent.timer'
-```
-
-That is a stop, not a pause: nothing re-enables those timers until
-`install-agent.sh` runs again, which is what makes it safe to reach for while
-you work out what happened. `systemctl --user start bringup-agent.timer` puts
-one back, and re-arming the fleet is the normal
-[arm-a-node.md](arm-a-node.md) path.
+`results/supervisor.log` stops growing within a cycle. Every node keeps its own
+results and drains; nothing is lost. This is a stop rather than a pause —
+nothing re-enables these timers until `pause-agents.sh --resume` or
+`agent/install-agent.sh` runs — which is what makes it safe to reach for while
+you work out what happened.
 
 ## What a pause leaves running
 
