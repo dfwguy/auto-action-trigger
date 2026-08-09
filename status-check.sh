@@ -190,6 +190,18 @@ done
 if [[ ${#excluded[@]} -gt 0 ]]; then
     echo "NOTE: left out, not compute nodes: ${excluded[*]}" >&2
 fi
+## A node that has stopped cycling still has rows, and they are the last thing
+## written rather than what is true now.
+## See docs/explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means.
+declare -a silent
+for node in "${nodes[@]}"; do
+    heartbeat_stale "$results_dir" "$node" && silent+=("$node")
+done
+if [[ ${#silent[@]} -gt 0 ]]; then
+    echo "NOTE: ${#silent[@]} node(s) have not cycled in ${HEARTBEAT_STALE_MINUTES}m, so their rows are stale: ${silent[*]}" >&2
+    echo "      ./trigger-log.sh section 0 says what the watchdog heard back from each." >&2
+fi
+
 if [[ ${#nodes[@]} -eq 0 ]]; then
     # args[0], not $1 -- $1 is whichever flag came first once -t/-s are in play.
     echo "No nodes under $results_dir match '${args[0]:-*}'" >&2

@@ -11,7 +11,7 @@ string. After all checks, it either resumes the node (no failures) or sets it
 `DRAIN_AFTER_FAILED_HEALTH_CHECK` is on. With it off, which is how it ships, the
 run is identical up to that point and Slurm is simply left alone.
 
-It fires on every BCM monitoring cycle and re-checks on a cadence:
+It fires on every agent cycle and re-checks on a cadence:
 `HEALTH_INTERVAL_HOURS` after a clean run, `HEALTH_RETRY_INTERVAL_HOURS` after
 one that found something. A `refresh` sentinel file in `logs/<node>/` jumps the
 queue — `health-check.sh --refresh` sets it. Every cycle writes what it decided
@@ -75,7 +75,7 @@ grep -r . /sys/class/dmi/id/bios_* 2>/dev/null | cut -d'/' -f6- | sort | paste -
 
 The check writes its result to stdout and nothing else; the runner adds the
 banner, writes the file, and does the diff. stderr is not captured — it goes to
-the BCM action output, so a tool's own complaint is visible without polluting
+the agent's output, so a tool's own complaint is visible without polluting
 the file being diffed.
 
 Three things are load-bearing:
@@ -101,6 +101,30 @@ Checks are mode `644`, not `755`, and that is the same decision as running them
 under `bash "$check_file"`: they are never executed directly, only handed to a
 fresh interpreter by the runner. `755` would invite running one on its own,
 which produces the check's stdout with no banner, no log file and no diff.
+
+## Checks that need root
+
+The cycle runs as `$JOB_USER`, so a check that needs privilege says `sudo -n`
+inline — these files are read and run on their own, and a helper on `PATH`
+would break that. Eleven of the 38 do:
+
+| Command | Checks |
+|---|---|
+| `dmesg` | `32-dmesg-nv_err`, `33-dmesg-trace`, `34-dmesg-hw_err`, `35-dmesg-xid`, `36-dmesg-knvlink`, `37-dmesg-ipmi_ssif`, `38-dmesg-mlx5_core` |
+| `dmidecode` | `06-memory` |
+| `lspci -vvv` | `20-pcie-lnk-stat`, `21-pcie-acs`, `22-pcie-mrrs` |
+| `ipmitool` | `37-dmesg-ipmi_ssif` |
+
+`lspci` without `-vvv`, `nvidia-smi`, `ibstatus`, `systemctl is-active` and
+every `/sys` and `/proc` read are unprivileged.
+
+The rules for these come from `agent/sudoers.default`, installed by the site as
+`/etc/sudoers.d/50-bringup`. `node_health.sh` discovers the list by grepping
+`sudo -n <cmd>` out of the check set and preflights it before running anything,
+so **a new check that needs a new command needs no change anywhere else** — and
+a missing rule stops the whole run rather than producing output the baseline
+will not match. Why that is fatal where every other gate here carries on is
+[explanation/running-unprivileged.md#a-lost-rule-must-stop-the-run](../explanation/running-unprivileged.md#a-lost-rule-must-stop-the-run).
 
 ## Informational checks
 

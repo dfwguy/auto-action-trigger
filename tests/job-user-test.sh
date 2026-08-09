@@ -230,10 +230,9 @@ else
     sed 's/^/         /' "$work/norm-a" | head -20
 fi
 
-## --explain returns before the privilege drop, so the branch that actually
-## reaches the cluster needs a real submission. Which of its two halves runs
-## depends on who is asking, and both name the account -- root by dropping to
-## it, anyone else by refusing and saying whose password `su` would want.
+## --explain returns before the submission, so the branch that actually reaches
+## the cluster needs a real one. There is no privilege drop left to take: the
+## cycle is the account, and anyone else is refused by name.
 ## See docs/how-to/run-a-job-by-hand.md.
 rm -f "$work/home/$USER_B/su.calls"
 (
@@ -242,17 +241,19 @@ rm -f "$work/home/$USER_B/su.calls"
     "$tree_b/actions/launch_job.sh" --force --all --verbose
 ) > "$work/submit-b" 2>&1
 
-if [[ "$EUID" -eq 0 ]]; then
-    if grep -q 'sbatch' "$work/home/$USER_B/su.calls" 2>/dev/null; then
-        ok "root: the submission was made through 'su - $USER_B'"
-    else
-        bad "root: nothing reached 'su - $USER_B': $(cat "$work/home/$USER_B/su.calls" 2>/dev/null || echo '<su never called>')"
-    fi
-elif grep -q "which is neither root nor $USER_B" "$work/submit-b"; then
-    ok "uid $EUID: refused, naming the account it would have needed"
+if grep -q "a job is submitted as $USER_B" "$work/submit-b"; then
+    ok "uid $EUID: refused, naming the account the submission needed"
 else
     bad "uid $EUID: the refusal does not name $USER_B:"
     grep -i 'submit' "$work/submit-b" | sed 's/^/         /'
+fi
+
+## Nothing drops privilege any more, whoever runs this -- including root, which
+## is how every cycle used to arrive. docs/explanation/running-unprivileged.md
+if [[ -s "$work/home/$USER_B/su.calls" ]]; then
+    bad "uid $EUID: went through 'su - $USER_B', which nothing should do now"
+else
+    ok "uid $EUID: no su on the submission path"
 fi
 
 ## A batch script runs from Slurm's spool copy and can neither read SETTINGS nor

@@ -1,8 +1,8 @@
 # Why health checks re-run on a cadence
 
-`actions/node_health.sh` is bound to `NodeHealthTrigger` as a `duringactions`
-script, so BCM fires it on every node on every monitoring cycle — the same
-binding `launch_job.sh` has. For most of this tree's life it did nothing on
+`actions/node_health.sh` is the second of the three steps `node-agent.sh` runs,
+so it is entered on every node on every agent cycle — the same as
+`launch_job.sh`. For most of this tree's life it did nothing on
 almost all of those cycles, and that was deliberate.
 
 ## What it used to do
@@ -58,7 +58,7 @@ drains off needs.
 
 It is written *before* the drain, not after. `scontrol` can fail, the controller
 can be busy, and a run whose outcome went unrecorded would repeat on the very
-next monitoring cycle, forever, on the node least able to spare the cycles.
+next agent cycle, forever, on the node least able to spare the cycles.
 
 A node with no stamp — one whose `logs/<node>/` predates this cadence — runs
 once and then joins the cadence. That is why the gate distinguishes "no stamp"
@@ -88,7 +88,7 @@ real answer rather than a mistake, so nothing warns about it.
 ## Asking for a re-check
 
 `health-check.sh --refresh <node|nodelist>` writes the `refresh` sentinel, which
-the next monitoring cycle consumes ahead of the cadence. This used to be its own
+the next agent cycle consumes ahead of the cadence. This used to be its own
 script, `node-health-refresh.sh`; it is a mode of `health-check.sh` now because
 an operator holding a node name wants to look at the checks and re-run them in
 the same breath, and two scripts meant remembering which one took a nodelist and
@@ -138,10 +138,10 @@ change still has one.
 
 The trace goes to `results/<node>/health.log`, beside `trigger.log`, and
 `trigger-log.sh` section 5 reads it the same way section 1 reads the sequencer's:
-a log that has stopped being written is a BCM problem, and a fresh log whose last
-line is an `EXIT` is a gate that has already named itself.
+a log that has stopped being written is the agent not firing, and a fresh log
+whose last line is an `EXIT` is a gate that has already named itself.
 
-It is a separate file rather than lines in `trigger.log` because the two actions
+It is a separate file rather than lines in `trigger.log` because the two steps
 rotate at different rates — the sequencer writes a line or two per cycle and the
 health side writes one per cadence interval — and interleaving them would mean
 the sequencer's volume rotating the health trace away long before it was stale.

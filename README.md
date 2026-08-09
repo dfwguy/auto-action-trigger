@@ -1,24 +1,32 @@
 # auto-action-trigger
 
-Automated node bring-up and validation framework for HPC clusters managed by **Bright Cluster Manager (BCM)**. When a node boots and its device status becomes `UP`, BCM monitoring triggers fire three action scripts that run hardware health checks, cache container images on local disk, and sequence through Slurm benchmark jobs — draining the node in Slurm automatically on any failure.
+Automated node bring-up and validation framework for HPC clusters running Slurm. A `systemd --user` timer on every node runs one agent every couple of minutes, as an unprivileged automation account, which runs hardware health checks, caches container images on local disk, and sequences through Slurm benchmark jobs — draining the node in Slurm automatically on any failure. A second timer on the head node watches the heartbeat each node writes to the shared tree and re-arms any node that stops writing one.
 
 ```
-Node boots → BCM device status = UP
-    ├── NodeHealthTrigger → node_health.sh
-    │       Compares hardware/software state against a known-good baseline.
-    │       Sets node IDLE (all checks pass) or DOWN with a reason (any fail).
-    │
-    ├── FileCopyTrigger → file_copy.sh
-    │       Rsyncs containers/ to /tmp/containers/ so job start reads the image
-    │       off local disk. Silent no-op if there is nothing to copy.
-    │
-    └── LaunchJobTrigger → launch_job.sh
-            Sequences through benchmarks (dcgmi-r1 → dcgmi-r3 → allreduce).
-            Submits the next Slurm job when the node is idle and the prior run passed.
-            Drains the node if a benchmark fails or runs too long.
+head node                          every node under test
+─────────────────────────          ────────────────────────────────────────────
+bringup-supervisor.timer           bringup-agent.timer  → agent/node-agent.sh
+  → agent/supervisor.sh                 │
+      sinfo: idle or drained            ├── touch results/<node>/.heartbeat
+      stat:  heartbeat stale?           ├── any job on this node? → say so, stop
+      pdsh:  install-agent.sh           │
+                                        ├── file_copy.sh
+                                        │     Rsyncs containers/ to /tmp/containers/ so
+                                        │     job start reads the image off local disk.
+                                        │
+                                        ├── node_health.sh
+                                        │     Compares hardware/software state against a
+                                        │     known-good baseline. Sets the node IDLE (all
+                                        │     checks pass) or DOWN with a reason (any fail).
+                                        │
+                                        └── launch_job.sh
+                                              Sequences through benchmarks (dcgmi-r1 →
+                                              dcgmi-r3 → allreduce). Submits the next Slurm
+                                              job when the node is idle and the prior run
+                                              passed. Drains the node if a benchmark fails.
 ```
 
-All three triggers fire continuously while the device is UP (`duringactions`), so they re-evaluate on each BCM monitoring cycle without manual intervention.
+Nothing here is a service you start by hand and nothing runs as root: the timers re-evaluate every cycle, so a node picks up a new image or a changed setting without rebooting, and the handful of commands that genuinely need privilege go through `sudo -n`. There is no dependency on a cluster manager — this was three BCM monitoring triggers until August 2026, and a BCM head node still works exactly as before, it is simply no longer in the path.
 
 This page covers what has to be in place, how to stand the framework up, and the commands a bringup needs day to day. Everything else is in [docs/](docs/):
 
@@ -28,7 +36,7 @@ is the compass; the four entry points are:
 
 | If you are… | Start at |
 |------|--------|
-| new to this and want it working on one node | [docs/tutorials/](docs/tutorials/) — a first bringup, the trigger chain, reading the fleet through Slurm |
+| new to this and want it working on one node | [docs/tutorials/](docs/tutorials/) — a first bringup, how the agent fires, reading the fleet through Slurm |
 | trying to get something specific done | [docs/how-to/](docs/how-to/) — enabling benchmarks, pausing, managing drains, diagnosing a failure |
 | looking up a setting, a flag, or what a trace line means | [docs/reference/](docs/reference/) — `SETTINGS`, the job catalog, the 38 health checks, every operator script |
 | trying to understand why it works this way | [docs/explanation/](docs/explanation/) — the sequencer, derived verdicts, drain recovery, containers |
@@ -40,8 +48,9 @@ is the compass; the four entry points are:
 A local user named by `JOB_USER` — `cmods` as shipped — must exist on the **headnode and every compute node** in the cluster. It is the only place the account is named: the tree path and the llmb install derive from it, so pointing the framework at a dedicated automation account is one line in `SETTINGS` and no code change. See [docs/reference/settings.md#accounts-and-paths](docs/reference/settings.md#accounts-and-paths).
 
 - The tree is deployed at `$BRINGUP_HOME`, which defaults to `/home/$JOB_USER/bringup/` — that home directory is the deployment root.
-- `node_health.sh` runs as whatever user BCM invokes it as, but it `chown`s its log output to `$JOB_USER`. The account must therefore be resolvable on the node at the time the script runs.
-- `launch_job.sh` submits Slurm jobs via `su - $JOB_USER`, so it must be a valid login user with access to the Slurm environment (`/etc/profile.d/modules.sh` and the `slurm` module), and with whatever Slurm association the site requires — an `sbatch` refused for a missing association lands in `trigger.log` rather than being swallowed.
+- Every cycle runs as `$JOB_USER` under that account's `systemd --user`, so the account needs lingering enabled (`agent/install-agent.sh` does it) and passwordless ssh from the head node.
+- It needs a `sudo` rule for the handful of privileged commands the health checks and the drains use — `agent/sudoers.default` is the shipped reference. See [docs/explanation/running-unprivileged.md](docs/explanation/running-unprivileged.md).
+- `launch_job.sh` submits Slurm jobs as that account directly, so it must be a valid login user with access to the Slurm environment (`/etc/profile.d/modules.sh` and the `slurm` module), and with whatever Slurm association the site requires — an `sbatch` refused for a missing association lands in `trigger.log` rather than being swallowed.
 - It must have write access to `logs/`, `results/` and `reports/` under the deployment root on the headnode.
 - If the home directory is shared via NFS or another network filesystem, compute nodes will inherit it automatically. If not, `$BRINGUP_HOME` must be accessible on each compute node (e.g., via a shared filesystem mount).
 
@@ -53,7 +62,9 @@ The container images do **not** have to live under that home directory: `CONTAIN
 
 | Software | Used by |
 |----------|---------|
-| Bright Cluster Manager (`cmsh`) | `pre-post/create-action-trigger.sh`, `pre-post/delete-action-trigger.sh` |
+| `systemd` (`systemctl --user`, `loginctl`) | `agent/install-agent.sh`, and the two timers |
+| `pdsh` | `agent/supervisor.sh` (arming nodes), and every remote command in the docs |
+| `sudo` | `node_health.sh` (7 of 38 checks), `slurm-recovery.sh` — see [docs/explanation/running-unprivileged.md](docs/explanation/running-unprivileged.md) |
 | Slurm (`sinfo`, `scontrol`, `sbatch`, `squeue`) | `node_health.sh`, `launch_job.sh`, all `.sbatch` jobs |
 | `nvidia-smi` | `node_health.sh` (GPU checks) |
 | `ibstatus`, `mlxlink`, `perfquery` | `node_health.sh` (InfiniBand checks) |
@@ -79,34 +90,36 @@ The following scripts are run manually by an operator from the headnode and do n
 | `daily-report.sh` | `sinfo`, read access to `results/`; write access to wherever `-o` points |
 | `health-check.sh` | `sinfo`, `scontrol`, read access to `logs/` and `valid-config/` |
 | `health-check.sh --refresh` | write access to `logs/<node>/` |
-| `trigger-debug.sh` | `cmsh`, `sinfo`, read access to `results/` |
+| `trigger-debug.sh` | `sinfo`, read access to `results/`; `--ask-nodes` also needs `pdsh` |
 | `trigger-log.sh` | read access to `results/` and `logs/` |
 | `watch-rack.sh` | `sinfo` |
 | `single-node-purge.sh` | write access to `results/` |
 | `kill-jobs.sh` | `squeue`, `scancel` as `JOB_USER` or root; `-p` also needs write access to `SETTINGS` |
 | `set-valid-default.sh` | write access to `valid-config/` |
-| `pre-post/create-action-trigger.sh` | `cmsh` (BCM admin access) |
-| `pre-post/delete-action-trigger.sh` | `cmsh` (BCM admin access) |
+| `agent/install-agent.sh` | Run as `JOB_USER`; `systemctl --user`, `loginctl`, and permission to enable lingering |
 
 Draining and resuming nodes needs Slurm privilege — see [docs/reference/layout.md](docs/reference/layout.md#slurm-permissions).
 
 ## First-time setup
 
-### 1. Set up the BCM actions and triggers
+### 1. Install the sudo rule and arm the head node
+
+Check the paths in `agent/sudoers.default` against this cluster, then, as root on every node:
 
 ```bash
-bash pre-post/create-action-trigger.sh
+visudo -c -f agent/sudoers.default
+install -m 0440 agent/sudoers.default /etc/sudoers.d/50-bringup
 ```
 
-This registers three actions (`node_health_action`, `file_copy_action`, `launch_job_action`) and three triggers (`NodeHealthTrigger`, `FileCopyTrigger`, `LaunchJobTrigger`) in BCM monitoring.
-
-It is safe to re-run: each object is removed before it is added, so an existing registration is replaced rather than colliding. Removals are silent — on a first run there is nothing to remove — but the adds report `ok:` or `FAILED:` per object and the script exits non-zero if any failed. A registration that fails quietly is how you end up believing a node is being health-checked when it is not.
-
-To remove them:
+Then, as `$JOB_USER` on the head node:
 
 ```bash
-bash pre-post/delete-action-trigger.sh
+bash agent/install-agent.sh
 ```
+
+It works out that this host is the head node — `slurmctld` installed and `slurmd` not — enables lingering, installs `bringup-supervisor.timer`, and starts it. Within `HEARTBEAT_STALE_MINUTES` the watchdog arms every idle node itself; nothing has to be installed node by node. It reports `ok:` or `FAILED:` per step and exits non-zero if any failed, because an arm that fails quietly is how you end up believing a node is being health-checked when it is not.
+
+Safe to re-run, and re-running is how a changed unit or interval is picked up. See [docs/how-to/arm-a-node.md](docs/how-to/arm-a-node.md).
 
 ### 2. Download the container images
 
@@ -175,7 +188,7 @@ DRAIN_AFTER_FAILED_HEALTH_CHECK=no   # health check mismatched the baseline
 DRAIN_AFTER_FAILED_BENCHMARK=no      # benchmark sweep failed, or a job ran past MAX_JOB_HOURS
 ```
 
-Turn them on once the failures being reported are real ones. Health-check drains are the riskier half — a bad baseline drains the whole cluster on the first monitoring cycle — so bring that one up only after `bash health-check.sh --summary` reads clean. See [docs/how-to/manage-drains.md](docs/how-to/manage-drains.md).
+Turn them on once the failures being reported are real ones. Health-check drains are the riskier half — a bad baseline drains the whole cluster on the first agent cycle — so bring that one up only after `bash health-check.sh --summary` reads clean. See [docs/how-to/manage-drains.md](docs/how-to/manage-drains.md).
 
 ### 8. Decide how often health checks re-run
 
@@ -209,14 +222,14 @@ A node that has stopped testing:
 ```bash
 bash trigger-log.sh                       # read the traces: is it firing, and what did it decide
 bash trigger-log.sh ink50-dh01-h20-11     # one node, with its raw trace
-bash trigger-debug.sh ink50-dh01-h20      # walk BCM → sbatch, name the broken link
+bash trigger-debug.sh ink50-dh01-h20      # walk watchdog → sbatch, name the broken link
 ```
 
-Start with `trigger-log.sh` — it reads what the sequencer already wrote down and
-separates the two cases that look identical from the outside: logs stale means
-nothing is running the script (a trigger problem, go to `trigger-debug.sh`), logs
-fresh with nothing submitted means the script is running and a gate is closed
-(the reason is already in the trace).
+Start with `trigger-log.sh` — it reads the heartbeats and what the sequencer
+already wrote down, and separates the two cases that look identical from the
+outside: heartbeats stale means the timers are not firing (go to
+`trigger-debug.sh`), heartbeats fresh with nothing submitted means the agent is
+running and a gate is closed (the reason is already in the trace).
 
 A node that has been drained:
 
@@ -227,12 +240,13 @@ bash health-check.sh --diff node001       # diff its health output vs the baseli
 scontrol update nodename=node001 state=RESUME
 ```
 
-Stop the whole framework for a maintenance window, without unregistering it from BCM — in `SETTINGS`, effective fleet-wide on the next monitoring cycle:
+Stop the whole framework for a maintenance window, without disarming it — in `SETTINGS`, effective fleet-wide on the next agent cycle:
 
 ```bash
 PAUSE_JOBS=yes             # no benchmarks submitted; queued ones cancelled
 PAUSE_HEALTH_CHECKS=yes    # no health checks run; Slurm untouched
 PAUSE_CONTAINER_COPY=yes   # no new rsync into /tmp/containers
+PAUSE_ARMING=yes           # the watchdog arms no node; running agents carry on
 ```
 
 Nothing is lost — results stay, the sweep resumes where it stopped. One already-running benchmark per node is left to finish. To empty the queue now instead:

@@ -266,7 +266,7 @@ wasted.
 **`trigger-log.sh` last, and only if the first three are suspiciously empty.**
 It answers "why is nothing being produced", which is a different question from
 all of the above — that is
-[understanding-the-triggers.md](understanding-the-triggers.md).
+[understanding-the-agent.md](understanding-the-agent.md).
 
 ## What a good site looks like
 

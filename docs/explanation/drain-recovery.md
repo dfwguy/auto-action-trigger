@@ -12,7 +12,7 @@ carrying `DRAIN_MARKER`. Nodes accumulated in `drained`, the sequencer traced
 to run `scontrol update ... state=RESUME` by hand, per node, indefinitely.
 
 `slurm-recovery.sh` is what clears them, and both actions use it:
-`launch_job.sh` on every monitoring cycle, `node_health.sh` after a clean check
+`launch_job.sh` on every agent cycle, `node_health.sh` after a clean check
 run. The settings are in
 [reference/settings.md#recovering-drains-slurm-set-itself](../reference/settings.md#recovering-drains-slurm-set-itself);
 the operator commands are in
@@ -243,7 +243,7 @@ returning nothing.
 
 Naming the check in `trigger.log` is not enough on its own, because that file is
 trimmed to its last 2000 lines once it passes 1 MB, and a node gets a line or
-two per monitoring cycle. A busy node loses a day of trace, and what it loses
+two per agent cycle. A busy node loses a day of trace, and what it loses
 first is the note explaining a drain that is still on it.
 
 The rack this was found on made the point by itself: `d06-15`, `-18`, `-28` and
@@ -317,7 +317,7 @@ and it gates *every* class, not just the count drains:
   cannot answer is not read as "still booting".
 
 Neither is a failure. The node is held with the reason written to `recover.log`,
-**no attempt is spent**, and the next monitoring cycle picks it up a few minutes
+**no attempt is spent**, and the next agent cycle picks it up a few minutes
 later, by which time the numbers have stopped moving.
 
 ## A count drain is checked against the hardware

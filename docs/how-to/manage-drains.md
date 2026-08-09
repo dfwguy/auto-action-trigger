@@ -28,7 +28,7 @@ Two consequences worth knowing:
   taking work. `health-check.sh` says how many, and `--drained` is the separate
   report of what Slurm has taken out, grouped by reason.
 - Turning either on does not clear drains that already exist, and does not drain
-  a node that is already failing — the next monitoring cycle does that.
+  a node that is already failing — the next agent cycle does that.
 
 ## A drain the logs no longer support
 
@@ -55,7 +55,7 @@ brings the re-check forward.
 last. A health check drains on *any* diff against `valid-config/default`, so a
 baseline taken from a node that is itself slightly off, or one check that is
 per-rack rather than per-cluster, drains the entire cluster on the first
-monitoring cycle. Bring it up only once this reads clean across the fleet:
+agent cycle. Bring it up only once this reads clean across the fleet:
 
 ```bash
 bash health-check.sh --summary

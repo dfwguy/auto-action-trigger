@@ -1,8 +1,8 @@
 # Pause the framework, and empty the queue
 
-Four switches in `SETTINGS` stop the framework doing anything, without
-unregistering it from BCM. Edit them on the head node; every node reads the same
-NFS-exported file, so a pause takes effect fleet-wide on the next monitoring
+Five switches in `SETTINGS` stop the framework doing anything, without
+disarming it. Edit them on the head node; every node reads the same
+NFS-exported file, so a pause takes effect fleet-wide on the next agent
 cycle.
 
 ```bash
@@ -10,6 +10,7 @@ PAUSE_JOBS=yes             # no benchmarks submitted; queued ones cancelled
 PAUSE_HEALTH_CHECKS=yes    # no health checks run; Slurm untouched
 PAUSE_CONTAINER_COPY=yes   # no new rsync into /tmp/containers
 PAUSE_RECOVERY=yes         # no drain Slurm set itself is cleared
+PAUSE_ARMING=yes           # the watchdog arms no node; running agents carry on
 ```
 
 The switches are separate because they stop different things: pausing the
@@ -34,13 +35,17 @@ In order of how long it takes to stop:
   stays drained, marker and all, and is picked up again when the pause lifts.
   Resume by hand if you need it back sooner.
 - **Drains Slurm set itself are still cleared**, unless `PAUSE_RECOVERY=yes`.
+- **Every armed node keeps cycling**, whatever `PAUSE_ARMING` says. That switch
+  stops the watchdog arming a node that has *stopped*; it does not stop one that
+  is running. Nothing but `uninstall-agent.sh` does that — see
+  [arm-a-node.md#disarming-a-node](arm-a-node.md#disarming-a-node).
 
 Nothing is lost. Results stay on disk and the sweep resumes rather than
 restarting, and a `refresh` set by `health-check.sh --refresh` is held through the
 pause rather than consumed by a run that does nothing.
 
-`launch_job.sh --explain` still works while paused, and is the way to see what a
-sweep *would* do on a node before lifting one.
+`node-agent.sh --explain` still works while paused, and is the way to see what a
+cycle *would* do on a node before lifting one.
 
 ## Confirming the pause is why the cluster is quiet
 
@@ -82,7 +87,7 @@ character is used as written.
 
 **Cancelling alone is a stall, not a stop.** The sequencer's next cycle finds an
 idle node and submits the next benchmark, so a bare run buys roughly one
-monitoring cycle. `-p` is what makes it hold, and it writes `PAUSE_JOBS=yes` to
+agent cycle. `-p` is what makes it hold, and it writes `PAUSE_JOBS=yes` to
 `SETTINGS` *before* cancelling anything — the other order leaves a window for a
 cycle to resubmit into. A run without `-p` says so on the way out.
 

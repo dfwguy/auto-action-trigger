@@ -1,7 +1,7 @@
 # The operator scripts
 
 Every entry point, what it takes and what it prints. Everything here runs from
-the headnode and is safe to run while the triggers are live.
+the headnode and is safe to run while the timers are live.
 
 Eight of these implement `-h`/`--help` by printing their own header comment —
 `status-check.sh`, `health-check.sh`, `overall_report.sh`, `daily-report.sh`,
@@ -201,7 +201,7 @@ outranks one that simply has a benchmark running on it. `--full` lifts every cap
 in the report.
 
 Slurm is asked three times for the whole fleet, never once per node, so this is
-safe to run while the triggers are live. It submits nothing, drains nothing and
+safe to run while the timers are live. It submits nothing, drains nothing and
 resumes nothing; `-o` is the only thing it writes.
 
 ## `health-check.sh` — cluster-wide health summary
@@ -418,11 +418,11 @@ NODE                         LAST RUN             OUTCOME  NEXT DUE
 ink50-dh01-h01-11            2026-08-08 04:12:31  clean    in 96m
 ink50-dh01-h01-14            2026-08-08 07:31:02  failed   in 21m
 ink50-dh01-h01-17            2026-08-07 22:04:55  clean    overdue by 6h
-ink50-dh01-h01-29            (never)              -        next monitoring cycle
+ink50-dh01-h01-29            (never)              -        next agent cycle
 ```
 
 `overdue` is the one to read: the node is past its interval and has not
-re-checked, so `NodeHealthTrigger` is not reaching it. `tail
+re-checked, so no agent cycle is reaching it. `tail
 results/<node>/health.log` names the gate. `(never)` on a node that has a
 `logs/<node>` means the stamp predates the cadence, and one cycle fixes it.
 
@@ -443,9 +443,13 @@ It needs write access to `logs/<node>/` and contacts no node. See
 |---|---|
 | `set-valid-default.sh <node>` | Captures a validated node's `logs/` as the new baseline — see [health-checks.md](health-checks.md) |
 | `watch-rack.sh <nodelist>` | Refreshes every 20 seconds, showing only nodes that are DOWN or drained |
-| `trigger-log.sh` | Reads `results/<node>/trigger.log` and `health.log` across the cluster — five sections, described in [how-to/diagnose-nothing-running.md](../how-to/diagnose-nothing-running.md). `--include-excluded` also reads the hosts the reports leave out |
-| `actions/node_health.sh` | The health runner BCM fires. Also runnable over `pdsh` with `--explain`/`--force`/`--verbose` — see [how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand](../how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand) |
-| `trigger-debug.sh` | Walks the BCM → `sbatch` chain and names the broken link. Read-only |
+| `trigger-log.sh` | Reads the heartbeats, `results/<node>/trigger.log` and `health.log` across the cluster — six sections, described in [how-to/diagnose-nothing-running.md](../how-to/diagnose-nothing-running.md). `--include-excluded` also reads the hosts the reports leave out |
+| `agent/node-agent.sh` | One cycle on the node it runs on: heartbeat, busy gate, then the three steps. Fired by `bringup-agent.timer`; `--explain`/`--verbose` for a hand-run over `pdsh` |
+| `agent/supervisor.sh` | The head node's watchdog. Fired by `bringup-supervisor.timer`; `--explain` names what it would arm and drain, and does neither |
+| `agent/install-agent.sh` | Arms this host — lingering, the units, the timer. Idempotent; `--node`/`--head` override the role it works out for itself. See [how-to/arm-a-node.md](../how-to/arm-a-node.md) |
+| `agent/uninstall-agent.sh` | Stops and removes the timer and its unit. Leaves lingering and everything under `results/` alone |
+| `actions/node_health.sh` | The health runner, second of the agent's three steps. Also runnable over `pdsh` with `--explain`/`--force`/`--verbose` — see [how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand](../how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand) |
+| `trigger-debug.sh` | Walks the watchdog → `sbatch` chain and names the broken link. Read-only. `--ask-nodes` adds the per-node systemd and sudo checks |
 | `check_squeue.sh` | The queue in one aligned table, whole cluster; `-j <id>` adds node state and reservations |
 | `kill-jobs.sh` | Cancels this framework's jobs; `-p` also sets `PAUSE_JOBS=yes`. See [how-to/pause-and-resume.md](../how-to/pause-and-resume.md) |
 | `single-node-purge.sh <nodes>` | Removes `results/<node>` outright. See [how-to/reset-results.md](../how-to/reset-results.md) |

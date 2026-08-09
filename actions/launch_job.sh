@@ -16,6 +16,7 @@ if [[ ! -f "$home/settings.sh" ]]; then
     exit 1
 fi
 source "$home/settings.sh"
+source "$home/priv.sh"
 
 ## Retry and drain policy, the two lists, and how the ordering between them is
 ## expressed: docs/explanation/sequencing.md#retry-and-drain-behaviour and
@@ -97,7 +98,7 @@ EXPLAIN=0
 FORCE=0
 FORCE_ALL=0
 TEST_LIST=""
-## Default on for a terminal, off otherwise: BCM's action output goes nowhere
+## Default on for a terminal, off otherwise: the agent's own output goes nowhere
 ## anyone reads, and neither does pdsh's until you ask with -v.
 VERBOSE=0; [[ -t 1 ]] && VERBOSE=1
 usage() {
@@ -118,7 +119,7 @@ of nodes, name them where they can be reached:
 
   pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '$home/actions/launch_job.sh -f -v'
 
-With no arguments -- how BCM invokes it -- one job is submitted at a time, in
+With no arguments -- how the node agent invokes it -- one job is submitted at a time, in
 BENCHMARKS order, and no job re-runs inside its own hourly window.
 USAGE
 }
@@ -180,8 +181,8 @@ trace_writable() {
         TRACE_WRITABLE=1
         VERBOSE=1
         echo "WARNING: cannot write $tracelog as $(id -un) -- $(stat -c '%U owns it, mode %a' "$tracelog" 2>/dev/null || echo 'and it cannot be created')." >&2
-        echo "         Tracing to stdout only. Root's next cycle repairs it, or:" >&2
-        echo "           sudo chown -R $JOB_USER:$JOB_USER $logs" >&2
+        echo "         Tracing to stdout only. Nothing repairs this on its own now" >&2
+        echo "         that no cycle runs as root:  sudo chown -R $JOB_USER:$JOB_USER $logs" >&2
     fi
     return "$TRACE_WRITABLE"
 }
@@ -192,7 +193,7 @@ trace() {
 }
 
 ## Keep the trace from growing without bound -- it gets a line or two per
-## monitoring cycle, forever.
+## agent cycle, forever.
 if [[ -f "$tracelog" ]] && [[ "$(stat -c %s "$tracelog" 2>/dev/null || echo 0)" -gt 1000000 ]]; then
     tail -2000 "$tracelog" > "$tracelog.tmp" && mv "$tracelog.tmp" "$tracelog"
 fi
@@ -200,9 +201,10 @@ fi
 ## ── Extra environment for the jobs ────────────────────────────────────────
 ##
 ## An allowlist rather than a blocklist: the submission is built as a string and
-## run through `su - $JOB_USER -c`, so a plausible typo like `NCCL_X=0;id` would
-## run as root on 200+ nodes. Commas are out because --export is itself
-## comma-separated. See docs/reference/settings.md#what-is-rejected.
+## handed to a shell, so a plausible typo like `NCCL_X=0;id` runs as whatever the
+## cycle is -- a SETTINGS file is not a place to notice that. Commas are out
+## because --export is itself comma-separated.
+## See docs/reference/settings.md#what-is-rejected.
 ## Two forms of the same allowlisted list: a comma-separated one for sbatch
 ## --export, and a space-separated one for the `NAME=VALUE ... bash launcher`
 ## prefix a host-launched job gets instead. See docs/explanation/sequencing.md#host-launched-jobs.
@@ -225,7 +227,7 @@ unset _pair
 
 ## The site's paths, which a job running from Slurm's spool copy cannot work out
 ## for itself. Same allowlist as JOB_ENV, for the same reason -- the string is
-## run by `su - $JOB_USER -c`. Empty is left to the job to diagnose.
+## run by a shell. Empty is left to the job to diagnose.
 ## See docs/explanation/sequencing.md#what-a-submission-carries.
 ##
 ## SITE_EXPORT is the same list for the sbatch form: --export takes commas
@@ -253,40 +255,21 @@ else
         trace "MANUAL: --force -- hourly gate bypassed$([[ "$FORCE_ALL" -eq 1 ]] && printf ', --all -- passing jobs re-queued too')"
 fi
 
-## ── Hand the result path to $JOB_USER ─────────────────────────────────────
+## ── The result path ───────────────────────────────────────────────────────
 ##
-## Re-checked every cycle, not just on creation, so clearing results/ by hand is
-## safe and an already-broken tree repairs itself.
+## Nothing hands ownership over any more: the cycle is $JOB_USER's, so every
+## file under results/ is created by the account that has to write it. What is
+## left is the diagnosis for a tree the root cycles left behind.
 ## See docs/reference/layout.md#result-path-ownership.
 ensure_owned() {
     local d="$1"
     [[ -d "$d" ]] || mkdir -p "$d" 2>/dev/null || return 1
-    [[ "$(stat -c %U "$d" 2>/dev/null)" == "$JOB_USER" ]] && return 0
-    ## Only root can hand a directory over; anyone else gets a diagnosis.
-    if [[ "$EUID" -ne 0 ]]; then
-        trace "WARNING: $d is owned by $(stat -c %U "$d" 2>/dev/null), not $JOB_USER, and we are not root -- sbatch --output will fail"
-        return 0
-    fi
-    trace "chown $JOB_USER $d (was $(stat -c %U "$d" 2>/dev/null))"
-    chown "$JOB_USER:$JOB_USER" "$d" 2>/dev/null
-}
-
-## The same repair for the two files this script writes itself: a handed-over
-## directory is not enough, since root's cycle creates trigger.log and
-## quick-view.txt inside it root-owned at 644.
-ensure_file_owned() {
-    local f="$1"
-    [[ -e "$f" ]] || return 0
-    [[ "$(stat -c %U "$f" 2>/dev/null)" == "$JOB_USER" ]] && return 0
-    [[ "$EUID" -eq 0 ]] || return 0   # diagnosed by trace_writable, not here
-    trace "chown $JOB_USER $f (was $(stat -c %U "$f" 2>/dev/null))"
-    chown "$JOB_USER:$JOB_USER" "$f" 2>/dev/null
+    [[ -w "$d" ]] && return 0
+    trace "WARNING: $d is owned by $(stat -c %U "$d" 2>/dev/null) and not writable by $(id -un) -- sbatch --output will fail. sudo chown -R $JOB_USER:$JOB_USER $home/results"
 }
 
 ensure_owned "$home/results"
 ensure_owned "$logs"
-ensure_file_owned "$tracelog"
-ensure_file_owned "$quickview"
 
 ## ── Hosts that are not compute nodes ──────────────────────────────────────
 ##
@@ -295,12 +278,10 @@ ensure_file_owned "$quickview"
 ## See docs/explanation/sequencing.md#a-host-that-is-not-a-compute-node.
 if node_excluded "$HOSTNAME"; then
     node_mark_excluded "$logs" "EXCLUDE_NODES='$EXCLUDE_NODES' in ${SETTINGS_FILE:-<no settings file found>}"
-    ensure_file_owned "$logs/$NOT_COMPUTE_MARKER"
     trace "EXIT: EXCLUDE_NODES='$EXCLUDE_NODES' in ${SETTINGS_FILE:-<no settings file found>} matches $HOSTNAME -- this host is not a compute node, so no jobs are submitted here and the reports leave it out. Neither --test nor --force opens this."
     exit 0
 elif node_self_excluded; then
     node_mark_excluded "$logs" "self-detected: slurmctld is installed here and slurmd is not"
-    ensure_file_owned "$logs/$NOT_COMPUTE_MARKER"
     trace "EXIT: $HOSTNAME runs slurmctld and has no slurmd, so it is a head node and slurm will never schedule a job on it -- no jobs submitted, and the reports leave it out. Name it in EXCLUDE_NODES to say so deliberately; delete $logs/$NOT_COMPUTE_MARKER if this is wrong."
     exit 0
 fi
@@ -342,7 +323,7 @@ fi
 source /etc/profile.d/modules.sh
 module load slurm
 
-## BCM's environment, not a login shell. Without the client tools every check
+## A systemd --user service, not a login shell. Without the client tools every check
 ## below reads as "node not in slurm" and the script exits looking healthy.
 for tool in sinfo squeue scontrol sbatch; do
     command -v "$tool" >/dev/null 2>&1 || {
@@ -374,7 +355,6 @@ inflight="$logs/.in-flight"
 inflight_write() {
     printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" > "$inflight" 2>/dev/null ||
         trace "WARNING: could not write $inflight -- the next cycle will not know this job is out, and may submit another on top of it"
-    ensure_file_owned "$inflight"
 }
 inflight_clear() { rm -f "$inflight" 2>/dev/null; }
 inflight_read() {
@@ -450,6 +430,7 @@ if setting_enabled "$GET_OUT_OF_THE_WAY"; then
         YIELD_OURS="$JOB_NAME_BENCH $JOB_NAME_BURNIN"
         # shellcheck disable=SC2034
         YIELD_USER="$JOB_USER"
+        # shellcheck disable=SC2034
         YIELD_STAMP="$logs/.yield-check"
         # shellcheck disable=SC2034
         YIELD_DRY_RUN="$EXPLAIN"
@@ -468,7 +449,6 @@ yield_job() {
     YIELD_TRACE=""
     [[ "$yield_ready" -eq 1 ]] || return 1
     yield_to_waiter "$1" "$HOSTNAME" && rc=0
-    ensure_file_owned "$YIELD_STAMP"
     [[ "$rc" -eq 0 ]] && return 0
     case "$YIELD_RESULT" in
         no-waiter)      YIELD_TRACE="nobody else is queued for $HOSTNAME" ;;
@@ -544,13 +524,13 @@ recover_slurm_drains() {
         ## every job's environment. Repeated: it covers one assignment.
         # shellcheck disable=SC2034
         RECOVER_ACCEPT="machine"
+        # shellcheck disable=SC2034
         RECOVER_LOG="$logs/recover.log"
         # shellcheck disable=SC2034
         RECOVER_DRY_RUN="$EXPLAIN"
         source "$home/slurm-recovery.sh"
         if slurm_recover_node "$HOSTNAME"; then
             [[ "$EXPLAIN" -eq 1 ]] || { NODE_INFO=""; NODE_ASKED=0; node_info; }
-            ensure_file_owned "$RECOVER_LOG"
             trace "state after recovery=$(printf '%s' "$state" | tr '\n' ',')"
         fi
     else
@@ -727,7 +707,7 @@ drain_node() {
     esac
     trace "DRAIN: $reason"
     [[ "$EXPLAIN" -eq 1 ]] && return 0
-    scontrol update nodename="$HOSTNAME" state=DRAIN reason="$reason"
+    scontrol_update nodename="$HOSTNAME" state=DRAIN reason="$reason"
 }
 
 ## Clear only our own drain — the marker is what makes this safe.
@@ -737,7 +717,7 @@ resume_node() {
     [[ "$current" == *"$DRAIN_MARKER"* ]] || return 0
     trace "RESUME: clearing own drain ($current)"
     [[ "$EXPLAIN" -eq 1 ]] && return 0
-    scontrol update nodename="$HOSTNAME" state=RESUME
+    scontrol_update nodename="$HOSTNAME" state=RESUME
 }
 
 ## The job that outran MAX_JOB_HOURS in the in-flight gate above. Drained here
@@ -1170,23 +1150,21 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
     [[ "$launch" == *.sh ]] && { queued_ours; pre_ids="$QUEUED_OURS"; }
 
     if [[ "$EXPLAIN" -eq 1 ]]; then
-        trace "WOULD SUBMIT $job run $r$([[ -f "$file" ]] && printf ' (existing %s result kept as .%s<N>.txt)' "$VERDICT_STATUS" "$kind"): $([[ "$EUID" -eq 0 ]] && printf 'su - %s -c ' "$JOB_USER")\"$submit\""
+        trace "WOULD SUBMIT $job run $r$([[ -f "$file" ]] && printf ' (existing %s result kept as .%s<N>.txt)' "$VERDICT_STATUS" "$kind"): \"$submit\""
         return 1
     fi
 
     archive_result "$file" "$kind"
 
+    ## The cycle is already $JOB_USER's, so there is nothing to drop to.
     ## stderr is merged and kept: every way this fails looks identical from
-    ## outside, and sbatch's own diagnosis is what tells them apart. Only how we
-    ## arrive at $JOB_USER differs. See docs/how-to/run-a-job-by-hand.md.
-    if [[ "$EUID" -eq 0 ]]; then
-        out=$(su - "$JOB_USER" -c "$submit" 2>&1); rc=$?
-    elif [[ "$(id -un)" == "$JOB_USER" ]]; then
-        out=$(bash -lc "$submit" 2>&1); rc=$?
-    else
-        trace "SUBMIT FAILED $job run $r: running as $(id -un), which is neither root nor $JOB_USER -- 'su - $JOB_USER' would ask for a password. Run as root or as $JOB_USER."
+    ## outside, and sbatch's own diagnosis is what tells them apart.
+    ## See docs/how-to/run-a-job-by-hand.md.
+    if [[ "$(id -un)" != "$JOB_USER" ]]; then
+        trace "SUBMIT FAILED $job run $r: running as $(id -un), and a job is submitted as $JOB_USER -- the result file, the container paths and every queue gate on this node belong to that account. The 'su - $JOB_USER -c' that root's cycles used went with the BCM triggers; run the agent, or this script, as $JOB_USER."
         return 1
     fi
+    out=$(bash -lc "$submit" 2>&1); rc=$?
 
     if [[ "$launch" == *.sh ]]; then
         ## The id of what this launcher just submitted, by difference against

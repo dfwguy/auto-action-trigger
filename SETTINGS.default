@@ -64,6 +64,7 @@ PAUSE_JOBS=no
 PAUSE_HEALTH_CHECKS=no
 PAUSE_CONTAINER_COPY=no
 PAUSE_RECOVERY=no
+PAUSE_ARMING=no
 
 ## ── Drains ────────────────────────────────────────────────────────────────
 DRAIN_AFTER_FAILED_HEALTH_CHECK=no
@@ -100,6 +101,20 @@ MAX_JOB_HOURS=7
 DRAIN_WINDOW_MINUTES=15
 INFLIGHT_GRACE_MINUTES=30
 DRAIN_MARKER="auto-retry"
+
+## ── The agent and the watchdog ────────────────────────────────────────────
+## Minutes. See docs/explanation/the-agent-and-the-watchdog.md.
+AGENT_INTERVAL_MINUTES=2
+SUPERVISOR_INTERVAL_MINUTES=2
+HEARTBEAT_STALE_MINUTES=10
+ARM_RETRY_MINUTES=10
+ARM_MAX_ATTEMPTS=3
+ARM_WINDOW_HOURS=24
+
+## ── Privilege ─────────────────────────────────────────────────────────────
+## sudo, or direct where JOB_USER has Slurm AdminLevel=Operator.
+## See docs/explanation/running-unprivileged.md#draining-without-root.
+PRIV_SCONTROL=sudo
 
 ## ── Getting out of the way (experimental) ─────────────────────────────────
 ## Cancels this node's own running job when somebody else is queued for the

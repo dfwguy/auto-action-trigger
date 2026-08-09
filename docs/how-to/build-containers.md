@@ -245,8 +245,8 @@ srun --nodes=1 --nodelist=<node> --exclusive --gpus-per-node=4 \
 ```
 
 If that resolves and runs, the job will too. If `/tmp/containers/` is empty on
-the node, the rsync has not run yet — `actions/file_copy.sh` fires on the BCM
-monitoring cycle, or run it by hand.
+the node, the rsync has not run yet — `actions/file_copy.sh` runs on every agent
+cycle, or run it by hand.
 
 Check `results/<node>/<job>.txt` after the first real run — the last line is
 `DONE` or `FAIL`.

@@ -10,10 +10,10 @@ choosing a benchmark list for a delivery methodology — and points at the how-t
 guide for each at the end. Follow it in order; each step is checkable before you
 go on.
 
-**You will need:** a BCM cluster with Slurm, `cmsh` admin access, the `cmods`
-user on the head node and every compute node, and one compute node you are
-willing to test. Budget about an hour, most of it waiting for an image to
-download.
+**You will need:** a Slurm cluster, root on the nodes for one `sudoers` file,
+the `cmods` user on the head node and every compute node with passwordless ssh
+between them, and one compute node you are willing to test. Budget about an
+hour, most of it waiting for an image to download.
 
 ## 1. Get the tree onto the cluster
 
@@ -30,12 +30,12 @@ Check it landed with its permissions intact — the exec bits are load-bearing,
 and they are easy to lose in transit:
 
 ```bash
-ls -l actions/launch_job.sh
+ls -l agent/node-agent.sh actions/launch_job.sh
 ```
 
-You want `-rwxr-xr-x`. If it is `-rw-r--r--`, `chmod 755` the three scripts in
-`actions/`; BCM registers a non-executable action happily and then silently runs
-nothing.
+You want `-rwxr-xr-x` on both. If either is `-rw-r--r--`, `chmod 755` the
+scripts in `agent/` and `actions/`; a systemd unit pointed at a non-executable
+file starts happily and runs nothing.
 
 ## 2. Make your own SETTINGS
 
@@ -94,7 +94,7 @@ choice matters more than it looks:
 bash health-check.sh --refresh <your-node>
 ```
 
-Wait for one BCM monitoring cycle (about a minute), then:
+Wait for one agent cycle (about a minute), then:
 
 ```bash
 ls logs/<your-node>/
@@ -102,28 +102,50 @@ bash set-valid-default.sh <your-node>
 ```
 
 You should see around 38 files, one per check, and `valid-config/default` should
-now be a symlink. If `logs/<your-node>/` is empty, the triggers are not
-registered yet — that is the next step, so carry on and come back.
+now be a symlink. If `logs/<your-node>/` is empty, nothing is armed yet — that is
+the next step, so carry on and come back.
 
-## 6. Register the triggers
+## 6. Grant the sudo rule, and arm the head node
+
+Seven of the health checks read `dmesg`, one reads `dmidecode`, three walk PCIe
+config space, and the drains use `scontrol update`. None of that works from an
+unprivileged cycle without a rule. As root, on every node:
 
 ```bash
-bash pre-post/create-action-trigger.sh
+visudo -c -f agent/sudoers.default             # check the syntax and the paths
+install -m 0440 agent/sudoers.default /etc/sudoers.d/50-bringup
 ```
 
-This registers three BCM actions and three triggers. It reports `ok:` or
-`FAILED:` per object and exits non-zero if any failed — read that output rather
-than the exit status alone.
+Check the paths inside it against this cluster first — a rule naming a `scontrol`
+that is not where yours lives is a rule that never matches. A missing rule does
+not make a check fail; it makes it produce *different* output, which reads as bad
+hardware. `node_health.sh` refuses to run at all rather than allow that. See
+[explanation/running-unprivileged.md](../explanation/running-unprivileged.md).
 
-It is safe to re-run: each object is removed before it is added. Removals are
-silent on a first run because there is nothing to remove.
+Then, as `cmods` on the head node:
+
+```bash
+bash agent/install-agent.sh
+```
+
+It works out that this host is the head node, enables lingering, installs
+`bringup-supervisor.timer` and starts it. It reports `ok:` or `FAILED:` per step
+and exits non-zero if any failed — read that output rather than the exit status
+alone. Safe to re-run.
+
+Nothing has to be installed on the compute nodes: the watchdog arms every idle
+or drained node itself, within `HEARTBEAT_STALE_MINUTES`. Watch it happen:
+
+```bash
+tail -f results/supervisor.log
+```
 
 ## 7. Watch the first job go out
 
 Do not wait for the hourly cadence. Ask the node what it would do:
 
 ```bash
-pdsh -R ssh -w <your-node> '/home/cmods/bringup/actions/launch_job.sh --explain'
+pdsh -R ssh -w <your-node> '/home/cmods/bringup/agent/node-agent.sh --explain'
 ```
 
 `--explain` prints every gate it evaluates and the `sbatch` command it would

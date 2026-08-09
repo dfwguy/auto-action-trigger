@@ -8,18 +8,22 @@ pieces fit together this way is
 
 ```
 .
-├── pre-post/
-│   ├── create-action-trigger.sh   # Register actions and triggers in BCM
-│   └── delete-action-trigger.sh   # Remove actions and triggers from BCM
+├── agent/
+│   ├── node-agent.sh              # One cycle on one node: heartbeat, busy gate, the three steps
+│   ├── supervisor.sh              # Head node: arm any idle/drained node whose heartbeat is stale
+│   ├── install-agent.sh           # Enable lingering, install the units, start the timer
+│   ├── uninstall-agent.sh         # Stop and remove them
+│   ├── sudoers.default            # Shipped reference for /etc/sudoers.d/50-bringup
+│   └── units/                     # systemd --user service and timer, @BRINGUP_HOME@ substituted at install
 │
 ├── actions/
 │   ├── node_health.sh             # Hardware/software health checks → Slurm node state
 │   ├── launch_job.sh              # Benchmark sequencer → Slurm job submissions
-│   ├── file_copy.sh               # Rsync containers to /tmp on each node (silent no-op if none)
-│   └── valid-node-check.sh        # BCM health-check script (first-run-since-boot PASS/FAIL)
+│   └── file_copy.sh               # Rsync containers to /tmp on each node (silent no-op if none)
 │
 ├── SETTINGS.default               # Shipped configuration; copy to SETTINGS to change anything
 ├── settings.sh                    # Loads SETTINGS, else SETTINGS.default; backfills unset keys
+├── priv.sh                        # The one place a command needing root is run from a cycle that is not
 ├── reason-map.sh                  # Slurm drain reason → check names (health-check.sh)
 ├── report-format.sh               # Node-list compression, wrapping and elision (health-check.sh, overall_report.sh)
 ├── health-scan.sh                 # The health verdict from logs/ against the baseline (health-check.sh, overall_report.sh)
@@ -84,7 +88,7 @@ pieces fit together this way is
 ├── status-check.sh                # Live per-node benchmark status (all nodes)
 ├── daily-report.sh                # Per-node table: slurm state, status, performance metrics
 ├── overall_report.sh              # Everything without a pass, with everything known about it
-├── trigger-debug.sh               # Walk the BCM → sbatch chain and name the broken link
+├── trigger-debug.sh               # Walk the watchdog → sbatch chain and name the broken link
 ├── trigger-log.sh                 # Read what the chain wrote: trigger.log and health.log
 └── watch-rack.sh                  # Watch a nodelist for DOWN/drained nodes
 ```
@@ -93,22 +97,23 @@ pieces fit together this way is
 
 The tree is deployed at `$BRINGUP_HOME`, which defaults to
 `/home/$JOB_USER/bringup` — so `/home/cmods/bringup/` as shipped. Every script
-resolves its own location, the three BCM actions included: BCM invokes them by
-absolute path with no working directory to infer one from, but that path is
-inside the tree, so `${BASH_SOURCE[0]}` finds it. Deploying elsewhere means
-changing `JOB_USER` (or `BRINGUP_HOME`) in `SETTINGS` and nothing else.
+resolves its own location, the agent and its three steps included: the systemd
+unit names them by absolute path with no working directory to infer one from,
+but that path is inside the tree, so `${BASH_SOURCE[0]}` finds it. Deploying
+elsewhere means changing `JOB_USER` (or `BRINGUP_HOME`) in `SETTINGS` and
+nothing else.
 
-The actions cannot read `BRINGUP_HOME` to find themselves, because that setting
-lives in the file they are trying to locate. `LAUNCH_JOB_HOME`, `NODE_HEALTH_HOME`
-and `FILE_COPY_HOME` override the derivation; only the test suites set them.
+They cannot read `BRINGUP_HOME` to find themselves, because that setting lives
+in the file they are trying to locate. `AGENT_HOME`, `LAUNCH_JOB_HOME`,
+`NODE_HEALTH_HOME` and `FILE_COPY_HOME` override the derivation; only the test
+suites set them.
 
-`pre-post/create-action-trigger.sh` is the exception to "resolves its own
-location": it reads `BRINGUP_HOME` and registers *that* path with BCM, not the
-path it was run from. Registering its own location would be wrong — run from a
-git checkout it would point every node at a directory that exists only on the
-head node, and the actions would fail on every node at once with no local
-symptom. Because of that indirection it also preflights the deployed scripts,
-not the checked-out ones.
+`agent/install-agent.sh` is the one place a path is written into something
+outside the tree: it substitutes its own location for `@BRINGUP_HOME@` in the
+unit files it copies into `~/.config/systemd/user/`. That is correct because it
+runs *on* the host being armed, out of the deployed tree — but it is also why
+running it from a git checkout arms that checkout, and why it warns when its own
+location and `BRINGUP_HOME` disagree.
 
 | Path | Purpose |
 |------|---------|
@@ -117,6 +122,11 @@ not the checked-out ones.
 | `$BRINGUP_HOME/logs/<node>/refresh` | Present when a re-check has been asked for ahead of the cadence. Set by `health-check.sh --refresh`, consumed by the next cycle |
 | `$BRINGUP_HOME/valid-config/default/` | Symlink to the reference baseline node |
 | `$BRINGUP_HOME/results/<node>/` | Per-node benchmark result files |
+| `$BRINGUP_HOME/results/<node>/.heartbeat` | Touched at the top of every agent cycle, before any gate. Empty; only its mtime is read. See [explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means](../explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means) |
+| `$BRINGUP_HOME/results/<node>/agent.log` | Per-cycle trace from `node-agent.sh`: the busy gate, the lock, which steps ran |
+| `$BRINGUP_HOME/results/<node>/arm.log` | One line per arming attempt by the watchdog, and what came back. Tab separated: epoch, output. The attempt history `ARM_MAX_ATTEMPTS` is counted from |
+| `$BRINGUP_HOME/results/.supervisor-heartbeat` | Touched at the top of every watchdog cycle. Doubles as the clock every heartbeat age is measured against — see [explanation/the-agent-and-the-watchdog.md#whose-clock-decides](../explanation/the-agent-and-the-watchdog.md#whose-clock-decides) |
+| `$BRINGUP_HOME/results/supervisor.log` | One line per watchdog cycle, including the ones that armed nothing |
 | `$BRINGUP_HOME/results/<node>/trigger.log` | Per-cycle decision trace from `launch_job.sh` |
 | `$BRINGUP_HOME/results/<node>/health.log` | Per-cycle decision trace from `node_health.sh` |
 | `$BRINGUP_HOME/results/<node>/quick-view.txt` | One line per benchmark: `DONE` / `QUEUED` |
@@ -135,21 +145,28 @@ Clearing `results/` is safe at any time:
 mv results results.$(date +%F)     # or: rm -rf results
 ```
 
-The sequencer runs as root on each node (BCM actions do), so root is what
-recreates `results/` and `results/<node>` on the next monitoring cycle — but the
-benchmarks are submitted as `cmods`, and `sbatch --output` writes as that user.
-A root-owned result directory means `sbatch` returns a job id, Slurm schedules
-the job, and it dies at startup with nowhere to write: the node returns to idle
-with no result file, no `FAIL`, and no archive, which is indistinguishable from
-never having been tested.
+The cycle runs as `$JOB_USER` on each node, and the benchmarks are submitted as
+that account too, so `results/` and `results/<node>` are recreated by the same
+user that `sbatch --output` writes as. A cleared tree comes back correctly owned
+on the next cycle and needs nothing done to it.
 
-`launch_job.sh` therefore re-checks ownership of both directories on every cycle
-and hands them back to `cmods`, so a cleared tree repairs itself. To fix an
-existing tree immediately rather than waiting for a cycle:
+That was not always true. While the cycle was root's — under the BCM triggers —
+a root-owned result directory meant `sbatch` returned a job id, Slurm scheduled
+the job, and it died at startup with nowhere to write: the node returned to idle
+with no result file, no `FAIL`, and no archive, which is indistinguishable from
+never having been tested. `launch_job.sh` repaired the ownership every cycle to
+prevent it.
+
+**Nothing repairs it now**, because nothing has the privilege to. A tree with
+root-owned directories left over from those years has to be handed over once,
+as root:
 
 ```bash
-chown -R cmods:cmods /home/cmods/bringup/results
+sudo chown -R cmods:cmods /home/cmods/bringup/results /home/cmods/bringup/logs
 ```
+
+`trigger-debug.sh` section 6-7 names the directories that need it. The cycle
+warns rather than failing silently when it finds one it cannot write.
 
 ## Executable bits
 
@@ -161,10 +178,11 @@ enforces it. The whole tree at once:
 git ls-files -s | awk '{print $1, $4}' | sort
 ```
 
-The short version: entry points a human or BCM invokes directly are `755`;
-sourced libraries, `.sbatch` files, health checks and host launchers are `644`,
-because each is run as `bash <file>` or read by `sbatch` rather than executed.
-A `644` action registers with BCM fine and silently runs nothing.
+The short version: entry points a human or a systemd unit invokes directly are
+`755`; sourced libraries, unit files, `.sbatch` files, health checks and host
+launchers are `644`, because each is run as `bash <file>`, read by `sbatch`, or
+read by systemd rather than executed. A `644` agent script installs happily and
+then never runs, which is why `install-agent.sh` preflights the bit.
 
 ## Slurm permissions
 
@@ -193,7 +211,8 @@ changes are limited to `root` and the `SlurmUser`.
 and it is the last gate before a change reaches a cluster; there is no staging
 deployment behind it. Nothing in the pipeline talks to Slurm, BCM or a GPU — the
 suites stub those on `PATH` — so a job that needs cluster access does not belong
-there, because it could only be faked.
+there, because it could only be faked. `systemd`, `loginctl` and `sudo` are
+stubbed the same way.
 
 The `lint` stage runs `shellcheck -f gcc -S warning` over every tracked `*.sh`
 and `*.sbatch`, `bash -n` over the same set, the `permissions` job, and

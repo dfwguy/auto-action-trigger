@@ -4,7 +4,7 @@
 #
 # Saves each node's kernel ring buffer into the tree, and optionally clears it
 # and resumes the node. For the one drain the recovery cannot argue its way out
-# of: a node whose dmesg has filled with call traces fails BCM's pre-job `dmesg`
+# of: a node whose dmesg has filled with call traces fails the pre-job `dmesg`
 # check on every job, so it drains, resumes, drains again, and spends its
 # attempt cap discovering that. Clearing the buffer is what breaks the loop.
 #

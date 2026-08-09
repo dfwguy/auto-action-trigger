@@ -1,5 +1,5 @@
 #!/bin/bash
-# BCM finalize script and health check runner: run this site's checks in numeric
+# The health check runner, run by the node agent: this site's checks in numeric
 # order, write each one's output to logs/<node>/<check>, diff that against
 # valid-config/default/<check>, and drain this node with the names that differ.
 # Checks live in health-checks/$HEALTHCHECKS/NN-<check>.sh -- a platform is a
@@ -17,7 +17,7 @@
 # that file, so its exact text -- including the leading '#' count -- is
 # load-bearing: change one and every node fails against every older baseline.
 #
-# Fires on every BCM monitoring cycle and re-checks on a cadence, tracing every
+# Runs on every agent cycle and re-checks on a cadence, tracing every
 # gate to results/<node>/health.log. See docs/explanation/health-cadence.md.
 
 ## Located from this file, not a literal path. See docs/reference/layout.md#runtime-paths.
@@ -31,6 +31,7 @@ if [[ ! -f "$home/settings.sh" ]]; then
     exit 1
 fi
 source "$home/settings.sh"
+source "$home/priv.sh"
 
 ## ── Flags ─────────────────────────────────────────────────────────────────
 ##
@@ -54,7 +55,7 @@ of nodes, name them where they can be reached:
 
   pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '$home/actions/node_health.sh -f -v'
 
-With no arguments -- how BCM invokes it -- the checks re-run once every
+With no arguments -- how the node agent invokes it -- the checks re-run once every
 HEALTH_INTERVAL_HOURS, or sooner if the last run found something.
 USAGE
 }
@@ -111,10 +112,6 @@ trace() {
     [[ "$EXPLAIN" -eq 1 || "$VERBOSE" -eq 1 ]] && printf '%s\n' "$*"
     return 0
 }
-own_file() {
-    [[ -e "$1" && "$EUID" -eq 0 ]] || return 0
-    [[ "$(stat -c %U "$1" 2>/dev/null)" == "$JOB_USER" ]] || chown "$JOB_USER:$JOB_USER" "$1" 2>/dev/null
-}
 if [[ -f "$tracelog" ]] && [[ "$(stat -c %s "$tracelog" 2>/dev/null || echo 0)" -gt 1000000 ]]; then
     tail -2000 "$tracelog" > "$tracelog.tmp" && mv "$tracelog.tmp" "$tracelog"
 fi
@@ -165,6 +162,18 @@ fi
 
 if [[ ! -d "$HEALTHCHECKS_DIR" ]]; then
     trace "EXIT: no health check set at $HEALTHCHECKS_DIR (HEALTHCHECKS=$HEALTHCHECKS, from ${SETTINGS_FILE:-<none>}) -- nothing to run, and a node with no checks would otherwise read as healthy."
+    exit 1
+fi
+
+## ── The checks that need root ─────────────────────────────────────────────
+##
+## Discovered from the check files, so a new one needing a rule is preflighted
+## without editing this script. A refused sudo changes a check's output rather
+## than failing it, which is why this is fatal.
+## See docs/explanation/running-unprivileged.md#a-lost-rule-must-stop-the-run.
+mapfile -t priv_cmds < <(grep -hoE 'sudo -n [a-z0-9_.-]+' "$HEALTHCHECKS_DIR"/[0-9]*.sh 2>/dev/null | awk '{print $3}' | sort -u)
+if [[ "${#priv_cmds[@]}" -gt 0 ]] && ! priv_ready "${priv_cmds[@]}"; then
+    trace "EXIT: sudo as $(id -un) would refuse: $PRIV_MISSING -- the checks needing them would report something other than what the baseline was captured from, so nothing was run and nothing was judged. Install agent/sudoers.default as /etc/sudoers.d/50-bringup."
     exit 1
 fi
 
@@ -254,7 +263,7 @@ for check_file in "$HEALTHCHECKS_DIR"/[0-9]*.sh; do
     reason_detail=$(check_meta "$check_file" reason-detail)
 
     ## stderr is deliberately uncaptured: a tool's own complaint belongs in the
-    ## BCM action output, not in the file being diffed against the baseline.
+    ## agent's output, not in the file being diffed against the baseline.
     out=$(bash "$check_file" 2>/dev/null)
 
     printf '%s\n' "$banner" > "$node_health/$check"
@@ -283,9 +292,6 @@ done
 ## See docs/explanation/health-cadence.md#the-stamp-file.
 flat_reason=$(echo "${reason}" | tr $'\n' ' ' | sed 's/  */ /g')
 printf '%s\t%s\n' "$(date +%s)" "$([[ -n "$reason" ]] && echo failed || echo clean)" > "$stamp"
-
-chown -R "$JOB_USER:$JOB_USER" $node_health
-own_file "$tracelog"
 
 if [[ -n "$reason" ]]; then
     trace "differs from $valid_health:$flat_reason"
@@ -318,17 +324,20 @@ if command -v /cm/local/apps/slurm/current/bin/scontrol >/dev/null 2>&1; then
       trace "PAUSE_RECOVERY=${PAUSE_RECOVERY} in ${SETTINGS_FILE:-<none>} -- ${node_name} passed every check but its drain is left where it is"
     elif [[ -f "$home/slurm-recovery.sh" ]]; then
       recover_log() { trace "$@"; }
+      ## SC2034: read by slurm-recovery.sh, sourced below, which shellcheck
+      ## cannot see from here. Repeated: it covers one assignment.
+      # shellcheck disable=SC2034
       RECOVER_ACCEPT="machine health"
+      # shellcheck disable=SC2034
       RECOVER_LOG="$home/results/${node_name}/recover.log"
       source "$home/slurm-recovery.sh"
       slurm_recover_node "${node_name}"
-      [[ -f "$RECOVER_LOG" ]] && chown "$JOB_USER:$JOB_USER" "$RECOVER_LOG" 2>/dev/null
     else
       trace "WARNING: $home/slurm-recovery.sh is missing -- ${node_name} passed every check but no drain was cleared. Stale deployment?"
     fi
   else
     trace "DOWN: ${node_name} --$flat_reason"
-    scontrol update NodeName="${node_name}" State=DOWN Reason="$flat_reason"
+    scontrol_update NodeName="${node_name}" State=DOWN Reason="$flat_reason"
   fi
 else
   trace "WARNING: scontrol not found; unable to update ${node_name} in Slurm."

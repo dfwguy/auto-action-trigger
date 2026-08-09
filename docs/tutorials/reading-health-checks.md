@@ -317,7 +317,7 @@ new to show. All it does is set a sentinel in `logs/<node>/`.
 
 ### Step 2 — wait for it to actually run
 
-The node picks the sentinel up on its next monitoring cycle. Confirm it did
+The node picks the sentinel up on its next agent cycle. Confirm it did
 rather than assuming:
 
 ```bash

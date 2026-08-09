@@ -133,7 +133,7 @@ anything on the nodes.
 
 Once for the whole fleet, never once per node. A per-node `sinfo` or `squeue` on
 576 nodes is 576 round trips to a controller that is also scheduling the sweep,
-and the report is meant to be safe to run while the triggers are live:
+and the report is meant to be safe to run while the timers are live:
 
 | Call | Answers |
 |---|---|

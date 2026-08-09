@@ -162,7 +162,7 @@ if [[ "$refresh" -eq 1 ]]; then
                     echo "ERROR: cannot write $logs_dir/$node/refresh as $(id -un) -- $node will re-check on its own cadence instead." >&2
                 fi
             else
-                echo "No health log for $node in $logs_dir — it will run fresh on its next monitoring cycle"
+                echo "No health log for $node in $logs_dir — it will run fresh on its next agent cycle"
             fi
         done < <(scontrol show hostnames "$arg" 2>/dev/null || echo "$arg")
     done
@@ -191,7 +191,7 @@ if [[ "$explain" -eq 1 ]]; then
             epoch=""; outcome=""
         fi
         if [[ ! "$epoch" =~ ^[0-9]+$ ]]; then
-            printf '%-28s %-20s %-8s %s\n' "$node" '(never)' '-' 'next monitoring cycle'
+            printf '%-28s %-20s %-8s %s\n' "$node" '(never)' '-' 'next agent cycle'
             continue
         fi
         hours="$HEALTH_INTERVAL_HOURS"

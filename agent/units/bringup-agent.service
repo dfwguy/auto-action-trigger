@@ -1,0 +1,9 @@
+[Unit]
+Description=Bring-up node agent: one cycle of container copy, health checks and benchmark sequencing
+Documentation=file://@BRINGUP_HOME@/docs/explanation/the-agent-and-the-watchdog.md
+
+[Service]
+Type=oneshot
+ExecStart=@BRINGUP_HOME@/agent/node-agent.sh --quiet
+# A wedged cycle must not hold the flock for ever; see the doc above.
+TimeoutStartSec=600

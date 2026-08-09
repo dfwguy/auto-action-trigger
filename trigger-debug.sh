@@ -1,20 +1,24 @@
 #!/bin/bash
 #
-# Usage: trigger-debug.sh [node-pattern]
+# Usage: trigger-debug.sh [node-pattern] [--ask-nodes]
 #
-# Walks the BCM -> sbatch chain and names the broken link. Read-only. Run
-# trigger-log.sh first: fresh traces mean every link is intact by definition.
+# Walks the watchdog -> agent -> sbatch chain and names the broken link.
+# Read-only. Run trigger-log.sh first: fresh traces mean every link is intact by
+# definition.
 # See docs/how-to/diagnose-nothing-running.md#2-if-the-traces-are-stale-walk-the-chain.
 #
-#   pattern  node filter, same rules as status-check.sh: bare string matches
-#            by prefix, globs honored as written. Per-node sections only.
+#   pattern     node filter, same rules as status-check.sh: bare string matches
+#               by prefix, globs honored as written. Per-node sections only.
+#   --ask-nodes pdsh the matching nodes for their timer and sudo state. Off by
+#               default: links 1-2 are answered from NFS, and this is a shell
+#               on every node.
 #
 # The links, which the section headers below number against:
 #
-#   1. action registered in BCM      5. script decides to submit
-#   2. trigger registered + enabled  6. sbatch accepts the job
-#   3. trigger has the action bound  7. slurm can write the result
-#   4. script exists on the node
+#   1. the watchdog is cycling       5. script decides to submit
+#   2. the node's heartbeat is fresh 6. sbatch accepts the job
+#   3. linger and timer on the node  7. slurm can write the result
+#   4. sudo rules on the node
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 results_dir="$home/results"
@@ -23,15 +27,19 @@ results_dir="$home/results"
 ## arrives in one place. Nothing is faked: such a tree cannot run anyway.
 [[ -f "$home/settings.sh" ]] && source "$home/settings.sh"
 
-pattern="$1"
+ASK_NODES=0
+pattern=""
+for arg in "$@"; do
+    case "$arg" in
+        --ask-nodes) ASK_NODES=1 ;;
+        *)           pattern="$arg" ;;
+    esac
+done
 if [[ -z "$pattern" ]]; then
     pattern='*'
 elif [[ "$pattern" != *[\*\?\[]* ]]; then
     pattern="${pattern}*"
 fi
-
-ACTIONS="node_health_action file_copy_action launch_job_action"
-TRIGGERS="NodeHealthTrigger:node_health_action FileCopyTrigger:file_copy_action LaunchJobTrigger:launch_job_action"
 
 problems=0
 paused=""
@@ -44,7 +52,7 @@ hdr "0. Deployed layout"
 ##############################################################################
 
 ## Upstream of every link: a stale tree passes links 1-7 without complaint,
-## because BCM fires and the scripts exist -- they just look for paths that
+## because the timers fire and the scripts exist -- they just look for paths that
 ## moved when the job/check/parser sets became SETTINGS-chosen directories.
 ## See docs/reference/settings.md#which-set-of-things-to-run.
 if [[ -z "$SETTINGS_FILE" && ! -f "$home/settings.sh" ]]; then
@@ -59,7 +67,8 @@ else
     for spec in "PAUSE_JOBS:benchmarks:$PAUSE_JOBS" \
                 "PAUSE_HEALTH_CHECKS:health checks:$PAUSE_HEALTH_CHECKS" \
                 "PAUSE_CONTAINER_COPY:container copy:$PAUSE_CONTAINER_COPY" \
-                "PAUSE_RECOVERY:drain recoveries:$PAUSE_RECOVERY"; do
+                "PAUSE_RECOVERY:drain recoveries:$PAUSE_RECOVERY" \
+                "PAUSE_ARMING:node arming:$PAUSE_ARMING"; do
         var="${spec%%:*}"; rest="${spec#*:}"; what="${rest%%:*}"; val="${rest#*:}"
         if setting_enabled "$val"; then
             printf '  ** %s=%s -- %s are paused; this is why nothing is running\n' "$var" "$val" "$what"
@@ -163,79 +172,122 @@ else
 fi
 
 ##############################################################################
-hdr "1-3. BCM actions and triggers"
+hdr "1. The watchdog"
 ##############################################################################
 
-if ! command -v cmsh >/dev/null 2>&1; then
-    note "cmsh not on PATH -- skipping BCM checks (run this on the head node)"
-else
-    action_list=$(cmsh -c "monitoring action; list" 2>&1)
-    for a in $ACTIONS; do
-        if grep -qw "$a" <<<"$action_list"; then
-            script=$(cmsh -c "monitoring action; use $a; get script" 2>&1 | tr -d '\r')
-            note "action $a -> $script"
-            [[ -f "$script" ]] || bad "  script does not exist on the head node: $script"
-            [[ -x "$script" ]] || bad "  script is not executable: $script"
-        else
-            bad "action $a is NOT registered -- run pre-post/create-action-trigger.sh"
-        fi
-    done
+## Read from NFS, not from systemd: the reports run on the head node, whoever is
+## logged in, and `systemctl --user` cannot be asked about another account.
+## The watchdog's own heartbeat is the fact that survives that.
+## See docs/explanation/the-agent-and-the-watchdog.md#whose-clock-decides.
+own_beat="$results_dir/.supervisor-heartbeat"
+sup_log="$results_dir/supervisor.log"
+stale_min="${HEARTBEAT_STALE_MINUTES:-10}"
 
-    trigger_list=$(cmsh -c "monitoring trigger; list" 2>&1)
-    for spec in $TRIGGERS; do
-        t="${spec%%:*}"; want="${spec##*:}"
-        if ! grep -qw "$t" <<<"$trigger_list"; then
-            bad "trigger $t is NOT registered -- run pre-post/create-action-trigger.sh"
-            continue
-        fi
-        ## `get <property>`, never `show` + awk: show's padding and property
-        ## names drift between BCM releases, and parsing it silently yields ""
-        ## -- which reads as "disabled, nothing bound" on a healthy trigger.
-        disabled=$(cmsh -c "monitoring trigger; use $t; get disabled" 2>&1 | tr -d '[:space:]')
-        during=$(cmsh -c "monitoring trigger; use $t; get duringactions" 2>&1 | tr -d '\r')
-        note "trigger $t: disabled=${disabled:-?} duringactions=${during:-<none>}"
-        [[ "$disabled" == "no" ]] || bad "  $t is disabled -- it will never fire"
-        ## The failure create-action-trigger.sh calls out by name: the object
-        ## exists and looks healthy, fires every cycle, and runs nothing.
-        grep -q "$want" <<<"$during" || bad "  $t has no '$want' bound -- fires but runs nothing"
-    done
+if [[ ! -f "$own_beat" ]]; then
+    bad "no $own_beat -- the watchdog has never run here. 'bash $home/agent/install-agent.sh' as $JOB_USER on the head node"
+else
+    beat_age=$(( $(date +%s) - $(stat -c %Y "$own_beat" 2>/dev/null || echo 0) ))
+    if [[ "$beat_age" -gt $(( ${SUPERVISOR_INTERVAL_MINUTES:-2} * 60 * 3 )) ]]; then
+        bad "the watchdog last cycled ${beat_age}s ago, well past its ${SUPERVISOR_INTERVAL_MINUTES:-2}m interval -- nothing is arming nodes"
+        note "  systemctl --user status bringup-supervisor.timer   (as $JOB_USER on the head node)"
+    else
+        note "the watchdog cycled ${beat_age}s ago"
+    fi
+    [[ -f "$sup_log" ]] && note "last said: $(tail -1 "$sup_log")"
 fi
 
+for f in agent/supervisor.sh agent/node-agent.sh agent/install-agent.sh \
+         agent/units/bringup-agent.service agent/units/bringup-agent.timer; do
+    [[ -f "$home/$f" ]] || bad "$home/$f is missing -- this tree predates the agent, or the drop was partial"
+done
+
 ##############################################################################
-hdr "4. Node reachability and script presence"
+hdr "2. Node heartbeats"
 ##############################################################################
 
-## A node in down* is not running slurmd: the trigger may still fire there, but
-## nothing will ever be scheduled onto it. Separated out so that population
-## does not get blamed on the trigger.
+## The one question the whole design turns on, and it costs a stat per node.
+## A node whose heartbeat is stale is not running its timer; a node with no
+## heartbeat at all has never been armed.
+shopt -s nullglob
+## $pattern is a glob by construction and must stay unquoted; quoting looks for
+## a directory literally named '*'. Pathname expansion, not word splitting.
+# shellcheck disable=SC2206
+beat_dirs=("$results_dir"/$pattern/)
+now_epoch=$(date +%s)
+fresh=0; stale=(); never=()
+for node_dir in "${beat_dirs[@]}"; do
+    node=$(basename "$node_dir")
+    if declare -F node_out_of_reporting >/dev/null &&
+       node_out_of_reporting "$results_dir" "$node"; then
+        continue
+    fi
+    if [[ ! -f "$node_dir/.heartbeat" ]]; then
+        never+=("$node")
+    elif [[ $(( now_epoch - $(stat -c %Y "$node_dir/.heartbeat" 2>/dev/null || echo 0) )) -ge $(( stale_min * 60 )) ]]; then
+        stale+=("$node")
+    else
+        fresh=$((fresh + 1))
+    fi
+done
+note "$fresh node(s) cycling within ${stale_min}m"
+[[ "${#never[@]}" -gt 0 ]] &&
+    bad "${#never[@]} node dir(s) have never written a heartbeat: $(printf '%s ' "${never[@]:0:8}")${never[8]:+...}"
+[[ "${#stale[@]}" -gt 0 ]] &&
+    bad "${#stale[@]} node(s) stopped writing one: $(printf '%s ' "${stale[@]:0:8}")${stale[8]:+...}"
+[[ "${#stale[@]}" -gt 0 || "${#never[@]}" -gt 0 ]] &&
+    note "  the watchdog arms these itself, up to ${ARM_MAX_ATTEMPTS:-3} times per ${ARM_WINDOW_HOURS:-24}h -- results/<node>/arm.log says what it heard back"
+
+## What the watchdog itself reads. Only idle and drained are armed, so a fleet
+## sitting in down* explains a silent heartbeat without anything being broken.
+## See docs/explanation/the-agent-and-the-watchdog.md#which-states-are-armed.
 if command -v sinfo >/dev/null 2>&1; then
     while read -r state count; do
         [[ -z "$state" ]] && continue
         case "$state" in
-            *'*') bad "$count nodes in '$state' -- slurmd not responding; the trigger cannot help these" ;;
-            idle) note "$count nodes idle -- these SHOULD be picking up work" ;;
-            *)    note "$count nodes in '$state'" ;;
+            *'*') bad "$count node(s) in '$state' -- slurmd not answering; the watchdog does not arm these" ;;
+            idle) note "$count node(s) idle -- these SHOULD be picking up work" ;;
+            *)    note "$count node(s) in '$state'" ;;
         esac
     done < <(sinfo -h -o '%T %D' | sort -k2 -rn)
 else
-    note "sinfo not on PATH -- skipping slurm state summary"
+    note "sinfo not on PATH -- skipping the slurm state summary"
+fi
+
+##############################################################################
+hdr "3-4. Linger, timer and sudo on the nodes"
+##############################################################################
+
+## Off unless asked for: this is a shell on every matching node, and links 1-2
+## have already answered the same question from NFS for free.
+if [[ "$ASK_NODES" -eq 0 ]]; then
+    note "not asked (--ask-nodes runs it). One node by hand:"
+    note "  pdsh -R ssh -w <node> 'loginctl show-user $JOB_USER -p Linger --value; XDG_RUNTIME_DIR=/run/user/\$(id -u) systemctl --user is-active bringup-agent.timer'"
+elif ! command -v pdsh >/dev/null 2>&1; then
+    bad "pdsh is not on PATH -- --ask-nodes cannot reach the nodes"
+else
+    ask=("${stale[@]}" "${never[@]}")
+    [[ "${#ask[@]}" -eq 0 ]] && ask=("${beat_dirs[@]##*/}")
+    joined=$(IFS=,; printf '%s' "${ask[*]}")
+    if [[ -z "$joined" ]]; then
+        note "no nodes to ask"
+    else
+        pdsh -R ssh -w "$joined" "loginctl show-user $JOB_USER -p Linger --value; \
+            XDG_RUNTIME_DIR=/run/user/\$(id -u) systemctl --user is-active bringup-agent.timer; \
+            sudo -n -l >/dev/null 2>&1 && echo sudo-ok || echo sudo-REFUSED" 2>&1 |
+            sed 's/^/  /'
+    fi
 fi
 
 ##############################################################################
 hdr "5. What the script decided, per node"
 ##############################################################################
 
-## No trigger.log at all means the script is not being run on that node --
-## which points back at links 1-4, not at slurm.
-shopt -s nullglob
-## $pattern is a glob by construction and must stay unquoted; quoting looks for
-## a directory literally named '*'. Pathname expansion, not word splitting, so
-## mapfile/read -a do not apply.
-# shellcheck disable=SC2206
-nodes=("$results_dir"/$pattern/)
+## No trigger.log at all means the sequencer is not being run on that node --
+## which points back at links 1-4, not at slurm. The same list section 2 walked.
+nodes=("${beat_dirs[@]}")
 if [[ "${#nodes[@]}" -eq 0 ]]; then
-    bad "no node directories under $results_dir match '${1:-*}'"
-    note "if you just cleared results/, this is expected until the trigger fires again"
+    bad "no node directories under $results_dir match '${pattern}'"
+    note "if you just cleared results/, this is expected until the next cycle"
 else
     silent=0
     skipped=0
@@ -255,17 +307,17 @@ else
         fi
     done
     [[ "$skipped" -gt 0 ]] && note "$skipped host(s) skipped as not compute nodes -- 'trigger-log.sh --include-excluded' reads them"
-    [[ "$silent" -gt 0 ]] && bad "$silent node dir(s) have no trigger.log -- script is not running there"
+    [[ "$silent" -gt 0 ]] && bad "$silent node dir(s) have no trigger.log -- the sequencer is not running there"
 fi
 
 ##############################################################################
 hdr "6-7. Ownership of the result path"
 ##############################################################################
 
-## A root-owned result directory kills the job at startup with no symptom of
-## its own; see docs/reference/layout.md#result-path-ownership. launch_job.sh repairs
-## it every cycle, so finding one here means no cycle has run since the tree
-## was created, or the script is not reaching this node -- check section 5.
+## A root-owned result directory kills the job at startup with no symptom of its
+## own; see docs/reference/layout.md#result-path-ownership. Nothing repairs it
+## now that no cycle runs as root -- one left over from the years that did has to
+## be handed over by hand, once.
 if [[ -d "$results_dir" ]]; then
     owner=$(stat -c '%U %a' "$results_dir")
     note "results/ owned by $owner"
@@ -279,7 +331,7 @@ if [[ -d "$results_dir" ]]; then
     done < <(find "$results_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
     if [[ "$rootowned" -gt 0 ]]; then
         bad "$rootowned node dir(s) not owned by $JOB_USER -- jobs there cannot write results"
-        note "these self-heal on the next monitoring cycle; to fix now:"
+        note "nothing repairs these on its own; once, as root:"
         note "  chown -R $JOB_USER:$JOB_USER $results_dir"
     fi
 else
@@ -299,11 +351,13 @@ fi
     echo "  Paused by settings:$paused -- set them to no in ${SETTINGS_FILE##*/} to resume."
 cat <<EOF
 
-Next step -- ask one node directly, without waiting for a monitoring cycle:
+Next step -- ask one node directly, without waiting for its timer:
 
-  pdsh -R ssh -w <node> '$BRINGUP_HOME/actions/launch_job.sh --explain'
+  pdsh -R ssh -w <node> '$BRINGUP_HOME/agent/node-agent.sh --explain'
 
-That prints every gate the script evaluates and the sbatch commands it would
-run, as a dry run: it submits nothing, drains nothing, and archives nothing,
-so it is safe while the trigger is live.
+That prints every gate the agent and the three steps under it evaluate, as a dry
+run: it submits nothing, drains nothing, and archives nothing, so it is safe
+while the timer is live. To arm a node that has gone silent:
+
+  pdsh -R ssh -w <node> '$BRINGUP_HOME/agent/install-agent.sh'
 EOF

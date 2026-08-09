@@ -1,0 +1,11 @@
+[Unit]
+Description=Fire the bring-up watchdog every @INTERVAL@ minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=@INTERVAL@min
+AccuracySec=10s
+Unit=bringup-supervisor.service
+
+[Install]
+WantedBy=timers.target

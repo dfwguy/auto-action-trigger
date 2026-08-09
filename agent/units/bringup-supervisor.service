@@ -1,0 +1,9 @@
+[Unit]
+Description=Bring-up watchdog: arm the node agent wherever its heartbeat has gone stale
+Documentation=file://@BRINGUP_HOME@/docs/explanation/the-agent-and-the-watchdog.md
+
+[Service]
+Type=oneshot
+ExecStart=@BRINGUP_HOME@/agent/supervisor.sh --quiet
+# One pdsh across the fleet, plus its ssh timeouts.
+TimeoutStartSec=900

@@ -1,7 +1,9 @@
 # How the sequencer decides
 
-`actions/launch_job.sh` fires on every BCM monitoring cycle, on every node, and
-decides one thing: whether to put a job on this node right now. This page is why
+`actions/launch_job.sh` is the last of the three steps `agent/node-agent.sh`
+runs, on every node, every couple of minutes, and it decides one thing: whether
+to put a job on this node right now. It is reached only on a node with no job
+running on it -- see [the busy gate](#the-busy-gate). This page is why
 it decides the way it does. The flags are in
 [how-to/run-a-job-by-hand.md](../how-to/run-a-job-by-hand.md), the trace lines in
 [reference/trace-lines.md](../reference/trace-lines.md), and the settings in
@@ -11,6 +13,48 @@ Retry state is derived entirely from files already on disk: the newest result
 file's mtime is when the last sweep ran, and the archived `.fail<N>.txt` files
 are the attempt history. There is no state file to keep in sync.
 
+## The busy gate
+
+Nothing in this file runs on a node that has a job on it. `node-agent.sh` asks
+`scontrol listjobs` at the top of every cycle, and any id at all — one of ours
+or a neighbour's — ends the cycle with a single line:
+
+```
+BUSY: job(s) 130938 running here -- no copy, no health check, no submission
+```
+
+No container copy, no health checks, no submission, no drain recovery. The
+heartbeat is still written, because the node is working perfectly well; see
+[the-agent-and-the-watchdog.md#what-the-heartbeat-means](the-agent-and-the-watchdog.md#what-the-heartbeat-means).
+
+The reasoning is that a node running a benchmark is a node whose measurements
+are the point, and every one of those three steps is capable of perturbing them.
+An rsync of a multi-gigabyte image competes for the same NFS mount and the same
+page cache as the job. The health checks read `dmesg`, walk PCIe config space
+and shell out to `nvidia-smi` thirty-eight times. Neither is large, and neither
+has any business happening in the middle of a bandwidth measurement that a floor
+in `SETTINGS` is about to judge to a percent.
+
+It is also the simplest possible rule, and that is worth something on its own: a
+cycle either did nothing and said so, or it did everything. There is no state in
+which half the steps ran.
+
+Two behaviours depended on running *alongside* a job of ours, and had to be
+dealt with rather than quietly lost:
+
+- **`MAX_JOB_HOURS`** drains a node whose own job has been running too long.
+  That decision is now the watchdog's: `results/<node>/.in-flight` carries the
+  submit epoch, the head node can read it over NFS, and one `squeue` confirms
+  the job is still `RUNNING` before the drain. Same reason text, same absence of
+  a `DRAIN_MARKER`, decided from the head node. See
+  [when a node is drained](#when-a-node-is-drained).
+- **`GET_OUT_OF_THE_WAY`** cancels a running job of ours when somebody else is
+  queued for the node — which is exactly the cycle the busy gate now ends. It is
+  unreachable from the timer, and reachable only from a hand-run of
+  `launch_job.sh`. Rather than leave a switch that silently does nothing, a busy
+  cycle with it set writes a second line saying so. See
+  [getting out of the way](#getting-out-of-the-way).
+
 ## One job at a time
 
 A node has at most one job of ours out at any moment, and the record of it is a
@@ -19,8 +63,8 @@ number, total runs, submit epoch.
 
 That file exists so the question "has this node got work out" can be answered
 without asking slurmctld. It used to be answered with `squeue -n bringup-<node>`
-and `squeue -n burnin-<node>`, every node, every monitoring cycle. BCM fires the
-trigger about once a minute, so across 200 nodes that is on the order of a
+and `squeue -n burnin-<node>`, every node, every cycle. The cycle comes round
+about once a minute, so across 200 nodes that is on the order of a
 thousand client invocations a minute — and `squeue -n <name>` pulls the **whole**
 job table from slurmctld and filters it client-side, so the cost climbs with
 both the fleet and the queue depth. Submitting one job instead of eight cuts the
@@ -228,14 +272,14 @@ The default state filter is pending and running, which is exactly the question
 being asked, so no `-t` is passed.
 
 This is the third call on an advance cycle, after `scontrol show node` and
-before `sbatch` — and it is per job, not per monitoring cycle. A node with a job
+before `sbatch` — and it is per job, not per cycle. A node with a job
 running still costs nothing.
 
 ## The fleet-wide cap
 
 Every gate described above is per node, and that is the gap `MAX_QUEUED_JOBS`
 closes. One node submits one job at a time; two hundred nodes submit two hundred
-jobs, within a couple of monitoring cycles of the sequencer being enabled, and
+jobs, within a couple of cycles of the sequencer being enabled, and
 nothing in the design noticed. The controller does — over a thousand of our jobs
 is enough to peg `slurmctld`, which is single-threaded for scheduling and does
 not shed load gracefully. It goes quiet instead, and a quiet controller is the
@@ -274,7 +318,7 @@ Three consequences worth being explicit about:
   alternative is a fleet-wide lock, and a lock on NFS that can be held by a node
   that reboots is a worse failure than a cap that is occasionally off by one.
 - **A blocked node asks every cycle.** It stays eligible rather than becoming
-  busy, so it reaches the `squeue` call once per monitoring cycle instead of
+  busy, so it reaches the `squeue` call once per cycle instead of
   once per job. That is the one way the cap *adds* controller traffic, and it
   is much the cheaper half of the trade: a query costs the controller far less
   than the job it prevents, and the count scales with blocked nodes, not with
@@ -333,7 +377,7 @@ the queries that then come back empty and get believed.
 ## A host that is not a compute node
 
 The head node runs the framework and is not a target of it. But it is a host
-with a hostname, BCM will happily run an action there, and nothing about
+with a hostname, an agent armed there will happily cycle, and nothing about
 `launch_job.sh` knew that: it created `results/<headnode>/`, wrote a trigger log,
 surveyed the benchmark list and reported a full row of `NOT_RUN` for ever. Every
 gate it passed, it passed correctly. There was simply no gate for *this host is
@@ -390,7 +434,7 @@ older than `RETRY_INTERVAL_HOURS`. There is no node-wide gate any more.
 
 This is what lets one-at-a-time stay fast. Eight different benchmarks are each
 eligible the moment the node is free, so the sweep advances as quickly as jobs
-finish — one BCM cycle of idle between them, not one hour. Meanwhile no single
+finish — one agent cycle of idle between them, not one hour. Meanwhile no single
 job can re-run inside the hour, which is the property the node-wide gate existed
 to provide. A node failing everything still submits eight jobs an hour, exactly
 as before.
@@ -578,8 +622,8 @@ own tool provides — for `llmb-run` that was `--nodelist` and `--slurm-arg`. Se
 [llmb.md#pinning-the-submission](llmb.md#pinning-the-submission).
 
 `LLMB_INSTALL` goes through the same allowlist as `JOB_ENV`, and for the same
-reason: the submission is a string run by `su - $JOB_USER -c`, so an
-unvalidated `SETTINGS` value would run as root on every node. See
+reason: the submission is a string handed to a shell, so an unvalidated
+`SETTINGS` value runs on every node as whatever the cycle is. See
 [reference/settings.md#what-is-rejected](../reference/settings.md#what-is-rejected).
 
 Success is **not** taken from the launcher's exit status. A tool can exit `0`
@@ -594,7 +638,7 @@ status and output when it did not.
 `totalRuns` is read out of the job file with `grep` — first line that mentions
 it, everything right of the `=`, whitespace stripped. A job file is a script,
 and sourcing one here would run its body in the sequencer's own shell, as root,
-on every node on every monitoring cycle. A value that is not a positive integer
+on every node on every cycle. A value that is not a positive integer
 falls back to `1` rather than to nothing, so a typo costs coverage rather than
 the whole job. The `job_launch=host` marker above is read the same way, for the
 same reason.
@@ -608,8 +652,8 @@ cannot pend a job that has nothing to submit.
 
 ## Retry and drain behaviour
 
-The script fires on every BCM monitoring cycle, so the hourly cadence needs no
-cron and no second trigger — just a time gate.
+The script runs on every agent cycle, so the hourly cadence needs no cron and no
+second timer — just a time gate.
 
 ### When a marker goes stale
 
@@ -690,7 +734,7 @@ Drains fire only on failures that **just happened** — results newer than
 `DRAIN_WINDOW_MINUTES` (default 15). Stale result files never trigger a drain,
 so a node you resume by hand is not immediately pulled back out of service; it
 takes a fresh retry sweep failing again. Without that window, `launch_job.sh`
-would re-drain from stale result files on every monitoring cycle.
+would re-drain from stale result files on every cycle.
 
 The drain reason carries an `auto-retry` marker, and only drains carrying that
 marker are ever cleared. A node drained by an operator is never auto-resumed,
@@ -723,6 +767,14 @@ That reason carries no marker, so a stuck job stops the retry loop and waits for
 a human. Only a `RUNNING` job is measured against that limit — a batch queued
 behind a dead node reads `0:00` for as long as it waits, and draining the node
 for "timeout" would only bury the real reason it is unusable.
+
+**That one is issued by the watchdog**, not by the node: the node's own cycle
+stops at [the busy gate](#the-busy-gate) while the job it would be measuring is
+still running. `agent/supervisor.sh` reads the submit epoch out of every
+`results/<node>/.in-flight`, asks `squeue` about the ids already past the limit
+in one call, and drains the nodes whose job is still `RUNNING`. The gate in
+`launch_job.sh` stays, because a hand-run still reaches it and it is the same
+decision from the same marker.
 
 ### Drains Slurm set itself
 
@@ -799,11 +851,11 @@ minute or never starts at all, and the reason is the whole difference.
 
 ## What a pause is for
 
-The four pause switches stop the framework *doing* things without unregistering
-it from BCM. The triggers keep firing and each action still runs — it reads its
-switch, does nothing, and says so. That is deliberate: an unregistered trigger
-looks exactly like a broken one, and the state is only visible from `cmsh`. A
-pause leaves a trace line on every node saying it is paused, and
+The pause switches stop the framework *doing* things without disarming it. The
+timers keep firing and each step still runs — it reads its switch, does nothing,
+and says so. That is deliberate: a disabled timer looks exactly like a broken
+one, and the state is only visible from the node. A pause leaves a trace line on
+every node saying it is paused, and
 `trigger-debug.sh` reports it in section 0 before it walks any of the links.
 
 Nothing is lost across a pause. Results stay on disk, the sweep resumes from
@@ -904,6 +956,13 @@ running holds the node until it ends, and backfill has nothing to say about a
 job it has already placed. A 25-minute `allreduce` is nothing to wait for; a
 seven-hour `mnubergemm` under somebody's deadline is, and the operator-facing
 symptom is a job stuck behind `bringup-<node>` with no obvious owner.
+
+**It is currently unreachable on a cadence.** The switch predates the busy gate,
+which ends the cycle before `launch_job.sh` runs on exactly the node this would
+act on — so it fires only when an operator runs `launch_job.sh` by hand. The
+node says so once per busy cycle rather than leaving the setting looking live,
+and the checks, the library and `tests/yield-test.sh` all stay in the tree for
+a watchdog-side implementation. See [the busy gate](#the-busy-gate).
 
 With the switch on, a node that is running one of our jobs checks whether
 anybody else is queued for it, and cancels **its own** job if so. The sweep
@@ -1037,25 +1096,19 @@ as a failed cancel and traces. The wrong outcome here is silence, not noise.
 foreign name: the job then passes every check the caller controls, and must
 still not be cancelled.
 
-### The cancel drops to JOB_USER
+### The cancel runs as the cycle
 
-`launch_job.sh` runs as root under BCM, and root's `scancel` will cancel
-anything on the cluster. So the cancel is handed to `JOB_USER` the same way the
-submission is — `su - "$JOB_USER" -c`, as at the submit — and Slurm's own
-ownership check sits underneath ours. It is not the load-bearing gate, because
-`JOB_USER` owns the neighbouring work too; it is there so that the failure mode
-of a bug in this file is a refusal rather than a fleet-wide cancel.
+`launch_job.sh` used to run as root, and root's `scancel` will cancel anything
+on the cluster, so the cancel was handed down with `su - "$JOB_USER" -c`. The
+cycle is that account now, so the `scancel` runs directly and Slurm's own
+ownership check sits underneath ours by default rather than by an explicit drop.
+It is not the load-bearing gate, because `JOB_USER` owns the neighbouring work
+too; it is there so that the failure mode of a bug in this file is a refusal
+rather than a fleet-wide cancel. See
+[running-unprivileged.md#the-cancel-runs-as-the-cycle](running-unprivileged.md#the-cancel-runs-as-the-cycle).
 
-`su` rather than `sudo`: it is what the submit already uses, so there is no
-configuration in which submitting works and cancelling silently does not, and
-`sudo` is a package that a stripped node image can be missing. The login shell
-matters as well — it is what puts the Slurm client tools on `PATH`, for the same
-reason the submit sources `/etc/profile.d/modules.sh` before `sbatch`. See
-[how-to/run-slurm-commands-remotely.md](../how-to/run-slurm-commands-remotely.md).
-
-When the script is not root the cancel runs directly, which is correct for a
-hand-run as `JOB_USER` and refused by Slurm for anybody else. Nothing prompts
-for a password: a `su` that could block is never reached inside a monitoring
+Nothing prompts for a password, and nothing can: there is no privilege to
+acquire on this path, and a `su` that could block is never reached inside a
 cycle.
 
 A node with no marker never yields — an untracked job of ours is left to finish,
@@ -1120,10 +1173,12 @@ silent — a `SETTINGS` line that did nothing looked exactly like one that worke
 
 ## What a submission carries
 
-The submission is built as one string and handed to a shell as `JOB_USER`:
-`su - $JOB_USER -c` when the cycle is root's, `bash -lc` when an operator is
-already `cmods`. It loads the `slurm` module, makes `results/<node>` if it is
-missing, and submits:
+The submission is built as one string and handed to `bash -lc`, because the
+cycle is already `$JOB_USER` and there is nothing to drop to. The login shell is
+what puts the Slurm client tools on `PATH` — see
+[how-to/run-slurm-commands-remotely.md](../how-to/run-slurm-commands-remotely.md).
+It loads the `slurm` module, makes `results/<node>` if it is missing, and
+submits:
 
 ```
 sbatch -w $HOSTNAME -J <bringup|burnin>-<node> \
@@ -1136,7 +1191,7 @@ It runs from Slurm's spool copy, so `${BASH_SOURCE[0]}` names a file in
 `/var/spool/slurmd` rather than anywhere in the tree, and there is no `SETTINGS`
 to read from there. Every one of them goes through the same allowlist as
 `JOB_ENV` — see [What is rejected](../reference/settings.md#what-is-rejected) —
-because the whole string is run by `su - $JOB_USER -c` from a root cycle.
+because the whole string is run by a shell.
 
 The job files spell these `${CONTAINER_DIR:?…}` rather than giving them a
 default. A default would have to be a literal path, which is the thing that
@@ -1161,13 +1216,13 @@ it. This script decides only *what* to submit.
 successful or not. A bad partition, an unknown node name, an account limit and
 `su` failing for `cmods` all land there, and all of them look identical from
 outside — no job, no result file, no complaint. That diagnosis used to go to
-BCM's action output, which nothing reads. The trace line for a successful
+the BCM action output, which nothing read. The trace line for a successful
 submission also records the `JOB_ENV` that went with it, because "what was this
 run given" has to be answerable weeks later, when `SETTINGS` says whatever it
 says then.
 
-The module load matters at the top of the cycle too: BCM runs the trigger with
-its own environment rather than a login shell, and without the Slurm client
+The module load matters at the top of the cycle too: a systemd --user service
+has its own environment rather than a login shell's, and without the Slurm client
 tools every check below reads as "node not in slurm" and the script exits
 looking perfectly healthy. So a missing `sinfo`, `squeue`, `sbatch` or
 `scontrol` is traced as an `EXIT:` with the `PATH` it searched.

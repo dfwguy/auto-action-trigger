@@ -1,12 +1,12 @@
 # Run a job by hand
 
-BCM passes `actions/launch_job.sh` no arguments, so everything here is only ever
-an operator's. Why each gate answers the way it does is in
+`node-agent.sh` passes `actions/launch_job.sh` no arguments, so everything here
+is only ever an operator's. Why each gate answers the way it does is in
 [explanation/sequencing.md](../explanation/sequencing.md).
 
 | Flag | Effect |
 |------|--------|
-| `--explain`, `-n` | Dry run. Prints every gate and the `sbatch` commands it would issue; submits, drains, resumes and archives nothing. Safe while the trigger is live |
+| `--explain`, `-n` | Dry run. Prints every gate and the `sbatch` commands it would issue; submits, drains, resumes and archives nothing. Safe while the timer is live |
 | `--force`, `-f` | Ignore the hourly gate and sweep now. Queues exactly what the next open cycle would have queued: everything without a passing result |
 | `--all`, `-a` | Also re-queue jobs that *are* passing, sweeping the node from scratch. Implies `--force` |
 | `--test JOB`, `-t` | Run `JOB` instead of the configured lists, whether or not `BENCHMARKS` names it. Repeatable. Implies `--force` and `--all`. See [below](#running-a-job-that-is-not-in-the-list) |
@@ -14,7 +14,7 @@ an operator's. Why each gate answers the way it does is in
 
 ## Sweeping a set of nodes
 
-Every decision the script makes is about `$HOSTNAME`, because the trigger fires
+Every decision the script makes is about `$HOSTNAME`, because the agent runs
 on the node it is deciding about. There is no node argument: sweeping a set of
 nodes is a `pdsh`, and `-v` is worth adding there because stdout across `pdsh`
 is a pipe rather than a terminal, so the trace would otherwise only reach each
@@ -107,7 +107,7 @@ trace:
 
 The batch is submitted under the ordinary `bringup-<node>` job name, so a test
 in flight is counted, cancelled and waited on exactly like any other benchmark,
-and the next BCM cycle does not submit on top of it.
+and the next agent cycle does not submit on top of it.
 
 The result lands at `results/<node>/<job>.txt` like any other, which is what
 lets `status-check.sh -t <job>` and `verdict.sh` judge it. Two consequences:
@@ -142,7 +142,7 @@ pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/node_hea
 |---|---|
 | `--explain`, `-n` | print every gate, run no check, drain nothing |
 | `--force`, `-f` | ignore the cadence gate and run the checks now |
-| `--verbose`, `-v` | mirror the trace to stdout — the default on a tty, off under BCM and `pdsh` |
+| `--verbose`, `-v` | mirror the trace to stdout — the default on a tty, off under the agent and `pdsh` |
 | `--quiet`, `-q` | never mirror it |
 
 `--force` opens the cadence gate and nothing else. `PAUSE_HEALTH_CHECKS`, the
@@ -150,7 +150,7 @@ not-a-compute-node gate and the baseline-is-this-node refusal all still apply,
 for the same reason `--force` does not open `PAUSE_JOBS` above: they are site
 switches and safety gates, not timing.
 
-From the head node, and where you do not want to wait for a monitoring cycle to
+From the head node, and where you do not want to wait for a agent cycle to
 reach the node, ask for the re-check instead of running it:
 
 ```bash

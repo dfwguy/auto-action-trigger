@@ -134,8 +134,9 @@ is:
 
 | Mode | What | Why |
 |------|------|-----|
-| `755` | Entry points — anything a human or BCM invokes directly | Must be `exec`able. BCM registers an action against a path and runs it; a `644` action registers fine and silently runs nothing |
-| `644` | Sourced libraries: `settings.sh`, `reason-map.sh`, `slurm-recovery.sh`, `get-out-of-the-way.sh`, `verdict-scan.sh`, `report-format.sh`, `health-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is also *run*, but as `bash verdict-scan.sh` from its own `xargs`, like the health checks below |
+| `755` | Entry points — anything a human or a systemd unit invokes directly, `agent/*.sh` included | Must be `exec`able. The unit names a path and runs it; a `644` agent script installs fine and silently runs nothing, which is why `install-agent.sh` preflights the bit |
+| `644` | Sourced libraries: `settings.sh`, `priv.sh`, `reason-map.sh`, `slurm-recovery.sh`, `get-out-of-the-way.sh`, `verdict-scan.sh`, `report-format.sh`, `health-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is also *run*, but as `bash verdict-scan.sh` from its own `xargs`, like the health checks below |
+| `644` | `agent/units/*.service`, `agent/units/*.timer`, `agent/sudoers.default` | Read, never run. `install-agent.sh` copies the units with `@BRINGUP_HOME@` and `@INTERVAL@` substituted; the sudoers file is a reference the site installs itself, at `0440` |
 | `644` | `llmb_check.py` | `build_llmb.sh` runs it as `python3 llmb_check.py`, like the health checks below |
 | `644` | `health-checks/*/NN-*.sh` | `node_health.sh` runs each as `bash "$check_file"` — deliberately, so one check's `exit 1` cannot truncate the set of 38 |
 | `644` | `jobs/*/*.sbatch`, including `example.sbatch` | `sbatch` reads them; it does not exec them. `example.sbatch` is a template that gets `cp`'d, so a stray `755` propagates into every new job |
@@ -180,6 +181,9 @@ Most cycles legitimately have nothing to do, so "nothing happened" cannot be
 distinguished from "the chain is broken" by looking at the cluster. The design
 answer is that every gate writes down why it stopped:
 
+- `node-agent.sh` touches `results/<node>/.heartbeat` before every gate — it
+  says the timer fired, never that the cycle did work — and appends one line per
+  cycle to `results/<node>/agent.log`.
 - `launch_job.sh` appends one line per cycle to `results/<node>/trigger.log`.
 - `trigger-log.sh` reads those traces — run it **first**. Fresh traces mean the
   chain is intact by definition and a gate is closed, and the gate named itself.
@@ -189,11 +193,13 @@ answer is that every gate writes down why it stopped:
 New gates get a trace line. An `exit 0` with no explanation is a bug even when
 the behaviour is correct.
 
-`cmsh` is a specific offender here: it exits `0` even when a `set` inside the
-`-c` string was rejected, reporting the problem on stdout and committing
-anyway. Never trust its exit status — inspect its output, as `cm_run` does.
-Read trigger state with `get <property>`, not by parsing `show`, whose column
-padding and property names drift between BCM releases.
+Nothing in the tree drives `cmsh` any more — the chain is a `systemd --user`
+timer per node and a watchdog on the head node, and BCM is not in it. When you
+reach for `cmsh` by hand, two things still hold: it exits `0` even when a `set`
+inside the `-c` string was rejected, reporting the problem on stdout and
+committing anyway, so never trust its exit status; and read state with
+`get <property>`, not by parsing `show`, whose column padding and property names
+drift between BCM releases.
 
 ## A verdict is derived, and the cache does not change that
 
@@ -223,6 +229,9 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/health-scan-test.sh    # the health verdict, if you touched health-scan.sh
 ./tests/health-report-test.sh  # the buckets and --drained, if you touched health-check.sh
 ./tests/job-user-test.sh      # the two-account differential, if you touched JOB_USER, a path derived from it, or CONTAINER_DIR
+./tests/agent-test.sh          # the heartbeat, the busy gate and the lock, if you touched node-agent.sh
+./tests/supervisor-test.sh     # which nodes get armed, if you touched supervisor.sh
+./tests/priv-test.sh           # the sudo layer, if you touched priv.sh or a check that needs root
 ./tests/doc-links-test.sh      # every docs/ anchor the code points at, if you moved or retitled one
 bash -n <changed script>       # these scripts run as root on 200+ nodes
 shellcheck -S warning <changed script>   # CI gates on this; see below
@@ -244,6 +253,23 @@ tree — it changes the environment every sourcing script and Slurm job runs in.
 
 Keep the tree listing in `docs/explanation/architecture.md` in step with the files — it has
 drifted twice by adding a top-level script and not listing it.
+
+## Privilege is asked for, never held
+
+No cycle runs as root. The agent is `$JOB_USER` under that account's
+`systemd --user`, and the few commands that need more go through `priv()` in
+`priv.sh` — `sudo -n <absolute path>`, against a rule the site installs from
+`agent/sudoers.default`. A health check that needs root says `sudo -n` inline,
+because those files are read and run on their own.
+
+The failure this guards against is not a check that fails; it is a check that
+**succeeds differently**. A refused `sudo` prints to stderr, which the runner
+discards, and produces empty stdout — so the check writes a file the baseline
+does not match, and the node is reported as bad hardware. So `node_health.sh`
+preflights every `sudo -n <cmd>` it finds in the check set and refuses to run at
+all when one would be denied. Read
+`docs/explanation/running-unprivileged.md#a-lost-rule-must-stop-the-run` before
+changing any of it.
 
 ## Some scripts print their own header as `--help`
 

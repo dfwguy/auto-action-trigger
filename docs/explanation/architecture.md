@@ -1,28 +1,43 @@
 # How the pieces fit together
 
-Three BCM monitoring triggers fire while a node's device status is `UP`
-(`duringactions`), so each one re-evaluates on every monitoring cycle without
-manual intervention. Every gate in every script can end a cycle with a plain
-`exit 0` — most cycles have nothing to do.
+A `systemd --user` timer on every node runs one agent every two minutes, as
+`$JOB_USER` and never as root. A second timer on the head node watches the
+heartbeat each node writes to the shared tree and arms any node that has stopped
+writing one. Every gate in every script can end a cycle with a plain `exit 0` —
+most cycles have nothing to do.
 
 ```
-Node boots → BCM device status = UP
-    ├── NodeHealthTrigger → node_health.sh
-    │       Compares hardware/software state against a known-good baseline, on a
-    │       cadence rather than once. Sets node IDLE (all checks pass) or DOWN
-    │       with a reason (any fail). See explanation/health-cadence.md.
-    │
-    ├── FileCopyTrigger → file_copy.sh
-    │       Rsyncs containers/ to /tmp/containers/ so job start reads the image
-    │       off local disk. Silent no-op if there is nothing to copy.
-    │
-    └── LaunchJobTrigger → launch_job.sh
-            Sequences through benchmarks (dcgmi-r1 → dcgmi-r3 → allreduce).
-            Submits the next Slurm job when the node is idle and the prior run passed.
-            Drains the node if a benchmark fails or runs too long.
+head node                          every node under test
+─────────────────────────          ────────────────────────────────────────────
+bringup-supervisor.timer           bringup-agent.timer  → agent/node-agent.sh
+  → agent/supervisor.sh                 │
+      sinfo: idle or drained            ├── touch results/<node>/.heartbeat
+      stat:  heartbeat stale?           ├── any job on this node? → say so, stop
+      pdsh:  install-agent.sh           │
+                                        ├── file_copy.sh
+                                        │     Rsyncs containers/ to /tmp/containers/ so job
+                                        │     start reads the image off local disk.
+                                        │
+                                        ├── node_health.sh
+                                        │     Compares hardware/software state against a
+                                        │     known-good baseline, on a cadence rather than
+                                        │     once. Sets the node IDLE (all checks pass) or
+                                        │     DOWN with a reason (any fail).
+                                        │     See explanation/health-cadence.md.
+                                        │
+                                        └── launch_job.sh
+                                              Sequences through benchmarks (dcgmi-r1 →
+                                              dcgmi-r3 → allreduce). Submits the next Slurm
+                                              job when the node is idle and the prior run
+                                              passed. Drains the node if a benchmark fails.
 ```
 
-The files are listed in [reference/layout.md](../reference/layout.md).
+Why the pieces are shaped that way — what a heartbeat means, which node states
+are armed, why the account lingers — is
+[the-agent-and-the-watchdog.md](the-agent-and-the-watchdog.md). What needs root
+and what no longer does is
+[running-unprivileged.md](running-unprivileged.md). The files are listed in
+[reference/layout.md](../reference/layout.md).
 
 ## Silence is the enemy
 
@@ -32,8 +47,9 @@ has silently stopped testing looks exactly like a node that is quietly idle, and
 neither shows up in `sinfo`.
 
 The design answer is that every gate writes down why it stopped. Each node keeps
-a running trace per action — `results/<node>/trigger.log` for the sequencer and
-`results/<node>/health.log` for the health runner — one line per cycle recording
+a running trace per step — `results/<node>/agent.log` for the cycle itself,
+`results/<node>/trigger.log` for the sequencer and `results/<node>/health.log`
+for the health runner — one line per cycle recording
 what it did or why it stopped. Every line either can write is in
 [reference/trace-lines.md](../reference/trace-lines.md). `trigger-log.sh` reads
 those traces across the cluster; `trigger-debug.sh` walks the configuration
@@ -84,13 +100,15 @@ what the container saw. See
 
 ## One account name
 
-`JOB_USER` is the only place the automation account is written down. The tree
+`JOB_USER` is the only place the automation account is written down. It is now
+also the account every cycle *runs* as, rather than one that root dropped to at
+two points — see [running-unprivileged.md](running-unprivileged.md). The tree
 path and the llmb install derive from it — `/home/$JOB_USER/bringup` and
 `/home/$JOB_USER/llmb` — so a site moving from a shared human account to an
 automation account of its own changes one line in `SETTINGS`.
 
 It did not start that way. The account was a literal in about thirty places:
-the `home=` at the top of each BCM action, the NFS container fallback in every
+the `home=` at the top of each action, the NFS container fallback in every
 `.sbatch`, and — worst, because it was a *comparison* rather than a path — the
 result-ownership check in `trigger-debug.sh`. That one had both failure modes at
 once. The top-level test was a prefix glob, so an account whose name began with
@@ -110,8 +128,9 @@ a name that is hardcoded on both sides.
 Two things deliberately do *not* derive from `JOB_USER`. The container
 directories are their own settings, for the reasons in
 [containers.md#one-share-two-mount-points](containers.md#one-share-two-mount-points).
-And the three BCM actions find the tree from their own path rather than from
-`BRINGUP_HOME`, because they have to load `settings.sh` before they can read it
+And the agent and the three steps under it find the tree from their own path
+rather than from `BRINGUP_HOME`, because they have to load `settings.sh` before
+they can read it
 — see [../reference/layout.md#runtime-paths](../reference/layout.md#runtime-paths).
 
 ## The checkout is not the deployment
@@ -135,56 +154,45 @@ It is also why editing `SETTINGS.default` in place is the wrong move even though
 it works — the next drop replaces that file, and the site's configuration
 silently reverts.
 
-## Registering with BCM
+## Arming a node
 
-`pre-post/create-action-trigger.sh` registers six objects: three monitoring
-actions — `node_health_action`, `file_copy_action`, `launch_job_action` — and
-one trigger apiece, `NodeHealthTrigger`, `FileCopyTrigger` and
-`LaunchJobTrigger`. `pre-post/delete-action-trigger.sh` removes the same six.
+`agent/install-agent.sh` enables lingering for `$JOB_USER`, copies the two unit
+files out of `agent/units/` into `~/.config/systemd/user/` with the tree's path
+and interval substituted in, and starts the timer. It decides for itself whether
+this host is the head node — `slurmctld` installed and `slurmd` not, the same
+test as `node_self_excluded` — and installs the watchdog instead where it is.
+`agent/uninstall-agent.sh` reverses it, leaving lingering and everything under
+`results/` alone.
 
-cmsh has no upsert, so creation removes each object before adding it; that makes
-the script safe to re-run, and it is why the removals are silent — on a first
-run there is nothing to remove. The adds are not silent. A registration that
-fails quietly is how you end up believing a node is being health-checked when it
-is not.
+It is idempotent by design, because the watchdog runs it over `pdsh` on any node
+whose heartbeat has gone stale, without being able to ask first whether it is
+needed. It also preflights: a missing exec bit is restored, a missing script or
+`systemctl` is a refusal, and a missing sudoers rule is a warning rather than a
+refusal — for the reasons in
+[running-unprivileged.md#a-lost-rule-must-stop-the-run](running-unprivileged.md#a-lost-rule-must-stop-the-run).
 
-An action is a path plus execution settings. All three run with `runon node` and
-`nodeenvironment yes`, so BCM executes the script on the node itself, out of the
-NFS-exported tree, with no working directory to infer anything from — hence the
-absolute `BRINGUP_HOME` path described under
-[reference/layout.md#runtime-paths](../reference/layout.md#runtime-paths). The
-timeout is `2m` on all three because `2m` is BCM's hard maximum; anything larger
-is rejected outright. The first sync of a container image is multi-gigabyte over
-NFS and cannot finish inside that, which is why `file_copy.sh` detaches its
-rsync and returns immediately rather than being killed mid-transfer on every
-monitoring cycle.
+`XDG_RUNTIME_DIR` is set explicitly wherever `systemctl --user` is invoked over
+ssh. A non-interactive session does not reliably inherit it, and without it the
+failure reads as a missing unit rather than as a missing environment variable.
 
-Each trigger attaches its action with `duringactions`, which re-fires on every
-monitoring cycle while the device is `UP`. `enteractions` fires only on the
-transition into `UP`, so a node that was already up would never pick up a newly
-built container image until it rebooted.
+## BCM is still there, and is not in the path
 
-Because BCM runs an action by executing the registered path, the exec bit is
-part of the contract: a `644` action registers fine, reports success and
-silently runs nothing. The exec bit is also easy to lose in transit — a tarball
-unpacked through a Windows-mounted path, an `scp` of a single file, an editor
-that rewrites rather than edits. So the script preflights the three action
-scripts, restores the bit where it can, and refuses to register anything while
-one is missing or still not runnable.
+The head node is a BCM head node, `cmsh` is still how node lists, categories and
+device state are read by hand, and nothing here objects to any of that. What
+changed is that no part of this framework depends on it: there are no monitoring
+actions to register, no triggers to bind, and nothing to unregister when the
+framework is paused or removed.
 
-## Driving cmsh
+Two things are worth keeping written down, because they cost real time to learn
+and are still true of any `cmsh` an operator drives by hand.
 
-Two things about `cmsh` shape every script that touches it.
+`cmsh` exits `0` even when an individual `set` inside a `-c` string was rejected.
+It reports the problem on stdout and carries on to the commit, so the exit status
+is useless and the output has to be inspected instead. That produced a trigger
+with no actions attached that reported success: the object exists, so nothing
+looks broken until you notice nothing runs.
 
-It exits `0` even when an individual `set` inside the `-c` string was rejected.
-It reports the problem on stdout and carries on to the commit, so the exit
-status is useless and the output has to be inspected instead — which is what
-`cm_run` in `pre-post/create-action-trigger.sh` does, grepping the combined
-output for the phrasings BCM uses to refuse. Getting this wrong once already
-produced a trigger with no actions attached that still reported success: the
-object exists, so nothing looks broken until you notice nothing runs.
-
-Read trigger state with `get <property>`, never by parsing `show`. The column
-padding and property names in `show` output drift between BCM releases, so a
-parser written against one release quietly matches nothing on the next — the
-same silent-empty-result failure the framework is written against.
+Read state with `get <property>`, never by parsing `show`. The column padding and
+property names in `show` output drift between BCM releases, so a parser written
+against one release quietly matches nothing on the next — the same
+silent-empty-result failure this whole framework is written against.

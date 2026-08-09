@@ -159,7 +159,7 @@ trace:
 tail -20 "results/$N/trigger.log"
 ```
 
-One timestamped line per monitoring cycle. Find the newest line starting `EXIT:`
+One timestamped line per agent cycle. Find the newest line starting `EXIT:`
 — **that is the reason nothing is happening on this node right now.** On a
 healthy node it is almost always the hourly gate:
 

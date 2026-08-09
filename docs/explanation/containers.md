@@ -86,7 +86,7 @@ them as `$JOB_USER`.
 
 `file_copy.sh` uses `rsync -a`, not `-r`. Without `-t` (implied by `-a`) the
 destination mtimes are the copy time, the size+mtime quick check never matches,
-and every monitoring cycle re-transfers the whole directory.
+and every agent cycle re-transfers the whole directory.
 
 ## One share, two mount points
 

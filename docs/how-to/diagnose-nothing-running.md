@@ -5,13 +5,15 @@ sequencer already wrote; `trigger-debug.sh` inspects the configuration that
 should be producing it. Read the record first — it tells you which of the two
 failures you have, and they are indistinguishable from the outside.
 
-Fresh traces settle it on their own. Every gate the sequencer evaluates writes a
-line to `results/<node>/trigger.log` before it stops, so a log written this
-cycle means BCM fired, the action ran and the script reached a decision — the
-chain is intact by definition, and whatever is holding the cluster is a gate
-that has already named itself. There is nothing for `trigger-debug.sh` to find
-in that case; it answers the other one, where the traces are stale, nothing is
-writing them, and the question is which link between BCM and `sbatch` is broken.
+Fresh traces settle it on their own. The agent touches
+`results/<node>/.heartbeat` at the top of every cycle, and every gate the
+sequencer evaluates writes a line to `results/<node>/trigger.log` before it
+stops — so a heartbeat and a log written this cycle mean the timer fired, the
+agent ran and the script reached a decision. The chain is intact by definition,
+and whatever is holding the cluster is a gate that has already named itself.
+There is nothing for `trigger-debug.sh` to find in that case; it answers the
+other one, where the heartbeats have stopped, nothing is writing anything, and
+the question is which link between the timer and `sbatch` is broken.
 
 ## 1. Read the traces
 
@@ -23,12 +25,19 @@ bash trigger-log.sh -w 2                  # only events from the last 2 hours
 bash trigger-log.sh -s 30                 # a log is stale after 30m, not 15m
 ```
 
-It prints five sections:
+It prints six sections:
 
-1. **Is the trigger firing?** — `results/<node>/trigger.log` write times. Every
-   log stale means the sequencer is not being run anywhere, which is a BCM
-   problem; nothing below it can be trusted, because the decisions on screen
-   are whatever was true when it stopped.
+0. **The watchdog and the heartbeats** — whether the head node's watchdog is
+   cycling at all, and which nodes have stopped writing a heartbeat. Upstream of
+   everything else: no watchdog means nothing re-arms a node that stopped, and a
+   stale heartbeat means that node's timer is not firing. Neither has any other
+   symptom. See
+   [explanation/the-agent-and-the-watchdog.md](../explanation/the-agent-and-the-watchdog.md).
+1. **Is the sequencer running?** — `results/<node>/trigger.log` write times.
+   Every log stale means the sequencer is not being run anywhere; nothing below
+   it can be trusted, because the decisions on screen are whatever was true when
+   it stopped. Read with section 0: fresh heartbeats and stale trigger logs is a
+   different fault from both being stale.
 2. **What each node last decided** — the last traced line per node, grouped by
    reason with node names and numbers normalized out, so a fleet collapses to a
    handful of distinct reasons instead of one line per node.
@@ -38,14 +47,14 @@ It prints five sections:
 4. **Failures and warnings** — `SUBMIT FAILED`, `WARNING`, `DRAIN`, missing
    `verdict.sh`, Slurm not on `PATH`, grouped the same way.
 5. **Health-check side** — the same three questions as sections 1 and 2, for the
-   other trigger. Nodes with a `results/<node>` but no `logs/<node>`:
+   other step. Nodes with a `results/<node>` but no `logs/<node>`:
    `node_health.sh` never ran there, so the node never left DOWN and no
    benchmark could be scheduled onto it — a stuck bringup with a perfectly
    healthy sequencer, because the sequencer is not the thing that is stuck.
    Then whether each node's `health.log` is being written at all, and what its
    last cycle decided. A stale `health.log` beside a fresh `trigger.log` is one
-   trigger failing while the other works, which nothing else in this tree can
-   show you.
+   step failing while the other works, which nothing else in this tree can show
+   you.
 
 Read-only, and `-w`/`-s` only widen or narrow what it reports. What each line
 means is [reference/trace-lines.md](../reference/trace-lines.md).
@@ -57,22 +66,39 @@ bash trigger-debug.sh                 # whole cluster
 bash trigger-debug.sh ink50-dh01-h20  # one rack
 ```
 
-Walks the chain from BCM down to `sbatch` and names the broken link: action
-registered, trigger enabled *and* with its action actually bound, script
-present, the last decision each node's sequencer made, and result-path
-ownership. Read-only.
+Walks the chain from the watchdog down to `sbatch` and names the broken link:
+the watchdog is cycling, the node heartbeats, lingering and the timer on the
+node, its sudo rules, the last decision each node's sequencer made, and
+result-path ownership. Read-only.
+
+Links 1 and 2 are answered from NFS and cost nothing. `--ask-nodes` adds 3 and
+4, which are a shell on every node it found stale:
+
+```bash
+bash trigger-debug.sh --ask-nodes
+```
+
+A node whose heartbeat is stale and which the watchdog cannot arm is
+[arm-a-node.md#when-a-node-will-not-stay-armed](arm-a-node.md#when-a-node-will-not-stay-armed).
 
 ## 3. Ask one node directly
 
-Rather than waiting for a monitoring cycle:
+Rather than waiting for an agent cycle:
 
 ```bash
+pdsh -R ssh -w ink50-dh01-h20-11 '/home/cmods/bringup/agent/node-agent.sh --explain'
 pdsh -R ssh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --explain'
 ```
 
-`--explain` prints every gate the sequencer evaluates and the `sbatch` commands
-it would issue, as a dry run — nothing is submitted, drained, or archived, so it
-is safe while the trigger is live, and it reads through a pause.
+The first prints the agent's own gates — the exclusions and the busy gate — and
+then hands the same flag to the steps under it. The second is the sequencer
+alone, and is what to reach for on a node that is *running a job*, where the
+agent stops before reaching it. See
+[explanation/sequencing.md#the-busy-gate](../explanation/sequencing.md#the-busy-gate).
+
+`--explain` prints every gate evaluated and the `sbatch` commands it would
+issue, as a dry run — nothing is submitted, drained, or archived, so it is safe
+while the timer is live, and it reads through a pause.
 
 The health runner takes the same flags, and answers the other half of "nothing
 is happening on this node":
@@ -83,8 +109,8 @@ bash health-check.sh --explain ink50-dh01-h20      # or, from the head node
 ```
 
 `health-check.sh --explain` needs no node access: it reads the stamps and says
-when each node is next due. A node reading `overdue` there is one
-`NodeHealthTrigger` is not reaching. See
+when each node is next due. A node reading `overdue` there is one no agent cycle
+is reaching — check its heartbeat in section 0. See
 [explanation/health-cadence.md](../explanation/health-cadence.md).
 
 A `backing off:` line there is a job deliberately waiting longer than usual

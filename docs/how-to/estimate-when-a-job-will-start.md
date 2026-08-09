@@ -235,7 +235,7 @@ bash kill-jobs.sh -n <node-pattern>    # what would be cancelled, changes nothin
 bash kill-jobs.sh -p <node-pattern>    # pause, then cancel
 ```
 
-**Cancelling alone buys about one monitoring cycle.** The sequencer fires every
+**Cancelling alone buys about one agent cycle.** The sequencer fires every
 minute, finds an idle node, and submits the next benchmark. `-p` is what makes
 it hold, and it writes `PAUSE_JOBS=yes` before cancelling anything so there is
 no window for a cycle to resubmit into.

@@ -3,23 +3,24 @@
 # Usage: trigger-log.sh [-w hours] [-s minutes] [-t lines] [node-pattern]
 #
 # Answers "why is nothing running?" from the written record rather than from
-# the configuration: what the two node-side actions wrote at
-# results/<node>/trigger.log and health.log, summarized fleet-wide. Run this
-# one FIRST; trigger-debug.sh is for when the traces turn out to be stale.
+# the configuration: the heartbeat every node writes, and what the steps under
+# the agent wrote at results/<node>/trigger.log and health.log, summarized
+# fleet-wide. Run this one FIRST; trigger-debug.sh is for when the traces turn
+# out to be stale.
 #
 #   Logs stale or missing  -> nothing is running the script. trigger-debug.sh.
 #   Logs fresh, no submits -> the script is running and every gate is closed.
 #                             The reason is in section 2, already written down.
 #
-# That distinction is section 1, and it is why this leads with timestamps
-# instead of contents: a fleet whose logs all stopped an hour ago is a BCM
-# problem that no amount of reading decisions will show, and a fleet with
-# fresh logs and zero submissions is a gate problem with BCM working fine.
+# That distinction is sections 0 and 1, and it is why this leads with timestamps
+# instead of contents: a fleet whose logs all stopped an hour ago is an agent
+# that is not firing, which no amount of reading decisions will show, and a
+# fleet with fresh logs and zero submissions is a gate, with the timers fine.
 #
 #   -w, --window <hours>   how far back to scan for events. Default 24.
 #   -s, --stale <minutes>  a log older than this has stopped being written.
-#                          Default 15 -- several BCM monitoring cycles, so a
-#                          slow cycle or a node that just booted is not noise.
+#                          Default 15 -- several agent cycles, so a slow cycle
+#                          or a node that just booted is not noise.
 #   -t, --tail <lines>     lines of raw trace to print per node. Default 0
 #                          (summary only); implied 20 when the pattern matches
 #                          a single node, where a histogram of one is useless.
@@ -31,7 +32,7 @@
 #
 # Read-only. It submits nothing, drains nothing, changes nothing.
 #
-# The five sections it prints, and what each one rules out, are described in
+# The six sections it prints, and what each one rules out, are described in
 # docs/how-to/diagnose-nothing-running.md.
 #
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
@@ -60,7 +61,7 @@ while [[ $# -gt 0 ]]; do
             tail_lines="$2"; shift 2 ;;
         --include-excluded) include_excluded=1; shift ;;
         -h|--help)
-            sed -n '2,36p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+            sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         -*) echo "ERROR: unknown option $1" >&2; exit 1 ;;
         *)  args+=("$1"); shift ;;
     esac
@@ -204,16 +205,64 @@ for node_dir in "${node_dirs[@]}"; do
 done
 
 ##############################################################################
-hdr "1. Is the trigger firing? (${#node_dirs[@]} node dir(s), stale = no write in ${stale_minutes}m)"
+hdr "0. The watchdog and the heartbeats"
+##############################################################################
+
+## Above everything else because it is upstream of everything else: no watchdog
+## means nothing re-arms a node that stopped, and a stale heartbeat means the
+## timer on that node is not firing at all -- neither of which any decision in
+## the sections below can show.
+## See docs/explanation/the-agent-and-the-watchdog.md.
+own_beat="$results_dir/.supervisor-heartbeat"
+if [[ ! -f "$own_beat" ]]; then
+    bad "no $own_beat -- the watchdog has never run on this head node, so nothing arms a node that goes quiet"
+    note "  bash $BRINGUP_HOME/agent/install-agent.sh   (as $JOB_USER, on the head node)"
+else
+    beat_age=$(( now - $(stat -c %Y "$own_beat" 2>/dev/null || echo 0) ))
+    if [[ "$beat_age" -gt "$stale_secs" ]]; then
+        bad "the watchdog last cycled $(( beat_age / 60 ))m ago -- nothing is arming nodes"
+        note "  systemctl --user status bringup-supervisor.timer   (as $JOB_USER, on the head node)"
+    else
+        note "the watchdog cycled $(( beat_age / 60 ))m ago"
+    fi
+    [[ -f "$results_dir/supervisor.log" ]] && note "last said: $(tail -1 "$results_dir/supervisor.log")"
+fi
+
+beat_missing=(); beat_stale=(); beat_fresh=0
+for node_dir in "${node_dirs[@]}"; do
+    node=$(basename "$node_dir")
+    if [[ ! -f "$node_dir/.heartbeat" ]]; then
+        beat_missing+=("$node")
+    elif [[ $(( now - $(stat -c %Y "$node_dir/.heartbeat" 2>/dev/null || echo 0) )) -gt "$stale_secs" ]]; then
+        beat_stale+=("$node")
+    else
+        beat_fresh=$((beat_fresh + 1))
+    fi
+done
+note "$beat_fresh node(s) have written a heartbeat within ${stale_minutes}m"
+if [[ "${#beat_stale[@]}" -gt 0 ]]; then
+    bad "${#beat_stale[@]} node(s) have stopped writing one -- their timer is not firing"
+    printf '     %s\n' "${beat_stale[@]:0:10}"
+    [[ "${#beat_stale[@]}" -gt 10 ]] && note "   ... and $(( ${#beat_stale[@]} - 10 )) more"
+    note "   results/<node>/arm.log is what the watchdog heard back from each"
+fi
+if [[ "${#beat_missing[@]}" -gt 0 ]]; then
+    bad "${#beat_missing[@]} node dir(s) have never written one -- the agent has never run there"
+    printf '     %s\n' "${beat_missing[@]:0:10}"
+    [[ "${#beat_missing[@]}" -gt 10 ]] && note "   ... and $(( ${#beat_missing[@]} - 10 )) more"
+fi
+
+##############################################################################
+hdr "1. Is the sequencer running? (${#node_dirs[@]} node dir(s), stale = no write in ${stale_minutes}m)"
 ##############################################################################
 
 ## Fleet-wide case first: if every log stopped, nothing below can be trusted.
 if [[ "$fresh" -eq 0 && "${#stale_log[@]}" -gt 0 ]]; then
     bad "NO node has written a trigger.log in ${stale_minutes}m -- the sequencer is not running anywhere"
     note "the decisions in section 2 are stale; they are what the nodes last thought, not what is true now"
-    note "this is a trigger-side failure, not a gate: run ./trigger-debug.sh"
+    note "section 0 says whether the agents are firing at all: run ./trigger-debug.sh"
 elif [[ "${#stale_log[@]}" -gt 0 ]]; then
-    bad "${#stale_log[@]} node(s) stale, $fresh fresh -- the trigger is firing, but not on these"
+    bad "${#stale_log[@]} node(s) stale, $fresh fresh -- the agent is firing, but the sequencer is not writing on these"
     printf '     %s\n' "${stale_log[@]:0:10}"
     [[ "${#stale_log[@]}" -gt 10 ]] && note "   ... and $(( ${#stale_log[@]} - 10 )) more"
 else
@@ -228,7 +277,7 @@ fi
 
 if [[ "${#empty_log[@]}" -gt 0 ]]; then
     bad "${#empty_log[@]} node(s) have a trigger.log with no trace lines in it -- these are absent from section 2"
-    note "an empty trace usually means the file is not writable by the user BCM runs the script as"
+    note "an empty trace usually means the file is not writable by $JOB_USER -- a leftover from the years these cycles ran as root"
     printf '     %s\n' "${empty_log[@]:0:10}"
     [[ "${#empty_log[@]}" -gt 10 ]] && note "   ... and $(( ${#empty_log[@]} - 10 )) more"
 fi
@@ -304,8 +353,8 @@ else
     note "every matched node has a logs/<node> -- health checks have run"
 fi
 
-## The same distinction as section 1, for the other trigger: a health.log that
-## has stopped being written is BCM, and a fresh one whose last line is an EXIT
+## The same distinction as section 1, for the other step: a health.log that has
+## stopped being written is the agent, and a fresh one whose last line is an EXIT
 ## is a gate that named itself. See docs/explanation/health-cadence.md.
 declare -A health_reason_count health_reason_example
 health_missing=(); health_stale=(); health_fresh=0
@@ -379,7 +428,8 @@ else
 fi
 cat <<EOF
 
-  Logs stale or missing (section 1)  -> ./trigger-debug.sh
+  Heartbeat stale (section 0)         -> ./trigger-debug.sh
+  Logs stale or missing (section 1)   -> ./trigger-debug.sh
   Logs fresh, gate closed (section 2) -> ask the node itself, no waiting:
-      pdsh -R ssh -w <node> '$BRINGUP_HOME/actions/launch_job.sh --explain'
+      pdsh -R ssh -w <node> '$BRINGUP_HOME/agent/node-agent.sh --explain'
 EOF

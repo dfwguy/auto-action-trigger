@@ -20,7 +20,7 @@
 #
 #   -p, --pause
 #            also set PAUSE_JOBS=yes in SETTINGS, before cancelling anything.
-#            Without it the next monitoring cycle queues the work straight back
+#            Without it the next agent cycle queues the work straight back
 #            and this was a stall rather than a stop.
 #
 #            The pause is fleet-wide however narrow the patterns are -- SETTINGS
@@ -94,7 +94,7 @@ node_selected() {
     return 1
 }
 
-## Before the cancel, not after: BCM fires the trigger about once a minute, and
+## Before the cancel, not after: the agent cycles every couple of minutes, and
 ## a cycle landing in between would resubmit what this is clearing.
 pause_failed=""
 if [[ "$pause" -eq 1 && "$dryrun" -eq 1 ]]; then
@@ -123,7 +123,7 @@ elif [[ "$pause" -eq 1 ]]; then
             fi
             ## Read back rather than trusted: a sed that matched nothing exits 0.
             if grep -qE '^PAUSE_JOBS=yes[[:space:]]*$' "$settings"; then
-                echo "PAUSE_JOBS=yes in $settings -- fleet-wide, on the next monitoring cycle."
+                echo "PAUSE_JOBS=yes in $settings -- fleet-wide, on the next agent cycle."
                 [[ "${#patterns[@]}" -gt 0 ]] &&
                     echo "NOTE: the pause is not narrowed by the pattern; it stops the sweep on every node."
             else

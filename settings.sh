@@ -62,6 +62,9 @@ fi
 ## Independent of PAUSE_JOBS: stopping the sweep and stopping drains being
 ## cleared are different decisions. See docs/reference/settings.md#pause-switches.
 : "${PAUSE_RECOVERY:=no}"
+## Stops the watchdog arming nodes; agents already running are left alone.
+## See docs/reference/settings.md#pause-switches.
+: "${PAUSE_ARMING:=no}"
 : "${DRAIN_AFTER_FAILED_HEALTH_CHECK:=no}"
 : "${DRAIN_AFTER_FAILED_BENCHMARK:=no}"
 ## Recovery of drains Slurm set itself. On by default, unlike the switches
@@ -120,6 +123,21 @@ fi
 : "${DRAIN_WINDOW_MINUTES:=15}"
 : "${INFLIGHT_GRACE_MINUTES:=30}"
 : "${DRAIN_MARKER:=auto-retry}"
+## ── The agent and the watchdog ────────────────────────────────────────────
+## The cycle the node runs on, the cycle the head node watches on, and how long
+## a heartbeat may go unwritten before the node is armed again.
+## See docs/explanation/the-agent-and-the-watchdog.md#choosing-the-three-numbers.
+: "${AGENT_INTERVAL_MINUTES:=2}"
+: "${SUPERVISOR_INTERVAL_MINUTES:=2}"
+: "${HEARTBEAT_STALE_MINUTES:=10}"
+## A node that cannot be armed is reported rather than sshed into every cycle,
+## on the same shape as RECOVER_MAX_ATTEMPTS.
+: "${ARM_RETRY_MINUTES:=10}"
+: "${ARM_MAX_ATTEMPTS:=3}"
+: "${ARM_WINDOW_HOURS:=24}"
+## sudo, or direct for a site that gave JOB_USER Slurm AdminLevel=Operator.
+## See docs/explanation/running-unprivileged.md#draining-without-root.
+: "${PRIV_SCONTROL:=sudo}"
 ## `=` not `:=`, like CONTAINERS: empty is the shipped answer and a real one.
 ## Deliberately not exported -- launch_job.sh is the only reader and hands it
 ## to sbatch --export. See docs/reference/settings.md#extra-environment-for-every-job.
@@ -212,4 +230,18 @@ node_unmark_excluded() { rm -f "$1/$NOT_COMPUTE_MARKER" 2>/dev/null; }
 node_out_of_reporting() {
     node_excluded "$2" && return 0
     [[ -f "$1/$2/$NOT_COMPUTE_MARKER" ]]
+}
+
+## ── Has this node stopped cycling ─────────────────────────────────────────
+## The agent touches this every cycle whatever it then decides, so a stale one
+## means the timer is not firing -- and a report judged from files nobody is
+## refreshing reads exactly like one that is up to date.
+## See docs/explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means.
+HEARTBEAT_MARKER=".heartbeat"
+HEARTBEAT_NOW=""
+heartbeat_stale() {
+    local mtime
+    [[ -n "$HEARTBEAT_NOW" ]] || HEARTBEAT_NOW=$(date +%s)   ## one fork, not one per node
+    mtime=$(stat -c %Y "$1/$2/$HEARTBEAT_MARKER" 2>/dev/null) || return 0
+    [[ $(( HEARTBEAT_NOW - mtime )) -ge $(( HEARTBEAT_STALE_MINUTES * 60 )) ]]
 }

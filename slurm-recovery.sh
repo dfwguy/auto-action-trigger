@@ -31,6 +31,13 @@ if ! declare -F canonicalize_reason >/dev/null 2>&1; then
     [[ -f "$_recover_home/reason-map.sh" ]] && source "$_recover_home/reason-map.sh"
 fi
 
+## The drain and the slurmd restart below are the two things here that need
+## root. See docs/explanation/running-unprivileged.md.
+if ! declare -F priv >/dev/null 2>&1; then
+    _recover_home="${SETTINGS_HOME:-${home:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}}"
+    [[ -f "$_recover_home/priv.sh" ]] && source "$_recover_home/priv.sh"
+fi
+
 ## sinfo reports "none", "(null)" or an empty string depending on release; all
 ## three mean the bare drain that RECOVER_EMPTY_REASON governs.
 recover_reason_empty() {
@@ -329,8 +336,8 @@ recover_slurmd_restart() {
     fi
 
     recover_log "restarting slurmd on $node: $why"
-    systemctl reset-failed slurmd 2>/dev/null
-    systemctl restart slurmd 2>/dev/null
+    priv systemctl reset-failed slurmd 2>/dev/null
+    priv systemctl restart slurmd 2>/dev/null
     while ! systemctl is-active --quiet slurmd 2>/dev/null; do
         if [[ "$waited" -ge "${RECOVER_SLURMD_WAIT:-0}" ]]; then
             RECOVER_NOT_READY="slurmd is $(systemctl is-active slurmd 2>/dev/null) ${RECOVER_SLURMD_WAIT}s after a restart -- resuming would only put $node back into down*. 'journalctl -u slurmd -n 50' on the node"
@@ -594,7 +601,7 @@ recover_down_unkillable() {
         return 0
     fi
 
-    out=$(scontrol update nodename="$node" state=DOWN reason="$text" 2>&1)
+    out=$(scontrol_update nodename="$node" state=DOWN reason="$text" 2>&1)
     if [[ -n "$out" ]]; then
         recover_log "DOWN FAILED $node: scontrol update state=DOWN -- $out"
         return 1
@@ -676,7 +683,7 @@ slurm_recover_node() {
         return 0
     fi
 
-    out=$(scontrol update nodename="$node" state=RESUME 2>&1)
+    out=$(scontrol_update nodename="$node" state=RESUME 2>&1)
     if [[ -n "$out" ]]; then
         ## scontrol is quiet on success, so any output is the failure --
         ## typically "Invalid user id". Not recorded as an attempt: it did not

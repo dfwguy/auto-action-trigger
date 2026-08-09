@@ -29,16 +29,17 @@ fi
 [[ -d "$src" ]] || exit 0
 
 ## Empty containers/ is the normal pre-build state; skip to keep rsync out of
-## the process table on every cycle, clusterwide.
+## the process table on every cycle, fleetwide.
 compgen -G "$src"/*.sqsh >/dev/null 2>&1 || exit 0
 
 command -v rsync >/dev/null 2>&1 || exit 0
 
 mkdir -p "$dst" 2>/dev/null || exit 0
 
-## The first multi-gigabyte sync does not fit in BCM's 2m action timeout, so it
-## is detached and this script returns immediately; flock stops the every-cycle
-## duringactions trigger from stacking rsyncs on the same destination.
+## The first multi-gigabyte sync outlives the agent's cycle, so it is detached
+## and this script returns immediately -- otherwise it holds the agent's lock
+## across cycles and nothing else on the node runs. flock stops one cycle's copy
+## being stacked on the next. See docs/explanation/containers.md#how-the-caching-works.
 lock=/tmp/.file_copy.lock
 
 if [[ -z "${FILE_COPY_DETACHED:-}" ]]; then

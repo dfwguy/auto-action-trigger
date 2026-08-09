@@ -43,8 +43,8 @@ source "$home/settings.sh"
 Afterwards `SETTINGS_FILE` holds the path that was actually read, or is empty if
 neither file was found. Nothing treats an empty one as fatal, because the
 defaults inside `settings.sh` are a complete working configuration on their own.
-The three BCM actions are the exception in one respect only: they treat a
-missing `settings.sh` as fatal, because a defaulted empty benchmark or check
+The agent and its three steps are the exception in one respect only: they treat
+a missing `settings.sh` as fatal, because a defaulted empty benchmark or check
 list reads as "everything passing" on every node. They resolve their own
 location like everything else.
 
@@ -216,6 +216,38 @@ which of the two applies. `health-check.sh --explain` prints the resulting due
 times across the fleet. Why two intervals and no backoff:
 [explanation/health-cadence.md#choosing-the-two-intervals](../explanation/health-cadence.md#choosing-the-two-intervals).
 
+## The agent and the watchdog
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `AGENT_INTERVAL_MINUTES` | `2` | How often `bringup-agent.timer` fires one cycle on a node |
+| `SUPERVISOR_INTERVAL_MINUTES` | `2` | How often `bringup-supervisor.timer` fires the watchdog on the head node |
+| `HEARTBEAT_STALE_MINUTES` | `10` | A heartbeat older than this, on an `idle` or `drained` node, is armed again |
+| `ARM_RETRY_MINUTES` | `10` | Shortest gap between two arming attempts on the same node |
+| `ARM_MAX_ATTEMPTS` | `3` | Attempts inside `ARM_WINDOW_HOURS` before the node is left for an operator |
+| `ARM_WINDOW_HOURS` | `24` | The window that count is taken over |
+
+The two intervals are read only at install time: they are substituted into the
+unit files by `agent/install-agent.sh`, so changing one means re-running it —
+across the fleet for `AGENT_INTERVAL_MINUTES`, on the head node for the other.
+Everything else here is read fresh on every cycle.
+
+A value that is not a whole number of minutes is warned about and replaced with
+the default rather than stopping the fleet, on the same principle as
+`MAX_QUEUED_JOBS`. Why these numbers and not others is
+[explanation/the-agent-and-the-watchdog.md#choosing-the-three-numbers](../explanation/the-agent-and-the-watchdog.md#choosing-the-three-numbers).
+
+## Privilege
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `PRIV_SCONTROL` | `sudo` | How `scontrol update` is issued. `sudo` uses the rule in `agent/sudoers.default`; `direct` is for a site that gave `JOB_USER` Slurm `AdminLevel=Operator` |
+
+Anything other than `direct` reads as `sudo`. Only `update` goes through it —
+`scontrol show node`, `scontrol listjobs` and `scontrol show hostlist` are reads
+and run unprivileged. There is deliberately no autodetection; see
+[explanation/running-unprivileged.md#draining-without-root](../explanation/running-unprivileged.md#draining-without-root).
+
 ## Pause switches
 
 | Setting | Default | Stops |
@@ -223,12 +255,15 @@ times across the fleet. Why two intervals and no backoff:
 | `PAUSE_JOBS` | `no` | `launch_job.sh`: submit nothing, drain nothing |
 | `PAUSE_HEALTH_CHECKS` | `no` | `node_health.sh`: run no checks, touch Slurm in neither direction |
 | `PAUSE_CONTAINER_COPY` | `no` | `file_copy.sh`: start no new rsync into `/tmp/containers` |
-| `PAUSE_RECOVERY` | `no` | Both actions: clear no drains Slurm set itself |
+| `PAUSE_RECOVERY` | `no` | `launch_job.sh` and `node_health.sh`: clear no drains Slurm set itself |
+| `PAUSE_ARMING` | `no` | `supervisor.sh`: arm no node. Agents already running carry on cycling |
 
 `PAUSE_RECOVERY` is **independent of `PAUSE_JOBS`**. `PAUSE_JOBS` also cancels
 this framework's pending jobs and leaves its running one to finish.
-`launch_job.sh --explain` is stopped by neither. The reasoning for all three is
-in
+`PAUSE_ARMING` is the odd one out: it stops the watchdog restarting a node that
+has *stopped*, and does nothing to a node that is running — to stop one of those
+see [how-to/arm-a-node.md#disarming-a-node](../how-to/arm-a-node.md#disarming-a-node).
+`--explain` is stopped by none of them. The reasoning for all of them is in
 [explanation/sequencing.md#what-a-pause-is-for](../explanation/sequencing.md#what-a-pause-is-for);
 what to expect while paused is
 [how-to/pause-and-resume.md](../how-to/pause-and-resume.md).
@@ -324,16 +359,18 @@ NODE_FILTER="ink40-dh4-0[1-9]"          # part of one
 **These are shell globs, not regular expressions** — deliberately not an ERE,
 unlike `RECOVER_REASONS`. Patterns are separated by whitespace, a node matches
 if **any** of them matches, and the comparison is against `$HOSTNAME` as Slurm
-and BCM know it, so the short name rather than an FQDN.
+knows it, so the short name rather than an FQDN.
 
 It gates benchmarks and burn-in only: health checks, reporting, container copy
 and drain recovery still run everywhere. `--force` does not open it; `--test`
 does; `--explain` reads through it. See
 [explanation/sequencing.md#site-switches-are-not-timing-gates](../explanation/sequencing.md#site-switches-are-not-timing-gates).
 
-To take a node out of the framework entirely, use BCM's node execution filters
-at registration time instead — see the commented example at the bottom of
-`pre-post/create-action-trigger.sh`.
+To take a node out of the framework entirely, use `EXCLUDE_NODES` below, or
+disarm it — see
+[how-to/arm-a-node.md#disarming-a-node](../how-to/arm-a-node.md#disarming-a-node).
+Bear in mind that the watchdog arms an idle node back unless `EXCLUDE_NODES` or
+`NODE_FILTER` takes it out of the set it considers.
 
 ## Hosts that are not compute nodes
 
@@ -390,7 +427,7 @@ Why the detection is that particular question, and not `sinfo -N -n`, is in
 | `INFLIGHT_GRACE_MINUTES` | `30` | How long a submitted job that never started is believed before the controller is asked about it |
 | `DRAIN_MARKER` | `auto-retry` | Written into every drain reason this framework issues; only drains carrying it are ever cleared automatically |
 
-`DRAIN_WINDOW_MINUTES` has to sit above the BCM monitoring interval or the drain
+`DRAIN_WINDOW_MINUTES` has to sit above `AGENT_INTERVAL_MINUTES` or the drain
 is missed entirely, and well below `RETRY_INTERVAL_HOURS`.
 
 `RETRY_BACKOFF` slows down a job that keeps failing and nothing else: it never
@@ -517,8 +554,9 @@ requires, or every `sbatch` is refused — that refusal is captured in
 `trigger.log` rather than swallowed.
 
 Nothing needs `BRINGUP_HOME` to find the tree; the scripts resolve their own
-location. It is read by the jobs, which cannot, and by
-`pre-post/create-action-trigger.sh`, which registers it with BCM. See
+location. It is read by the jobs, which cannot, and checked by
+`agent/install-agent.sh`, which warns when the tree it is arming from is not the
+deployed one. See
 [reference/layout.md#runtime-paths](layout.md#runtime-paths).
 
 ### Where the images live

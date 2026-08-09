@@ -1,0 +1,28 @@
+## Shipped reference for /etc/sudoers.d/50-bringup. Nothing in this tree installs
+## it -- putting a file in sudoers.d is the site's decision and needs root.
+##
+##   visudo -c -f agent/sudoers.default          # check it before copying
+##   install -m 0440 agent/sudoers.default /etc/sudoers.d/50-bringup
+##
+## Replace cmods with JOB_USER if the site changed it, and check the paths: the
+## Slurm client tools sit under /cm/local/apps/slurm/current/bin on a BCM node
+## and under /usr/bin elsewhere. A rule whose path does not exist is a rule that
+## never matches. See docs/explanation/running-unprivileged.md.
+##
+## Every entry is a command the health checks or the drain paths need and
+## nothing else -- see docs/reference/health-checks.md#checks-that-need-root.
+## scontrol is here rather than a wildcard because state=DOWN and state=RESUME
+## are the only updates issued; a site that gave cmods AdminLevel=Operator in
+## Slurm sets PRIV_SCONTROL=direct and drops that line.
+
+Defaults:cmods !requiretty
+
+cmods ALL=(root) NOPASSWD: /usr/bin/dmesg, \
+                           /usr/sbin/dmidecode, \
+                           /usr/bin/lspci, \
+                           /usr/sbin/lspci, \
+                           /usr/bin/ipmitool, \
+                           /usr/bin/systemctl restart slurmd, \
+                           /usr/bin/systemctl reset-failed slurmd, \
+                           /usr/bin/loginctl enable-linger cmods, \
+                           /cm/local/apps/slurm/current/bin/scontrol

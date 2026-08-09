@@ -163,9 +163,8 @@ _yield_job_is_ours() {
 
 ## The only place in this file that cancels, so the prefix can be re-read from
 ## the controller's own answer here rather than trusted from the checks above.
-## Dropping to JOB_USER puts Slurm's ownership check under ours; the login shell
-## is what puts the client tools on PATH. See
-## docs/explanation/sequencing.md#the-prefix-is-the-gate.
+## The cycle is JOB_USER's, so Slurm's own ownership check already sits under
+## ours. See docs/explanation/sequencing.md#the-prefix-is-the-gate.
 _yield_cancel() {
     local id="$1" name="$2"
     if ! _yield_name_is_ours "$name"; then
@@ -173,11 +172,7 @@ _yield_cancel() {
                "$id" "${name:-<no name>}" "$YIELD_PREFIXES"
         return 0
     fi
-    if [[ "$EUID" -eq 0 ]]; then
-        su - "$YIELD_USER" -c "source /etc/profile.d/modules.sh; module load slurm; scancel $id" 2>&1
-    else
-        scancel "$id" 2>&1
-    fi
+    scancel "$id" 2>&1
 }
 
 ## $1 the job id from the marker, $2 this node. Returns 0 only when that job was
