@@ -142,6 +142,73 @@ pdsh -R ssh -w <node> '/home/cmods/bringup/agent/node-agent.sh --verbose'   # a 
 submits nothing, drains nothing and archives nothing, so it is safe while the
 timer is live.
 
+## Armed, but never heartbeats
+
+The install says `ok:` on every line, `systemctl --user is-active` says `active`,
+and the node still never writes `results/<node>/.heartbeat`. The watchdog arms it
+again, the install succeeds again, and after `ARM_MAX_ATTEMPTS` it gives up and
+names the node. Nothing in any of that says why.
+
+Run one cycle in the foreground. It prints every gate it evaluates, submits
+nothing and drains nothing:
+
+```bash
+clush -w <node> '/home/cmods/bringup/agent/cycle.sh --verbose'
+pdsh -R ssh -w <node> '/home/cmods/bringup/agent/cycle.sh --verbose'
+```
+
+If that works and writes a heartbeat, **the cycle is fine and the timer is the
+problem** — which is the common case, and there is one cause well ahead of the
+others.
+
+### The user manager is not really lingering
+
+`systemd --user` timers only fire while that account's manager is running.
+Without effective lingering the manager starts when a session opens and stops
+when the last one closes — so arming the node over ssh starts a manager, the
+timer fires once a minute later, the session ends, and everything stops. From
+outside it looks exactly like a node that armed cleanly and then went quiet,
+because that is what it is.
+
+The tell is in the journal: one `Finished bringup-agent.service` at the moment
+the node was armed, and nothing after it.
+
+```bash
+clush -w <node> 'loginctl show-user cmods -p Linger --value;
+    ls -l /var/lib/systemd/linger/ 2>/dev/null;
+    ps -o pid,lstart,cmd -u cmods | grep "systemd --user"'
+```
+
+`yes`, a `cmods` file in `/var/lib/systemd/linger/`, and a manager whose start
+time is **boot**, not a minute ago. A manager that starts when you connect is one
+that stops when you leave. See
+[explanation/the-agent-and-the-watchdog.md#why-lingering](../explanation/the-agent-and-the-watchdog.md#why-lingering).
+
+`loginctl enable-linger cmods` on the node, as root or through the sudo rule, is
+the fix; `install-agent.sh` tries both and reports which it managed.
+
+### The other three, in order
+
+```bash
+clush -w <node> 'XDG_RUNTIME_DIR=/run/user/$(id -u) \
+    systemctl --user list-timers bringup-agent.timer --no-pager;
+    journalctl --user -u bringup-agent.service -n 20 --no-pager'
+```
+
+| What you see | What it is |
+|---|---|
+| no `NEXT` elapse, or the timer absent | the unit is not loaded — `systemctl --user daemon-reload`, then re-run `install-agent.sh` |
+| `Finished bringup-agent.service` once, then nothing | lingering, above |
+| `cannot write …/.heartbeat` | `results/<node>` is not writable by `cmods`. `sudo chown -R cmods:cmods /home/cmods/bringup/results` |
+| the service failing on every trigger | read the failure — it is a real one, and the cycle prints the same thing under `--verbose` |
+
+To let the watchdog try again once the cause is fixed, rather than waiting out
+`ARM_WINDOW_HOURS`:
+
+```bash
+rm /home/cmods/bringup/results/<node>/arm.log
+```
+
 ## When the role is wrong
 
 `install-agent.sh` decides for itself whether this host is the head node, and

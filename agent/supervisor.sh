@@ -246,7 +246,11 @@ if [[ "${#arm[@]}" -gt 0 ]]; then
             said=$(grep "^$node:" <<<"$out" | sed "s/^$node: *//" | tr '\n' ' ')
             printf '%s\t%s\n' "$now" "${said:-no output from $FANOUT_CMD}" >> "$results/$node/arm.log" 2>/dev/null
             case "$said" in
-                *FAILED*|"") trace "ARM FAILED $node: ${said:-$FANOUT_CMD said nothing; is ssh as $JOB_USER working from here?}" ;;
+                *FAILED*|"")
+                    trace "ARM FAILED $node: ${said:-$FANOUT_CMD said nothing; is ssh as $JOB_USER working from here?}"
+                    trace "  what that node says for itself: $FANOUT_CMD -w $node '$home/agent/cycle.sh --verbose'"
+                    trace "  and what its own timer's runs said: $FANOUT_CMD -w $node 'journalctl --user -u bringup-agent.service -n 20 --no-pager'"
+                    trace "  see docs/how-to/arm-a-node.md#when-a-node-will-not-stay-armed" ;;
             esac
         done
     fi
@@ -299,7 +303,19 @@ summary="checked $(wc -l <<<"$states") node(s): $fresh fresh, ${#arm[@]} armed, 
 [[ "$overrun" -gt 0 ]] && summary+=", $overrun past MAX_JOB_HOURS"
 if [[ "${#limited[@]}" -gt 0 ]]; then
     lim=$(IFS=,; printf '%s' "${limited[*]}")
-    summary+=". ${#limited[@]} node(s) armed $ARM_MAX_ATTEMPTS time(s) in the last ${ARM_WINDOW_HOURS}h and still silent, left for an operator: $(declare -F compress >/dev/null && compress "$lim" || printf '%s' "$lim")"
+    lim_pretty=$(declare -F compress >/dev/null && compress "$lim" || printf '%s' "$lim")
+    summary+=". ${#limited[@]} node(s) armed $ARM_MAX_ATTEMPTS time(s) in the last ${ARM_WINDOW_HOURS}h and still silent, left for an operator: $lim_pretty"
 fi
 trace "$summary"
+
+## The give-up list is what somebody reads hours later, so it carries the two
+## commands that answer it rather than making them be looked up.
+## See docs/how-to/arm-a-node.md#armed-but-never-heartbeats.
+if [[ "${#limited[@]}" -gt 0 ]]; then
+    trace "  arming them again changes nothing until this is answered -- one cycle in the foreground, which prints every gate:"
+    trace "    ${FANOUT_CMD:-clush} -w $lim_pretty '$home/agent/cycle.sh --verbose'"
+    trace "  and what their own timers' runs said:"
+    trace "    ${FANOUT_CMD:-clush} -w $lim_pretty 'journalctl --user -u bringup-agent.service -n 20 --no-pager'"
+    trace "  then 'rm results/<node>/arm.log' to let this try again. docs/how-to/arm-a-node.md#armed-but-never-heartbeats"
+fi
 exit 0

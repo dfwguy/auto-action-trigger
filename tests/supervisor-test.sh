@@ -179,11 +179,15 @@ done
 run_sup 'n-hopeless idle'
 if armed n-hopeless; then
     bad "a node armed 3 times in the window was armed a fourth"
-elif grep -q 'left for an operator' <<<"$(last_line)"; then
-    ok "past ARM_MAX_ATTEMPTS it is named and left: $(last_line)"
+elif grep -q 'left for an operator' "$results/supervisor.log"; then
+    ok "past ARM_MAX_ATTEMPTS it is named and left: $(grep -h 'left for an operator' "$results/supervisor.log" | tail -1)"
 else
     bad "it was skipped, but silently: $(last_line)"
 fi
+
+grep -q "cycle.sh --verbose" "$results/supervisor.log" &&
+    ok "  ... and the line says what to run on them" ||
+    bad "  ... but not what to do about it: $(last_line)"
 
 ## Old attempts fall out of the window rather than counting for ever.
 rm -rf "$results"

@@ -202,4 +202,40 @@ if [[ "$changed" -eq 1 ]]; then
         warn "could not restart $unit.timer -- it is still running the previous unit"
 fi
 
+## ── Confirm what was just armed ───────────────────────────────────────────
+##
+## Everything above reports on what it asked systemd to do. These two ask what
+## is actually true, because a host that reports a clean install and then never
+## writes a heartbeat is the failure with no symptom -- the watchdog re-arms it,
+## the install succeeds again, and nothing anywhere says why.
+## See docs/how-to/arm-a-node.md#armed-but-never-heartbeats.
+if ! systemctl --user is-active --quiet "$unit.timer" 2>/dev/null; then
+    fail "$unit.timer is not active after enabling it -- 'systemctl --user status $unit.timer' on this host"
+else
+    next=$(systemctl --user list-timers "$unit.timer" --no-pager 2>/dev/null | awk 'NR==2 {print $1, $2, $3}')
+    ok "$unit.timer is active${next:+, next elapse $next}"
+fi
+
+## The one thing a cycle must be able to do, tested as the cycle will do it. A
+## results/<host> the account cannot write makes the node invisible to the
+## watchdog for ever: no heartbeat, so it is armed again, every interval.
+beat_dir="$home/results/$HOSTNAME"
+if node_excluded "$HOSTNAME" || [[ "$ROLE" == "head" ]]; then
+    :   ## no heartbeat is written here; the watchdog has its own
+elif ! mkdir -p "$beat_dir" 2>/dev/null; then
+    fail "cannot create $beat_dir, so this node will never write a heartbeat and the watchdog will keep arming it. sudo chown -R $JOB_USER:$JOB_USER $home/results"
+elif ! touch "$beat_dir/.heartbeat" 2>/dev/null; then
+    fail "cannot write $beat_dir/.heartbeat as $me -- $(stat -c '%U owns it' "$beat_dir" 2>/dev/null). This node will never be seen as alive. sudo chown -R $JOB_USER:$JOB_USER $home/results"
+else
+    ok "wrote $beat_dir/.heartbeat -- the watchdog can see this host is alive"
+fi
+
+if [[ "$rc" -ne 0 ]]; then
+    echo "       one cycle by hand, which prints every gate it evaluates:" >&2
+    echo "         $home/agent/cycle.sh --verbose" >&2
+    echo "       and what the timer's own runs said:" >&2
+    echo "         journalctl --user -u $unit.service -n 20 --no-pager" >&2
+    echo "       See docs/how-to/arm-a-node.md#armed-but-never-heartbeats." >&2
+fi
+
 exit "$rc"
