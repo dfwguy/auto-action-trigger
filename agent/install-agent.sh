@@ -74,10 +74,13 @@ fi
 unit=bringup-agent
 script="$home/agent/cycle.sh"
 interval="$AGENT_INTERVAL_MINUTES"
-[[ "$interval" =~ ^[1-9][0-9]*$ ]] || {
-    warn "AGENT_INTERVAL_MINUTES is '$interval', which is not a whole number of minutes -- using 2"
-    interval=2
-}
+## OnCalendar=*:0/N repeats within the hour, so N has to divide 60 or the last
+## step of each hour is short. See docs/reference/settings.md#the-agent-and-the-watchdog.
+case "$interval" in
+    1|2|3|4|5|6|10|12|15|20|30) ;;
+    *)  warn "AGENT_INTERVAL_MINUTES is '$interval'; the timer repeats within the hour, so it has to divide 60 (1 2 3 4 5 6 10 12 15 20 30) -- using 2"
+        interval=2 ;;
+esac
 
 ## ── Preflight ─────────────────────────────────────────────────────────────
 ##
@@ -212,9 +215,25 @@ fi
 if ! systemctl --user is-active --quiet "$unit.timer" 2>/dev/null; then
     fail "$unit.timer is not active after enabling it -- 'systemctl --user status $unit.timer' on this host"
 else
-    next=$(systemctl --user list-timers "$unit.timer" --no-pager 2>/dev/null | awk 'NR==2 {print $1, $2, $3}')
-    ok "$unit.timer is active${next:+, next elapse $next}"
+    ## Active is not the same as scheduled. A timer whose next elapse is
+    ## `infinity` reports active, reports Result=success, and never fires again
+    ## -- which is what a monotonic OnUnitActiveSec= did here on every host.
+    next=$(systemctl --user show "$unit.timer" -p NextElapseUSecRealtime --value 2>/dev/null)
+    [[ -n "$next" && "$next" != "0" ]] ||
+        next=$(systemctl --user show "$unit.timer" -p NextElapseUSecMonotonic --value 2>/dev/null)
+    case "$next" in
+        ""|0|infinity|n/a)
+            fail "$unit.timer is active but has no next elapse, so it will never fire again. 'systemctl --user cat $unit.timer' and 'systemctl --user show $unit.timer -p NextElapseUSecRealtime' on this host" ;;
+        *)  ok "$unit.timer is scheduled, next elapse $(systemctl --user list-timers "$unit.timer" --no-pager 2>/dev/null | awk 'NR==2 {print $1, $2, $3}')" ;;
+    esac
 fi
+
+## `enable --now` starts the timer, not the service, and a calendar timer then
+## waits for its first tick -- so a freshly armed node would look silent for a
+## whole interval and get armed again. --no-block: the caller is a fan-out.
+systemctl --user start --no-block "$unit.service" 2>/dev/null &&
+    ok "started one cycle now rather than waiting for the first tick" ||
+    warn "could not start $unit.service -- the first cycle waits for the timer"
 
 ## The one thing a cycle must be able to do, tested as the cycle will do it. A
 ## results/<host> the account cannot write makes the node invisible to the

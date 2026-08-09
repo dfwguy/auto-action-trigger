@@ -127,6 +127,7 @@ location and `BRINGUP_HOME` disagree.
 | `$BRINGUP_HOME/results/<node>/.heartbeat` | Touched at the top of every agent cycle, before any gate. Empty; only its mtime is read. See [explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means](../explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means) |
 | `$BRINGUP_HOME/results/<node>/agent.log` | Per-cycle trace from `node-agent.sh`: the busy gate, the lock, which steps ran |
 | `$BRINGUP_HOME/results/<node>/arm.log` | One line per arming attempt by the watchdog, and what came back. Tab separated: epoch, output. The attempt history `ARM_MAX_ATTEMPTS` is counted from |
+| `$BRINGUP_HOME/results/.supervisor-owner` | Which host is arming the fleet, refreshed every watchdog cycle. Tab separated: hostname, epoch. A second host that finds this fresh stands by — see [explanation/the-agent-and-the-watchdog.md#only-one-watchdog](../explanation/the-agent-and-the-watchdog.md#only-one-watchdog) |
 | `$BRINGUP_HOME/results/.supervisor-heartbeat` | Touched at the top of every watchdog cycle. Doubles as the clock every heartbeat age is measured against — see [explanation/the-agent-and-the-watchdog.md#whose-clock-decides](../explanation/the-agent-and-the-watchdog.md#whose-clock-decides) |
 | `$BRINGUP_HOME/results/supervisor.log` | One line per watchdog cycle, including the ones that armed nothing |
 | `$BRINGUP_HOME/results/<node>/trigger.log` | Per-cycle decision trace from `launch_job.sh` |

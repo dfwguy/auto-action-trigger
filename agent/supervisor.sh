@@ -85,6 +85,50 @@ if [[ -f "$tracelog" ]] && [[ "$(stat -c %s "$tracelog" 2>/dev/null || echo 0)" 
     tail -2000 "$tracelog" > "$tracelog.tmp" && mv "$tracelog.tmp" "$tracelog"
 fi
 
+## ── Only one watchdog ─────────────────────────────────────────────────────
+##
+## Every host runs the same unit and decides its own role, so two that read as
+## head -- a second management server, a host that lost its slurmd -- would both
+## arm the fleet, race each other's arm.log and double every ssh. A claim on the
+## shared tree settles it: whoever holds it keeps it by refreshing, and a claim
+## that goes stale is taken over, so the watchdog survives its host dying.
+##
+## Above the heartbeat below, deliberately: a host standing by must not touch
+## the marker that says a watchdog is alive.
+## See docs/explanation/the-agent-and-the-watchdog.md#only-one-watchdog.
+own_beat="$results/.supervisor-heartbeat"
+owner_file="$results/.supervisor-owner"
+owner=""
+owner_age=-1
+if [[ -f "$owner_file" ]]; then
+    IFS=$'\t' read -r owner _ < "$owner_file" 2>/dev/null
+    ## The one age here measured against this host's clock rather than the
+    ## share's: there is no file this host may touch yet. The lease floor below
+    ## is far wider than any skew NTP leaves between two management hosts.
+    owner_age=$(( $(date +%s) - $(stat -c %Y "$owner_file" 2>/dev/null || echo 0) ))
+fi
+
+if [[ -n "${SUPERVISOR_HOST// /}" && "$SUPERVISOR_HOST" != "$HOSTNAME" ]]; then
+    trace "EXIT: SUPERVISOR_HOST=$SUPERVISOR_HOST in ${SETTINGS_FILE:-<none>} and this is $HOSTNAME -- nothing is armed from here. The claim is held by ${owner:-nobody}."
+    exit 0
+fi
+
+## Three cycles, so one slow or skipped run does not hand the fleet over.
+lease=$(( ${SUPERVISOR_INTERVAL_MINUTES:-2} * 60 * 3 ))
+[[ "$lease" -ge 300 ]] || lease=300
+if [[ -n "$owner" && "$owner" != "$HOSTNAME" && "$owner_age" -ge 0 && "$owner_age" -lt "$lease" ]]; then
+    trace "EXIT: $owner refreshed the watchdog claim ${owner_age}s ago, so it is the one arming nodes and $HOSTNAME stands by. Two hosts reading as head is worth settling: set SUPERVISOR_HOST, or EXCLUDE_NODES the one that should not be."
+    exit 0
+fi
+if [[ "$EXPLAIN" -eq 0 ]]; then
+    claim_tmp="$owner_file.$HOSTNAME.$$"
+    if printf '%s\t%s\n' "$HOSTNAME" "$(date +%s)" > "$claim_tmp" 2>/dev/null; then
+        mv -f "$claim_tmp" "$owner_file" 2>/dev/null || rm -f "$claim_tmp"
+    fi
+    [[ -n "$owner" && "$owner" != "$HOSTNAME" ]] &&
+        trace "took the watchdog claim from $owner, whose last refresh was ${owner_age}s ago -- past the ${lease}s lease"
+fi
+
 ## ── What "now" is ─────────────────────────────────────────────────────────
 ##
 ## Its own mtime on the same share, not this host's clock: both times then come
@@ -92,7 +136,6 @@ fi
 ## whole fleet has stopped. It doubles as the watchdog's own liveness marker --
 ## the one thing nothing else watches.
 ## See docs/explanation/the-agent-and-the-watchdog.md#whose-clock-decides.
-own_beat="$results/.supervisor-heartbeat"
 beat_age=-1
 if [[ -f "$own_beat" ]]; then
     beat_age=$(( $(date +%s) - $(stat -c %Y "$own_beat" 2>/dev/null || date +%s) ))
@@ -102,8 +145,7 @@ now=$(stat -c %Y "$own_beat" 2>/dev/null) || now=""
 [[ "$now" =~ ^[0-9]+$ ]] || now=$(date +%s)
 
 ## One timer fires every host at AGENT_INTERVAL_MINUTES, so this is where the
-## watchdog's own cadence lives now. Read before the touch above would have
-## moved it -- which is why `now` is taken from the file and this from its age.
+## watchdog's own cadence lives now.
 ## See docs/explanation/the-agent-and-the-watchdog.md#one-unit-for-both-roles.
 if [[ "$EXPLAIN" -eq 0 && "$beat_age" -ge 0 ]] &&
    [[ "$SUPERVISOR_INTERVAL_MINUTES" =~ ^[0-9]+$ ]] &&
@@ -116,10 +158,6 @@ if setting_enabled "$PAUSE_ARMING" && [[ "$EXPLAIN" -eq 0 ]]; then
     exit 0
 fi
 
-## The unit is a login shell, so a site that puts the client tools on PATH from
-## /etc/profile.d rather than from a module is covered before this runs.
-## See docs/how-to/run-slurm-commands-remotely.md.
-slurm_tried="unit runs bash -lc"
 if [[ -f /etc/profile.d/modules.sh ]]; then
     # shellcheck source=/dev/null
     source /etc/profile.d/modules.sh

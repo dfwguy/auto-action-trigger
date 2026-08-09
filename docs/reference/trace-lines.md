@@ -169,6 +169,9 @@ nothing — this host is the single point the fleet depends on.
 | `ARM <n> node(s) whose heartbeat is older than <n>m: <nodelist>` | One fan-out going out. The nodelist is compressed for pasting |
 | `ARM FAILED <node>: <what it said>` | That node's half of the fan-out output. `arm.log` keeps the full text per attempt |
 | `EXIT: 'sinfo -N -h' returned nothing` | No answer is not an answer: a busy controller looks identical to an empty cluster, so nothing is armed — see [explanation/sequencing.md#when-the-controller-does-not-answer](../explanation/sequencing.md#when-the-controller-does-not-answer) |
+| `EXIT: <host> refreshed the watchdog claim <n>s ago … stands by` | Another host is arming the fleet. Two hosts reading as head is worth settling with `SUPERVISOR_HOST` |
+| `took the watchdog claim from <host>` | The previous watchdog stopped refreshing and this host took over past the lease |
+| `EXIT: SUPERVISOR_HOST=<host> … and this is <host>` | Pinned elsewhere by the site |
 | `EXIT: PAUSE_ARMING=<value> in <settings file>` | No node is armed. Agents already running are untouched and keep cycling |
 | `EXIT: <neither clush nor pdsh is installed here>` | Nothing was armed and no attempt was recorded, so nothing is spent against `ARM_MAX_ATTEMPTS` |
 | `DRAIN <node>: job timeout after <n>h (RUNNING, job <id>)` | `MAX_JOB_HOURS`, issued from here because the node's own cycle stops at the busy gate. Carries no `DRAIN_MARKER`, so nothing clears it automatically |

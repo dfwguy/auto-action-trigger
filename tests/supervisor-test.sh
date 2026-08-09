@@ -216,6 +216,60 @@ grep -q 'ARM FAILED n-bad' "$results/supervisor.log" &&
     bad "the failure did not reach the trace"
 unset STUB_ARM_FAIL
 
+echo "== only one watchdog =="
+
+## Every host runs the same unit and decides its own role, so two reading as
+## head would both arm the fleet.
+## See docs/explanation/the-agent-and-the-watchdog.md#only-one-watchdog.
+rm -rf "$results"; beat 3600 n-stale
+run_sup 'n-stale idle'
+[[ -f "$results/.supervisor-owner" ]] &&
+    ok "the first watchdog to run claims the fleet" ||
+    bad "no claim was written"
+grep -q "^headnode" "$results/.supervisor-owner" &&
+    ok "and the claim names it" ||
+    bad "the claim does not name the host: $(cat "$results/.supervisor-owner" 2>/dev/null)"
+
+## A second host, with the first one's claim still fresh.
+rm -f "$work/fanout.calls"
+( export PATH="$stub:$PATH" HOSTNAME=headnode2 AGENT_HOME="$tree" STUB_DIR="$work" \
+         STUB_SINFO='n-stale idle'
+  "$tree/agent/supervisor.sh" --quiet >/dev/null 2>&1 )
+if [[ -s "$work/fanout.calls" ]]; then
+    bad "a second host armed nodes while another watchdog holds the claim"
+else
+    ok "a second host stands by rather than arming the same fleet"
+fi
+grep -q 'stands by' "$results/supervisor.log" &&
+    ok "and says which host is holding it" ||
+    bad "the stand-down was not explained: $(last_line)"
+grep -q "^headnode\b" "$results/.supervisor-owner" &&
+    ok "the claim is not stolen while it is fresh" ||
+    bad "the standby host took the claim: $(cat "$results/.supervisor-owner")"
+
+## The watchdog has to survive its host dying, so a stale claim is taken over.
+touch -d "@$(( $(date +%s) - 3600 ))" "$results/.supervisor-owner"
+rm -f "$work/fanout.calls"
+( export PATH="$stub:$PATH" HOSTNAME=headnode2 AGENT_HOME="$tree" STUB_DIR="$work" \
+         STUB_SINFO='n-stale idle'
+  "$tree/agent/supervisor.sh" --quiet >/dev/null 2>&1 )
+grep -q "^headnode2" "$results/.supervisor-owner" &&
+    ok "a claim past its lease is taken over" ||
+    bad "a dead watchdog's claim was never released: $(cat "$results/.supervisor-owner")"
+grep -q 'took the watchdog claim from headnode' "$results/supervisor.log" &&
+    ok "and the takeover is written down" ||
+    bad "the takeover was silent"
+
+## The deterministic answer for a site with two hosts that read as head.
+rm -rf "$results"; beat 3600 n-stale
+printf 'SUPERVISOR_HOST=somewhere-else\n' >> "$tree/SETTINGS"
+rm -f "$work/fanout.calls"
+run_sup 'n-stale idle'
+[[ -s "$work/fanout.calls" ]] &&
+    bad "SUPERVISOR_HOST named another host and this one armed anyway" ||
+    ok "SUPERVISOR_HOST pins it: a host that is not named arms nothing"
+sed -i '/^SUPERVISOR_HOST=somewhere-else/d' "$tree/SETTINGS"
+
 echo "== PAUSE_ARMING =="
 
 rm -rf "$results"

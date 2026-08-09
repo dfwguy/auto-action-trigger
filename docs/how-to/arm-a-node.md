@@ -197,7 +197,8 @@ clush -w <node> 'XDG_RUNTIME_DIR=/run/user/$(id -u) \
 
 | What you see | What it is |
 |---|---|
-| no `NEXT` elapse, or the timer absent | the unit is not loaded — `systemctl --user daemon-reload`, then re-run `install-agent.sh` |
+| the timer is `active` but `NEXT` is `-`, and `NextElapseUSecMonotonic=infinity` | it will never fire again. A unit still using `OnUnitActiveSec=` — re-run `install-agent.sh`, which installs the calendar timer. See [explanation/the-agent-and-the-watchdog.md#why-the-timer-is-a-calendar](../explanation/the-agent-and-the-watchdog.md#why-the-timer-is-a-calendar) |
+| the timer absent from `list-timers` | the unit is not loaded — `systemctl --user daemon-reload`, then re-run `install-agent.sh` |
 | `Finished bringup-agent.service` once, then nothing | lingering, above |
 | `cannot write …/.heartbeat` | `results/<node>` is not writable by `cmods`. `sudo chown -R cmods:cmods /home/cmods/bringup/results` |
 | the service failing on every trigger | read the failure — it is a real one, and the cycle prints the same thing under `--verbose` |

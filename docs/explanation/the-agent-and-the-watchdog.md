@@ -172,6 +172,79 @@ Two consequences worth knowing:
   pid, and a unit that is already byte-identical is not rewritten at all — so in
   steady state, arming 2,000 trays writes that directory zero times.
 
+## Why the timer is a calendar
+
+`OnCalendar=*:0/2`, not `OnUnitActiveSec=2min`, and the difference is not a
+matter of taste. It cost a fleet a day.
+
+A monotonic timer is measured from the last activation of the unit it triggers.
+`Type=oneshot` finishes, the service goes inactive, and once systemd has no
+reference left to that activation there is nothing to measure two minutes from —
+so it computes a next elapse of `infinity`. The timer stays `active`, reports
+`Result=success`, and never fires again. On 2,016 hosts it fired exactly once
+each, at the moment the watchdog armed them:
+
+```
+ActiveState=active   Result=success   LastTriggerUSec=Sun 2026-08-09 18:35:09
+NextElapseUSecMonotonic=infinity
+```
+
+Every symptom pointed somewhere else. `systemctl --user status` was clean, the
+unit file was correct, lingering was on, the manager had been up for half an
+hour, and a cycle run by hand worked perfectly. The fleet even *looked* healthy
+from the watchdog — 1,672 fresh heartbeats — because the watchdog re-arms a node
+whose heartbeat has gone stale, and re-arming restarts the timer, which fires
+once. The repair loop was hiding the fault it was repairing.
+
+A calendar schedule has no such reference: the next elapse is computed from the
+wall clock and always exists. `RandomizedDelaySec=30` smears the fleet across
+half a minute so two thousand nodes do not hit NFS on the same second, and
+`Persistent=false` means a node that was powered off does not run a catch-up
+burst when it comes back.
+
+Two consequences:
+
+- **The interval has to divide 60.** `*:0/N` repeats within the hour, so an `N`
+  that does not divide it makes the last step of each hour short. `install-agent.sh`
+  rejects one that does not and uses 2.
+- **`enable --now` no longer produces an immediate cycle.** It starts the timer,
+  and a calendar timer waits for its first tick — so the install starts one
+  cycle itself, or a freshly armed node would look silent for a whole interval
+  and be armed again.
+
+The check that would have caught this in an hour rather than a day is now part
+of the install: **active is not the same as scheduled**, and a timer with no next
+elapse is a failure with the two commands to run printed under it.
+
+## Only one watchdog
+
+Every host runs the same unit and decides its own role, so nothing about the
+install stops two hosts reading as head — a second management server, a host
+that lost its `slurmd`, a compute node named in `EXCLUDE_NODES`. Two watchdogs
+arm the same fleet, race each other's `arm.log`, and double every ssh.
+
+A claim on the shared tree settles it. `results/.supervisor-owner` holds the
+hostname of whoever is arming, refreshed on every cycle; a host that finds a
+claim younger than the lease stands by and says which host is holding it. The
+lease is three watchdog intervals with a five-minute floor, so one slow or
+skipped run does not hand the fleet over — but a watchdog whose host dies is
+taken over, and the takeover is written down.
+
+The claim is read and written **above** the heartbeat, because a host standing by
+must not touch the marker that says a watchdog is alive. That would leave the
+fleet looking supervised by a host that is doing nothing.
+
+`SUPERVISOR_HOST` names one host and settles it deterministically, which is the
+right answer for a site that genuinely has two candidates. Empty — the shipped
+value — means whoever claims it first and keeps the claim fresh.
+
+Two hosts can still both act for one cycle if they claim in the same instant.
+That is bounded and cheap: arming is idempotent, and the loser stands by from
+the next cycle. A lock would be the alternative, and a lock on NFS that can be
+held by a host that reboots is a worse failure than a claim that is occasionally
+raced — the same trade the fleet-wide cap makes in
+[sequencing.md#the-fleet-wide-cap](sequencing.md#the-fleet-wide-cap).
+
 ## Why lingering
 
 `systemd --user` normally starts a user's manager at their first login and stops

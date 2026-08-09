@@ -111,6 +111,10 @@ ARM_RETRY_MINUTES=10
 ARM_MAX_ATTEMPTS=3
 ARM_WINDOW_HOURS=24
 
+## Which host arms the others. Empty means whichever claims it and keeps the
+## claim fresh. See docs/explanation/the-agent-and-the-watchdog.md#only-one-watchdog.
+SUPERVISOR_HOST=
+
 ## ── Privilege ─────────────────────────────────────────────────────────────
 ## sudo, or direct where JOB_USER has Slurm AdminLevel=Operator.
 ## See docs/explanation/running-unprivileged.md#draining-without-root.

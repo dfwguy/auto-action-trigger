@@ -220,12 +220,13 @@ times across the fleet. Why two intervals and no backoff:
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `AGENT_INTERVAL_MINUTES` | `2` | How often `bringup-agent.timer` fires one cycle on a node |
+| `AGENT_INTERVAL_MINUTES` | `2` | How often `bringup-agent.timer` fires one cycle, on every host. Must divide 60 — `1 2 3 4 5 6 10 12 15 20 30` — because the timer is `OnCalendar=*:0/N`; anything else is refused and 2 is used |
 | `SUPERVISOR_INTERVAL_MINUTES` | `2` | How often `bringup-supervisor.timer` fires the watchdog on the head node |
 | `HEARTBEAT_STALE_MINUTES` | `10` | A heartbeat older than this, on an `idle` or `drained` node, is armed again |
 | `ARM_RETRY_MINUTES` | `10` | Shortest gap between two arming attempts on the same node |
 | `ARM_MAX_ATTEMPTS` | `3` | Attempts inside `ARM_WINDOW_HOURS` before the node is left for an operator |
 | `ARM_WINDOW_HOURS` | `24` | The window that count is taken over |
+| `SUPERVISOR_HOST` | *empty* | Which host arms the others. Empty means whichever claims `results/.supervisor-owner` and keeps it fresh; naming one settles it where two hosts read as head. See [explanation/the-agent-and-the-watchdog.md#only-one-watchdog](../explanation/the-agent-and-the-watchdog.md#only-one-watchdog) |
 
 The two intervals are read only at install time: they are substituted into the
 unit files by `agent/install-agent.sh`, so changing one means re-running it —

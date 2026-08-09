@@ -135,6 +135,10 @@ fi
 : "${ARM_RETRY_MINUTES:=10}"
 : "${ARM_MAX_ATTEMPTS:=3}"
 : "${ARM_WINDOW_HOURS:=24}"
+## Empty means whichever host claims it first and keeps refreshing the claim.
+## Name one to settle it deterministically where two hosts read as head.
+## See docs/explanation/the-agent-and-the-watchdog.md#only-one-watchdog.
+: "${SUPERVISOR_HOST=}"
 ## sudo, or direct for a site that gave JOB_USER Slurm AdminLevel=Operator.
 ## See docs/explanation/running-unprivileged.md#draining-without-root.
 : "${PRIV_SCONTROL:=sudo}"
