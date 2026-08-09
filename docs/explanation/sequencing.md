@@ -935,6 +935,7 @@ A pending job, not ours, that this node is part of the answer to:
 | `PENDING` | `squeue -t PENDING` | a running job elsewhere is not waiting for anything |
 | not named `bringup-*` or `burnin-*` | `Name` | another node's sweep job waiting its turn is not somebody being kept off the cluster |
 | pending at least `GET_OUT_OF_THE_WAY_AFTER_MINUTES` | `PendingTime` | a job that may yet be satisfied somewhere else is not worth throwing a benchmark away for |
+| priority is not 0 | `PriorityLong` | a held job is never going to start, so nothing is being kept off the cluster — see below |
 | wants this node | `ReqNodes` **or** `SchedNodes` | see below |
 
 **A waiter is told from one of ours by its name, never by its user.** The
@@ -958,6 +959,32 @@ Node lists are expanded with `scontrol show hostnames` rather than matched as
 text. `ink50-dh01-i01-[11-18]` does not contain the string
 `ink50-dh01-i01-13`, and a substring test against a compressed list is a check
 that silently never fires.
+
+### A held job is not a waiter
+
+Every condition above except this one was in the original check, and the fleet
+found the gap. A job Slurm requeued and held after a failed launch stays in the
+queue reading `PENDING`, with a node list, ageing past any threshold — it
+satisfies the whole test, and it is at priority 0, which means it will never
+start no matter what this node does. Yielding to it throws a running benchmark
+away and gives the nodes to nobody.
+
+That is not a hypothetical. On 2026-08-09 seven held 18-node microbenchmarks
+sat across the cluster, each naming its rack with `-w`, between them making 126
+nodes read as wanted by somebody. The same failed launches are what
+[jobs the scheduler has given up on](#jobs-the-scheduler-has-given-up-on)
+describes from our own side; the difference is that a held job of *ours* is
+cancelled and resubmitted, and a held job of somebody else's is nobody's to
+clear, so it sits there for as long as it takes an operator to notice.
+
+`PriorityLong`, not `Priority`: `squeue` reports the first as the integer and
+the second normalised to a float between 0 and 1, and only the integer compares
+cleanly against `0`. The test is for exactly `0` rather than for a reason
+string, because `JobHeldUser`, `JobHeldAdmin` and `launch failed requeued held`
+are three spellings of one state and Slurm's own definition of that state is the
+priority. Anything unparseable is read as a real waiter: an unexpected
+`squeue` build should make the feature no worse than it was, not silently stop
+it yielding at all.
 
 ### The four checks before a cancel
 

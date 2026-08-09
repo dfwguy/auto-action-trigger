@@ -76,9 +76,9 @@ _yield_holds_node() {
 ## "id user name pending-seconds"; returns 2 when the queue could not be read,
 ## which is not the same answer as "nobody is waiting" and must not act like it.
 _yield_waiter() {
-    local node="$1" after="$2" queue rc id user name req sched pend
+    local node="$1" after="$2" queue rc id user name req sched pend prio
     queue=$(squeue -h -t PENDING \
-                -O 'JobID:|,UserName:|,Name:|,ReqNodes:|,SchedNodes:|,PendingTime:|' 2>&1)
+                -O 'JobID:|,UserName:|,Name:|,ReqNodes:|,SchedNodes:|,PendingTime:|,PriorityLong:|' 2>&1)
     rc=$?
     if [[ "$rc" -ne 0 ]]; then
         yield_log "WARNING: squeue would not list the pending queue, so nothing is yielded to: ${queue:-<no output>}"
@@ -86,13 +86,16 @@ _yield_waiter() {
     fi
     [[ -n "$queue" ]] || return 1
 
-    while IFS='|' read -r id user name req sched pend _; do
+    while IFS='|' read -r id user name req sched pend prio _; do
         id=$(_yield_trim "$id")
         [[ "$id" =~ ^[0-9]+$ ]] || continue
         name=$(_yield_trim "$name")
         ## Ours by name, on this node or any other: a bringup job waiting its
         ## turn is not somebody being kept off the cluster.
         _yield_name_is_ours "$name" && continue
+        ## Priority 0 is Slurm's own word for held, and a held job never starts.
+        ## docs/explanation/sequencing.md#a-held-job-is-not-a-waiter
+        [[ "$(_yield_trim "$prio")" == 0 ]] && continue
         pend=$(_yield_trim "$pend")
         [[ "$pend" =~ ^[0-9]+$ ]] || pend=0
         [[ "$pend" -lt "$after" ]] && continue
