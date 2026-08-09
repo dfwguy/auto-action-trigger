@@ -6,24 +6,36 @@ itself, so updating it is a copy. Two thousand nodes are executing out of that
 directory while you copy into it, which is what the steps below are shaped
 around.
 
-The whole thing:
+The whole thing, from a tarball already in `/tmp`:
 
 ```bash
-tar xf ~/auto-action-trigger-*.tar.gz -C /tmp      # -C, so this leaves you where you were
+# 1. unpack fresh -- the trailing / matches the extracted tree, not the tarball
+rm -rf /tmp/auto-action-trigger-*/
+tar -jxvf /tmp/auto-action-trigger-*.tar.bz2 -C /tmp
 
+# 2. stop the fleet
 bash /cluster/bringup/pause-agents.sh
-bash /cluster/bringup/pause-agents.sh --status     # wait for QUIET
 
+# 3. copy
 rsync -a --delete \
   --exclude=SETTINGS --exclude=results/ --exclude=logs/ --exclude=valid-config/ \
   --exclude=containers/ --exclude=container-src/ --exclude=reports/ --exclude=dmesg-archive/ \
   /tmp/auto-action-trigger-*/ /cluster/bringup/
 
-grep OnCalendar /cluster/bringup/agent/units/bringup-agent.timer   # confirm it landed
+# 4. confirm the unit landed -- do not continue if this prints nothing
+grep OnCalendar /cluster/bringup/agent/units/bringup-agent.timer
+
+# 5. resume
 bash /cluster/bringup/pause-agents.sh --resume
 ```
 
-Each step is there for a reason that cost something to learn.
+**Delete the extracted tree before untarring.** `tar` overwrites what it
+extracts but removes nothing, so a file dropped upstream survives in `/tmp` and
+`rsync` faithfully copies it back to the cluster. The trailing `/` on the glob
+matters: without it, `rm -rf /tmp/auto-action-trigger-*` takes the tarball too.
+
+If several drops have accumulated in `/tmp`, name the tarball rather than
+globbing it — `tar` given two archives takes the first and says nothing.
 
 ## Unpack on local disk
 
@@ -33,11 +45,10 @@ its unit and runs a `systemd --user` against it. A drop unpacked there is read
 at *that* directory's speed no matter how fast the deployment's own disk is.
 `/tmp` is local; use it.
 
-## Stop the fleet before copying, and confirm it stopped
+## Stop the fleet before copying
 
 ```bash
 bash pause-agents.sh
-bash pause-agents.sh --status
 ```
 
 Copying over a tree that two thousand agents are executing out of replaces
@@ -51,21 +62,32 @@ whose heartbeat goes stale, so stopping the nodes while it runs puts them
 straight back — then every node's timer. It writes nothing to the share, which
 is what makes it usable when the share is the thing that is struggling.
 
-**Wait for `QUIET`.** `--status` answers two different questions and only one is
-about a stop:
+### When the copy misbehaves, check whether it actually stopped
+
+Not a step in the normal path — `rsync` renames rather than truncating, so a
+node that missed the stop costs speed rather than correctness. Reach for these
+when a copy is slow, sticks on `settings.sh` or `launch_job.sh`, or lands
+half-applied:
+
+```bash
+bash pause-agents.sh --status                                        # QUIET or STILL RUNNING
+find /cluster/bringup/results -name .heartbeat -newermt '-2 minutes' # nodes still cycling
+```
+
+`--status` prints two different things and only one is about a stop. "N cycling
+within `HEARTBEAT_STALE_MINUTES`" is what the *watchdog* arms on; a node stopped
+a minute ago is still inside that window. The `QUIET` / `STILL RUNNING` line is
+the answer:
 
 ```
-nodes matching *: 2007 cycling within 10m, 1 stale, 8 never armed
-STILL RUNNING: 1975 node(s) wrote a heartbeat in the last 4m (newest 3s ago).
+QUIET: nothing has written a heartbeat in 4m (newest 340s ago). Safe to replace the tree.
+STILL RUNNING: 12 node(s) wrote a heartbeat in the last 4m (newest 3s ago).
 ```
-
-The first line is what the *watchdog* arms on; a node stopped a minute ago is
-still inside a ten-minute window, so it says nothing about now. The second line
-is the answer. `QUIET` means nothing has written a heartbeat for two cycles.
 
 A stop that printed no errors can still have missed a node — one the fan-out
-could not reach, one that is not in `sinfo`. One node still cycling is one node
-reading the tree while it is replaced.
+could not reach, one that is not in `sinfo`. Those nodes are reading
+`settings.sh` and `launch_job.sh` on every cycle, which are the files a stuck
+copy stalls on.
 
 ## `rsync`, not `cp -R`
 

@@ -26,7 +26,6 @@ replaces scripts under running processes, so it is a stop-copy-resume:
 
 ```bash
 bash pause-agents.sh              # stop the watchdog here, then every node timer
-bash pause-agents.sh --status     # wait for QUIET before touching the tree
 rsync ...
 bash pause-agents.sh --resume     # re-arm the nodes, then start the watchdog
 ```
