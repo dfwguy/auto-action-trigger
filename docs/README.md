@@ -65,6 +65,7 @@ Task-oriented, for someone who already knows the system.
 | [diagnose-nothing-running.md](how-to/diagnose-nothing-running.md) | `trigger-log.sh` then `trigger-debug.sh`, and reading the queue. Try this first |
 | [diagnose-a-failed-node.md](how-to/diagnose-a-failed-node.md) | Reading a failure back to the device that caused it |
 | [diagnose-ib-visibility.md](how-to/diagnose-ib-visibility.md) | `ib-visibility.sh`, for the two `-nonvlink` jobs |
+| [release-a-held-job.md](how-to/release-a-held-job.md) | A job held at priority 0 on `launch failed requeued held` that is not the framework's: whose it is, release against cancel-and-resubmit, and what a release cannot fix |
 | [clear-an-unkillable-step.md](how-to/clear-an-unkillable-step.md) | A node held every cycle on GPU processes nothing will reap: confirming it, the evidence to capture, and getting it back |
 | [estimate-when-a-job-will-start.md](how-to/estimate-when-a-job-will-start.md) | Your job is queued behind the sweep — how long, and what does not help. Written for anyone sharing the cluster |
 

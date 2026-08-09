@@ -126,6 +126,10 @@ submission. One outliving that window by a good margin is a real
 problem; one inside it is the mechanism working. See
 [explanation/sequencing.md#when-a-marker-goes-stale](../explanation/sequencing.md#when-a-marker-goes-stale).
 
+A held job that is *not* named `bringup-*` or `burnin-*` is nobody's to clear
+automatically and will sit at priority 0 indefinitely:
+[release-a-held-job.md](release-a-held-job.md).
+
 ## Reading the queue
 
 ```bash
