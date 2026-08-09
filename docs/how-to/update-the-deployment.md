@@ -17,7 +17,7 @@ tar -jxvf /tmp/auto-action-trigger-*.tar.bz2 -C /tmp
 bash /cluster/bringup/pause-agents.sh
 
 # 3. copy
-rsync -a --delete \
+rsync -av --delete \
   --exclude=SETTINGS --exclude=results/ --exclude=logs/ --exclude=valid-config/ \
   --exclude=containers/ --exclude=container-src/ --exclude=reports/ --exclude=dmesg-archive/ \
   /tmp/auto-action-trigger-*/ /cluster/bringup/
@@ -100,6 +100,10 @@ Three reasons, only the first of which is speed:
   sees the old file or the new one and never a truncated one.
 - `--delete` removes files that went away upstream. Without it the deployment
   keeps every script the framework has ever shipped.
+
+`-v` lists what it transferred and what it deleted. On a normal drop that is a
+handful of lines, which is the point: a long list means more changed than you
+expected, and an empty one means the copy did nothing.
 
 **The `--exclude` list is load-bearing because `--delete` is.** Those seven
 directories are the site's own data and none of them is in the tarball, so
