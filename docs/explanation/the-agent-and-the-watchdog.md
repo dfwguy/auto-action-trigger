@@ -79,6 +79,32 @@ nothing watches the watchdog. Its absence or staleness is the first thing
 `trigger-log.sh` and `trigger-debug.sh` report, above every per-node question,
 because no answer below it can be trusted while nothing is arming anything.
 
+## Where the watchdog logs
+
+Four places, and only the first is the one to read:
+
+| What | Where |
+|---|---|
+| One line per cycle, including the quiet ones | `$BRINGUP_HOME/results/supervisor.log` |
+| Its own liveness | `$BRINGUP_HOME/results/.supervisor-heartbeat` — mtime only, and the clock every other age is measured against |
+| What it heard back from one node, per attempt | `$BRINGUP_HOME/results/<node>/arm.log` |
+| Anything it could not write, plus login-shell noise from the unit | the systemd journal |
+
+The unit passes `--quiet`, so a healthy cycle writes to the file and says nothing
+to stdout. `journalctl --user -u bringup-supervisor.service` is therefore empty
+on a working head node, which is the point: it holds the failures the file could
+not.
+
+The one that matters is a `results/` the account cannot write — a tree left
+root-owned by the years these cycles ran as root is exactly that. Without a
+guard the watchdog would run, write nothing anywhere, and leave
+`systemctl --user status` reporting a clean oneshot while the fleet quietly
+stopped being armed. So writability is tested once per run and a failure turns
+the run verbose, which puts every line in the journal instead, with the `chown`
+in the first of them. A run that can neither write nor speak is the one state
+this whole design exists to make impossible, and the watchdog is the worst place
+to have it: nothing watches the watchdog.
+
 ## Which states are armed
 
 `sinfo -N -h -o '%N %T'`, once per cycle, and only two states are candidates:

@@ -55,6 +55,13 @@ Within `HEARTBEAT_STALE_MINUTES` it should start naming nodes and arming them
 over one `clush`. Nothing else is needed: the nodes are armed by the watchdog,
 not by you.
 
+If that file is not growing, the journal holds whatever it could not write —
+most often a `results/` the account does not own:
+
+```bash
+journalctl --user -u bringup-supervisor.service -n 20    # as cmods, on the head node
+```
+
 To arm a rack yourself rather than wait:
 
 ```bash

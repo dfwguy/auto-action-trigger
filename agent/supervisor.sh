@@ -58,8 +58,26 @@ results="$home/results"
 tracelog="$results/supervisor.log"
 mkdir -p "$results" 2>/dev/null
 
+## Tested once, not per line. A watchdog that can neither write nor speak is the
+## worst version of the silence this whole design is against: the timer reports a
+## clean run, the fleet stops being armed, and nothing anywhere says so. Falling
+## back to stdout puts it in the journal, where `systemctl --user status` finds
+## it. See docs/explanation/the-agent-and-the-watchdog.md#where-the-watchdog-logs.
+TRACE_WRITABLE=-1
+trace_writable() {
+    [[ "$TRACE_WRITABLE" -ge 0 ]] && return "$TRACE_WRITABLE"
+    if { : >> "$tracelog"; } 2>/dev/null; then
+        TRACE_WRITABLE=0
+    else
+        TRACE_WRITABLE=1
+        VERBOSE=1
+        echo "WARNING: cannot write $tracelog as $(id -un) -- $(stat -c '%U owns %n' "$results" 2>/dev/null || echo "$results does not exist")." >&2
+        echo "         Tracing to the journal only: journalctl --user -u bringup-supervisor.service" >&2
+    fi
+    return "$TRACE_WRITABLE"
+}
 trace() {
-    printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$tracelog" 2>/dev/null
+    trace_writable && printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$tracelog" 2>/dev/null
     [[ "$EXPLAIN" -eq 1 || "$VERBOSE" -eq 1 ]] && printf '%s\n' "$*"
     return 0
 }
