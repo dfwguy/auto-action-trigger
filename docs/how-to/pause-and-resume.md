@@ -27,6 +27,16 @@ of it replaces scripts under running processes — a cycle that sourced the old
 genuinely hard to read. It is also slow, because the copy competes with every
 node reading the tree.
 
+**Unpack the tarball on local disk, not in `$HOME`.** The account's home is
+NFS-shared at most sites, and it is the busiest directory on the cluster while
+the fleet is armed — every node reads `~/.config/systemd/user/` for its unit and
+runs a `systemd --user` against it. A drop unpacked there is read at that
+directory's speed, however fast the deployment's own disk is. `/tmp` is fine:
+
+```bash
+cd /tmp && tar xf ~/auto-action-trigger-*.tar.gz
+```
+
 Quiesce first, copy, then bring it back:
 
 ```bash
