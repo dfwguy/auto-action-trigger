@@ -216,6 +216,36 @@ grep -q 'ARM FAILED n-bad' "$results/supervisor.log" &&
     bad "the failure did not reach the trace"
 unset STUB_ARM_FAIL
 
+echo "== arming is bounded =="
+
+## Every arm is an ssh from one host, and a fleet that stops cycling for any
+## reason makes every node stale in the same instant.
+## See docs/explanation/the-agent-and-the-watchdog.md#arming-is-bounded.
+rm -rf "$results"
+big=""
+for i in $(seq 1 12); do beat 3600 "n$i"; big+="n$i idle
+"; done
+printf 'ARM_BATCH=5\n' >> "$tree/SETTINGS"
+run_sup "${big%$'\n'}"
+## The -w argument, not the whole line: the command that follows it has commas
+## and spaces of its own.
+armed_count=$(sed -n 's/.*-w \([^ ]*\).*/\1/p' "$work/fanout.calls" | tr ',' '\n' | grep -c .)
+[[ "$armed_count" -eq 5 ]] &&
+    ok "12 stale nodes, ARM_BATCH=5, five went out" ||
+    bad "the cap did not hold: $armed_count went out"
+grep -q 'held back by ARM_BATCH=5' "$results/supervisor.log" &&
+    ok "and the rest are named as deferred, not dropped" ||
+    bad "the deferred nodes were not accounted for: $(last_line)"
+
+## Deferred is not lost: the next cycle takes the next batch.
+rm -f "$work/fanout.calls"
+touch -d "@$(( $(date +%s) - 3600 ))" "$results/.supervisor-heartbeat" 2>/dev/null
+run_sup "${big%$'\n'}"
+[[ -s "$work/fanout.calls" ]] &&
+    ok "the next cycle picks up where it left off" ||
+    bad "nothing was armed on the following cycle"
+sed -i '/^ARM_BATCH=5/d' "$tree/SETTINGS"
+
 echo "== only one watchdog =="
 
 ## Every host runs the same unit and decides its own role, so two reading as

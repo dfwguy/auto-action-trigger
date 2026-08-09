@@ -130,6 +130,10 @@ fi
 : "${AGENT_INTERVAL_MINUTES:=2}"
 : "${SUPERVISOR_INTERVAL_MINUTES:=2}"
 : "${HEARTBEAT_STALE_MINUTES:=10}"
+## The most nodes one watchdog cycle will reach at once. Every arm is an ssh,
+## and a fleet that stops cycling makes every node stale in the same instant.
+## 0 is no cap. See docs/explanation/the-agent-and-the-watchdog.md#arming-is-bounded.
+: "${ARM_BATCH:=200}"
 ## A node that cannot be armed is reported rather than sshed into every cycle,
 ## on the same shape as RECOVER_MAX_ATTEMPTS.
 : "${ARM_RETRY_MINUTES:=10}"

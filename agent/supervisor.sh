@@ -58,6 +58,16 @@ results="$home/results"
 tracelog="$results/supervisor.log"
 mkdir -p "$results" 2>/dev/null
 
+## ── One watchdog cycle at a time ──────────────────────────────────────────
+##
+## Arming a large fleet takes longer than the interval, and systemd queues a
+## start it cannot run concurrently -- so a slow cycle is followed immediately
+## by the next, and the fan-out never stops. Node-local, like the agent's.
+_sup_lock=/tmp/.bringup-supervisor.lock
+if exec 9>>"$_sup_lock" 2>/dev/null && ! flock -n 9 2>/dev/null; then
+    exit 0
+fi
+
 ## Tested once, not per line. A watchdog that can neither write nor speak is the
 ## worst version of the silence this whole design is against: the timer reports a
 ## clean run, the fleet stops being armed, and nothing anywhere says so. Falling
@@ -266,6 +276,17 @@ done <<< "$states"
 ## Nothing is pushed over it -- install-agent.sh reads the units out of this
 ## same tree, over NFS, on the node.
 ## See docs/explanation/architecture.md#reaching-nodes-is-clush-or-pdsh.
+## Bounded per cycle. Every arm is an ssh, and ssh is CPU on this host: a fleet
+## that has stopped cycling for any reason makes *every* node stale at once, so
+## an uncapped pass is two thousand handshakes from one machine, repeated every
+## interval. The rest are not lost, only deferred.
+## See docs/explanation/the-agent-and-the-watchdog.md#arming-is-bounded.
+deferred=0
+if [[ "$ARM_BATCH" =~ ^[0-9]+$ ]] && [[ "$ARM_BATCH" -gt 0 ]] && [[ "${#arm[@]}" -gt "$ARM_BATCH" ]]; then
+    deferred=$(( ${#arm[@]} - ARM_BATCH ))
+    arm=("${arm[@]:0:$ARM_BATCH}")
+fi
+
 armed_list=""
 if [[ "${#arm[@]}" -gt 0 ]]; then
     joined=$(IFS=,; printf '%s' "${arm[*]}")
@@ -278,7 +299,7 @@ if [[ "${#arm[@]}" -gt 0 ]]; then
         trace "EXIT: $FANOUT_WHY, so ${#arm[@]} node(s) on $HOSTNAME cannot be armed: $armed_list. Nothing was retried and no attempt was recorded."
         exit 0
     else
-        trace "ARM ${#arm[@]} node(s) whose heartbeat is older than ${stale_min}m, over $FANOUT_CMD: $armed_list${FANOUT_WHY:+ ($FANOUT_WHY)}"
+        trace "ARM ${#arm[@]} node(s) whose heartbeat is older than ${stale_min}m, over $FANOUT_CMD: $armed_list${FANOUT_WHY:+ ($FANOUT_WHY)}${deferred:+$( ((deferred)) && printf '. %s more deferred to the next cycle by ARM_BATCH=%s' "$deferred" "$ARM_BATCH")}"
         out=$(fanout "$joined" "XDG_RUNTIME_DIR=/run/user/\$(id -u) $home/agent/install-agent.sh")
         for node in "${arm[@]}"; do
             said=$(grep "^$node:" <<<"$out" | sed "s/^$node: *//" | tr '\n' ' ')
@@ -339,6 +360,7 @@ fi
 summary="checked $(wc -l <<<"$states") node(s): $fresh fresh, ${#arm[@]} armed, $busy with work on them, $unreachable not answering, $skipped filtered out"
 [[ "$waiting" -gt 0 ]] && summary+=", $waiting waiting out the ${ARM_RETRY_MINUTES}m arm interval"
 [[ "$overrun" -gt 0 ]] && summary+=", $overrun past MAX_JOB_HOURS"
+[[ "$deferred" -gt 0 ]] && summary+=", $deferred held back by ARM_BATCH=$ARM_BATCH"
 if [[ "${#limited[@]}" -gt 0 ]]; then
     lim=$(IFS=,; printf '%s' "${limited[*]}")
     lim_pretty=$(declare -F compress >/dev/null && compress "$lim" || printf '%s' "$lim")

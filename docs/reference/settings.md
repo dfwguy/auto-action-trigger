@@ -223,6 +223,7 @@ times across the fleet. Why two intervals and no backoff:
 | `AGENT_INTERVAL_MINUTES` | `2` | How often `bringup-agent.timer` fires one cycle, on every host. Must divide 60 — `1 2 3 4 5 6 10 12 15 20 30` — because the timer is `OnCalendar=*:0/N`; anything else is refused and 2 is used |
 | `SUPERVISOR_INTERVAL_MINUTES` | `2` | How often `bringup-supervisor.timer` fires the watchdog on the head node |
 | `HEARTBEAT_STALE_MINUTES` | `10` | A heartbeat older than this, on an `idle` or `drained` node, is armed again |
+| `ARM_BATCH` | `200` | Most nodes one watchdog cycle reaches at once; the rest are deferred to the next. `0` is no cap. Every arm is an ssh from one host — see [explanation/the-agent-and-the-watchdog.md#arming-is-bounded](../explanation/the-agent-and-the-watchdog.md#arming-is-bounded) |
 | `ARM_RETRY_MINUTES` | `10` | Shortest gap between two arming attempts on the same node |
 | `ARM_MAX_ATTEMPTS` | `3` | Attempts inside `ARM_WINDOW_HOURS` before the node is left for an operator |
 | `ARM_WINDOW_HOURS` | `24` | The window that count is taken over |

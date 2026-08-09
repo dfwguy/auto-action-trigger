@@ -327,7 +327,7 @@ worst case between a node's timer dying and its being armed again is
 in the same fan-out do not then hit the same NFS server in the same second for
 the rest of the day.
 
-## Arming is idempotent, and bounded
+## Arming is bounded
 
 `install-agent.sh` may be run any number of times on a node that is already
 armed: it re-enables lingering that is already enabled, rewrites the units only
@@ -336,9 +336,22 @@ no-op. That is what makes it safe for the watchdog to run it without first
 asking whether it is needed — and the watchdog cannot ask cheaply, because the
 question is on the other side of an ssh.
 
-What it is not is free, so it is rate-limited twice. A node is not armed again
-within `ARM_RETRY_MINUTES`, and a node armed `ARM_MAX_ATTEMPTS` times inside
-`ARM_WINDOW_HOURS` and still silent is left alone and named in the summary line.
+What it is not is free, so it is rate-limited three ways. **`ARM_BATCH` caps how
+many nodes one cycle reaches at all** — every arm is an ssh, and ssh is CPU on
+the host doing the arming, so an uncapped pass across a fleet that has stopped
+cycling is two thousand handshakes from one machine, repeated every interval.
+That is not hypothetical: it is what a fleet-wide timer fault produces, because
+a fleet that stops cycling makes *every* node stale in the same instant. The
+overflow is deferred to the next cycle and named in the trace, never dropped.
+
+A watchdog cycle also takes a node-local `flock`. Arming a large fleet can take
+longer than the interval, and systemd queues a start it cannot run concurrently
+— so without it a slow cycle is followed immediately by the next, and the
+fan-out never stops.
+
+Then, per node: one is not armed again within `ARM_RETRY_MINUTES`, and one armed
+`ARM_MAX_ATTEMPTS` times inside `ARM_WINDOW_HOURS` and still silent is left alone
+and named in the summary line.
 The shape is deliberately the same as `RECOVER_MAX_ATTEMPTS` in
 [drain-recovery.md](drain-recovery.md), and for the same reason: a repair that
 is not working is a fact to report, not a thing to keep doing. Every attempt and
