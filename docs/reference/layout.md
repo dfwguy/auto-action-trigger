@@ -78,6 +78,7 @@ pieces fit together this way is
 ├── health-check.sh                # Cluster-wide health summary, plus --explain and --refresh
 ├── ib-visibility.sh               # Compare HCAs the host sees vs the container sees
 ├── single-node-purge.sh           # Clear benchmark results for a node
+├── dmesg-archive.sh               # Save, clear and resume nodes drained on a full dmesg
 ├── kill-jobs.sh                   # Cancel our queued and running jobs; -p also pauses
 ├── check_squeue.sh                # The queue in one table; -j adds node state and reservations
 ├── status-check.sh                # Live per-node benchmark status (all nodes)
@@ -119,7 +120,7 @@ not the checked-out ones.
 | `$BRINGUP_HOME/results/<node>/trigger.log` | Per-cycle decision trace from `launch_job.sh` |
 | `$BRINGUP_HOME/results/<node>/health.log` | Per-cycle decision trace from `node_health.sh` |
 | `$BRINGUP_HOME/results/<node>/quick-view.txt` | One line per benchmark: `DONE` / `QUEUED` |
-| `$BRINGUP_HOME/results/<node>/recover.log` | One line per drain cleared. The attempt history `RECOVER_MAX_ATTEMPTS` is counted from |
+| `$BRINGUP_HOME/results/<node>/recover.log` | One line per drain cleared. The attempt history `RECOVER_MAX_ATTEMPTS` is counted from. Tab separated: epoch, date, class, state, setter, reason, and the pre-job check that failed. See [explanation/drain-recovery.md#and-it-has-to-outlive-the-trace](../explanation/drain-recovery.md#and-it-has-to-outlive-the-trace) |
 | `$BRINGUP_HOME/results/<node>/unkillable.stamp` | First-seen epoch and pid set of GPU processes that survived their step's kill. Tab separated; a changed pid set restarts the clock. See [explanation/drain-recovery.md#a-step-that-outlives-its-own-kill](../explanation/drain-recovery.md#a-step-that-outlives-its-own-kill) |
 | `$BRINGUP_HOME/results/<node>/.not-a-compute-node` | Present when the host has decided it can never run a job. Holds the reason; every script that walks `results/*/` skips the directory. See [settings.md#hosts-that-are-not-compute-nodes](settings.md#hosts-that-are-not-compute-nodes) |
 | `$BRINGUP_HOME/reports/` | Where `daily-report.sh -o` reports are kept by convention |

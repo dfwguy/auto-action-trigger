@@ -105,10 +105,24 @@ nodes are recognised separately and marked `DOWN` for an operator —
 ## Reading what the recovery did
 
 ```bash
-grep RECOVER results/*/trigger.log | tail            # what came back, and why
-cat results/<node>/recover.log                       # one line per recovery
+./overall_report.sh --full <pattern>                 # start here: every drain, with why
+grep -i recover results/*/trigger.log | tail         # the raw traces
+cat results/<node>/recover.log                       # one line per resume
 ./trigger-log.sh                                     # recoveries appear as events
 ```
+
+`overall_report.sh` is the one to reach for first. Its NODES section carries the
+Slurm state and drain reason, the pre-job check that failed, the `held` and
+`skipped` traces, and — for a prolog drain whose cause is not in our logs — the
+`pdsh` line that reads BCM's own log **on the node**, which is where
+`/cm/local/apps/slurm/var/pre-post-job-logs/` lives. Running that path on the
+head node finds nothing, every time.
+
+Note the `-i`. A resume is traced as `RECOVER:` and every hold as lowercase
+`recover held:`, `recover skipped:` or `recover note:`, so an uppercase `grep
+RECOVER` shows you only the nodes that came back — the exact opposite of the set
+you are looking at when you run this. That grep is why a node can look untouched
+for hours while its trace says `rate-limited` on every cycle.
 
 Every decision, including the ones that changed nothing, is written to
 `results/<node>/recover.log` and traced — so a node that is not coming back says

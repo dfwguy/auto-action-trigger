@@ -200,6 +200,66 @@ recovery that will not settle; the same node saying `failed on [dmesg]` is a
 hardware fault with a ticket to open. The recovery is not the thing to fix in
 that case, and the log now says so.
 
+## When nothing names the check
+
+The note above is only written when a log was found and read. There are five
+ways for that to fail, and for most of this file's life every one of them
+produced the same thing: a resume, with no note, and nothing saying why.
+
+That is worse than it sounds, because the note is the only difference between a
+node flapping on a hardware fault and a node flapping on the recovery. A node
+that resumes four times in thirty-two hours and never once names a cause looks
+like a broken recovery from the outside; the case this section was written from
+was `dmesg is FAIL, /* 10 */ matches for regex: blocked for more than` — kernel
+hung-task warnings, a hardware fault, and the recovery behaving correctly
+throughout. Nobody could tell, because the one line that would have said so was
+never written.
+
+So each exit now names itself, and a resume that could not be explained says
+that it could not be explained:
+
+| The exit | What the trace says |
+|---|---|
+| `RECOVER_PREJOB_LOGS` is empty | the site turned the check off |
+| the directory is absent on the node | the path does not resolve here |
+| no readable `job.*.log` in it | the directory is there and empty |
+| the newest log predates the drain | how far, against `RECOVER_PREJOB_SLACK_SECS` |
+| the log names no failed check | it was read and explained nothing |
+
+The fourth is the one worth dwelling on, because the rejection is *correct* —
+nothing prunes `failed-pre-jobs/`, so an old log is a different incident and
+reading it as this drain's cause would be worse than reading nothing. Being
+right and being silent are separate questions, and this file had been answering
+only the first. The trace now carries the gap in seconds and the slack it was
+measured against, so a site whose logs land slightly late can see that it is a
+slack problem rather than a missing log.
+
+None of this changes an outcome. Every one of these paths resumed before and
+resumes now, at the same rate limit — what changes is that
+`grep -i recover results/<node>/trigger.log` answers the question instead of
+returning nothing.
+
+### And it has to outlive the trace
+
+Naming the check in `trigger.log` is not enough on its own, because that file is
+trimmed to its last 2000 lines once it passes 1 MB, and a node gets a line or
+two per monitoring cycle. A busy node loses a day of trace, and what it loses
+first is the note explaining a drain that is still on it.
+
+The rack this was found on made the point by itself: `d06-15`, `-18`, `-28` and
+`-29` all carried `the pre-job check failed on [dmesg]` from two days earlier,
+and `d06-17` — same rack, same fault, same drain — carried nothing, because its
+trace had rotated and theirs had not. Reading the two side by side suggested a
+difference between the nodes that did not exist.
+
+So the check goes into `recover.log` as well, in a seventh tab-separated field.
+That file is bounded too, but by *resumes* rather than by cycles: 500 lines is
+years of history on any node that is not flapping, and a node that is flapping
+is one this file wants to keep the history for. Field 6 stays the reason Slurm
+gave, which is what `overall_report.sh` and the rate limit already key on —
+both read `-F'\t'` and neither looks past the fields it names, so older lines
+with six fields still read correctly.
+
 ## Restarting slurmd
 
 Two different conditions here are repaired by restarting `slurmd`, and both go

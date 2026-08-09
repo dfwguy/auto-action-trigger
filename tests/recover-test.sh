@@ -252,10 +252,41 @@ touch -d '2026-06-11 14:56:00' "$work/prejob-stale/job.114250.log"
 run_case "rogue process, log predates the drain" resumed \
     STUB_REASON="rogueprocess" RECOVER_PREJOB_LOGS="$work/prejob-stale" \
     STUB_LIVE_PID="503852" STUB_LIVE_ARGS="sshd: cmods@pts/0"
+## The rejection is right and the silence was not: four resumes on one node
+## named no cause at all. docs/explanation/drain-recovery.md#when-nothing-names-the-check
+grep -q "different incident" "$CASE_DIR/trace" ||
+    bad "  ... and the trace did not say the log was rejected as too old"
 
 run_case "rogue process, no pre-job logs on this node" resumed \
     STUB_REASON="rogueprocess" RECOVER_PREJOB_LOGS="$work/nonexistent" \
     STUB_LIVE_PID="503852"
+grep -q "does not exist on this node" "$CASE_DIR/trace" ||
+    bad "  ... and the trace did not say the directory was missing"
+
+run_case "pre-job logs turned off" resumed \
+    STUB_REASON="Prolog error" RECOVER_PREJOB_LOGS=""
+grep -q "RECOVER_PREJOB_LOGS is empty" "$CASE_DIR/trace" ||
+    bad "  ... and the trace did not say nothing reads it"
+
+mkdir -p "$work/prejob-empty"
+run_case "pre-job log directory has no logs" resumed \
+    STUB_REASON="Prolog error" RECOVER_PREJOB_LOGS="$work/prejob-empty"
+grep -q "no readable job" "$CASE_DIR/trace" ||
+    bad "  ... and the trace did not say the directory was empty"
+
+## A log that is current and readable but records no failure still leaves the
+## drain unexplained, and that is a fifth way to say nothing.
+mkdir -p "$work/prejob-clean"
+cat > "$work/prejob-clean/job.114251.log" <<'EOF'
+HealthCheckForWlmJob healthchecks for: 114251
+========= ink50-dh01-h03-16 ========
+Pre-job health checks have failed
+EOF
+
+run_case "pre-job log names no failed check" resumed \
+    STUB_REASON="Prolog error" RECOVER_PREJOB_LOGS="$work/prejob-clean"
+grep -q "names no failed check" "$CASE_DIR/trace" ||
+    bad "  ... and the trace did not say the log explained nothing"
 
 ## The format on a live fleet: several commands, then ONE pid list for all of
 ## them. An earlier pattern matched only the single-pid case and so never fired
@@ -299,6 +330,13 @@ run_case "a match count is not a pid" resumed \
 ## fault does it behind a drain reason that only ever says `Prolog error`.
 grep -q "failed on \[dmesg\]" "$CASE_DIR/trace" ||
     bad "  ... and nothing named the check that actually drained the node"
+## And it has to outlive trigger.log, which is trimmed to 2000 lines inside a
+## day. recover.log is what an operator reads three drains later.
+awk -F'\t' '$7 == "dmesg" { found = 1 } END { exit !found }' "$CASE_DIR/recover.log" ||
+    bad "  ... and recover.log kept the resume without the check that caused it"
+awk -F'\t' '$1 ~ /^[0-9]+$/ && $6 == "Prolog error" { found = 1 } END { exit !found }' \
+    "$CASE_DIR/recover.log" ||
+    bad "  ... and the seventh field displaced one the readers key on"
 
 ## What the drain reason actually says on a node the pre-job check failed: the
 ## prolog is what runs it, and only its log knows a rogue process was why.

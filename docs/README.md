@@ -39,6 +39,7 @@ Task-oriented, for someone who already knows the system.
 | [submit-a-job-file-directly.md](how-to/submit-a-job-file-directly.md) | Calling `sbatch` on a job file yourself: the site paths it needs on `--export`, and why `--test` is usually the answer instead |
 | [pause-and-resume.md](how-to/pause-and-resume.md) | The four pause switches, and `kill-jobs.sh` for emptying the queue now |
 | [manage-drains.md](how-to/manage-drains.md) | Turning the two drain switches on, and reading what drained |
+| [archive-and-clear-dmesg.md](how-to/archive-and-clear-dmesg.md) | The node that re-drains on `Prolog error` because its dmesg is full: saving the buffer, clearing it safely, and what clearing hides |
 | [reset-results.md](how-to/reset-results.md) | `single-node-purge.sh`, and clearing the whole tree |
 | [get-a-node-list.md](how-to/get-a-node-list.md) | Turn a report into a node list `pdsh -R ssh -w`, `scancel` or `scontrol` will take |
 | [run-slurm-commands-remotely.md](how-to/run-slurm-commands-remotely.md) | What `squeue`/`scancel` need over `pdsh` on a node with no login shell |

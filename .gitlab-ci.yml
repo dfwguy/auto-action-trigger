@@ -210,6 +210,14 @@ recover:
   script:
     - ./tests/recover-test.sh
 
+# The one script that destroys evidence on purpose. What it refuses to clear is
+# the thing under test. See docs/how-to/archive-and-clear-dmesg.md.
+dmesg-archive:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/dmesg-archive-test.sh
+
 # A stale cache hit is silent: a clean report for a fleet that is not clean.
 # See docs/explanation/verdicts-and-the-cache.md#the-verdict-cache.
 scan-cache:
