@@ -132,6 +132,7 @@ location and `BRINGUP_HOME` disagree.
 | `$BRINGUP_HOME/results/.supervisor-heartbeat` | Touched at the top of every watchdog cycle. Doubles as the clock every heartbeat age is measured against — see [explanation/the-agent-and-the-watchdog.md#whose-clock-decides](../explanation/the-agent-and-the-watchdog.md#whose-clock-decides) |
 | `$BRINGUP_HOME/results/supervisor.log` | One line per watchdog cycle, including the ones that armed nothing |
 | `$BRINGUP_HOME/results/<node>/trigger.log` | Per-cycle decision trace from `launch_job.sh` |
+| `$BRINGUP_HOME/results/<node>/copy.log` | Per-cycle trace from `file_copy.sh`, and where the detached copy reports what it did after the cycle that started it has ended |
 | `$BRINGUP_HOME/results/<node>/health.log` | Per-cycle decision trace from `node_health.sh` |
 | `$BRINGUP_HOME/results/<node>/quick-view.txt` | One line per benchmark: `DONE` / `QUEUED` |
 | `$BRINGUP_HOME/results/<node>/recover.log` | One line per drain cleared. The attempt history `RECOVER_MAX_ATTEMPTS` is counted from. Tab separated: epoch, date, class, state, setter, reason, and the pre-job check that failed. See [explanation/drain-recovery.md#and-it-has-to-outlive-the-trace](../explanation/drain-recovery.md#and-it-has-to-outlive-the-trace) |

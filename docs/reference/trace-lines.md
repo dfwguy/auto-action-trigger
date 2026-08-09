@@ -7,6 +7,7 @@ Four files, one timestamped line per decision, appending rather than truncating
 |---|---|
 | `results/<node>/agent.log` | `agent/node-agent.sh` — [the agent trace](#the-agent-trace) |
 | `results/<node>/trigger.log` | `actions/launch_job.sh` — everything up to [the health trace](#the-health-trace) |
+| `results/<node>/copy.log` | `actions/file_copy.sh` — [the container copy trace](#the-container-copy-trace) |
 | `results/<node>/health.log` | `actions/node_health.sh` — [the health trace](#the-health-trace) |
 | `results/supervisor.log` | `agent/supervisor.sh` — [the watchdog trace](#the-watchdog-trace) |
 
@@ -177,6 +178,29 @@ nothing — this host is the single point the fleet depends on.
 | `DRAIN <node>: job timeout after <n>h (RUNNING, job <id>)` | `MAX_JOB_HOURS`, issued from here because the node's own cycle stops at the busy gate. Carries no `DRAIN_MARKER`, so nothing clears it automatically |
 | `drain suppressed by DRAIN_AFTER_FAILED_BENCHMARK=<value>: <node> -- <reason>` | The same finding with drains off. What it would have done is still written down |
 | `WOULD ARM …` / `WOULD DRAIN …` | `--explain`. It reads `sinfo` and the markers and touches nothing |
+
+## The container copy trace
+
+`results/<node>/copy.log`. Every precondition ends the run and every one says so,
+because "the images never arrived" and "the images are not built yet" are the
+same silence from outside. A cycle with nothing to do writes nothing here — the
+copy is the one step whose steady state is genuinely no-op, and a line per node
+per cycle saying so would bury the ones that matter.
+
+| Line | When |
+|------|------|
+| `EXIT: no *.sqsh in <dir> -- nothing to copy yet` | The normal state until `build_containers.sh` has run |
+| `EXIT: <dir> does not exist here (CONTAINER_DIR from …)` | The share is not mounted on this node, or `CONTAINER_DIR` names somewhere that is not there |
+| `EXIT: PAUSE_CONTAINER_COPY=<value> in <settings file>` | No new copy; one already running finishes |
+| `EXIT: rsync is not installed here` | Jobs read the image over the share instead, which works and is slower |
+| `copying: <n> of <n> image(s) here, from <dir>` | A copy just started, detached. The next line comes when it finishes, which may be several cycles later |
+| `copied: <n> of <n> image(s) now in /tmp/containers` | Done. `<n> of <n>` is the fact that matters — a job starts off local disk only when the count is complete |
+| `COPY FAILED (rsync exit <n>): <what rsync said>` | With the counts, so a partial copy is distinguishable from none |
+| `setsid is not installed -- copying inline` | The copy holds the cycle rather than detaching |
+
+The counts come from globbing both directories rather than from rsync's own
+output: "rsync ran" and "the images are here" are different facts, and only the
+second lets a job start off local disk.
 
 ## The health trace
 
