@@ -151,12 +151,27 @@ ok: ink50-hn1 is the head node (slurmctld is running here) -- installing bringup
 ok: ink50-dh01-h02-11 is a compute node (slurmctld is not running here) -- installing bringup-agent
 ```
 
-It asks three questions in order: does `EXCLUDE_NODES` name this host, is
-`slurmctld` running here, and — last — is `slurmctld` installed with `slurmd`
-absent. The running check comes first because the third one is the reporting
-test, `node_self_excluded`, which requires `slurmd` to be *missing*; a BCM
-software image usually installs that unit on every host including the head node,
-so on its own it reads a head node as a compute node.
+It asks four questions, in this order, and stops at the first that answers:
+
+| Question | If yes |
+|---|---|
+| Does `EXCLUDE_NODES` name this host? | head |
+| Is `slurmctld` *running* here? | head |
+| Is `slurmctld` installed and `slurmd` not? (`node_self_excluded`) | head |
+| Is there no `slurmd` unit here at all? | head — Slurm could never schedule to it |
+| — | a compute node |
+
+The order matters. `node_self_excluded` is the *reporting* test and needs a
+`slurmctld` unit to be present, which a management host that is not the
+controller may not have; a BCM software image also tends to install `slurmd`
+everywhere, which breaks its other half. So the running check comes first, and
+the absence of `slurmd` is the backstop — whatever else a host is, it is not a
+compute node if nothing can be scheduled to it.
+
+A head node identified by either of the last two is one the *reports* cannot
+recognise on their own, so the install says so and asks for
+`EXCLUDE_NODES="<host>"` in `SETTINGS`. Without it the host gets a row of
+`NOT_RUN` in every report.
 
 Getting it wrong is quiet in one direction and loud in neither: a head node
 armed as a compute node runs `node-agent.sh`, which correctly refuses to do

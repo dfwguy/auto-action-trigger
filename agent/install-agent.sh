@@ -72,6 +72,10 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 ## is left arming the fleet. A running slurmctld is asked about first --
 ## node_self_excluded needs slurmd to be *absent*, and a BCM image usually
 ## installs that unit everywhere. See docs/how-to/arm-a-node.md#when-the-role-is-wrong.
+slurmd_installed() {
+    command -v systemctl >/dev/null 2>&1 || return 0   # cannot tell; assume it is
+    [[ -n "$(systemctl list-unit-files slurmd.service --no-legend 2>/dev/null)" ]]
+}
 if [[ -n "$ROLE" ]]; then
     role_why="--$ROLE was passed"
 elif node_excluded "$HOSTNAME"; then
@@ -80,8 +84,12 @@ elif systemctl is-active --quiet slurmctld 2>/dev/null; then
     ROLE="head"; role_why="slurmctld is running here"
 elif node_self_excluded; then
     ROLE="head"; role_why="slurmctld is installed here and slurmd is not"
+elif ! slurmd_installed; then
+    ## The controller may live on a third host; what makes this one not a
+    ## compute node is that Slurm could never schedule to it.
+    ROLE="head"; role_why="there is no slurmd unit here, so nothing can be scheduled to this host"
 else
-    ROLE="node"; role_why="slurmctld is not running here"
+    ROLE="node"; role_why="slurmd is installed here and slurmctld is not running"
 fi
 if [[ "$ROLE" == "head" ]]; then
     unit=bringup-supervisor
@@ -96,7 +104,15 @@ fi
     warn "interval for $unit is '$interval', which is not a whole number of minutes -- using 2"
     interval=2
 }
-ok "$HOSTNAME is $([[ "$ROLE" == "head" ]] && printf 'the head node' || printf 'a compute node') ($role_why) -- installing $unit"
+ok "$HOSTNAME is $([[ "$ROLE" == "head" ]] && printf 'not a compute node' || printf 'a compute node') ($role_why) -- installing $unit"
+
+## The reports walk results/*/ and skip a host only on EXCLUDE_NODES or on
+## node_self_excluded, which needs a slurmctld unit this host may not have. So
+## a head node identified any other way still gets a row unless it is named.
+## See docs/reference/settings.md#hosts-that-are-not-compute-nodes.
+if [[ "$ROLE" == "head" ]] && ! node_excluded "$HOSTNAME" && ! node_self_excluded; then
+    warn "the reports cannot work out on their own that $HOSTNAME is not a compute node -- add EXCLUDE_NODES=\"$HOSTNAME\" to ${SETTINGS_FILE:-SETTINGS}, or it gets a row of NOT_RUN in every report"
+fi
 
 ## ── Preflight ─────────────────────────────────────────────────────────────
 ##
