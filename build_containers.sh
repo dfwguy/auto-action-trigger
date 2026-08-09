@@ -6,8 +6,7 @@
 #
 #   ./build_containers.sh -L                 # write ~/.config/enroot/.credentials
 #   NGC_API_KEY=nvapi-... ./build_containers.sh -L    # same, unattended
-#   ./build_containers.sh                    # the CONTAINERS list, whatever is missing
-#   ./build_containers.sh hpc-benchmarks     # just one image, ignoring CONTAINERS
+#   ./build_containers.sh hpc-benchmarks nvbandwidth   # these, whatever is missing
 #   ./build_containers.sh -A                 # every image this script knows about
 #   ./build_containers.sh -f nvloom          # rebuild even if the .sqsh exists
 #   ./build_containers.sh -l                 # list images, login state, status
@@ -16,8 +15,11 @@
 #
 # Downloading is the normal path and, by default, the only one; -S, -F and -B
 # are what allow a source build, which runs in two passes because only the
-# headnode has internet and only the nodes are ARM. With no image named the
-# list is CONTAINERS from SETTINGS, two of whose three shipped images need -L.
+# headnode has internet and only the nodes are ARM.
+#
+# The images are named on the command line and nowhere else. There is no list in
+# SETTINGS: what a node caches locally is whatever is in CONTAINER_DIR, so what
+# is in there is exactly what was asked for here.
 # See docs/explanation/containers.md#downloading-is-the-default-source-builds-are-opt-in.
 #
 set -u
@@ -80,15 +82,13 @@ UBUNTU_MIRROR_arm64=http://ports.ubuntu.com/ubuntu-ports
 ## See docs/explanation/containers.md#why-the-package-staging-is-the-awkward-part.
 HELPER_URI=docker://ubuntu:24.04
 
-## Every image this script knows how to produce. CONTAINERS picks a subset of
-## these; -A is this list.
+## Every image this script knows how to produce. -A is this list.
 ALL_IMAGES="hpc-benchmarks nvbandwidth nvloom mnubergemm nemo"
 
 usage() {
     awk 'NR > 2 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
     echo
     echo "Images:     $ALL_IMAGES"
-    echo "CONTAINERS: ${CONTAINERS:-<empty>}  (${SETTINGS_FILE:-no settings file})"
     echo "Arch:       arm x86 (default: this machine; \$ARCH also works)"
     echo "nvcr.io:    $(have_ngc_login && echo "logged in ($CREDS_FILE)" || echo "not logged in -- $0 -L")"
     exit "${1:-0}"
@@ -563,28 +563,27 @@ if [[ "$LOGIN" -eq 1 ]]; then
     exit 0
 fi
 
-## Three sources for the image list, most specific first: the command line, -A,
-## then CONTAINERS. A bare run without credentials builds one of the shipped
-## three and fails two, which is the correct signal now that their jobs are in
-## the default sweep. See docs/reference/settings.md#container-images.
+## The command line, or -A. There is deliberately no default: a settings key
+## naming what to build was a second place for the answer, and it drifted from
+## the directory it filled -- which is the thing every node actually caches.
+## See docs/explanation/containers.md#what-gets-built-is-what-you-ask-for.
 images=("$@")
 if [[ "${#images[@]}" -eq 0 ]]; then
     if [[ "$ALL" -eq 1 ]]; then
         read -r -a images <<<"$ALL_IMAGES"
+    elif [[ "$LIST" -eq 1 ]]; then
+        read -r -a images <<<"$ALL_IMAGES"     ## -l reports on all of them
     else
-        read -r -a images <<<"${CONTAINERS:-}"
-        if [[ "${#images[@]}" -eq 0 ]]; then
-            echo "CONTAINERS is empty in ${SETTINGS_FILE:-<no settings file>} -- nothing to build."
-            echo "Set it, name an image, or use -A for all of: $ALL_IMAGES"
-            exit 0
-        fi
-        [[ "$LIST" -eq 1 ]] || echo "building the CONTAINERS list from ${SETTINGS_FILE##*/}: ${images[*]}"
+        echo "Name the images to build, or -A for all of: $ALL_IMAGES" >&2
+        echo "  $0 hpc-benchmarks nvbandwidth mnubergemm" >&2
+        echo "'$0 -l' lists what is already in $DEST." >&2
+        exit 2
     fi
 fi
 
 for img in "${images[@]}"; do
     image_file "$img" >/dev/null ||
-        die "unknown image: $img (known: $ALL_IMAGES). Check CONTAINERS in ${SETTINGS_FILE:-SETTINGS}."
+        die "unknown image: $img (known: $ALL_IMAGES)"
 done
 
 ## The build pass only ever has something to do for the source-built images.

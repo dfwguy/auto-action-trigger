@@ -47,12 +47,16 @@ Two DCGM levels rather than one: `-r 1` is software-only and nearly free, so it
 says a node is testable before the sweep spends hours finding out it is not, and
 `-r 3` is the deepest level that still fits a normal sweep.
 
-**No credentials needed.** Drop `nvbandwidth` from both lists:
+**No credentials needed.** Drop `nvbandwidth` from the list, and build only the
+one image the rest need:
 
 ```bash
 BENCHMARKS="dcgmi-r1 dcgmi-r3 allreduce allreduce-forcesharp alltoall \
             allreduce-nonvlink alltoall-nonvlink"
-CONTAINERS="hpc-benchmarks"
+```
+
+```bash
+./build_containers.sh hpc-benchmarks
 ```
 
 **Everything that needs no image beyond `hpc-benchmarks` and no DGX.** Runs as

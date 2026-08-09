@@ -144,15 +144,16 @@ under the Slurm job names `bringup-<node>` and `burnin-<node>`. What that
 separation buys, and what to expect once the switch is on, is in
 [explanation/sequencing.md#two-lists](../explanation/sequencing.md#two-lists).
 
-The image has to be there **before** the switch is flipped — `mnubergemm` is in
-the default `CONTAINERS` for that reason even though its job does not run by
-default.
+The image has to be there **before** the switch is flipped: build `mnubergemm`
+when you build the rest, even though its job does not run by default.
 
 ## Container images
 
-| Setting | Default | Meaning |
-|---------|---------|---------|
-| `CONTAINERS` | `hpc-benchmarks nvbandwidth mnubergemm` | What `build_containers.sh` builds when no image is named on the command line |
+There is **no setting for which images to build**. `build_containers.sh` takes
+them on the command line, and every `.sqsh` in `CONTAINER_DIR` is cached on
+every node — one place decides, and the copy has no opinion. Why, and what the
+`CONTAINERS` key that used to be here cost, is
+[explanation/containers.md#what-gets-built-is-what-you-ask-for](../explanation/containers.md#what-gets-built-is-what-you-ask-for).
 
 | Image | Jobs that use it | Source |
 |-------|-----------------|--------|
@@ -185,20 +186,6 @@ not carry the version at all.
 `NEMO_TAG` additionally has to match the recipe the LLM jobs were captured
 against — see
 [explanation/llmb.md#the-frozen-recipe](../explanation/llmb.md#the-frozen-recipe).
-
-```bash
-CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm"   # default -- needs an NGC login
-CONTAINERS="hpc-benchmarks"                          # no credentials
-CONTAINERS="hpc-benchmarks nvbandwidth nvloom"       # adds the source build -- run with -S
-CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm nemo"  # adds the two LLM jobs' image
-CONTAINERS=""                                        # build nothing
-```
-
-An explicitly empty `CONTAINERS=""` means "build nothing" and is left that way —
-the one setting where empty is a real answer, so `settings.sh` backfills it only
-when the key is absent altogether. `-A` builds everything regardless of this
-setting, and naming images as arguments overrides it. See
-[how-to/build-containers.md](../how-to/build-containers.md).
 
 ## Health-check cadence
 

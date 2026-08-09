@@ -485,7 +485,7 @@ It needs write access to `logs/<node>/` and contacts no node. See
 | `single-node-purge.sh <nodes>` | Removes `results/<node>` outright. See [how-to/reset-results.md](../how-to/reset-results.md) |
 | `dmesg-archive.sh <nodes>` | Saves each node's ring buffer under `dmesg-archive/`, and with `--clear --resume` breaks the drain-resume-drain loop a full dmesg causes. Will not clear a node the head node's syslog does not have. See [how-to/archive-and-clear-dmesg.md](../how-to/archive-and-clear-dmesg.md) |
 | `ib-visibility.sh <node>` | Compares the HCAs the host sees against the container's. See [how-to/diagnose-ib-visibility.md](../how-to/diagnose-ib-visibility.md) |
-| `build_containers.sh` | Builds the `CONTAINERS` list. See [how-to/build-containers.md](../how-to/build-containers.md) |
+| `build_containers.sh` | Builds the images named on its command line, or `-A` for all. See [how-to/build-containers.md](../how-to/build-containers.md) |
 | `build_llmb.sh` | Installs `llmb-run`, its image and tokenizer cache. See [how-to/enable-llm-pretrain.md](../how-to/enable-llm-pretrain.md) |
 
 ## Node state

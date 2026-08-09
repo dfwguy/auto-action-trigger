@@ -213,7 +213,7 @@ JOB_ENV_ARGS=""
 JOB_ENV_PAIRS=()
 JOB_ENV_NAMES=()
 ## Unquoted on purpose -- this is the list-in-a-string convention BENCHMARKS
-## and CONTAINERS already use, and word splitting is how it is read.
+## already uses, and word splitting is how it is read.
 # shellcheck disable=SC2086
 for _pair in $JOB_ENV; do
     if [[ ! "$_pair" =~ ^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_.:/+@%-]*$ ]]; then

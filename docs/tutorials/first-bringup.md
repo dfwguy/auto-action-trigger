@@ -61,20 +61,19 @@ needs no credentials:
 The second command should show `hpc-benchmarks` present. This takes a few
 minutes and is most of the waiting in this tutorial.
 
-You are naming the image explicitly rather than letting it build the shipped
-`CONTAINERS` list, because two of those three live in a private NGC org and
-would fail without a login. Setting that up is
+You name the images you want; there is no list in `SETTINGS` to leave out. One
+is enough here, and the other two the default sweep uses live in a private NGC
+org and would fail without a login. Setting that up is
 [how-to/build-containers.md](../how-to/build-containers.md), and you do not need
 it yet.
 
 ## 4. Narrow the sweep to one benchmark, on one node
 
-Open `SETTINGS` and set three lines:
+Open `SETTINGS` and set two lines:
 
 ```bash
 BENCHMARKS="allreduce"
 NODE_FILTER="<your-node>"
-CONTAINERS="hpc-benchmarks"
 ```
 
 `NODE_FILTER` is a shell glob, so a bare node name matches exactly that node.

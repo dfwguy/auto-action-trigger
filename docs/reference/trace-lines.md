@@ -199,7 +199,6 @@ per cycle saying so would bury the ones that matter.
 | `copied: <n> of <n> image(s) now in /tmp/containers` | Done. `<n> of <n>` is the fact that matters — a job starts off local disk only when the count is complete |
 | `COPY FAILED (rsync exit <n>): <what rsync said>` | With the counts, so a partial copy is distinguishable from none |
 | `neither systemd-run nor setsid is available -- copying inline` | The copy holds the cycle rather than running as its own unit |
-| `not copying <n> image(s) matching no name in CONTAINERS=…` | Named beside the copy that skipped them. Add the name to `CONTAINERS` if a job needs one; without it the job reads from the share instead |
 
 The counts come from globbing both directories rather than from rsync's own
 output: "rsync ran" and "the images are here" are different facts, and only the

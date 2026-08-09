@@ -41,9 +41,6 @@ fi
 ## See docs/reference/settings.md#burn-in.
 : "${RUN_BURNIN:=no}"
 : "${BURNIN=mnubergemm}"
-## `=` not `:=`: an empty CONTAINERS means "build nothing" and is a real
-## answer. See docs/reference/settings.md#container-images.
-: "${CONTAINERS=hpc-benchmarks nvbandwidth mnubergemm}"
 ## Image versions. See docs/reference/settings.md#image-versions.
 : "${HPC_BENCHMARKS_TAG:=26.02}"
 : "${NVBANDWIDTH_VERSION:=v0.9}"
@@ -97,8 +94,8 @@ fi
 : "${RECOVER_DOWN_UNKILLABLE:=no}"
 : "${RECOVER_UNKILLABLE_REASONS:=Kill task failed|unkillable}"
 : "${RECOVER_UNKILLABLE_AFTER_SECS:=3600}"
-## `=` not `:=`, like CONTAINERS: empty is the shipped answer and a real one --
-## it means "one worker per core". See docs/reference/settings.md#reporting.
+## `=` not `:=`: empty is the shipped answer and a real one -- it means "one
+## worker per core". See docs/reference/settings.md#reporting.
 : "${SCAN_JOBS=}"
 ## Empty is a real answer here too: it means every node. See
 ## docs/reference/settings.md#restricting-which-nodes-run-jobs.
@@ -149,7 +146,7 @@ fi
 ## How more than one node is reached: auto prefers clush and falls back to pdsh.
 ## See docs/explanation/architecture.md#reaching-nodes-is-clush-or-pdsh.
 : "${FANOUT_TOOL:=auto}"
-## `=` not `:=`, like CONTAINERS: empty is the shipped answer and a real one.
+## `=` not `:=`: empty is the shipped answer and a real one.
 ## Deliberately not exported -- launch_job.sh is the only reader and hands it
 ## to sbatch --export. See docs/reference/settings.md#extra-environment-for-every-job.
 : "${JOB_ENV=}"
@@ -163,7 +160,7 @@ fi
 : "${CONTAINER_DIR_HEAD:=$CONTAINER_DIR}"
 : "${CONTAINER_STAGE_DIR:=$BRINGUP_HOME/container-src}"
 : "${CONTAINER_STAGE_DIR_HEAD:=$CONTAINER_STAGE_DIR}"
-## `=` not `:=`, like CONTAINERS: empty means no llmb install.
+## `=` not `:=`: empty means no llmb install.
 ## See docs/explanation/llmb.md#where-the-install-lives.
 : "${LLMB_INSTALL=/home/$JOB_USER/llmb}"
 : "${LLMB_REF=v26.06.01}"

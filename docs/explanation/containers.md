@@ -40,31 +40,27 @@ image path on the default registry, and the pull fails against Docker Hub rather
 than against `nvcr.io`. It is the easiest part of the line to lose when copying
 it out to run something by hand.
 
-## Only the images this site runs
+## What gets built is what you ask for
 
-The shared directory holds whatever has ever been built into it, and the copy
-lands on node-local disk on every node in the fleet. An image nothing runs is
-tens of gigabytes per node of read off one share for a job that will never
-start — at two thousand nodes, tens of terabytes.
+There is no list in `SETTINGS` of which images a site wants. There was, and
+removing it is the point of this section.
 
-So the copy is filtered by `CONTAINERS`, the site's own list of what it builds,
-which is therefore also the list of what is worth having local. An image in the
-directory that matches no name in that list is named in `copy.log` and left on
-the share:
+`build_containers.sh` takes the images on its command line, or `-A` for all of
+them. What it produces lands in `CONTAINER_DIR`, and `file_copy.sh` caches
+**everything** in that directory on every node, with no opinion about which of
+them matter. One place decides, once.
 
-```
-not copying 1 image(s) no job here uses (CONTAINERS='hpc-benchmarks nvbandwidth
-mnubergemm'): nvidia+nemo+26.04.01-arm.sqsh
-```
+The alternative — a `CONTAINERS` key naming the wanted set, and the copy
+filtering by it — looks tidier and is worse. It is a second place for the same
+answer, so the two drift: a site that builds an image without adding it to the
+list gets it on the share and never on a node, and the failure is a job reading
+its image over NFS on every run, which is slow rather than broken and therefore
+not noticed. Deciding at the point of building, and copying whatever resulted,
+cannot drift because there is nothing to drift from.
 
-Named rather than skipped in silence, because "why is that image not local" is
-otherwise unanswerable from the node. A job whose image was filtered out still
-runs — it reads from the share, more slowly — so the cost of getting the list
-wrong is speed, not a failure.
-
-An empty `CONTAINERS` means the site builds nothing here, so there is no list to
-filter by and whatever is in the directory arrived some other way; everything is
-copied.
+The cost is that an image built and no longer used is copied to every node until
+somebody deletes it from `CONTAINER_DIR`. That is a `rm` on one directory, and
+it is visible — `build_containers.sh -l` lists what is there.
 
 ## The copy is its own unit
 

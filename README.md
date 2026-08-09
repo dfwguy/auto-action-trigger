@@ -192,12 +192,12 @@ tail -f /home/cmods/bringup/results/<tray>/agent.log
 
 ```bash
 ./build_containers.sh -L     # log in to nvcr.io — once per machine, needed for the private-org images
-./build_containers.sh
+./build_containers.sh hpc-benchmarks nvbandwidth mnubergemm
 ```
 
-Run on the headnode, once per CPU architecture in the cluster. Which images it downloads is `CONTAINERS` in `SETTINGS`, which ships as `hpc-benchmarks nvbandwidth mnubergemm` — exactly what the default `BENCHMARKS` list needs. Add an image there when you add the job that uses it; `-A` adds `nvloom`, the one image no registry publishes.
+Run on the headnode, once per CPU architecture in the cluster. Name the images you want — there is no setting for it, because everything in `CONTAINER_DIR` is cached on every node and one place should decide. `-A` adds `nvloom`, the one image no registry publishes. Add `nemo` when you enable the LLM jobs.
 
-`-L` is not optional for the shipped list: `nvbandwidth` and `mnubergemm` come from a private NGC org, and without credentials they fail to download and their two jobs then fail on every node. `./build_containers.sh -l` says which images are actually present. A site that would rather not need an NGC key drops both names from `CONTAINERS` *and* `BENCHMARKS`.
+`-L` is not optional for that list: `nvbandwidth` and `mnubergemm` come from a private NGC org, and without credentials they fail to download and their two jobs then fail on every node. `./build_containers.sh -l` says which images are actually present. A site that would rather not need an NGC key builds neither and drops both names from `BENCHMARKS`.
 
 Downloading is the default and, without `-S`, the only path: an image that cannot be pulled reports why rather than starting a source build. `-L` writes `~/.config/enroot/.credentials`. See [docs/explanation/containers.md](docs/explanation/containers.md).
 
