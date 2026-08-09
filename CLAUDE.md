@@ -6,15 +6,23 @@ describes what you have to keep true while editing them.
 
 ## The checkout is not the deployment
 
-The tree runs at `/home/cmods/bringup/` on cluster head nodes, exported over
-NFS to every compute node. A git checkout is a *source* of that tree, never the
-tree itself. Nothing in the repo updates the deployment — the user manages
-getting it to the cluster. Push to `main`, and open a merge request for major
-changes.
+The tree runs at `$BRINGUP_HOME` on cluster head nodes, exported to every
+compute node. A git checkout is a *source* of that tree, never the tree itself.
+Nothing in the repo updates the deployment — the user manages getting it to the
+cluster. Push to `main`, and open a merge request for major changes.
 
 `SETTINGS` is gitignored on purpose: it is the site's file, and a tarball drop
 must not overwrite one cluster's node list and drain switches with another's.
-`SETTINGS.default` is the shipped copy and *is* tracked.
+`SETTINGS.default` is the shipped copy and *is* tracked. Six directories are the
+site's too and are never in a drop — `results/`, `logs/`, `valid-config/`,
+`containers/`, `container-src/`, `reports/`. A copy that does not exclude them
+destroys the cluster's history and its health baseline.
+
+**A change is not deployed until the fleet is re-armed.** Two thousand agents
+execute out of that directory, so a drop is stop, copy, confirm, resume — and a
+unit file only reaches a node when `install-agent.sh` runs again. Scripts alone
+land immediately; units do not. `docs/how-to/update-the-deployment.md` is the
+procedure, and it is worth reading before changing anything under `agent/`.
 
 ## Comments point at the docs; they do not contain them
 
@@ -211,7 +219,31 @@ answer is that every gate writes down why it stopped:
   Run it when the traces are stale.
 
 New gates get a trace line. An `exit 0` with no explanation is a bug even when
-the behaviour is correct.
+the behaviour is correct. `file_copy.sh` was the last step without one, and the
+cost was months of "the images are not built yet" and "the images never arrived"
+being the same silence.
+
+### No answer is not an answer
+
+Every query that can come back empty has a caller that fails towards *not*
+acting. A saturated `slurmctld` returns nothing rather than an error; a
+`systemctl show` that does not answer is not a broken timer; a `scontrol
+listjobs` that fails reads as *busy*, never as idle. Getting this backwards is
+how a check written to catch a silent failure produced two thousand `FAILED`
+lines for timers that were firing perfectly well.
+
+Three outcomes, not two, wherever a probe can be inconclusive: it worked, it is
+definitely broken, or **it did not say** — and the third prints what the tool
+actually returned rather than a verdict.
+
+### Verify the outcome, not the request
+
+Every line an installer prints about what it *asked* the system to do is worth
+less than one line about what is now true. `install-agent.sh` reported six
+cheerful `ok:` lines while leaving a node that never ran a cycle, because every
+one of them described a request. It now checks that the timer is scheduled and
+that the node can write its own heartbeat — the two facts the fleet depends on —
+and those are what caught the next three faults.
 
 Nothing in the tree drives `cmsh` any more — the chain is a `systemd --user`
 timer per node and a watchdog on the head node, and BCM is not in it. When you
@@ -220,6 +252,45 @@ inside the `-c` string was rejected, reporting the problem on stdout and
 committing anyway, so never trust its exit status; and read state with
 `get <property>`, not by parsing `show`, whose column padding and property names
 drift between BCM releases.
+
+## Nothing may depend on how long something else took
+
+A cycle runs three steps; anything that has to outlive the cycle gets its own
+transient unit through `systemd-run --user --collect`, never a `setsid ... &`
+child. `setsid` escapes the session and not the cgroup, so a background child is
+killed when `ExecStart` returns — which gives it whatever is left of a cycle
+whose length nothing chose and nothing bounds, anywhere from milliseconds to
+seconds depending on what the other two steps decided to do. The container copy
+lost that race for a fleet-wide fill and looked like slow progress rather than a
+fault.
+
+If a thing needs to run to completion, give it a unit. The same rule applies to
+anything added later that takes longer than a cycle.
+
+## Fleet arithmetic: multiply everything by the node count
+
+Every read in a cycle is multiplied by the fleet. One file per cycle is 17 reads
+a second across two thousand nodes, sustained, for ever — so work belongs
+**below** the gate that decides whether the work happens, even when the code
+reads worse for it. The sudo preflight read all 38 check files above the cadence
+gate and cost 640 reads a second for an answer worth having every four hours.
+
+The same arithmetic applies to fan-out: `ARM_BATCH` caps how many nodes one
+watchdog cycle reaches, because a fleet that stops cycling for any reason makes
+*every* node stale in the same instant, and an uncapped pass is one ssh per node
+from one host.
+
+## A shared `$HOME` is a shared everything
+
+`~/.config/systemd/user/` is on NFS at most sites, so every node reads the same
+unit files and the same `systemctl --user enable` state. Two units differing by
+role cannot survive that — enabling one on the head node enables it fleet-wide —
+which is why there is **one** unit and `agent/cycle.sh` decides the role at run
+time. It is also why a temp file written there carries `$HOSTNAME.$$`: two
+thousand hosts writing one directory in one fan-out took each other's file and
+left a zero-length unit, which systemd reports as `masked`.
+
+Assume anything under `$HOME` is being written by two thousand hosts at once.
 
 ## A verdict is derived, and the cache does not change that
 
@@ -272,8 +343,14 @@ but a rewrite is not provably equivalent, the directive *is* the correct
 outcome, not a cop-out. `export` is never the way to silence SC2034 in this
 tree — it changes the environment every sourcing script and Slurm job runs in.
 
-Keep the tree listing in `docs/explanation/architecture.md` in step with the files — it has
-drifted twice by adding a top-level script and not listing it.
+Keep the tree listing in `docs/reference/layout.md` in step with the files — the
+`layout-doc` CI job fails on a top-level script that is not listed, and it has
+drifted twice.
+
+A change under `agent/units/` is not testable from a checkout: the suites stub
+systemd, and a unit only takes effect when `install-agent.sh` rewrites and
+restarts it on every host. Say so in the commit, because the reader deploying it
+needs `pause-agents.sh --resume` and not just an `rsync`.
 
 ## Privilege is asked for, never held
 

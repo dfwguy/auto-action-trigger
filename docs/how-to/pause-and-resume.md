@@ -21,103 +21,19 @@ is in
 
 ## Replacing the tree
 
-Copying a new tree over `$BRINGUP_HOME` while two thousand agents are cycling out
-of it replaces scripts under running processes — a cycle that sourced the old
-`settings.sh` and then execs the new `node-agent.sh` fails in ways that are
-genuinely hard to read. It is also slow, because the copy competes with every
-node reading the tree.
-
-**Unpack the tarball on local disk, not in `$HOME`.** The account's home is
-NFS-shared at most sites, and it is the busiest directory on the cluster while
-the fleet is armed — every node reads `~/.config/systemd/user/` for its unit and
-runs a `systemd --user` against it. A drop unpacked there is read at that
-directory's speed, however fast the deployment's own disk is. `/tmp` is fine:
-
-```bash
-tar xf ~/auto-action-trigger-*.tar.gz -C /tmp     # -C, so this leaves you where you were
-```
-
-Quiesce first, copy, then bring it back:
+Copying a new tree over `$BRINGUP_HOME` while two thousand agents cycle out of it
+replaces scripts under running processes, so it is a stop-copy-resume:
 
 ```bash
 bash pause-agents.sh              # stop the watchdog here, then every node timer
 bash pause-agents.sh --status     # wait for QUIET before touching the tree
-
-rsync -a --delete \
-  --exclude=SETTINGS --exclude=results/ --exclude=logs/ --exclude=valid-config/ \
-  --exclude=containers/ --exclude=container-src/ --exclude=reports/ --exclude=dmesg-archive/ \
-  /tmp/auto-action-trigger-*/ /cluster/bringup/
-
+rsync ...
 bash pause-agents.sh --resume     # re-arm the nodes, then start the watchdog
 ```
 
-**`rsync`, not `cp -R`**, and the reasons are not only speed:
-
-- `cp` rewrites all ~700 files whether or not they changed. `rsync` skips the
-  ones that match, so the second drop copies a handful. Over a loaded NFS export
-  that is the difference between minutes and seconds.
-- `cp` opens each destination `O_WRONLY|O_TRUNC`, so every live script is
-  momentarily zero-length while the fleet is reading it. `rsync` writes a temp
-  file and renames, so a reader sees the old file or the new one and never a
-  truncated one. Quiescing first makes this moot; doing both means a drop that
-  goes wrong at the wrong moment is still safe.
-- `--delete` is what removes files that went away upstream. Without it the
-  deployment keeps every script the framework has ever shipped.
-
-**Wait for `QUIET`.** `--status` answers two different questions and only one of
-them is about a stop. "N cycling within `HEARTBEAT_STALE_MINUTES`" is what the
-watchdog arms on; a node stopped one minute ago is still inside that window, so
-it says nothing about whether anything is running *now*. The `QUIET` line is the
-one that does — it reports whether any node has written a heartbeat in the last
-two cycles:
-
-```
-QUIET: nothing has written a heartbeat in 4m (newest 340s ago). Safe to replace the tree.
-STILL RUNNING: 12 node(s) wrote a heartbeat in the last 4m (newest 3s ago).
-```
-
-A stop that printed no errors can still have missed a node — one the fan-out
-could not reach, one that is not in `sinfo`. One node still cycling is one node
-reading the tree while it is being replaced, which is how a drop half-lands.
-
-**Read what rsync says.** A tree that has been through the root-cycle era has
-root-owned files in it, and `rsync` cannot overwrite those as `$JOB_USER`: it
-reports `Permission denied` per file, exits non-zero, and leaves the tree half
-replaced — scripts from the new drop, units from the old one, which is worse
-than either. Once, as root:
-
-```bash
-sudo chown -R cmods:cmods /cluster/bringup
-```
-
-Confirm the thing that matters actually changed, rather than trusting the exit
-status:
-
-```bash
-grep -E 'OnCalendar|OnUnitActiveSec' /cluster/bringup/agent/units/bringup-agent.timer
-```
-
-**The `--exclude` list is load-bearing when `--delete` is.** Those seven are the
-site's own data — none is in the tarball, so `--delete` would remove all of it.
-`--dry-run` prints what would go, and is worth the extra command the first time:
-
-```bash
-rsync -an --delete --exclude=... auto-action-trigger-*/ /cluster/bringup/ | grep '^deleting'
-```
-
-Anything in that list beyond the framework's own files means an exclude is
-missing. See [reference/layout.md#directory-layout](../reference/layout.md#directory-layout)
-for what a deployment carries that a checkout does not.
-
-`--resume` re-arms through `agent/install-agent.sh`, so it also picks up a unit
-or an interval that changed in the drop — which a bare `systemctl start` would
-not. `-n` prints what either would touch and does neither, and a node pattern
-narrows both to one rack.
-
-```bash
-bash pause-agents.sh --status              # what is running now, from NFS, asking no node
-bash pause-agents.sh -n ink50-dh01-h02     # what stopping one rack would reach
-```
+The whole procedure — where to unpack, the `rsync` flags and why not `cp`, the
+`--exclude` list that `--delete` makes load-bearing, and what to confirm before
+resuming — is [update-the-deployment.md](update-the-deployment.md).
 
 ## Stopping it when the share is the problem
 

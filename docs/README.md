@@ -38,6 +38,7 @@ Task-oriented, for someone who already knows the system.
 | [run-a-job-by-hand.md](how-to/run-a-job-by-hand.md) | `launch_job.sh` flags, sweeping a rack over `clush -w`, and `--test` for a job outside the list |
 | [submit-a-job-file-directly.md](how-to/submit-a-job-file-directly.md) | Calling `sbatch` on a job file yourself: the site paths it needs on `--export`, and why `--test` is usually the answer instead |
 | [arm-a-node.md](how-to/arm-a-node.md) | Installing the timer, checking a node stayed armed, and what to do when one will not |
+| [update-the-deployment.md](how-to/update-the-deployment.md) | Putting a new drop on the cluster: stop the fleet, `rsync` with the site's data excluded, confirm what landed, resume |
 | [pause-and-resume.md](how-to/pause-and-resume.md) | The five pause switches, and `kill-jobs.sh` for emptying the queue now |
 | [manage-drains.md](how-to/manage-drains.md) | Turning the two drain switches on, and reading what drained |
 | [archive-and-clear-dmesg.md](how-to/archive-and-clear-dmesg.md) | The node that re-drains on `Prolog error` because its dmesg is full: saving the buffer, clearing it safely, and what clearing hides |

@@ -23,7 +23,7 @@
 # share, which is unreachable exactly when the share is the problem. Nothing
 # re-enables these timers until --resume or install-agent.sh runs.
 #
-# See docs/how-to/pause-and-resume.md#replacing-the-tree.
+# See docs/how-to/update-the-deployment.md.
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -95,7 +95,7 @@ status)
     ## watchdog arms on; it is useless for confirming a stop, because a node
     ## stopped a minute ago is still inside that window. What answers a stop is
     ## whether anything is *still writing*.
-    ## See docs/how-to/pause-and-resume.md#replacing-the-tree.
+    ## See docs/how-to/update-the-deployment.md.
     quiet_after=$(( ${AGENT_INTERVAL_MINUTES:-2} * 2 ))
     fresh=0; stale=0; never=0; live=0; newest=-1
     now_s=$(date +%s)
