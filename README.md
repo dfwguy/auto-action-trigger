@@ -346,7 +346,7 @@ Full command reference in [docs/reference/scripts.md](docs/reference/scripts.md)
 bash pause-agents.sh          # the watchdog here, then every node timer
 ```
 
-That is also the thing to run before copying a new tree over the deployment — see [docs/how-to/pause-and-resume.md#replacing-the-tree](docs/how-to/pause-and-resume.md#replacing-the-tree). To remove the framework rather than stop it, carry on: on the head node, as `cmods`,
+That is also the thing to run before replacing the deployment with a new drop — `rsync -a --delete` with the site's data excluded, never `cp -R`, for reasons in [docs/how-to/pause-and-resume.md#replacing-the-tree](docs/how-to/pause-and-resume.md#replacing-the-tree). To remove the framework rather than stop it, carry on: on the head node, as `cmods`,
 
 ```bash
 bash /home/cmods/bringup/agent/uninstall-agent.sh

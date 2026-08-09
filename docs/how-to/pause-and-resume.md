@@ -31,9 +31,39 @@ Quiesce first, copy, then bring it back:
 
 ```bash
 bash pause-agents.sh              # stop the watchdog here, then every node timer
-cp -R auto-action-trigger-*/* /cluster/bringup/
+
+rsync -a --delete \
+  --exclude=SETTINGS --exclude=results/ --exclude=logs/ --exclude=valid-config/ \
+  --exclude=containers/ --exclude=container-src/ --exclude=reports/ --exclude=dmesg-archive/ \
+  auto-action-trigger-*/ /cluster/bringup/
+
 bash pause-agents.sh --resume     # re-arm the nodes, then start the watchdog
 ```
+
+**`rsync`, not `cp -R`**, and the reasons are not only speed:
+
+- `cp` rewrites all ~700 files whether or not they changed. `rsync` skips the
+  ones that match, so the second drop copies a handful. Over a loaded NFS export
+  that is the difference between minutes and seconds.
+- `cp` opens each destination `O_WRONLY|O_TRUNC`, so every live script is
+  momentarily zero-length while the fleet is reading it. `rsync` writes a temp
+  file and renames, so a reader sees the old file or the new one and never a
+  truncated one. Quiescing first makes this moot; doing both means a drop that
+  goes wrong at the wrong moment is still safe.
+- `--delete` is what removes files that went away upstream. Without it the
+  deployment keeps every script the framework has ever shipped.
+
+**The `--exclude` list is load-bearing when `--delete` is.** Those seven are the
+site's own data — none is in the tarball, so `--delete` would remove all of it.
+`--dry-run` prints what would go, and is worth the extra command the first time:
+
+```bash
+rsync -an --delete --exclude=... auto-action-trigger-*/ /cluster/bringup/ | grep '^deleting'
+```
+
+Anything in that list beyond the framework's own files means an exclude is
+missing. See [reference/layout.md#directory-layout](../reference/layout.md#directory-layout)
+for what a deployment carries that a checkout does not.
 
 `--resume` re-arms through `agent/install-agent.sh`, so it also picks up a unit
 or an interval that changed in the drop — which a bare `systemctl start` would
