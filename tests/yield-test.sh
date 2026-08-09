@@ -113,8 +113,9 @@ OURS="bringup-$NODE burnin-$NODE"
 ## What the controller says about the job in the marker unless a case differs:
 ## ours, our user's, running here.
 JOB_OK="4242|cmods|bringup-$NODE|RUNNING|$NODE|"
-## A foreign job that has been pending for an hour on this node by name.
-WAITER="9001|alice|train-70b|$NODE||3600|"
+## A foreign job that has been pending for an hour on this node by name, at a
+## priority that is not 0 -- 0 is held, and held is not waiting.
+WAITER="9001|alice|train-70b|$NODE||3600|4294901759|"
 
 ## One case: $1 name, $2 expected YIELD_RESULT, rest VAR=value overrides.
 run_case() {
@@ -169,25 +170,25 @@ cancelled || bad "  ... but scancel was never called"
 
 ## Compressed, and the node is inside the range: proof the list is expanded.
 run_case "waiter is scheduled onto the node" yielded \
-    STUB_PENDING="9001|alice|train-70b||ink50-dh01-i01-[11-18]|3600|"
+    STUB_PENDING="9001|alice|train-70b||ink50-dh01-i01-[11-18]|3600|4294901759|"
 cancelled || bad "  ... but scancel was never called"
 
 ## Straight off a head node, and the case this feature exists for: the waiter
 ## runs as JOB_USER too, so only the job name tells it from one of ours, and
 ## SchedNodes reads `(null)` rather than empty.
 run_case "the real queue's waiter" yielded \
-    STUB_PENDING="130938|cmods|microbenchmark_nccl_nccl_fp8|ink50-dh01-i01-[11-18,28-37]|(null)|1698|
-130939|cmods|bringup-ink50-dh01-i05-31|ink50-dh01-i05-31|(null)|1677|"
+    STUB_PENDING="130938|cmods|microbenchmark_nccl_nccl_fp8|ink50-dh01-i01-[11-18,28-37]|(null)|1698|4294901759|
+130939|cmods|bringup-ink50-dh01-i05-31|ink50-dh01-i05-31|(null)|1677|4294901758|"
 cancelled || bad "  ... but scancel was never called"
 
 run_case "only jobs of ours are queued" no-waiter \
-    STUB_PENDING="130939|cmods|bringup-$NODE|$NODE|(null)|1677|
-130937|cmods|burnin-$NODE|$NODE|(null)|1710|"
+    STUB_PENDING="130939|cmods|bringup-$NODE|$NODE|(null)|1677|4294901759|
+130937|cmods|burnin-$NODE|$NODE|(null)|1710|4294901758|"
 nothing_killed || bad "  ... but something was cancelled"
 
 ## squeue -O pads to the field width; every field arrives with it attached.
 run_case "padded squeue output" yielded \
-    STUB_PENDING="9001      |alice   |train-70b   |$NODE   |    |3600  |" \
+    STUB_PENDING="9001      |alice   |train-70b   |$NODE   |    |3600  |4294901759  |" \
     STUB_JOB="4242    |cmods   |bringup-$NODE  |RUNNING |$NODE  |"
 cancelled || bad "  ... but scancel was never called"
 
@@ -196,20 +197,53 @@ echo "== nobody is waiting =="
 run_case "empty queue"            no-waiter STUB_PENDING=""
 nothing_killed || bad "  ... but something was cancelled"
 
-run_case "waiter is a job of ours" no-waiter STUB_PENDING="9001|cmods|bringup-othernode|$NODE||3600|"
+run_case "waiter is a job of ours" no-waiter STUB_PENDING="9001|cmods|bringup-othernode|$NODE||3600|4294901759|"
 nothing_killed || bad "  ... but something was cancelled"
 
 run_case "waiter wants other nodes" no-waiter \
-    STUB_PENDING="9001|alice|train-70b|ink50-dh01-i01-[11-12]||3600|"
+    STUB_PENDING="9001|alice|train-70b|ink50-dh01-i01-[11-12]||3600|4294901759|"
 nothing_killed || bad "  ... but something was cancelled"
 
 ## Under GET_OUT_OF_THE_WAY_AFTER_MINUTES: a job that may yet be satisfied
 ## somewhere else is not worth throwing a benchmark away for.
-run_case "waiter queued 60s ago" no-waiter STUB_PENDING="9001|alice|train-70b|$NODE||60|"
+run_case "waiter queued 60s ago" no-waiter STUB_PENDING="9001|alice|train-70b|$NODE||60|4294901759|"
 nothing_killed || bad "  ... but something was cancelled"
 
 run_case "waiter queued 60s ago, with the wait set to 0" yielded \
-    STUB_PENDING="9001|alice|train-70b|$NODE||60|" GET_OUT_OF_THE_WAY_AFTER_MINUTES=0
+    STUB_PENDING="9001|alice|train-70b|$NODE||60|4294901759|" GET_OUT_OF_THE_WAY_AFTER_MINUTES=0
+
+## Held at priority 0: it passes every other condition -- foreign name, this
+## node by name, pending for hours -- and will never start.
+## docs/explanation/sequencing.md#a-held-job-is-not-a-waiter
+run_case "waiter is held after a failed launch" no-waiter \
+    STUB_PENDING="132492|cmods|microbenchmark_nccl_nccl_fp8|ink50-dh01-i01-[11-18,28-37]|(null)|75600|0|"
+nothing_killed || bad "  ... but a benchmark was thrown away for a job that cannot start"
+
+## An operator's hold is the same priority 0 and the same answer.
+run_case "waiter is held by an operator" no-waiter \
+    STUB_PENDING="9001      |alice   |train-70b   |$NODE   |    |3600  |0      |"
+nothing_killed || bad "  ... but something was cancelled"
+
+## The whole queue held: not "the controller would not answer", which is a
+## different result and must not be reached by this path.
+run_case "every waiter is held" no-waiter \
+    STUB_PENDING="9001|alice|train-70b|$NODE||3600|0|
+9002|bob|inference|$NODE||3600|0|"
+nothing_killed || bad "  ... but something was cancelled"
+
+## One real waiter behind two held ones: the held lines must be skipped over
+## rather than ending the scan.
+run_case "a real waiter behind two held ones" yielded \
+    STUB_PENDING="9001|alice|train-70b|$NODE||3600|0|
+9002|bob|inference|$NODE||3600|0|
+9003|carol|sweep|$NODE||3600|4294901759|"
+cancelled || bad "  ... but scancel was never called"
+
+## Fail open: a squeue that does not give a number for priority leaves the
+## feature exactly as it was before the field was asked for.
+run_case "priority field is empty" yielded \
+    STUB_PENDING="9001|alice|train-70b|$NODE||3600||"
+cancelled || bad "  ... but scancel was never called"
 
 echo "== the job in the marker is not confirmed ours =="
 
