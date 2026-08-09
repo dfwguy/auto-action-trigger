@@ -73,6 +73,10 @@ cases=(
   ## Synthetic; replace with captures once a node has run it. See docs/explanation/llmb.md.
   "llm-pretrain-solo__good|DONE|"
   "llm-pretrain-solo__missing-rank|FAIL|fewer than 4 GPUs reported step timings"
+  ## A run that stopped part-way has a healthy-looking median over the part that
+  ## ran, so the ceiling passes it. See docs/explanation/llmb.md#a-run-that-stopped-early.
+  "llm-pretrain__short-run|FAIL|fewer than 50 training step timings"
+  "llm-pretrain-solo__short-run|FAIL|a GPU reported fewer than 50 step timings"
   ## Caught by the SHIPPED floor, which was 0 -- check skipped -- until a healthy
   ## tray gave one. See docs/explanation/llmb.md#judging-the-four-step-times.
   "llm-pretrain-solo__slow-gpu|FAIL|per-GPU step times disagree -- spread above 0.02"

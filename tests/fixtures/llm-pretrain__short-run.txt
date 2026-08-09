@@ -1,0 +1,33 @@
+ iteration 1/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 2/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 3/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 4/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 5/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 6/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 7/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 8/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 9/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 10/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 11/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 12/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 13/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 14/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 15/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 16/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 17/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 18/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 19/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 20/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 21/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 22/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 23/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 24/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 25/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 26/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 27/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 28/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 29/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 30/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+ iteration 31/50 | elapsed time per iteration (ms): 3318.4 | lm loss: 7.21
+exit status: 0
+PENDING

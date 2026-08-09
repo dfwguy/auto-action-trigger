@@ -103,11 +103,18 @@ The five NCCL bandwidth gates, in GB/s:
 Milliseconds, compared against the **median** iteration of the run, so the
 init and CUDA-graph-capture iterations do not move it. `0` skips the check.
 
-Both are **estimates**: +5% of a single healthy GB300 tray, which measured
-3310 ms at four GPUs and 3341 ms per solo copy. They are a starting band meant
-to catch a node that is plainly slow, not a characterised floor — tighten them
-once several trays have reported. See
+Both started as **estimates**: +5% of a single healthy GB300 tray, which
+measured 3310 ms at four GPUs and 3341 ms per solo copy. A 2,013-node fleet has
+since put the median at 3320 ms and 3355 ms — within 0.5% of that one tray — so
+they are now an observed band rather than a guess, and the shipped values stand.
+See
 [explanation/llmb.md#judging-the-step-time](../explanation/llmb.md#judging-the-step-time).
+
+Neither is what catches a run that stopped part-way, which has a healthy median
+over the iterations it managed. `VERDICT_MIN_LLM_ITERATIONS` in
+`parsers/$PARSERS/verdict.sh` does that, and ships as `50` — the recipe's whole
+run. See
+[explanation/llmb.md#a-run-that-stopped-early](../explanation/llmb.md#a-run-that-stopped-early).
 
 All five bandwidth floors read out-of-place busbw at the largest message size actually run, which
 is also what `daily-report.sh` prints in those columns, so a cell and a floor
