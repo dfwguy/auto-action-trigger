@@ -56,21 +56,42 @@ fi
 command -v rsync >/dev/null 2>&1 || { trace "EXIT: rsync is not installed here -- jobs will read the image over the share instead"; exit 0; }
 mkdir -p "$dst" 2>/dev/null || { trace "EXIT: cannot create $dst as $(id -un)"; exit 0; }
 
-## The first multi-gigabyte sync outlives the agent's cycle, so it is detached
-## and this script returns immediately -- otherwise it holds the agent's lock
-## across cycles and nothing else on the node runs. flock stops one cycle's copy
-## being stacked on the next. See docs/explanation/containers.md#how-the-caching-works.
+## ── The copy is its own unit, not a child of this one ─────────────────────
+##
+## A first sync is several gigabytes and cannot finish inside a cycle, so it has
+## to outlive the cycle -- and a background child does not. systemd cleans out
+## the unit's cgroup when the cycle ends, so a `setsid ... &` child is killed
+## with whatever time happened to be left, which is anything from a few
+## milliseconds to a few seconds depending on what the other steps did. Nothing
+## about that is a design; it is a race the copy usually loses.
+##
+## systemd-run puts the copy in a transient unit of its own, which is not this
+## unit's cgroup and is not cleaned up with it. It runs to completion, once,
+## however long it takes. --collect removes the unit when it finishes.
+## See docs/explanation/containers.md#the-copy-is-its-own-unit.
 lock=/tmp/.file_copy.lock
 
 if [[ -z "${FILE_COPY_DETACHED:-}" ]]; then
-    ## Via bash, not "$0" directly: a checkout that lost the exec bit would
-    ## fail here silently and never copy anything.
+    if [[ -n "${XDG_RUNTIME_DIR:-}${INVOCATION_ID:-}" ]] && command -v systemd-run >/dev/null 2>&1 &&
+       systemd-run --user --collect --quiet --unit=bringup-copy \
+                   --description="Bring-up container image copy" \
+                   --setenv=FILE_COPY_DETACHED=1 \
+                   bash "$0" 2>/dev/null; then
+        exit 0
+    fi
+    ## Already running from an earlier cycle: systemd-run refuses a unit name
+    ## that is active, which is the same answer the flock below gives.
+    if systemctl --user is-active --quiet bringup-copy.service 2>/dev/null; then
+        exit 0
+    fi
+    ## No systemd-run, or no user manager to run it in -- a hand-run from a
+    ## plain shell. setsid is enough there: nothing is going to clean up a
+    ## cgroup this process is not in.
     if command -v setsid >/dev/null 2>&1; then
         FILE_COPY_DETACHED=1 setsid nohup bash "$0" </dev/null >/dev/null 2>&1 &
         exit 0
     fi
-    ## No setsid: copy inline, cut off with the cycle, resume next time.
-    trace "setsid is not installed -- copying inline, which holds this cycle until it finishes"
+    trace "neither systemd-run nor setsid is available -- copying inline, which holds this cycle until it finishes"
 fi
 
 if command -v flock >/dev/null 2>&1; then
@@ -135,7 +156,7 @@ if [[ "$have_before" -lt "$want" ]]; then
     ## local" has to be answerable, and a steady state that says so for ever
     ## buries the lines that matter.
     [[ "${#skipped[@]}" -gt 0 ]] &&
-        trace "not copying ${#skipped[@]} image(s) no job here uses (CONTAINERS='$CONTAINERS'): ${skipped[*]}"
+        trace "not copying ${#skipped[@]} image(s) matching no name in CONTAINERS='$CONTAINERS': ${skipped[*]} -- add the name there if a job needs one of them, or it runs from the share instead"
 fi
 
 ## -a not -r, or every cycle re-transfers everything; --partial so a killed

@@ -15,9 +15,8 @@ ExecStart=/bin/bash -lc "@BRINGUP_HOME@/agent/cycle.sh --quiet"
 # A wedged cycle must not hold the flock for ever, and the watchdog's fan-out
 # across the fleet is the slowest thing either role does.
 TimeoutStartSec=900
-# The container copy detaches an rsync that outlives the cycle by design -- a
-# multi-gigabyte image cannot arrive inside one. setsid escapes the session but
-# not the cgroup, and the default KillMode=control-group SIGTERMs whatever is
-# left in it the moment ExecStart returns, which killed every copy milliseconds
-# after it started. See docs/explanation/containers.md#the-copy-outlives-the-cycle.
-KillMode=process
+# Nothing here is expected to outlive the cycle. The container copy, which has
+# to, gets a transient unit of its own rather than being a background child of
+# this one -- see docs/explanation/containers.md#the-copy-is-its-own-unit. So the
+# default KillMode=control-group is right: anything still in this cgroup when
+# ExecStart returns is something that leaked.

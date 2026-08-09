@@ -181,7 +181,9 @@ nothing — this host is the single point the fleet depends on.
 
 ## The container copy trace
 
-`results/<node>/copy.log`. Every precondition ends the run and every one says so,
+`results/<node>/copy.log`, plus the copy's own transient unit —
+`journalctl --user -u bringup-copy.service` on the node is what it is doing right
+now. Every precondition ends the run and every one says so,
 because "the images never arrived" and "the images are not built yet" are the
 same silence from outside. A cycle with nothing to do writes nothing here — the
 copy is the one step whose steady state is genuinely no-op, and a line per node
@@ -196,7 +198,8 @@ per cycle saying so would bury the ones that matter.
 | `copying: <n> of <n> image(s) here, from <dir>` | A copy just started, detached. The next line comes when it finishes, which may be several cycles later |
 | `copied: <n> of <n> image(s) now in /tmp/containers` | Done. `<n> of <n>` is the fact that matters — a job starts off local disk only when the count is complete |
 | `COPY FAILED (rsync exit <n>): <what rsync said>` | With the counts, so a partial copy is distinguishable from none |
-| `setsid is not installed -- copying inline` | The copy holds the cycle rather than detaching |
+| `neither systemd-run nor setsid is available -- copying inline` | The copy holds the cycle rather than running as its own unit |
+| `not copying <n> image(s) matching no name in CONTAINERS=…` | Named beside the copy that skipped them. Add the name to `CONTAINERS` if a job needs one; without it the job reads from the share instead |
 
 The counts come from globbing both directories rather than from rsync's own
 output: "rsync ran" and "the images are here" are different facts, and only the

@@ -66,38 +66,47 @@ An empty `CONTAINERS` means the site builds nothing here, so there is no list to
 filter by and whatever is in the directory arrived some other way; everything is
 copied.
 
-## The copy outlives the cycle
+## The copy is its own unit
 
-A first sync is several gigabytes and cannot finish inside one agent cycle, so
-`file_copy.sh` starts its `rsync` detached and returns. That is straightforward
-until the cycle is a systemd unit.
+A first sync is several gigabytes. It cannot finish inside an agent cycle, so it
+has to outlive one — and a background child of a `oneshot` unit does not.
 
-`bringup-agent.service` is `Type=oneshot`, and systemd's default
-`KillMode=control-group` sends SIGTERM to everything remaining in the unit's
-cgroup as soon as the main process exits. `setsid` escapes the controlling
-terminal and the session; it does not escape the cgroup. So the copy gets
-whatever is left of the cycle that started it, and not one second more.
+The obvious shape, and the one this used for years, is `setsid nohup … &`:
+detach, return, let the copy carry on. Under BCM that worked, because the action
+was a plain process and nothing tidied up after it. Under systemd it does not.
+`setsid` escapes the controlling terminal and the session; it does not escape
+the **cgroup**, and `KillMode=control-group` — the default — SIGTERMs whatever
+is left in the unit's cgroup the moment `ExecStart` returns.
 
-**How much that is varies by two orders of magnitude**, which is what made this
-hard to read from outside. A cycle that runs the 38 health checks takes seconds;
-a cycle where the health cadence is closed and `PAUSE_JOBS` is set exits every
-gate immediately and takes well under one. The same fleet therefore shows both
-symptoms at once: nodes that filled completely during their first cycles, when
-the health run was making the cycle long, and nodes stuck at exactly one image
-because every cycle since has given the copy a few milliseconds.
+So the copy got whatever was left of the cycle that started it, which is not a
+duration anything chose. A cycle that runs the 38 health checks takes seconds; a
+cycle with the health cadence closed and `PAUSE_JOBS` set exits every gate at
+once and takes well under one. The same fleet showed both: nodes that filled
+completely during their first cycles, and nodes stuck at exactly one image
+because every cycle since had given the copy milliseconds. `--partial` meant
+nothing was wasted, so it looked like slow progress rather than a fault — and
+running `file_copy.sh` by hand always worked, which made the by-hand test
+misleading rather than reassuring.
 
-`--partial` keeps what was transferred, so nothing is wasted and progress
-accumulates — but it accumulates at whatever rate the cycle length allows, which
-can be effectively zero.
+**The fix is not to make the cycle longer.** Depending on the parent to dawdle
+is not a design, it is a race the copy usually loses, and it makes every other
+step's runtime a hidden input to whether images arrive.
 
-`KillMode=process` in the service is the fix: systemd kills the main process and
-leaves the rest alone, which is what a deliberately-detached background copy
-needs. The copy then runs to completion once, rather than in slices of a length
-nothing intends and nothing bounds.
+`systemd-run --user --collect --unit=bringup-copy` puts the copy in a transient
+unit of its own. Its cgroup is not this cycle's, so nothing cleans it up when
+the cycle ends; it runs to completion, once, however long that takes, and
+`--collect` removes the unit when it finishes. A second cycle finding it already
+running is refused by the unit name, which is the same answer the `flock` gives
+and needs no coordination between them.
 
-Under BCM the action was a plain process with no cgroup to be cleaned out of,
-which is why this only appeared with the timer. It is also why running
-`file_copy.sh` by hand always worked, and why that was misleading.
+`systemctl --user status bringup-copy.service` and
+`journalctl --user -u bringup-copy.service` are then the copy's own, which is a
+better answer than the trace file for "what is it doing right now".
+
+Two fallbacks, both deliberate. A hand-run from a plain shell with no user
+manager has no cgroup to be cleaned out of, so `setsid` is enough there. With
+neither available the copy runs inline and says so — it holds the cycle, which
+is worse than detaching but better than not copying.
 
 ## How the caching works
 

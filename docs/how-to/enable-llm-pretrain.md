@@ -14,6 +14,19 @@ export HF_TOKEN=hf_...            # this run only; never written to a node
 ./build_llmb.sh -l                # what is present, what is not
 ```
 
+**Add `nemo` to `CONTAINERS`** while you are in `SETTINGS`, if it is not there:
+
+```bash
+CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm nemo"
+```
+
+That list is what `build_containers.sh` builds *and* what `file_copy.sh` caches
+on each node's local disk. An image the list does not name is left on the share:
+the job still runs, reading the image over NFS at the start of every run, which
+on a large fleet is the difference the local cache exists to make. `copy.log`
+names anything it skipped and why. See
+[explanation/containers.md#only-the-images-this-site-runs](../explanation/containers.md#only-the-images-this-site-runs).
+
 To move versions, edit `LLMB_REF` in `SETTINGS` and re-run. `-l` prints both the
 ref `SETTINGS` asks for and the one actually checked out, so a drift between
 them is visible. A ref that does not exist lists the tags that do.
