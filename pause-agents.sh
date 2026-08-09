@@ -91,16 +91,35 @@ status)
     else
         echo "watchdog on $HOSTNAME: STOPPED -- nothing is arming nodes"
     fi
-    fresh=0; stale=0; never=0
+    ## Two questions, not one. "Within HEARTBEAT_STALE_MINUTES" is what the
+    ## watchdog arms on; it is useless for confirming a stop, because a node
+    ## stopped a minute ago is still inside that window. What answers a stop is
+    ## whether anything is *still writing*.
+    ## See docs/how-to/pause-and-resume.md#replacing-the-tree.
+    quiet_after=$(( ${AGENT_INTERVAL_MINUTES:-2} * 2 ))
+    fresh=0; stale=0; never=0; live=0; newest=-1
+    now_s=$(date +%s)
     for n in "${nodes[@]}"; do
-        if [[ ! -f "$home/results/$n/.heartbeat" ]]; then never=$((never + 1))
-        elif heartbeat_stale "$home/results" "$n"; then stale=$((stale + 1))
-        else fresh=$((fresh + 1)); fi
+        beat="$home/results/$n/.heartbeat"
+        if [[ ! -f "$beat" ]]; then never=$((never + 1)); continue; fi
+        age=$(( now_s - $(stat -c %Y "$beat" 2>/dev/null || echo 0) ))
+        [[ "$newest" -lt 0 || "$age" -lt "$newest" ]] && newest="$age"
+        [[ "$age" -lt $(( quiet_after * 60 )) ]] && live=$((live + 1))
+        if heartbeat_stale "$home/results" "$n"; then stale=$((stale + 1)); else fresh=$((fresh + 1)); fi
     done
     printf 'nodes matching %s: %d cycling within %sm, %d stale, %d never armed\n' \
         "${pattern}" "$fresh" "$HEARTBEAT_STALE_MINUTES" "$stale" "$never"
+    if [[ "$live" -gt 0 ]]; then
+        printf 'STILL RUNNING: %d node(s) wrote a heartbeat in the last %dm (newest %ds ago).\n' \
+            "$live" "$quiet_after" "$newest"
+        echo "  Their timers are firing, so the tree is being read right now. Not safe to replace."
+        echo "  '$0' again, then re-check -- a stop that reported ok can still have missed a node."
+    else
+        printf 'QUIET: nothing has written a heartbeat in %dm (newest %ss ago). Safe to replace the tree.\n' \
+            "$quiet_after" "$([[ "$newest" -ge 0 ]] && echo "$newest" || echo "never")"
+    fi
     [[ "$stale" -gt 0 || "$never" -gt 0 ]] &&
-        echo "  ./trigger-log.sh section 0 names them"
+        echo "  ./trigger-log.sh section 0 names the stale and never-armed ones"
     exit 0
     ;;
 stop)
@@ -116,7 +135,13 @@ stop)
     echo "stopping ${#nodes[@]} node timer(s) over $FANOUT_CMD: $pretty"
     fanout "$joined" "$remote_env systemctl --user stop bringup-agent.timer" |
         grep -v '^[^ ]*: *$' | sed 's/^/  /'
-    echo "the fleet is quiet. Nothing restarts these until '$0 --resume'."
+    ## Not "the fleet is quiet" on the strength of having asked. A stop that
+    ## reported nothing can still have missed a node -- one the fan-out could
+    ## not reach, or one that is not in sinfo -- and one node still cycling is
+    ## one node reading the tree while it is replaced.
+    echo "asked ${#nodes[@]} node(s) to stop. Confirm before replacing anything:"
+    echo "    $0 --status"
+    echo "  It says QUIET only when nothing has written a heartbeat for two cycles."
     ;;
 resume)
     if [[ "$dry" -eq 1 ]]; then
