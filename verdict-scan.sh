@@ -45,6 +45,12 @@ extract_metric() {
             # because these carry K/M/G suffixes, which awk cannot order.
             grep -oE 'bw=[0-9.]+[KMG]?i?B/s' "$file" 2>/dev/null | sed 's/bw=//' | sort -h | tail -1
             ;;
+        llm-pretrain|llm-pretrain-solo)
+            # Median step time in ms, from the gate's own helper rather than a
+            # second copy of it, so the column reads against
+            # VERDICT_MAX_STEP_MS_LLM_* directly.
+            _v_llm_step_ms "$file" | cut -d' ' -f1
+            ;;
     esac
 }
 
@@ -56,6 +62,8 @@ metric_label() {
         nvbandwidth)        echo "min_GBs"     ;;
         stream)             echo "triad_MBs"   ;;
         fio)                echo "bw"          ;;
+        llm-pretrain|llm-pretrain-solo)
+                            echo "step_ms"     ;;
     esac
 }
 

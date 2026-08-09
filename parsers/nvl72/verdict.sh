@@ -458,15 +458,12 @@ _v_gate_hpl() {
     return 0
 }
 
-## Median step time across the whole run, against a ceiling in milliseconds.
-## Median rather than mean because the first iterations are init and CUDA-graph
-## capture and are legitimately several times slower on every node -- see
-## docs/explanation/llmb.md#judging-the-step-time.
-_v_llm_step_median() {
-    local file="$1" max="$2" hit
-    ## 0 or empty means no band for this platform; skip rather than pass all.
-    awk -v m="$max" 'BEGIN { exit !(m + 0 > 0) }' || return 0
-    hit=$(awk -v max="$max" '
+## "<median ms> <iterations>" for a run that printed at least five, nothing
+## otherwise. Also what verdict-scan.sh reports as the metric, so the figure in
+## the table is the figure this file gated on.
+## See docs/explanation/llmb.md#judging-the-step-time.
+_v_llm_step_ms() {
+    awk '
         match($0, /elapsed time per iteration \(ms\):[ ]*[0-9]+\.?[0-9]*/) {
             v = substr($0, RSTART, RLENGTH); sub(/.*:[ ]*/, "", v); t[++n] = v + 0
         }
@@ -482,11 +479,23 @@ _v_llm_step_median() {
                 t[j+1] = x
             }
             med = (n % 2) ? t[(n+1)/2] : (t[n/2] + t[n/2+1]) / 2
-            if (med > max + 0) printf "median %.0f ms over %d iterations", med, n
-        }' "$file" 2>/dev/null)
-    [[ -z "$hit" ]] && return 0
+            printf "%.1f %d", med, n
+        }' "$1" 2>/dev/null
+}
+
+## Median step time across the whole run, against a ceiling in milliseconds.
+## Median rather than mean because the first iterations are init and CUDA-graph
+## capture and are legitimately several times slower on every node -- see
+## docs/explanation/llmb.md#judging-the-step-time.
+_v_llm_step_median() {
+    local file="$1" max="$2" med n
+    ## 0 or empty means no band for this platform; skip rather than pass all.
+    awk -v m="$max" 'BEGIN { exit !(m + 0 > 0) }' || return 0
+    read -r med n < <(_v_llm_step_ms "$file")
+    [[ -n "$med" ]] || return 0
+    awk -v v="$med" -v m="$max" 'BEGIN { exit !(v + 0 > m + 0) }' || return 0
     VERDICT_REASON="step time above ${max} ms"
-    VERDICT_DETAIL="$hit"
+    VERDICT_DETAIL="median ${med} ms over ${n} iterations"
     return 1
 }
 

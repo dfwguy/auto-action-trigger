@@ -182,6 +182,23 @@ else
 fi
 VERDICT_MAX_STEP_MS_LLM_PRETRAIN="$_pre_step_saved"
 
+## The reported figure and the judged figure are the same figure -- the whole
+## point of both reading _v_llm_step_ms. A number in the report that the gate
+## never saw is the failure this catches.
+## See docs/explanation/llmb.md#judging-the-step-time.
+# shellcheck source=/dev/null
+source "$home/verdict-scan.sh"
+_metric=$(extract_metric llm-pretrain-solo "$home/tests/fixtures/llm-pretrain-solo__good.txt")
+if [[ -n "$_metric" && "$VERDICT_DETAIL" == *"median $_metric ms"* &&
+      "$(metric_label llm-pretrain)" == "step_ms" ]]; then
+    printf 'ok       %-42s %s ms\n' "(llm metric matches the gate)" "$_metric"
+    ((pass++))
+else
+    printf 'FAIL     %-42s reported %s, gate said %s\n' \
+        "(llm metric matches the gate)" "${_metric:-<none>}" "$VERDICT_DETAIL"
+    ((fail++))
+fi
+
 ## An empty floor used to skip the bandwidth check -- a silent pass on a
 ## fixture that clears every other one.
 _ar_saved="$VERDICT_MIN_PEAK_BW_ALLREDUCE"

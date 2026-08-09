@@ -95,7 +95,8 @@ One row per node, tab separated on stdout. The first column after the node name
 is its Slurm state from `sinfo`, so a column of `NOT_RUN` can be read against
 whether the node was drained the whole time rather than guessed at. A job that
 produced a number shows it — Gflops for HPL, largest-message-size busbw GB/s for
-allreduce/alltoall — whatever the verdict made of it. A status word in one of
+allreduce/alltoall, median step time in ms for the two LLM jobs — whatever the
+verdict made of it. A status word in one of
 those columns means there was no figure to print instead: the job never ran
 (`NOT_RUN`), never finished (`INCOMPLETE`), or died before printing a result
 (`FAIL`). Which cells passed is the `job (pass/fail)` block below, not the cell.
