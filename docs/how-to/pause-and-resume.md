@@ -34,7 +34,7 @@ runs a `systemd --user` against it. A drop unpacked there is read at that
 directory's speed, however fast the deployment's own disk is. `/tmp` is fine:
 
 ```bash
-cd /tmp && tar xf ~/auto-action-trigger-*.tar.gz
+tar xf ~/auto-action-trigger-*.tar.gz -C /tmp     # -C, so this leaves you where you were
 ```
 
 Quiesce first, copy, then bring it back:
@@ -45,7 +45,7 @@ bash pause-agents.sh              # stop the watchdog here, then every node time
 rsync -a --delete \
   --exclude=SETTINGS --exclude=results/ --exclude=logs/ --exclude=valid-config/ \
   --exclude=containers/ --exclude=container-src/ --exclude=reports/ --exclude=dmesg-archive/ \
-  auto-action-trigger-*/ /cluster/bringup/
+  /tmp/auto-action-trigger-*/ /cluster/bringup/
 
 bash pause-agents.sh --resume     # re-arm the nodes, then start the watchdog
 ```
@@ -62,6 +62,23 @@ bash pause-agents.sh --resume     # re-arm the nodes, then start the watchdog
   goes wrong at the wrong moment is still safe.
 - `--delete` is what removes files that went away upstream. Without it the
   deployment keeps every script the framework has ever shipped.
+
+**Read what rsync says.** A tree that has been through the root-cycle era has
+root-owned files in it, and `rsync` cannot overwrite those as `$JOB_USER`: it
+reports `Permission denied` per file, exits non-zero, and leaves the tree half
+replaced — scripts from the new drop, units from the old one, which is worse
+than either. Once, as root:
+
+```bash
+sudo chown -R cmods:cmods /cluster/bringup
+```
+
+Confirm the thing that matters actually changed, rather than trusting the exit
+status:
+
+```bash
+grep -E 'OnCalendar|OnUnitActiveSec' /cluster/bringup/agent/units/bringup-agent.timer
+```
 
 **The `--exclude` list is load-bearing when `--delete` is.** Those seven are the
 site's own data — none is in the tarball, so `--delete` would remove all of it.
