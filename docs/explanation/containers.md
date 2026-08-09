@@ -40,6 +40,55 @@ image path on the default registry, and the pull fails against Docker Hub rather
 than against `nvcr.io`. It is the easiest part of the line to lose when copying
 it out to run something by hand.
 
+## Only the images this site runs
+
+The shared directory holds whatever has ever been built into it, and the copy
+lands on node-local disk on every node in the fleet. An image nothing runs is
+tens of gigabytes per node of read off one share for a job that will never
+start — at two thousand nodes, tens of terabytes.
+
+So the copy is filtered by `CONTAINERS`, the site's own list of what it builds,
+which is therefore also the list of what is worth having local. An image in the
+directory that matches no name in that list is named in `copy.log` and left on
+the share:
+
+```
+not copying 1 image(s) no job here uses (CONTAINERS='hpc-benchmarks nvbandwidth
+mnubergemm'): nvidia+nemo+26.04.01-arm.sqsh
+```
+
+Named rather than skipped in silence, because "why is that image not local" is
+otherwise unanswerable from the node. A job whose image was filtered out still
+runs — it reads from the share, more slowly — so the cost of getting the list
+wrong is speed, not a failure.
+
+An empty `CONTAINERS` means the site builds nothing here, so there is no list to
+filter by and whatever is in the directory arrived some other way; everything is
+copied.
+
+## The copy outlives the cycle
+
+A first sync is several gigabytes and cannot finish inside one agent cycle, so
+`file_copy.sh` starts its `rsync` detached and returns. That is straightforward
+until the cycle is a systemd unit.
+
+`bringup-agent.service` is `Type=oneshot`, and systemd's default
+`KillMode=control-group` sends SIGTERM to everything remaining in the unit's
+cgroup as soon as the main process exits. `setsid` escapes the controlling
+terminal and the session; it does not escape the cgroup. So every detached copy
+was killed milliseconds after it started, on every node, every cycle — and
+because the copy was silent, the symptom was simply that `/tmp/containers` never
+filled and nothing anywhere said why. Under BCM the action was a plain process
+with no cgroup to be cleaned out of, which is why this only appeared with the
+timer.
+
+`KillMode=process` in the service is the fix: systemd kills the main process and
+leaves the rest alone, which is exactly what a deliberately-detached background
+copy needs.
+
+The signature in `results/<node>/copy.log`, if it ever comes back, is a
+`copying: 0 of N` line with no `copied:` line after it — ever, on every cycle.
+
 ## How the caching works
 
 Three layers, each avoiding a different transfer:

@@ -78,18 +78,72 @@ if command -v flock >/dev/null 2>&1; then
     flock -n 9 || exit 0          # a copy from an earlier cycle is still running
 fi
 
+## ── Only the images this site runs ────────────────────────────────────────
+##
+## The directory is shared and holds whatever has ever been built into it; this
+## copies to node-local disk on every node in the fleet. An image nothing in
+## BENCHMARKS or BURNIN uses is tens of gigabytes per node of read off one
+## share, for a job that will not run. CONTAINERS is the site's own list of what
+## it builds, so it is also the list of what is worth having local.
+## See docs/explanation/containers.md#only-the-images-this-site-runs.
+declare -A want_file=()
+if [[ -n "${CONTAINERS// /}" ]]; then
+    ## Unquoted on purpose -- the list-in-a-string convention BENCHMARKS uses.
+    # shellcheck disable=SC2086
+    for _c in $CONTAINERS; do
+        while IFS= read -r _f; do
+            [[ -n "$_f" ]] && want_file["$(basename "$_f")"]=1
+        done < <(compgen -G "$src/*$_c*.sqsh" 2>/dev/null)
+    done
+    unset _c _f
+else
+    ## Empty CONTAINERS means the site builds nothing here, so there is no list
+    ## to filter by and whatever is in the directory arrived some other way.
+    while IFS= read -r _f; do
+        [[ -n "$_f" ]] && want_file["$(basename "$_f")"]=1
+    done < <(compgen -G "$src/*.sqsh" 2>/dev/null)
+    unset _f
+fi
+
+skipped=()
+while IFS= read -r _f; do
+    _b=$(basename "$_f")
+    [[ -n "${want_file[$_b]:-}" ]] || skipped+=("$_b")
+done < <(compgen -G "$src/*.sqsh" 2>/dev/null)
+unset _f _b
+
+if [[ "${#want_file[@]}" -eq 0 ]]; then
+    trace "EXIT: none of the images in $src match CONTAINERS='$CONTAINERS' -- nothing to copy. $(printf '%s ' "${skipped[@]}")"
+    exit 0
+fi
+
+filter=()
+for _b in "${!want_file[@]}"; do filter+=(--include="$_b"); done
+filter+=(--exclude='*.sqsh')
+unset _b
+
 ## Counted rather than assumed: "rsync ran" and "the images are here" are
 ## different facts, and only the second one lets a job start off local disk.
 ## Quoted, so compgen does the globbing: unquoted, the shell expands it first
 ## and compgen only confirms the first match.
-have_before=$(compgen -G "$dst/*.sqsh" 2>/dev/null | wc -l)
-want=$(compgen -G "$src/*.sqsh" 2>/dev/null | wc -l)
-[[ "$have_before" -lt "$want" ]] && trace "copying: $have_before of $want image(s) here, from $src"
+have_before=0
+for _b in "${!want_file[@]}"; do [[ -f "$dst/$_b" ]] && have_before=$((have_before + 1)); done
+want="${#want_file[@]}"
+if [[ "$have_before" -lt "$want" ]]; then
+    trace "copying: $have_before of $want image(s) here, from $src"
+    ## Named beside the copy rather than every cycle: "why is that image not
+    ## local" has to be answerable, and a steady state that says so for ever
+    ## buries the lines that matter.
+    [[ "${#skipped[@]}" -gt 0 ]] &&
+        trace "not copying ${#skipped[@]} image(s) no job here uses (CONTAINERS='$CONTAINERS'): ${skipped[*]}"
+fi
 
 ## -a not -r, or every cycle re-transfers everything; --partial so a killed
 ## copy resumes. See docs/explanation/containers.md#how-the-caching-works.
-out=$(rsync -a --partial "$src/" "$dst/" 2>&1); rc=$?
-have=$(compgen -G "$dst/*.sqsh" 2>/dev/null | wc -l)
+out=$(rsync -a --partial "${filter[@]}" "$src/" "$dst/" 2>&1); rc=$?
+have=0
+for _b in "${!want_file[@]}"; do [[ -f "$dst/$_b" ]] && have=$((have + 1)); done
+unset _b
 
 if [[ "$rc" -ne 0 ]]; then
     trace "COPY FAILED (rsync exit $rc): ${out//$'\n'/ } -- $have of $want image(s) here; jobs read the share instead"
