@@ -198,7 +198,7 @@ clush -w <node> 'XDG_RUNTIME_DIR=/run/user/$(id -u) \
 | What you see | What it is |
 |---|---|
 | the timer is `active` but `NEXT` is `-`, and `NextElapseUSecMonotonic=infinity` | it will never fire again. A unit still using `OnUnitActiveSec=` — re-run `install-agent.sh`, which installs the calendar timer. See [explanation/the-agent-and-the-watchdog.md#why-the-timer-is-a-calendar](../explanation/the-agent-and-the-watchdog.md#why-the-timer-is-a-calendar) |
-| `systemd reported no next elapse (realtime=[] monotonic=[])` | not a fault. `systemctl show` did not answer, which is not the same as answering badly — `systemctl --user list-timers` is the readable version. The install says this rather than failing, because failing on an unreadable answer once walled a whole fleet's output with `FAILED` lines for timers that were firing perfectly well |
+| `systemd reported no next elapse (realtime=[] monotonic=[0])` | not a fault. `systemctl show` did not answer, which is not the same as answering badly — `systemctl --user list-timers` is the readable version. The install says this rather than failing, because failing on an unreadable answer once walled a whole fleet's output with `FAILED` lines for timers that were firing perfectly well |
 | the timer absent from `list-timers` | the unit is not loaded — `systemctl --user daemon-reload`, then re-run `install-agent.sh` |
 | `Finished bringup-agent.service` once, then nothing | lingering, above |
 | `cannot write …/.heartbeat` | `results/<node>` is not writable by `cmods`. `sudo chown -R cmods:cmods /home/cmods/bringup/results` |

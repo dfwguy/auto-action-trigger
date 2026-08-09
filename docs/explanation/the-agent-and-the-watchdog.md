@@ -216,6 +216,12 @@ The check that would have caught this in an hour rather than a day is now part
 of the install: **active is not the same as scheduled**, and a timer with no next
 elapse is a failure with the two commands to run printed under it.
 
+That check has to be patient, though. `systemctl restart` returns before the
+timer has computed its next elapse, so asking immediately gets an empty answer
+from a node that is healthy a second later — which produced a screen of `FAILED`
+lines for a fleet that was fine. It now retries for a couple of seconds, and an
+answer it still cannot read is reported as unreadable rather than as broken.
+
 ## What a cycle costs the share
 
 Everything the agent reads lives on one NFS export, and a fleet multiplies every

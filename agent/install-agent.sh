@@ -231,16 +231,24 @@ else
     ## badly. Failing on an unreadable answer walled a fleet's output with FAILED
     ## lines for timers that were firing every two minutes.
     ## See docs/how-to/arm-a-node.md#armed-but-never-heartbeats.
-    next_r=$(systemctl --user show "$unit.timer" -p NextElapseUSecRealtime --value 2>/dev/null)
-    next_m=$(systemctl --user show "$unit.timer" -p NextElapseUSecMonotonic --value 2>/dev/null)
-    scheduled=""
-    for _v in "$next_r" "$next_m"; do
-        case "$_v" in
-            ""|0|infinity|n/a) ;;
-            *) scheduled="$_v"; break ;;
-        esac
+    ## Retried, because `systemctl restart` returns before the timer has
+    ## computed its next elapse: asking immediately gets an empty answer on a
+    ## node that is perfectly healthy a second later. Half a second, five times,
+    ## and only for a node that has not answered yet.
+    scheduled=""; next_r=""; next_m=""
+    for _try in 1 2 3 4 5; do
+        next_r=$(systemctl --user show "$unit.timer" -p NextElapseUSecRealtime --value 2>/dev/null)
+        next_m=$(systemctl --user show "$unit.timer" -p NextElapseUSecMonotonic --value 2>/dev/null)
+        for _v in "$next_r" "$next_m"; do
+            case "$_v" in
+                ""|0|infinity|n/a) ;;
+                *) scheduled="$_v"; break ;;
+            esac
+        done
+        [[ -n "$scheduled" ]] && break
+        [[ "$_try" -lt 5 ]] && sleep 0.5
     done
-    unset _v
+    unset _v _try
     if [[ -n "$scheduled" ]]; then
         ok "$unit.timer is scheduled, next elapse $(systemctl --user list-timers "$unit.timer" --no-pager 2>/dev/null | awk 'NR==2 {print $1, $2, $3}')"
     elif [[ "$next_m" == "infinity" && ( -z "$next_r" || "$next_r" == "0" ) ]]; then
