@@ -161,7 +161,8 @@ for suffix in service timer; do
     src="$home/agent/units/$unit.$suffix"
     [[ -f "$src" ]] || { fail "$src is missing"; continue; }
     tmp="$dst/.$unit.$suffix.$HOSTNAME.$$"
-    sed -e "s|@BRINGUP_HOME@|$home|g" -e "s|@INTERVAL@|$interval|g" "$src" > "$tmp" \
+    sed -e "s|@BRINGUP_HOME@|$home|g" -e "s|@INTERVAL@|$interval|g" \
+        -e "s|@SPREAD@|$(( interval * 30 ))|g" "$src" > "$tmp" \
         || { fail "cannot write $tmp"; rm -f "$tmp"; continue; }
     ## A zero-length unit file, or a symlink to /dev/null, is what systemd calls
     ## masked -- so those are replaced rather than compared.

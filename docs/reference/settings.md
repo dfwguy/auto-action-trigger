@@ -228,6 +228,11 @@ times across the fleet. Why two intervals and no backoff:
 | `ARM_WINDOW_HOURS` | `24` | The window that count is taken over |
 | `SUPERVISOR_HOST` | *empty* | Which host arms the others. Empty means whichever claims `results/.supervisor-owner` and keeps it fresh; naming one settles it where two hosts read as head. See [explanation/the-agent-and-the-watchdog.md#only-one-watchdog](../explanation/the-agent-and-the-watchdog.md#only-one-watchdog) |
 
+On a large fleet the interval is also the load lever: every read in a cycle is
+multiplied by the node count, and 2,016 nodes on two minutes is 17 reads a
+second for each file a cycle touches. See
+[explanation/the-agent-and-the-watchdog.md#what-a-cycle-costs-the-share](../explanation/the-agent-and-the-watchdog.md#what-a-cycle-costs-the-share).
+
 The two intervals are read only at install time: they are substituted into the
 unit files by `agent/install-agent.sh`, so changing one means re-running it —
 across the fleet for `AGENT_INTERVAL_MINUTES`, on the head node for the other.

@@ -166,18 +166,6 @@ if [[ ! -d "$HEALTHCHECKS_DIR" ]]; then
     exit 1
 fi
 
-## ── The checks that need root ─────────────────────────────────────────────
-##
-## Discovered from the check files, so a new one needing a rule is preflighted
-## without editing this script. A refused sudo changes a check's output rather
-## than failing it, which is why this is fatal.
-## See docs/explanation/running-unprivileged.md#a-lost-rule-must-stop-the-run.
-mapfile -t priv_cmds < <(grep -hoE 'sudo -n [a-z0-9_.-]+' "$HEALTHCHECKS_DIR"/[0-9]*.sh 2>/dev/null | awk '{print $3}' | sort -u)
-if [[ "${#priv_cmds[@]}" -gt 0 ]] && ! priv_ready "${priv_cmds[@]}"; then
-    trace "EXIT: sudo as $(id -un) would refuse: $PRIV_MISSING -- the checks needing them would report something other than what the baseline was captured from, so nothing was run and nothing was judged. Those rules come from the site's sudoers deployment; $home/agent/sudoers.default is the reference for what is missing."
-    exit 1
-fi
-
 ## ── The cadence gate ──────────────────────────────────────────────────────
 ##
 ## The stamp carries the outcome as well as the time: a node that found
@@ -217,6 +205,23 @@ elif [[ "$age" -lt $(( interval_hours * 3600 )) ]]; then
     exit 0
 else
     trace "last run ${age}s ago was ${last_status:-unknown}, past its ${interval_hours}h interval -- re-checking"
+fi
+
+## ── The checks that need root ─────────────────────────────────────────────
+##
+## Below the cadence gate, not above it: this reads every check file to find the
+## commands they need, and on a 2,000-node fleet doing that per cycle rather
+## than per run is 77,000 NFS reads every couple of minutes for an answer worth
+## having every four hours.
+##
+## Discovered from the check files, so a new one needing a rule is preflighted
+## without editing this script. A refused sudo changes a check's output rather
+## than failing it, which is why this is fatal.
+## See docs/explanation/running-unprivileged.md#a-lost-rule-must-stop-the-run.
+mapfile -t priv_cmds < <(grep -hoE 'sudo -n [a-z0-9_.-]+' "$HEALTHCHECKS_DIR"/[0-9]*.sh 2>/dev/null | awk '{print $3}' | sort -u)
+if [[ "${#priv_cmds[@]}" -gt 0 ]] && ! priv_ready "${priv_cmds[@]}"; then
+    trace "EXIT: sudo as $(id -un) would refuse: $PRIV_MISSING -- the checks needing them would report something other than what the baseline was captured from, so nothing was run and nothing was judged. Those rules come from the site's sudoers deployment; $home/agent/sudoers.default is the reference for what is missing."
+    exit 1
 fi
 
 if [[ "$EXPLAIN" -eq 1 ]]; then

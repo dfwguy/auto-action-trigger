@@ -216,6 +216,33 @@ The check that would have caught this in an hour rather than a day is now part
 of the install: **active is not the same as scheduled**, and a timer with no next
 elapse is a failure with the two commands to run printed under it.
 
+## What a cycle costs the share
+
+Everything the agent reads lives on one NFS export, and a fleet multiplies every
+read in a cycle by its node count. At 2,016 nodes on a two-minute interval, one
+file read per cycle is 17 reads a second, sustained, for ever.
+
+That arithmetic caught this tree once. `node_health.sh` preflights the sudo
+rules by reading every check file to find the commands they need — 38 files —
+and that ran *above* the cadence gate, so it happened on every cycle rather than
+on every run. 2,016 × 38 every two minutes is around 640 reads a second for an
+answer worth having every four hours. It now sits below the gate.
+
+Two things follow for anyone adding to a cycle:
+
+- **Put work below the gate that decides whether the work happens.** A gate that
+  is cheap to evaluate is worth evaluating first even when the code reads worse.
+- **`RandomizedDelaySec` is half the interval**, substituted at install like the
+  interval itself, so a fleet of any size arrives smeared rather than on the
+  tick. It does not reduce the load, only its shape — but a share that copes
+  with a steady rate can fail on the same total delivered in one second.
+
+`AGENT_INTERVAL_MINUTES` is the lever when a fleet is large enough that the
+steady rate is the problem. Nothing in the cadence gates is a cycle count —
+every one of them is a time gate — so raising it costs responsiveness and
+nothing else. The other lever is `PAUSE_CONTAINER_COPY`, because the one thing
+in a cycle that moves gigabytes rather than kilobytes is the image rsync.
+
 ## Only one watchdog
 
 Every host runs the same unit and decides its own role, so nothing about the

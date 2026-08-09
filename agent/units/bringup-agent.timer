@@ -9,8 +9,9 @@ Description=Fire the bring-up cycle every @INTERVAL@ minutes
 # then fires exactly once per manager start, for ever, on every host at once.
 # See docs/explanation/the-agent-and-the-watchdog.md#why-the-timer-is-a-calendar.
 OnCalendar=*:0/@INTERVAL@
-# Two thousand nodes are not asked to hit NFS in the same second.
-RandomizedDelaySec=30
+# Half the interval, so a fleet of any size is smeared rather than arriving on
+# the tick together. Substituted at install like the interval itself.
+RandomizedDelaySec=@SPREAD@
 AccuracySec=10s
 # No catch-up burst from a node that was powered off.
 Persistent=false
