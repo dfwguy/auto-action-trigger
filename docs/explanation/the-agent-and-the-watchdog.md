@@ -132,6 +132,46 @@ output, and a fleet-wide re-arm on that basis is precisely the kind of damage
 [sequencing.md#when-the-controller-does-not-answer](sequencing.md#when-the-controller-does-not-answer)
 describes. The cycle traces it and stops.
 
+## One unit for both roles
+
+`$HOME` is NFS-shared at most sites, and that is not an incidental detail — it
+is the constraint the unit layout has to survive. `~/.config/systemd/user/` is
+therefore the *same directory* on the head node and on every tray, and so is the
+`timers.target.wants/` symlink that `systemctl --user enable` writes. A fleet of
+2,000 hosts shares one set of unit files and one enable state.
+
+Two units, one per role, cannot survive that, and the ways it fails are worse
+than they look:
+
+- Installing the watchdog on the head node **enables it for every tray**, since
+  the enable symlink is shared. Two thousand watchdogs, all reading `sinfo` and
+  all arming each other.
+- Installing the node agent on a tray, and the watchdog on the head node, has
+  each install *remove* the other's units — they are the same files.
+- Every host in one `clush` writes that directory at the same moment. A single
+  temp filename had them taking each other's file: `mv` on a name another host
+  had already moved, and a zero-length unit left behind. **systemd reports an
+  empty unit file as masked**, which is a confusing way to be told that two
+  hosts raced.
+
+So there is one unit, `bringup-agent`, installed identically everywhere, and
+`agent/cycle.sh` asks `agent_role` on every run and hands over to
+`supervisor.sh` or `node-agent.sh`. The role becomes a run-time property of the
+host rather than something baked into a file the whole fleet reads — which is
+also more honest, because a host's role *can* change and nothing has to be
+reinstalled when it does.
+
+Two consequences worth knowing:
+
+- **One timer, one interval.** `AGENT_INTERVAL_MINUTES` fires every host.
+  `SUPERVISOR_INTERVAL_MINUTES` is enforced by `supervisor.sh` itself, which
+  returns immediately when its own heartbeat is younger than that — so the
+  setting still means what it says, and the head node's extra cycles cost a
+  `stat`.
+- **Writes still have to be safe.** The temp file carries the hostname and the
+  pid, and a unit that is already byte-identical is not rewritten at all — so in
+  steady state, arming 2,000 trays writes that directory zero times.
+
 ## Why lingering
 
 `systemd --user` normally starts a user's manager at their first login and stops
@@ -146,12 +186,10 @@ directly first and then through `sudo`: whether an unprivileged user may linger
 themselves is a polkit policy that varies between distributions, and over ssh —
 with no seat — the permissive answer is not the common one.
 
-The units themselves are **copied** into `~/.config/systemd/user/` rather than
-symlinked into the exported tree. Home directories are on NFS here too, so this
-does not buy independence from NFS entirely; what it does buy is that systemd
-reads a small local-ish file at daemon-reload rather than following a symlink
-into a large shared tree at every start, and that a tree being replaced mid-drop
-cannot leave a node with a half-written unit.
+The unit itself is **copied** into `~/.config/systemd/user/` rather than
+symlinked into the exported tree, so a tree being replaced mid-drop cannot leave
+a host with a half-written unit. That directory is usually on NFS as well, which
+is [its own constraint](#one-unit-for-both-roles).
 
 A system-level unit under `/etc/systemd/system` would need no linger, and would
 need root on every node to install and to change. That is the thing this whole

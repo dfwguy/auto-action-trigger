@@ -235,6 +235,46 @@ node_out_of_reporting() {
     [[ -f "$1/$2/$NOT_COMPUTE_MARKER" ]]
 }
 
+## ── Which role this host plays ────────────────────────────────────────────
+## Asked at run time, not baked into a unit file: $HOME is NFS-shared at most
+## sites, so every host reads the same units and the same `systemctl --user
+## enable` state. A unit that differs by role cannot survive that.
+## See docs/explanation/the-agent-and-the-watchdog.md#one-unit-for-both-roles.
+## Sets AGENT_ROLE and AGENT_ROLE_WHY rather than printing them: a caller that
+## took the role from $(agent_role) would lose the reason to the subshell, and
+## the reason is the whole point of saying which role was chosen.
+##
+## SC2034: read by the callers, which shellcheck cannot see from here.
+# shellcheck disable=SC2034
+AGENT_ROLE=""
+# shellcheck disable=SC2034
+AGENT_ROLE_WHY=""
+agent_role() {
+    if node_excluded "$HOSTNAME"; then
+        AGENT_ROLE_WHY="EXCLUDE_NODES matches $HOSTNAME"; AGENT_ROLE="head"; return 0
+    fi
+    if command -v systemctl >/dev/null 2>&1; then
+        if systemctl is-active --quiet slurmctld 2>/dev/null; then
+            AGENT_ROLE_WHY="slurmctld is running here"; AGENT_ROLE="head"; return 0
+        fi
+        if node_self_excluded; then
+            AGENT_ROLE_WHY="slurmctld is installed here and slurmd is not"; AGENT_ROLE="head"; return 0
+        fi
+        ## Whatever else it is, Slurm can schedule nothing to a host with no
+        ## slurmd, so it is not a compute node.
+        if [[ -z "$(systemctl list-unit-files slurmd.service --no-legend 2>/dev/null)" ]]; then
+            AGENT_ROLE_WHY="there is no slurmd unit here, so nothing can be scheduled to this host"
+            AGENT_ROLE="head"; return 0
+        fi
+        AGENT_ROLE_WHY="slurmd is installed here and slurmctld is not running"
+    else
+        # shellcheck disable=SC2034
+        AGENT_ROLE_WHY="systemctl is not installed, so nothing here could say otherwise"
+    fi
+    # shellcheck disable=SC2034
+    AGENT_ROLE="node"
+}
+
 ## ── Has this node stopped cycling ─────────────────────────────────────────
 ## The agent touches this every cycle whatever it then decides, so a stale one
 ## means the timer is not firing -- and a report judged from files nobody is

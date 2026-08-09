@@ -1,5 +1,5 @@
 [Unit]
-Description=Bring-up node agent: one cycle of container copy, health checks and benchmark sequencing
+Description=Bring-up cycle: the node agent, or the watchdog on the host that watches them
 Documentation=file://@BRINGUP_HOME@/docs/explanation/the-agent-and-the-watchdog.md
 
 [Service]
@@ -8,6 +8,10 @@ Type=oneshot
 # PATH and reads no profile, so `scontrol` is missing on exactly the hosts
 # where it works when you log in. See
 # docs/how-to/run-slurm-commands-remotely.md.
-ExecStart=/bin/bash -lc "@BRINGUP_HOME@/agent/node-agent.sh --quiet"
-# A wedged cycle must not hold the flock for ever; see the doc above.
-TimeoutStartSec=600
+#
+# cycle.sh, not either script by name: $HOME is NFS-shared, so this one file is
+# read by every host and cannot say which role any of them has.
+ExecStart=/bin/bash -lc "@BRINGUP_HOME@/agent/cycle.sh --quiet"
+# A wedged cycle must not hold the flock for ever, and the watchdog's fan-out
+# across the fleet is the slowest thing either role does.
+TimeoutStartSec=900

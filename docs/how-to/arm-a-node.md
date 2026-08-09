@@ -112,6 +112,7 @@ the node in its summary line rather than sshing at it for ever. What
 | `FAILED: could not enable lingering` | polkit refuses, and there is no sudo rule for `loginctl`. `sudo loginctl enable-linger cmods` on the node |
 | `FAILED: … does not exist` | the node cannot see `$BRINGUP_HOME` — NFS not mounted, or mounted somewhere else |
 | `FAILED: systemctl --user enable --now …` | no user session bus. Almost always lingering that did not take; check it directly |
+| `Unit file … is masked` | a zero-length unit, left by two hosts racing on a shared `$HOME` before the temp file was made unique. Re-run `install-agent.sh`, which replaces an empty unit and unmasks it |
 | armed, but `agent.log` says `scontrol is not on PATH` | the unit is not reaching whatever puts the Slurm tools on `PATH`. Both units run `/bin/bash -lc` for this; a unit installed before that ran the script directly, so re-run `install-agent.sh`. See [run-slurm-commands-remotely.md](run-slurm-commands-remotely.md) |
 | `WARNING: sudo as cmods would refuse: …` | armed, and the health checks will not run. The sudoers drop-in is missing |
 | nothing at all | the node is not idle or drained, so the watchdog never considered it. `sinfo -n <node>` |
@@ -152,6 +153,11 @@ ok: ink50-dh01-h02-11 is a compute node (slurmctld is not running here) -- insta
 ```
 
 It asks four questions, in this order, and stops at the first that answers:
+
+Both roles install the same unit — `agent/cycle.sh` asks the question again on
+every run, so `--head` and `--node` change what the install *checks and prints*,
+not what it writes. Why the unit cannot differ by role is
+[the-agent-and-the-watchdog.md#one-unit-for-both-roles](../explanation/the-agent-and-the-watchdog.md#one-unit-for-both-roles).
 
 | Question | If yes |
 |---|---|

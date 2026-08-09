@@ -205,5 +205,38 @@ else
     ok "a host running slurmctld and no slurmd does nothing and leaves no directory"
 fi
 
+echo "== cycle.sh sends each host to the right script =="
+
+## One unit for both roles, because $HOME is NFS-shared and a unit that differs
+## by role -- or is *enabled* by role -- is shared with the whole fleet.
+## See docs/explanation/the-agent-and-the-watchdog.md#one-unit-for-both-roles.
+cp "$home/agent/cycle.sh" "$tree/agent/"
+printf '#!/bin/bash\necho SUPERVISOR\n' > "$tree/agent/supervisor.sh"
+printf '#!/bin/bash\necho NODE-AGENT\n' > "$tree/agent/node-agent.sh"
+chmod 755 "$tree/agent"/*.sh
+
+dispatch() {
+    ( export PATH="$stub:$PATH" HOSTNAME="${2:-testnode}" AGENT_HOME="$tree" STUB_UNITS="$1"
+      "$tree/agent/cycle.sh" --quiet 2>/dev/null )
+}
+cat > "$stub/systemctl" <<'EOF'
+#!/bin/bash
+[[ "$1" == "is-active" ]] && exit 3
+[[ "$1" == "list-unit-files" ]] && { for u in $STUB_UNITS; do echo "$u enabled"; done; exit 0; }
+exit 0
+EOF
+chmod 755 "$stub/systemctl"
+
+[[ "$(dispatch 'slurmd.service')" == "NODE-AGENT" ]] &&
+    ok "a host with slurmd runs the node agent" ||
+    bad "a compute node did not get the node agent: $(dispatch 'slurmd.service')"
+[[ "$(dispatch 'slurmctld.service')" == "SUPERVISOR" ]] &&
+    ok "a host with slurmctld and no slurmd runs the watchdog" ||
+    bad "the head node did not get the watchdog: $(dispatch 'slurmctld.service')"
+## The case the fleet actually hit: a management host with neither unit.
+[[ "$(dispatch '')" == "SUPERVISOR" ]] &&
+    ok "a host with no slurmd at all runs the watchdog -- nothing can be scheduled to it" ||
+    bad "a host with no slurmd was sent to the node agent: $(dispatch '')"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

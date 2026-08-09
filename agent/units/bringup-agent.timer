@@ -1,11 +1,11 @@
 [Unit]
-Description=Fire the bring-up node agent every @INTERVAL@ minutes
+Description=Fire the bring-up cycle every @INTERVAL@ minutes
 
 [Timer]
 OnBootSec=1min
 OnUnitActiveSec=@INTERVAL@min
 AccuracySec=10s
-# Two hundred nodes are not asked to hit NFS in the same second.
+# Two thousand nodes are not asked to hit NFS in the same second.
 RandomizedDelaySec=30
 Unit=bringup-agent.service
 

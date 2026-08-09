@@ -93,9 +93,23 @@ fi
 ## the one thing nothing else watches.
 ## See docs/explanation/the-agent-and-the-watchdog.md#whose-clock-decides.
 own_beat="$results/.supervisor-heartbeat"
+beat_age=-1
+if [[ -f "$own_beat" ]]; then
+    beat_age=$(( $(date +%s) - $(stat -c %Y "$own_beat" 2>/dev/null || date +%s) ))
+fi
 touch "$own_beat" 2>/dev/null
 now=$(stat -c %Y "$own_beat" 2>/dev/null) || now=""
 [[ "$now" =~ ^[0-9]+$ ]] || now=$(date +%s)
+
+## One timer fires every host at AGENT_INTERVAL_MINUTES, so this is where the
+## watchdog's own cadence lives now. Read before the touch above would have
+## moved it -- which is why `now` is taken from the file and this from its age.
+## See docs/explanation/the-agent-and-the-watchdog.md#one-unit-for-both-roles.
+if [[ "$EXPLAIN" -eq 0 && "$beat_age" -ge 0 ]] &&
+   [[ "$SUPERVISOR_INTERVAL_MINUTES" =~ ^[0-9]+$ ]] &&
+   [[ "$beat_age" -lt $(( SUPERVISOR_INTERVAL_MINUTES * 60 )) ]]; then
+    exit 0
+fi
 
 if setting_enabled "$PAUSE_ARMING" && [[ "$EXPLAIN" -eq 0 ]]; then
     trace "EXIT: PAUSE_ARMING=$PAUSE_ARMING in ${SETTINGS_FILE:-<none>} -- no node is armed. Agents already running are untouched and keep cycling."

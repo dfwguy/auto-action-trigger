@@ -9,12 +9,13 @@ pieces fit together this way is
 ```
 .
 ├── agent/
+│   ├── cycle.sh                   # What the timer runs: decides the role, hands over to one of the two below
 │   ├── node-agent.sh              # One cycle on one node: heartbeat, busy gate, the three steps
 │   ├── supervisor.sh              # Head node: arm any idle/drained node whose heartbeat is stale
 │   ├── install-agent.sh           # Enable lingering, install the units, start the timer
 │   ├── uninstall-agent.sh         # Stop and remove them
 │   ├── sudoers.default            # Shipped reference for /etc/sudoers.d/50-bringup
-│   └── units/                     # systemd --user service and timer, @BRINGUP_HOME@ substituted at install
+│   └── units/                     # One systemd --user service and timer for every host, @BRINGUP_HOME@ substituted at install
 │
 ├── actions/
 │   ├── node_health.sh             # Hardware/software health checks → Slurm node state
