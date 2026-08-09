@@ -75,23 +75,29 @@ until the cycle is a systemd unit.
 `bringup-agent.service` is `Type=oneshot`, and systemd's default
 `KillMode=control-group` sends SIGTERM to everything remaining in the unit's
 cgroup as soon as the main process exits. `setsid` escapes the controlling
-terminal and the session; it does not escape the cgroup. So the copy is killed
-when the *cycle* ends — which gives it however long the health run and the
-sequencer take after it, a few tens of seconds — rather than the hours a first
-sync of several images needs.
+terminal and the session; it does not escape the cgroup. So the copy gets
+whatever is left of the cycle that started it, and not one second more.
 
-It still completes, and that is what made this hard to see. `--partial` keeps
-what was transferred, so the next cycle resumes where the last one was cut off
-and the images arrive over many cycles instead of one. A fleet mid-fill looks
-like a fleet making slow progress, because it is: on 2,016 nodes it took hours,
-and the only symptom was that it was taking hours.
+**How much that is varies by two orders of magnitude**, which is what made this
+hard to read from outside. A cycle that runs the 38 health checks takes seconds;
+a cycle where the health cadence is closed and `PAUSE_JOBS` is set exits every
+gate immediately and takes well under one. The same fleet therefore shows both
+symptoms at once: nodes that filled completely during their first cycles, when
+the health run was making the cycle long, and nodes stuck at exactly one image
+because every cycle since has given the copy a few milliseconds.
+
+`--partial` keeps what was transferred, so nothing is wasted and progress
+accumulates — but it accumulates at whatever rate the cycle length allows, which
+can be effectively zero.
 
 `KillMode=process` in the service is the fix: systemd kills the main process and
 leaves the rest alone, which is what a deliberately-detached background copy
-needs. It turns a copy that survives dozens of cycles into one that runs once.
+needs. The copy then runs to completion once, rather than in slices of a length
+nothing intends and nothing bounds.
 
 Under BCM the action was a plain process with no cgroup to be cleaned out of,
-which is why this only appeared with the timer.
+which is why this only appeared with the timer. It is also why running
+`file_copy.sh` by hand always worked, and why that was misleading.
 
 ## How the caching works
 
