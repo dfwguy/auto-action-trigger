@@ -222,17 +222,32 @@ fi
 if ! systemctl --user is-active --quiet "$unit.timer" 2>/dev/null; then
     fail "$unit.timer is not active after enabling it -- 'systemctl --user status $unit.timer' on this host"
 else
-    ## Active is not the same as scheduled. A timer whose next elapse is
-    ## `infinity` reports active, reports Result=success, and never fires again
-    ## -- which is what a monotonic OnUnitActiveSec= did here on every host.
-    next=$(systemctl --user show "$unit.timer" -p NextElapseUSecRealtime --value 2>/dev/null)
-    [[ -n "$next" && "$next" != "0" ]] ||
-        next=$(systemctl --user show "$unit.timer" -p NextElapseUSecMonotonic --value 2>/dev/null)
-    case "$next" in
-        ""|0|infinity|n/a)
-            fail "$unit.timer is active but has no next elapse even after a reload and a restart, so it will never fire again. 'systemctl --user cat $unit.timer' on this host -- a unit still using OnUnitActiveSec= behaves exactly this way" ;;
-        *)  ok "$unit.timer is scheduled, next elapse $(systemctl --user list-timers "$unit.timer" --no-pager 2>/dev/null | awk 'NR==2 {print $1, $2, $3}')" ;;
-    esac
+    ## Active is not the same as scheduled: a timer whose next elapse is
+    ## `infinity` reports active, reports Result=success, and never fires again.
+    ##
+    ## Three answers, not two. A usable next elapse passes; the known-bad
+    ## signature -- no realtime elapse *and* a monotonic one of infinity -- fails;
+    ## anything else is systemd not answering, which is not the same as answering
+    ## badly. Failing on an unreadable answer walled a fleet's output with FAILED
+    ## lines for timers that were firing every two minutes.
+    ## See docs/how-to/arm-a-node.md#armed-but-never-heartbeats.
+    next_r=$(systemctl --user show "$unit.timer" -p NextElapseUSecRealtime --value 2>/dev/null)
+    next_m=$(systemctl --user show "$unit.timer" -p NextElapseUSecMonotonic --value 2>/dev/null)
+    scheduled=""
+    for _v in "$next_r" "$next_m"; do
+        case "$_v" in
+            ""|0|infinity|n/a) ;;
+            *) scheduled="$_v"; break ;;
+        esac
+    done
+    unset _v
+    if [[ -n "$scheduled" ]]; then
+        ok "$unit.timer is scheduled, next elapse $(systemctl --user list-timers "$unit.timer" --no-pager 2>/dev/null | awk 'NR==2 {print $1, $2, $3}')"
+    elif [[ "$next_m" == "infinity" && ( -z "$next_r" || "$next_r" == "0" ) ]]; then
+        fail "$unit.timer is active but has no next elapse even after a reload and a restart, so it will never fire again. 'systemctl --user cat $unit.timer' on this host -- a unit still using OnUnitActiveSec= behaves exactly this way"
+    else
+        ok "$unit.timer is active; systemd reported no next elapse (realtime=[$next_r] monotonic=[$next_m]) -- 'systemctl --user list-timers $unit.timer' is the readable answer"
+    fi
 fi
 
 ## `enable --now` starts the timer, not the service, and a calendar timer then
