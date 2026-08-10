@@ -19,7 +19,7 @@ cd /home/cmods/bringup
 
 ## What the checks are, in one paragraph
 
-Every node runs 38 checks on a timer and writes one file per check into
+Every node runs 45 checks on a timer and writes one file per check into
 `logs/<node>/`. A check "fails" when its file does not match
 `valid-config/default/<check>` byte for byte — the same comparison
 `node_health.sh` drains on. There is no cleverness in the verdict: it is a file
@@ -259,7 +259,7 @@ ink50-dh01-h01-11  (drained: nvlinks)
 ---
 > fw 40.48.1126
 
-2 of 38 checks differ
+2 of 41 checks differ
 ```
 
 **Read the diff direction before you act on it.** `<` is this node and `>` is

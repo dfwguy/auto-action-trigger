@@ -81,7 +81,8 @@ Lookup-oriented. Dry, complete, scannable.
 | [settings.md](reference/settings.md) | Every key in `SETTINGS`, its default and what a valid value looks like |
 | [scripts.md](reference/scripts.md) | Every operator script and what its output means |
 | [jobs.md](reference/jobs.md) | The `jobs/$JOBS/` catalog, allocation header, time limits, queue priority |
-| [health-checks.md](reference/health-checks.md) | All 38 checks, the check file format, the reason field |
+| [health-checks.md](reference/health-checks.md) | All 45 checks, the check file format, the reason field |
+| [node-inventory.md](reference/node-inventory.md) | Every key in `logs/<node>/nodeinfo` — serials, UUIDs, MACs, addresses — and where each comes from |
 | [trace-lines.md](reference/trace-lines.md) | Every line `trigger.log` can write |
 | [reasons.md](reference/reasons.md) | Status words, verdict reasons and drain reasons, and what each implicates |
 | [layout.md](reference/layout.md) | Directory tree, runtime paths, exec bits, Slurm permissions, what CI gates on |
@@ -106,6 +107,7 @@ Understanding-oriented. Why it is like this, and what it cost to find out.
 | [llmb.md](explanation/llmb.md) | The two LLM jobs, why `llm-pretrain` is host-launched, running below characterised scale |
 | [platform-sets.md](explanation/platform-sets.md) | Why `JOBS`, `HEALTHCHECKS` and `PARSERS` are three variables |
 | [reading-the-whole-fleet.md](explanation/reading-the-whole-fleet.md) | Why `overall_report.sh` is an exception list, and where the reason for a failed prolog is kept |
+| [node-inventory.md](explanation/node-inventory.md) | Why unique-per-node facts cannot be health checks, what rides the check runner and what a node cannot answer |
 
 ## Adding to this
 

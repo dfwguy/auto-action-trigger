@@ -38,7 +38,8 @@ pieces fit together this way is
 │   └── nvl72/                     # One file per check, NN-<check>.sh, run in numeric order
 │       ├── 01-bios.sh
 │       ├── ...
-│       └── 38-dmesg-mlx5_core.sh
+│       ├── 44-bmc-firmware.sh
+│       └── 45-nodeinfo.sh       # Per-node inventory; informational, never diffed
 │
 ├── parsers/                       # One directory per platform; PARSERS picks one
 │   └── nvl72/

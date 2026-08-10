@@ -128,7 +128,7 @@ that never got far enough to have a performance. See
 they failed, and `health-check.sh --diff <node>` diffs one node against the baseline for
 each check it fails. One node per group is enough — the rest failed the same way.
 
-Broad mapping from the 38 checks:
+Broad mapping from the 45 checks:
 
 | Checks | Component |
 |--------|-----------|

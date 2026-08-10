@@ -276,8 +276,8 @@ bash health-check.sh --refresh node001    # queue a re-check ahead of the cadenc
 ```
 
 Groups nodes by the *set* of checks they failed, largest group first, so 60
-nodes failing the same 38 checks read as one incident with one fix rather than
-38 check lists over 60 node lists. Also separates the drains it cannot account
+nodes failing the same 45 checks read as one incident with one fix rather than
+45 check lists over 60 node lists. Also separates the drains it cannot account
 for from the health failures — grouped by reason, so a powered-off rack is one
 line — and flags any check with no entry in `valid-config/default/`, because
 those are never compared and so can never pass.
@@ -441,7 +441,7 @@ ink50-dh01-h01-11  (drained: nvlinks)
 ---
 > links 228
 
-2 of 38 checks differ
+2 of 41 checks differ
 ```
 
 **`<` is the node and `>` is the baseline.** Read backwards, one bad baseline
