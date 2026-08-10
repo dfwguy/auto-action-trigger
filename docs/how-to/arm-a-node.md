@@ -154,7 +154,7 @@ the node in its summary line rather than sshing at it for ever. What
 | `FAILED: could not enable lingering` | polkit refuses, and there is no sudo rule for `loginctl`. `sudo loginctl enable-linger cmods` on the node |
 | `FAILED: … does not exist` | the node cannot see `$BRINGUP_HOME` — NFS not mounted, or mounted somewhere else |
 | `FAILED: systemctl --user enable --now …` | no user session bus. Almost always lingering that did not take; check it directly |
-| `FAILED: bringup-agent.timer active, next elapse never` | the manager is still holding a monotonic unit. See [Armed, but never heartbeats](#armed-but-never-heartbeats) |
+| `FAILED: bringup-agent.timer active, next elapse never` | the manager is still holding a monotonic unit — it has a `TimersMonotonic=` and no calendar one. See [Armed, but never heartbeats](#armed-but-never-heartbeats) |
 | `FAILED: cannot write …/.heartbeat` | `results/<node>` is not writable by `cmods`. `sudo chown -R cmods:cmods /home/cmods/bringup/results` |
 | `Unit file … is masked` | a zero-length unit, left by two hosts racing on a shared `$HOME` before the temp file was made unique. Re-run `install-agent.sh`, which replaces an empty unit and unmasks it |
 | armed, but `agent.log` says `scontrol is not on PATH` | the unit is not reaching whatever puts the Slurm tools on `PATH`. Both units run `/bin/bash -lc` for this; a unit installed before that ran the script directly, so re-run `install-agent.sh`. See [run-slurm-commands-remotely.md](run-slurm-commands-remotely.md) |
@@ -241,7 +241,8 @@ clush -w <node> 'XDG_RUNTIME_DIR=/run/user/$(id -u) \
 
 | What you see | What it is |
 |---|---|
-| the timer is `active` but `NEXT` is `-`, and `NextElapseUSecMonotonic=infinity` | it will never fire again. A unit still using `OnUnitActiveSec=` — re-run `install-agent.sh`, which installs the calendar timer. See [explanation/the-agent-and-the-watchdog.md#why-the-timer-is-a-calendar](../explanation/the-agent-and-the-watchdog.md#why-the-timer-is-a-calendar) |
+| the timer is `active` but `NEXT` is `-`, and `systemctl --user show bringup-agent.timer -p TimersCalendar` is empty while `-p TimersMonotonic` is not | it will never fire again. A unit still using `OnUnitActiveSec=` — re-run `install-agent.sh`, which installs the calendar timer. See [explanation/the-agent-and-the-watchdog.md#why-the-timer-is-a-calendar](../explanation/the-agent-and-the-watchdog.md#why-the-timer-is-a-calendar) |
+| `is active on the calendar unit this run installed; systemd had not computed a next elapse yet` | not a fault, and the common one on a fleet-wide `--resume`. The manager has the calendar unit loaded and has not worked out its first tick yet. See [explanation/the-agent-and-the-watchdog.md#why-the-next-elapse-is-not-the-question](../explanation/the-agent-and-the-watchdog.md#why-the-next-elapse-is-not-the-question) |
 | `systemd reported no next elapse (realtime=[] monotonic=[0])` | not a fault. `systemctl show` did not answer, which is not the same as answering badly — `systemctl --user list-timers` is the readable version. The install says this rather than failing, because failing on an unreadable answer once walled a whole fleet's output with `FAILED` lines for timers that were firing perfectly well |
 | the timer absent from `list-timers` | the unit is not loaded — `systemctl --user daemon-reload`, then re-run `install-agent.sh` |
 | `Finished bringup-agent.service` once, then nothing | lingering, above |

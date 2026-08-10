@@ -266,16 +266,11 @@ else
     ## Active is not the same as scheduled: a timer whose next elapse is
     ## `infinity` reports active, reports Result=success, and never fires again.
     ##
-    ## Three answers, not two. A usable next elapse passes; the known-bad
-    ## signature -- no realtime elapse *and* a monotonic one of infinity -- fails;
-    ## anything else is systemd not answering, which is not the same as answering
-    ## badly. Failing on an unreadable answer walled a fleet's output with FAILED
-    ## lines for timers that were firing every two minutes.
-    ## See docs/how-to/arm-a-node.md#armed-but-never-heartbeats.
     ## Retried, because `systemctl restart` returns before the timer has
     ## computed its next elapse: asking immediately gets an empty answer on a
     ## node that is perfectly healthy a second later. Half a second, five times,
     ## and only for a node that has not answered yet.
+    ## See docs/how-to/arm-a-node.md#armed-but-never-heartbeats.
     scheduled=""; next_r=""; next_m=""
     for _try in 1 2 3 4 5; do
         next_r=$(systemctl --user show "$unit.timer" -p NextElapseUSecRealtime --value 2>/dev/null)
@@ -290,10 +285,18 @@ else
         [[ "$_try" -lt 5 ]] && sleep 0.5
     done
     unset _v _try
+    ## Which timers the loaded unit carries, which the elapse times cannot say:
+    ## a calendar timer reports monotonic=infinity by construction, so the
+    ## known-bad signature and a healthy restart are the same two values.
+    ## See docs/how-to/arm-a-node.md#armed-but-never-heartbeats.
+    cal=$(systemctl --user show "$unit.timer" -p TimersCalendar --value 2>/dev/null)
+    mono=$(systemctl --user show "$unit.timer" -p TimersMonotonic --value 2>/dev/null)
     if [[ -n "$scheduled" ]]; then
         ok "$unit.timer is scheduled, next elapse $(systemctl --user list-timers "$unit.timer" --no-pager 2>/dev/null | awk 'NR==2 {print $1, $2, $3}')"
-    elif [[ "$next_m" == "infinity" && ( -z "$next_r" || "$next_r" == "0" ) ]]; then
+    elif [[ -n "$mono" && -z "$cal" ]]; then
         fail "$unit.timer active, next elapse never -- monotonic unit still loaded. docs/how-to/arm-a-node.md#armed-but-never-heartbeats"
+    elif [[ -n "$cal" ]]; then
+        ok "$unit.timer is active on the calendar unit this run installed; systemd had not computed a next elapse yet -- 'systemctl --user list-timers $unit.timer' is the readable answer"
     else
         ok "$unit.timer is active; systemd reported no next elapse (realtime=[$next_r] monotonic=[$next_m]) -- 'systemctl --user list-timers $unit.timer' is the readable answer"
     fi
