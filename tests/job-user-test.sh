@@ -141,12 +141,22 @@ build_tree() {
     mkdir -p "$tree/actions" "$tree/jobs/nvl72" "$tree/parsers/nvl72" \
              "$tree/results/$NODE" "$tree/containers"
     cp "$repo/settings.sh" "$repo/reason-map.sh" "$repo/slurm-recovery.sh" \
-       "$repo/get-out-of-the-way.sh" "$repo/trigger-debug.sh" "$tree/"
+       "$repo/slurm-snapshot.sh" "$repo/trigger-debug.sh" "$tree/"
     cp "$repo/actions/launch_job.sh" "$repo/actions/file_copy.sh" "$tree/actions/"
     cp "$repo/parsers/nvl72/verdict.sh" "$tree/parsers/nvl72/"
 
     printf '#!/bin/bash\n#SBATCH -t 00:20:00\necho PENDING\n' \
         > "$tree/jobs/nvl72/probe.sbatch"
+    ## The watchdog's node view. Nothing on a node asks the controller any more,
+    ## so without one every gate below stops before it decides anything.
+    ## See docs/explanation/the-fleet-snapshot.md.
+    {
+        printf 'stamp\t%s\n' "$(date +%s)"
+        printf 'state\tidle\nsetter\tnone\nwhen\t\n'
+        printf 'gres\tgpu:gb200:4\ncputot\t72\nfleet\t0\n'
+        printf 'reason\t\n'
+        printf 'end\t%s\n' "$(date +%s)"
+    } > "$tree/results/$NODE/.slurm-view"
     ## An image to copy, or file_copy.sh exits before naming its source.
     : > "$tree/containers/probe.sqsh"
 

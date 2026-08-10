@@ -191,7 +191,40 @@ run_case() {
         done
         eval "$setup"
 
+        ## The library reads the watchdog's node view now, not sinfo -- so the
+        ## STUB_* a case sets are written into one. STUB_SINFO_EMPTY is the case
+        ## where no view exists at all.
+        ## See docs/explanation/the-fleet-snapshot.md.
+        SNAPSHOT_RESULTS="$dir/results"
+        mkdir -p "$SNAPSHOT_RESULTS/testnode"
+        if [[ "$STUB_SINFO_EMPTY" != "1" ]]; then
+            {
+                printf 'stamp\t%s\n'  "$(date +%s)"
+                printf 'state\t%s\n'  "$STUB_STATE"
+                printf 'setter\t%s\n' "${STUB_SETTER:-none}"
+                printf 'when\t%s\n'   "$STUB_WHEN"
+                printf 'gres\tgpu:%s\n' "${STUB_CFG_GPUS:-8}"
+                printf 'cputot\t%s\n' "${STUB_CFG_CPUS:-72}"
+                printf 'fleet\t0\n'
+                ## Ends and ids are never both set by a case: a job that is only
+                ## counted needs no end time, and the unkillable gate is reached
+                ## past the GPU check, which the count never gets to.
+                i=0
+                for e in $STUB_JOB_ENDS; do
+                    i=$((i + 1))
+                    printf 'job\t%s\tRUNNING\tcmods\t%s\tsomebody\n' \
+                           "90$i" "$(date -d "$e" +%s 2>/dev/null || printf none)"
+                done
+                for j in $STUB_JOBS; do
+                    printf 'job\t%s\tRUNNING\tcmods\tnone\tsomebody\n' "$j"
+                done
+                printf 'reason\t%s\n' "$STUB_REASON"
+                printf 'end\t%s\n'    "$(date +%s)"
+            } > "$SNAPSHOT_RESULTS/testnode/.slurm-view"
+        fi
+
         recover_log() { printf '%s\n' "$*" >> "$dir/trace"; }
+        source "$home/slurm-snapshot.sh"
         source "$home/slurm-recovery.sh"
         slurm_recover_node "testnode" > "$dir/out" 2>&1
         printf '%s' "$RECOVER_RESULT" > "$dir/result"

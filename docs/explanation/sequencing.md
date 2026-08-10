@@ -44,8 +44,8 @@ dealt with rather than quietly lost:
 
 - **`MAX_JOB_HOURS`** drains a node whose own job has been running too long.
   That decision is now the watchdog's: `results/<node>/.in-flight` carries the
-  submit epoch, the head node can read it over NFS, and one `squeue` confirms
-  the job is still `RUNNING` before the drain. Same reason text, same absence of
+  submit epoch, the head node can read it over NFS, and the queue it already
+  pulled for the node views confirms the job is still `RUNNING` before the drain. Same reason text, same absence of
   a `DRAIN_MARKER`, decided from the head node. See
   [when a node is drained](#when-a-node-is-drained).
 - **`GET_OUT_OF_THE_WAY`** cancels a running job of ours when somebody else is
@@ -72,21 +72,21 @@ depth as well: a fleet mid-sweep holds ~200 pending jobs where it used to hold
 ~1,600, which makes every remaining query cheaper for everyone on the cluster,
 not just for this trigger.
 
-Each cycle reads the marker and takes one of four branches. Only the last costs
-a query:
+Each cycle reads the marker and takes one of four branches. None of them costs
+a query any more — the last two read the node view, and the only controller call
+left anywhere in the table is the `sbatch` on the first row:
 
 | Marker | Job running here | Result file | What happens | Controller |
 |---|---|---|---|---|
-| absent | — | — | pick the next eligible job and submit it | 3 |
+| absent | — | — | pick the next eligible job and submit it | 1 — `sbatch` |
 | present | yes | — | leave it alone | **0** |
 | present | no | ends in a marker | job finished; clear and advance next cycle | **0** |
-| present | no | no end marker, inside its window | not started yet; wait, and let recovery look | 1 |
-| present | no | no end marker, past its window | [stale](#when-a-marker-goes-stale) | 1 |
+| present | no | no end marker, inside its window | not started yet; wait, and let recovery look | **0** |
+| present | no | no end marker, past its window | [stale](#when-a-marker-goes-stale) | **0** |
 
-The one query on the waiting row is recovery's `sinfo`, and it is the same one
-an idle node already makes every cycle — a node with a job queued is not asked
-about more often than one with nothing to do. Why it is there at all is
-[a queued job must not outrank a drain](#a-queued-job-must-not-outrank-a-drain).
+Recovery looks on the waiting row for the reason in
+[a queued job must not outrank a drain](#a-queued-job-must-not-outrank-a-drain),
+and it too reads the view rather than asking.
 
 "Job running here" is `scontrol listjobs`, which contacts the local slurmstepd
 processes and not slurmctld — see [what the node can answer by
@@ -117,10 +117,10 @@ Everything downstream then behaved exactly as designed, on a false premise:
   and with no result file there is no mtime, so `RETRY_INTERVAL_HOURS` never
   applied either;
 - the only thing left standing between that and a duplicate submission was the
-  [guard before a submission](#the-guard-before-a-submission), a full-queue
-  `squeue` now running every cycle on every node whose job had not started —
-  the exact cost the marker exists to remove. One fleet's trace logs held 38,666
-  of its `no marker, but N job(s) of ours are already queued` lines;
+  [guard before a submission](#the-guard-before-a-submission), which was then a
+  full-queue `squeue` running every cycle on every node whose job had not
+  started — the exact cost the marker exists to remove. One fleet's trace logs
+  held 38,666 of its `no marker, but N job(s) of ours are already queued` lines;
 - each time that one query came back empty because the controller was busy, a
   duplicate went out. Nodes accumulated two and three pending copies of the same
   benchmark, hours apart;
@@ -180,11 +180,16 @@ slurmd already knew.
 
 **The exception is node state.** `State=IDLE|DRAIN|DOWN` and the drain `Reason`
 live in slurmctld, not in slurmd — a node genuinely does not know it has been
-drained, and no local command reports it. So it is fetched lazily, cached for
-the cycle, and only by the paths that actually need it: issuing a drain,
-clearing our own, and recovery. A healthy cycle never asks. When it is asked, it
-is `scontrol show node <node>` rather than `sinfo -n <node>`: a single-node RPC
-against a whole-table fetch filtered client-side.
+drained, and no local command reports it.
+
+It is also not a question this node is allowed to ask. The lazy, cached
+`scontrol show node <node>` that used to answer it is gone: it was still one RPC
+per node on every drain and resume path, and the same was true of the queue
+questions below. All of it now arrives on NFS, in a small file the head node
+writes for this node every watchdog cycle. See
+[the-fleet-snapshot.md](the-fleet-snapshot.md), which is also where the rule for
+a view that is missing or stale lives — it is *no answer*, and it stops the gate
+rather than opening it.
 
 Two things follow from that, and both remove work rather than adding it:
 
@@ -203,8 +208,13 @@ The whole cost, per node per cycle:
 | Cycle | Controller calls |
 |---|---|
 | job running, waiting, or nothing eligible | **0** |
-| advancing to the next job | 3 — `scontrol show node`, the [submission guard](#the-guard-before-a-submission), `sbatch` |
-| marker gone stale | 1 — `squeue -j`, plus recovery if it fires |
+| advancing to the next job | 1 — `sbatch` |
+| marker gone stale | **0** |
+
+Every row that used to carry a query now reads the node view instead, and the
+one call left is the submission itself. What the fleet costs the controller is
+two queries per watchdog cycle, whatever its size —
+[the-fleet-snapshot.md#the-two-queries](the-fleet-snapshot.md#the-two-queries).
 
 ## Getting the job id right
 
@@ -250,30 +260,31 @@ marker being written leaves one, and so does a marker deleted by hand. At that
 moment the job is `PENDING` — invisible to `scontrol listjobs`, which sees only
 what is running — so the node looks idle and would submit a second copy.
 
-So immediately before submitting, and only then, one query asks what the
-controller is holding under our two job names. Anything at all means something
-of ours is already out, and nothing is submitted: the orphan is untracked, so it
-is left to finish rather than cancelled, and the trace names it and the `scancel`
-that would clear it.
+So immediately before submitting, the node view's `ours` lines say what the
+controller is holding under this node's two job names. Anything at all means
+something of ours is already out, and nothing is submitted: the orphan is
+untracked, so it is left to finish rather than cancelled, and the trace names it
+and the `scancel` that would clear it.
 
-It returns id and name in one call, and that one answer serves two gates — this
-node's own jobs, and the [fleet-wide cap](#the-fleet-wide-cap). Worth being
-precise about what that buys: `-o` narrows what `squeue` **prints**, not what it
-fetches, and `-n` filtering is not established to happen controller-side. What
-is genuinely controlled is the number of invocations, which is why both
-questions go in one call and why the host-launched path reuses the cached answer
-for its [before-and-after id snapshot](#getting-the-job-id-right) rather than
-asking again. SchedMD's own guidance is to limit `squeue` calls to the minimum
-necessary, not to filter them harder. Dropping `-n` to see the whole queue
-therefore costs output to parse, not controller work, and it is what makes the
-cap free.
+That answer used to be a whole-queue `squeue`, made by every node on every cycle
+that reached a submission — the single most expensive thing in the design, and
+the reason [the-fleet-snapshot.md](the-fleet-snapshot.md) exists. The same lines
+serve the [fleet-wide cap](#the-fleet-wide-cap), which the watchdog counts once
+for everybody.
 
-The default state filter is pending and running, which is exactly the question
-being asked, so no `-t` is passed.
+The guard is no longer exact, and that is a decision rather than an oversight. A
+view is up to one watchdog interval old, so it cannot see a job submitted
+seconds ago, and the narrow window this leaves open — a cycle killed between
+`sbatch` returning and the marker being written — can let a second copy through.
+Every job carries its own `#SBATCH --nice`, so the duplicate queues behind
+rather than doubling up, and the one that is untracked reads as a foreign job
+and holds the node until it ends. The cost of closing that window was a full
+queue listing per node per cycle, for ever. See
+[the-fleet-snapshot.md#the-window-this-accepts](the-fleet-snapshot.md#the-window-this-accepts).
 
-This is the third call on an advance cycle, after `scontrol show node` and
-before `sbatch` — and it is per job, not per cycle. A node with a job
-running still costs nothing.
+What has *not* changed is the direction of failure: a view that is missing or
+stale stops the submission rather than allowing it. Reading "I could not find
+out" as "nothing of ours is out" is precisely what puts two jobs on one node.
 
 ## The fleet-wide cap
 
@@ -285,18 +296,22 @@ is enough to peg `slurmctld`, which is single-threaded for scheduling and does
 not shed load gracefully. It goes quiet instead, and a quiet controller is the
 input every other gate here is careful not to believe.
 
-So immediately after the per-node guard, and from the same `squeue` answer, the
-count of queued and running jobs named `bringup-*` or `burnin-*` is compared
-against `MAX_QUEUED_JOBS`. At or above it, nothing is submitted and the trace
-says so with the count.
+So immediately after the per-node guard, the count of queued and running jobs
+named `bringup-*` or `burnin-*` is compared against `MAX_QUEUED_JOBS`. At or
+above it, nothing is submitted and the trace says so with the count.
+
+The count is the `fleet` line in the node view. Every node used to work it out
+from its own full-queue listing, which meant the fleet-wide number was computed
+two thousand times per cycle to be identical two thousand times; the watchdog
+now counts it once and writes it to everybody.
 
 It ships as `500`, which is below the point where this was observed to bite —
 `slurmctld` pegged at a full core with over a thousand of our jobs out — and
 above what a single rack's sweep will ever ask for. It is a ceiling, not a
 target: a fleet small enough never to reach it is unaffected, which is why the
 default is a number rather than `0`. The number that matters is the one below
-which `squeue` stays responsive under everything else the cluster is doing, not
-a fraction of the node count.
+which the controller stays responsive under everything else the cluster is
+doing, not a fraction of the node count.
 
 It counts jobs in `PENDING` and `RUNNING` whose name begins `bringup-` or
 `burnin-` — this framework's own work, not the cluster's total queue, and not
@@ -317,12 +332,11 @@ Three consequences worth being explicit about:
   a job or two above the line, which is not what saturates a controller. The
   alternative is a fleet-wide lock, and a lock on NFS that can be held by a node
   that reboots is a worse failure than a cap that is occasionally off by one.
-- **A blocked node asks every cycle.** It stays eligible rather than becoming
-  busy, so it reaches the `squeue` call once per cycle instead of
-  once per job. That is the one way the cap *adds* controller traffic, and it
-  is much the cheaper half of the trade: a query costs the controller far less
-  than the job it prevents, and the count scales with blocked nodes, not with
-  the fleet. Worth knowing before setting the cap very low on a large fleet.
+- **A blocked node re-reads its view every cycle.** It stays eligible rather
+  than becoming busy, so it reaches the cap check once per cycle instead of once
+  per job. That used to be the one way the cap *added* controller traffic; it is
+  now an NFS read of a file the node was reading anyway, and costs the
+  controller nothing.
 - **There is no fairness between nodes.** Whoever asks while there is room gets
   the slot. Over a few cycles this evens out, because a node that submitted is
   then busy and out of the running, but a cap set very low against a large fleet
@@ -342,37 +356,34 @@ hypothetical — a fleet of ~2,000 nodes each asking five times a minute produce
 day, which is a node deciding it had been removed from the cluster because the
 controller was busy.
 
-The rule is that **no answer is never treated as an answer**. Every query that
-can come back empty has a caller that fails closed:
+The rule is that **no answer is never treated as an answer**. Every question
+that can come back empty has a caller that fails closed:
 
-- **The node state behind a drain.** If `scontrol show node` returns nothing,
-  `drain_node` refuses and traces why. Draining on an unknown state takes a node
-  out on no information, and overwrites whatever reason an operator put there
-  with ours.
 - **The local running check.** An inconclusive `scontrol listjobs` reads as
   *still running*, never as gone — see [one job at a time](#one-job-at-a-time).
-- **The stale branch.** `squeue -j` returning nothing on a **successful** query
-  is the one case where empty *is* the answer, which is why that branch is only
-  reached after `INFLIGHT_GRACE_MINUTES` have passed, rather than on the first
-  cycle a job is not seen. A query that
-  *failed* is a different thing and is not allowed to look like it: the exit
-  status and stderr are both kept, `Invalid job id specified` means the job is
-  genuinely gone, and anything else keeps the marker and archives nothing.
-- **The guard before a submission.** `squeue -h -o '%i %j'` coming back empty
-  reads as "no job of ours is queued", which is the sentence that puts a second
-  job on a node that already has one. So a failed query is a stop: the job stays
-  eligible and the trace says the queue could not be read. `kill-jobs.sh` has
-  always done this; the sequencer did not, and duplicates on the fleet were the
-  proof.
+  This is the one question a node still asks anything, and it asks its own
+  slurmstepds.
+- **Everything the controller knows.** The node state behind a drain, whether a
+  marker's job is still queued, what is queued under our names, what is assigned
+  to this node — all of it is read from the node view now, and all of it has the
+  same third answer. A view that is missing, unsealed or stale is *no answer*:
+  `drain_node` refuses, the stale branch keeps its marker and archives nothing,
+  and the submission guard stops. See
+  [the-fleet-snapshot.md#no-view-is-not-an-empty-queue](the-fleet-snapshot.md#no-view-is-not-an-empty-queue),
+  which is where each of those branches is set out.
+- **The watchdog's own queries.** `sinfo` returning empty is a busy controller,
+  not an empty cluster, so the watchdog arms nobody and — importantly — rewrites
+  no views. Every node keeps the one it has until it ages out, rather than two
+  thousand views being blanked at once.
 
-`NODE_ASKED` separates "not fetched yet" from "fetched and got nothing", so a
-run that hit a timeout does not ask again on every subsequent call.
-`QUEUED_FAILED` does the same job for the queue, and is remembered rather than
-re-asked within a cycle.
+`SNAPSHOT_LOADED` separates "not read yet" from "read and unusable", so a cycle
+that found no view does not go back to the share on every subsequent gate, and
+`SNAPSHOT_WHY` carries which of the three it was into the trace.
 
-This is a large part of why the call count matters at all. The load and the
-wrong answers are the same problem: the queries that saturate the controller are
-the queries that then come back empty and get believed.
+This is a large part of why the call count mattered at all. The load and the
+wrong answers were the same problem: the queries that saturate the controller
+are the queries that then come back empty and get believed. Two queries a cycle
+for the whole fleet does not saturate anything.
 
 ## A host that is not a compute node
 
@@ -629,9 +640,11 @@ reason: the submission is a string handed to a shell, so an unvalidated
 Success is **not** taken from the launcher's exit status. A tool can exit `0`
 having submitted nothing, and one that passes its own `--job-name` overrides
 `SBATCH_JOB_NAME` and leaves a job every gate on the node reads as somebody
-else's. So after running a `.sh` the sequencer asks `squeue` whether a job under
-the expected name appeared, and traces `SUBMIT FAILED` with the launcher's exit
-status and output when it did not.
+else's. So the marker is written with the id `pending` rather than a number, and
+the first node view carrying exactly one job under this node's names fills it
+in. More than one is ambiguous and none is adopted — the wrong id in a marker
+pins the node to somebody else's job, which is worse than waiting another cycle.
+A launcher that exits non-zero is traced as `SUBMIT FAILED` with its output.
 
 ## Nothing is read by sourcing it
 
@@ -677,22 +690,29 @@ asked: how long a job would *run* says nothing about how long it may sit
 *queued*, and the two cases below have immediate answers that were being waited
 out. On `mnubergemm` the wait was seven hours.
 
-Past that bound, and only then, one `squeue -j <id>` settles it:
+Past that bound, and only then, the node view's `ours` lines settle it:
 
-- **Still pending, held after a failed launch** — cancelled, and the next cycle
-  resubmits. A held job sits at priority 0 and never starts, so waiting on it
-  waits forever.
-- **Still pending otherwise** — left alone, and the trace names the reason and
-  what would give up on it. Queued behind a long foreign job is a legitimate
+- **Still in the queue** — left alone, and the trace names the state, the reason
+  and what would give up on it. Queued behind a long foreign job is a legitimate
   state, not a fault. The trace says `scancel <id> && rm <marker>` rather than
   just `scancel`: cancelling the job leaves the marker, and the marker is what
-  pins the node until the next query — an operator who ran only the first half
-  watched the node stay put and reasonably concluded the advice was wrong.
-- **Not in the queue** — gone without finishing. The partial result is archived
-  as `.fail<N>.txt` so the slot is free and the attempt is still on disk. "Not
-  in the queue" means an answered query that named no job, or `squeue` replying
-  `Invalid job id specified`; a query that did not complete leaves the marker
-  alone and tries again next cycle.
+  pins the node — an operator who ran only the first half watched the node stay
+  put and reasonably concluded the advice was wrong.
+- **Not in the view** — gone without finishing. The partial result is archived
+  as `.fail<N>.txt` so the slot is free and the attempt is still on disk. If the
+  watchdog left a `.yielded` note the trace says that instead, because a node
+  given up to a waiter and a node whose job crashed produce the same silence
+  otherwise.
+- **No usable view** — the third answer, and the marker is kept. Nothing is
+  archived and nothing is resubmitted, because "I could not find out" must not
+  read as "gone".
+
+A job held after a failed launch used to be cancelled here. It sits at priority
+0 and never starts, so waiting on it waits forever — but finding it cost the
+`squeue -j` this branch was built around, and the watchdog now cancels every one
+of them fleet-wide from the queue it already has. This node simply reads "still
+queued" until the job disappears, then takes the branch above. See
+[jobs the scheduler has given up on](#jobs-the-scheduler-has-given-up-on).
 
 ### A queued job must not outrank a drain
 
@@ -711,9 +731,9 @@ the bound above allows. Every ingredient of that deadlock is a correct decision:
 one job at a time, believe the marker, don't ask the controller on a quiet node.
 
 So `recover_slurm_drains` is a function, called from the gate's waiting paths as
-well as after it, and it runs at most once a cycle. The cost is one `sinfo` on a
-node that has a job queued — the same query an idle node already makes every
-cycle, so nothing new is asked of the controller on a healthy fleet.
+well as after it, and it runs at most once a cycle. It costs the controller
+nothing at all now — the state and reason it needs are already in the node view
+this cycle read.
 
 The exception it keeps: a job of *ours* **running** on the node means the node
 is working, and its drains are not ours to clear. That case still exits above
@@ -771,8 +791,8 @@ for "timeout" would only bury the real reason it is unusable.
 **That one is issued by the watchdog**, not by the node: the node's own cycle
 stops at [the busy gate](#the-busy-gate) while the job it would be measuring is
 still running. `agent/supervisor.sh` reads the submit epoch out of every
-`results/<node>/.in-flight`, asks `squeue` about the ids already past the limit
-in one call, and drains the nodes whose job is still `RUNNING`. The gate in
+`results/<node>/.in-flight`, looks up the ids already past the limit in the queue
+it read for the node views, and drains the nodes whose job is still `RUNNING`. The gate in
 `launch_job.sh` stays, because a hand-run still reaches it and it is the same
 decision from the same marker.
 
@@ -804,33 +824,37 @@ it will never start, however healthy the node later becomes. Left alone, the
 marker pins the node until its walltime and grace are up, every cycle.
 
 So a job of ours held with reason `launch failed requeued held` is cancelled and
-left to the survey to re-queue. What makes that cancel safe is where the id came
-from, not a name match at the moment of cancelling: the id is the marker's, and
-for a `.sbatch` job the marker holds what `sbatch` itself printed as `Submitted
-batch job <n>`. Nothing re-reads the job's name before `scancel`, so the
-provenance in [getting the job id right](#getting-the-job-id-right) is carrying
-the whole weight — unlike the yield path, which re-checks the prefix at the
-cancel because its id comes from a marker that may have gone stale.
+left to the survey to re-queue. **The watchdog does this now**, not the node: it
+was the node's own `squeue -j` that found the held job, and that query is gone.
+The head node sees every held job of ours in the one queue it reads each cycle,
+and cancels them together.
+
+What makes that cancel safe is the name. Only a job whose name begins `bringup-`
+or `burnin-` is ever touched — the same prefix gate as the yield path, and for
+the same reason: the watchdog is acting on the controller's own answer about
+jobs it did not submit itself, so nothing may be taken on trust. The node's
+marker is not consulted and is not evidence.
 
 Two bounds on it:
 
 - **An operator's hold is never cancelled.** `JobHeldUser` and `JobHeldAdmin`
-  are the same `PENDING`-at-priority-0, but a person chose it. Those are named
-  in the trace and otherwise left alone.
+  are the same `PENDING`-at-priority-0, but a person chose it. The match is on
+  the `launch failed requeued held` reason, so those are left alone.
 - **Nothing bounds how often this repeats, and it should.** The hourly gate
   keys off result mtime, and a job that never ran writes no result, so that gate
-  stays open: after the cancel, `inflight_clear` runs and the next cycle
-  submits again. The only thing pacing the loop is `INFLIGHT_GRACE_MINUTES`,
-  which is how long the marker survives before the cancel branch is reached at
-  all. A node that cannot launch anything will therefore cancel and resubmit
-  indefinitely, at roughly one cycle per grace window — faster than it used to,
-  now that the job's walltime no longer pads it. This is a known gap, not a design: see
+  stays open: once the cancel lands, the node's marker goes stale and the next
+  cycle submits again. The only thing pacing the loop is
+  `INFLIGHT_GRACE_MINUTES`, which is how long the marker survives before the
+  node notices its job has gone. A node that cannot launch anything will
+  therefore cancel and resubmit indefinitely, at roughly one cycle per grace
+  window. This is a known gap, not a design: see
   [what the traces showed](#what-the-traces-showed).
 
 #### What the traces showed
 
-On 2026-08-08, `trigger.log` across the fleet held **31,270** `CANCELLED … held
-after a failed launch` lines and nothing else — no yields, no other cancel of
+On 2026-08-08, when this cancel still ran on each node, `trigger.log` across the
+fleet held **31,270** `CANCELLED … held after a failed launch` lines and nothing
+else — no yields, no other cancel of
 any kind. Every one named a benchmark of ours, and the ids matched what `sbatch`
 had returned, so nothing belonging to another tenant was ever cancelled. What
 the volume showed was the unbounded loop above: nodes that could not launch,
@@ -957,19 +981,26 @@ job it has already placed. A 25-minute `allreduce` is nothing to wait for; a
 seven-hour `mnubergemm` under somebody's deadline is, and the operator-facing
 symptom is a job stuck behind `bringup-<node>` with no obvious owner.
 
-**It is currently unreachable on a cadence.** The switch predates the busy gate,
-which ends the cycle before `launch_job.sh` runs on exactly the node this would
-act on — so it fires only when an operator runs `launch_job.sh` by hand. The
-node says so once per busy cycle rather than leaving the setting looking live,
-and the checks, the library and `tests/yield-test.sh` all stay in the tree for
-a watchdog-side implementation. See [the busy gate](#the-busy-gate).
+**It is the watchdog's decision, and that is what made it reachable.** The
+switch used to live in `launch_job.sh`, where two things were wrong with it: the
+busy gate ends the cycle before the sequencer runs on exactly the node this
+would act on, so it only ever fired from a hand-run; and finding a waiter meant
+pulling the whole `PENDING` queue, per node, per poll — the heaviest thing any
+node did. The head node already holds one queue for the fleet, and one pass over
+it answers the question for every node at once. See
+[the-fleet-snapshot.md#what-moved-to-the-head-node](the-fleet-snapshot.md#what-moved-to-the-head-node).
 
-With the switch on, a node that is running one of our jobs checks whether
-anybody else is queued for it, and cancels **its own** job if so. The sweep
-loses an attempt and re-queues it; the marker is cleared, and the partial result
-is left where it is — an interrupted run is already `INCOMPLETE`, and the
+With the switch on, the watchdog builds the set of nodes somebody else is queued
+for and cancels **our own** job on each. The sweep loses an attempt and re-queues
+it; the node's marker goes stale on its next cycle, and the partial result is
+left where it is — an interrupted run is already `INCOMPLETE`, and the
 resubmission archives it as the previous attempt like any other. Nothing is
 drained and nothing is counted as a failure.
+
+The node is told why. The watchdog writes `results/<node>/.yielded`, which the
+next cycle reads and clears, so the trace says the job was given up rather than
+reporting it as gone from the queue — the line a crash produces. Without that
+the two are indistinguishable, which is the silence this tree is against.
 
 It ships **off**, and it is **experimental**. It is the only setting in the tree
 that cancels a job of ours that is working, and a site that is the only tenant
@@ -991,10 +1022,10 @@ A pending job, not ours, that this node is part of the answer to:
 
 | Condition | Read from | Why |
 |---|---|---|
-| `PENDING` | `squeue -t PENDING` | a running job elsewhere is not waiting for anything |
-| not named `bringup-*` or `burnin-*` | `Name` | another node's sweep job waiting its turn is not somebody being kept off the cluster |
-| pending at least `GET_OUT_OF_THE_WAY_AFTER_MINUTES` | `PendingTime` | a job that may yet be satisfied somewhere else is not worth throwing a benchmark away for |
-| priority is not 0 | `PriorityLong` | a held job is never going to start, so nothing is being kept off the cluster — see below |
+| `PENDING` | `%T` | a running job elsewhere is not waiting for anything |
+| not named `bringup-*` or `burnin-*` | `%j` | another node's sweep job waiting its turn is not somebody being kept off the cluster |
+| pending at least `GET_OUT_OF_THE_WAY_AFTER_MINUTES` | `%V`, against the watchdog's clock | a job that may yet be satisfied somewhere else is not worth throwing a benchmark away for |
+| priority is not 0 | `%Q` | a held job is never going to start, so nothing is being kept off the cluster — see below |
 | wants this node | `ReqNodes` **or** `SchedNodes` | see below |
 
 **A waiter is told from one of ours by its name, never by its user.** The
@@ -1036,8 +1067,8 @@ describes from our own side; the difference is that a held job of *ours* is
 cancelled and resubmitted, and a held job of somebody else's is nobody's to
 clear, so it sits there for as long as it takes an operator to notice.
 
-`PriorityLong`, not `Priority`: `squeue` reports the first as the integer and
-the second normalised to a float between 0 and 1, and only the integer compares
+`%Q`, not `%p`: `squeue` reports the first as the integer priority and the
+second normalised to a float between 0 and 1, and only the integer compares
 cleanly against `0`. The test is for exactly `0` rather than for a reason
 string, because `JobHeldUser`, `JobHeldAdmin` and `launch failed requeued held`
 are three spellings of one state and Slurm's own definition of that state is the
@@ -1047,60 +1078,58 @@ it yielding at all.
 
 ### The four checks before a cancel
 
-The marker says which job id is ours. It is not evidence: an id is reused after
+No marker is consulted, and that is the point: an id is reused after
 `MinJobAge`, a marker survives a hand-run that submitted something else, and the
-cost of being wrong is cancelling a stranger's work. So the id is put back to
-the controller with `squeue -j <id>`, and **every** one of these has to hold
+cost of being wrong is cancelling a stranger's work. The watchdog works from the
+controller's own answer throughout, and **every** one of these has to hold
 before `scancel` runs:
 
-1. exactly one line comes back, and its `JobID` is the one that was asked about
-2. `UserName` is `JOB_USER`
-3. `Name` is this node's own `bringup-<node>` or `burnin-<node>` — both the
-   framework's prefix and this node's name, not either
-4. `State` is `RUNNING` and `NodeList` contains this node
+1. `%T` is `RUNNING` — a pending job of ours is holding nothing
+2. `%u` is `JOB_USER`
+3. `%j` begins `bringup-` or `burnin-`
+4. `%N`, expanded, contains a node somebody else is queued for
 
-Anything else — no answer, two answers, another user, another node's job name,
-a job that turns out to be pending — writes down what it saw and leaves the job
-alone. `scancel`'s output is read rather than its exit status, because a refused
-kill is reported on stdout with a zero exit, as in `kill-jobs.sh`.
+Anything else — another user, a foreign name, a job that turns out to be
+pending, a job of ours running somewhere nobody is waiting for — leaves the job
+alone. A node that is wanted and was not given up is named in the trace, so
+"nothing of ours is there" and "the scan never ran" do not read alike.
+`scancel`'s output is read rather than its exit status, because a refused kill
+is reported on stdout with a zero exit, as in `kill-jobs.sh`.
 
 ### The prefix is the gate
 
 Check 3 is the one that actually separates our work from a neighbour's, and it
 is worth being explicit about why the others cannot do it.
 
-`UserName` cannot, on this cluster. The neighbouring work is submitted by the
-same account the framework runs as, so check 2 passes for a stranger's job as
-readily as for ours — a real running job here reads
-`132500|cmods|microbenchmark_nccl_nccl_fp8|RUNNING|ink50-dh01-g03-[11-18,28-37]|`.
-The id cannot either: it comes from the marker, and the marker is exactly the
-thing that might be wrong. What is left is the name, and every job this
-framework submits is named `bringup-<node>` or `burnin-<node>`.
+`%u` cannot, on this cluster. The neighbouring work is submitted by the same
+account the framework runs as, so check 2 passes for a stranger's job as readily
+as for ours — a real running job here reads
+`132500|microbenchmark_nccl_nccl_fp8|cmods|RUNNING|…`. What is left is the name,
+and every job this framework submits is named `bringup-<node>` or
+`burnin-<node>`.
 
 So the prefix is checked in two places, and `get-out-of-the-way.sh` has only one
 line that calls `scancel`:
 
-1. in `_yield_job_is_ours`, against `YIELD_OURS` **and** the prefix list — the
-   caller's idea of this node's names, and the framework's, both
+1. in the scan, before a running job is considered a candidate at all
 2. in `_yield_cancel`, against the prefix list again, on the name the controller
    returned, immediately before the `scancel` runs
 
-The second is not redundant. The first is reached through several branches and
-depends on the caller having set `YIELD_OURS` correctly; the second is on the
-only path to a cancel and depends on nothing but `squeue`'s own answer. A name
-that does not begin with `bringup-` or `burnin-` cannot reach `scancel` without
-that function being edited, and a refusal is *printed*, which the caller reads
-as a failed cancel and traces. The wrong outcome here is silence, not noise.
+The second is not redundant. The first is reached through a loop over the whole
+queue; the second is on the only path to a cancel and depends on nothing but the
+name it was handed. A name that does not begin with `bringup-` or `burnin-`
+cannot reach `scancel` without that function being edited, and a refusal is
+*printed*, which the caller reads as a failed cancel and traces. The wrong
+outcome here is silence, not noise.
 
-`tests/yield-test.sh` drives this with `YIELD_OURS` deliberately set to a
-foreign name: the job then passes every check the caller controls, and must
-still not be cancelled.
+`tests/yield-test.sh` drives `_yield_cancel` directly with foreign names,
+because no caller can reach it with one.
 
 ### The cancel runs as the cycle
 
 `launch_job.sh` used to run as root, and root's `scancel` will cancel anything
 on the cluster, so the cancel was handed down with `su - "$JOB_USER" -c`. The
-cycle is that account now, so the `scancel` runs directly and Slurm's own
+watchdog is that account, so the `scancel` runs directly and Slurm's own
 ownership check sits underneath ours by default rather than by an explicit drop.
 It is not the load-bearing gate, because `JOB_USER` owns the neighbouring work
 too; it is there so that the failure mode of a bug in this file is a refusal
@@ -1111,30 +1140,28 @@ Nothing prompts for a password, and nothing can: there is no privilege to
 acquire on this path, and a `su` that could block is never reached inside a
 cycle.
 
-A node with no marker never yields — an untracked job of ours is left to finish,
-exactly as `PAUSE_JOBS` leaves it. There is nothing to put back to the
-controller, and guessing from the job name alone is the one shortcut this
-feature must not take.
-
 The checks live in `get-out-of-the-way.sh` rather than inline, so
-`tests/yield-test.sh` can drive every one of them against a stubbed Slurm. The
-assertions that matter there are the negative ones: each case that must not
-cancel asserts that `scancel` was never called.
+`tests/yield-test.sh` can drive every one of them against a queue it writes by
+hand. The assertions that matter there are the negative ones: each case that
+must not cancel asserts that `scancel` was never called.
 
 ### What a yield costs
 
-A cycle with a job running costs the controller **zero** queries — see
-[what the node can answer by itself](#what-the-node-can-answer-by-itself) — and
-this check is the one thing that would change that. Listing the pending queue is
-the expensive shape: `squeue` pulls the whole job table and filters it
-client-side, once a minute, on every busy node.
+Nothing, now. The pending queue this reads is the one the watchdog already
+pulled for the node views, so turning the switch on adds no controller traffic
+at all. That was not true before: listing the pending queue is the expensive
+shape — the whole job table, fetched and filtered client-side, once a poll, on
+every busy node — and it is why the feature was polled rather than run every
+cycle.
 
-So it is polled rather than run every cycle. `GET_OUT_OF_THE_WAY_POLL_MINUTES`
-is enforced with the mtime of `results/<node>/.yield-check`, written before the
-query and not at all under `--explain`. At the shipped five minutes a busy node
-asks once per five cycles instead of five times, and the worst case between
-somebody queueing and the node giving up is that plus
-`GET_OUT_OF_THE_WAY_AFTER_MINUTES`.
+`GET_OUT_OF_THE_WAY_POLL_MINUTES` is kept anyway, and its meaning has changed
+from a cost control to a safety one. It is enforced with the mtime of
+`results/.yield-check` — one stamp for the fleet now, not one per node — written
+before the scan and not at all under `--explain`. Cancelling a job that is
+working is the single destructive thing this framework does, so it is worth a
+rate limit whether or not it is worth a query budget. At the shipped five
+minutes the worst case between somebody queueing and a node being given up is
+that plus `GET_OUT_OF_THE_WAY_AFTER_MINUTES`.
 
 ## Site switches are not timing gates
 
@@ -1224,5 +1251,7 @@ says then.
 The module load matters at the top of the cycle too: a systemd --user service
 has its own environment rather than a login shell's, and without the Slurm client
 tools every check below reads as "node not in slurm" and the script exits
-looking perfectly healthy. So a missing `sinfo`, `squeue`, `sbatch` or
-`scontrol` is traced as an `EXIT:` with the `PATH` it searched.
+looking perfectly healthy. So a missing `sbatch` or `scontrol` is traced as an
+`EXIT:` with the `PATH` it searched. Two, where it used to be four: `sinfo` and
+`squeue` are not run on a node at all now, and requiring them would refuse to
+cycle over tools nothing uses.

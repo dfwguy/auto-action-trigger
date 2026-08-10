@@ -96,6 +96,7 @@ Understanding-oriented. Why it is like this, and what it cost to find out.
 | [the-agent-and-the-watchdog.md](explanation/the-agent-and-the-watchdog.md) | What a heartbeat means, whose clock decides, which node states are armed, why the account lingers |
 | [running-unprivileged.md](explanation/running-unprivileged.md) | What still needs root and what no longer does, the sudoers drop-in, why a lost rule stops the run |
 | [sequencing.md](explanation/sequencing.md) | One job at a time, the fleet cap, stale markers, retry and drain behaviour, what a pause is for |
+| [the-fleet-snapshot.md](explanation/the-fleet-snapshot.md) | Why no compute node asks slurmctld anything, what the watchdog writes for each of them, and what a stale view obliges a node to do |
 | [health-cadence.md](explanation/health-cadence.md) | Why the checks re-run on a timer, the stamp file, and why the golden baseline is a copy |
 | [verdicts-and-the-cache.md](explanation/verdicts-and-the-cache.md) | Why a verdict is derived and never stored, and what makes the cache safe |
 | [judging-benchmarks.md](explanation/judging-benchmarks.md) | What a good gate looks like, and the two ways these have been got wrong |

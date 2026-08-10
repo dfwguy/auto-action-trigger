@@ -54,18 +54,18 @@ pdsh -R ssh -w ink50-dh01-g03-11 \
 
 That is the form the tree uses in code, because it survives a site whose paths
 differ from the ones above — `actions/launch_job.sh` opens with exactly those
-two lines, and hands the same pair to `su - "$JOB_USER" -c` around every
-`sbatch` and every `scancel` it issues. Prefer it when you are writing something
+two lines, and hands the same pair to the shell around every `sbatch` it
+issues. Prefer it when you are writing something
 that has to keep working; prefer the explicit paths when you are typing one
 command and want to see it fail loudly if a path is wrong.
 
 ## Where this bites
 
-- **`get-out-of-the-way.sh`** refuses to do anything when `squeue`, `scancel` or
-  `scontrol` is missing from `PATH`, and traces `no-slurm`. Inside an agent cycle
-  the module is already loaded by the time the library is sourced, so this is a
-  symptom you see when running the sweep by hand over a fan-out, not on the
-  cluster itself.
+- **The watchdog.** `agent/supervisor.sh` is the one host that needs `sinfo`,
+  `squeue` and `scancel`, because it asks for the whole fleet — see
+  [explanation/the-fleet-snapshot.md](../explanation/the-fleet-snapshot.md). A
+  missing tool there stops the node views being written, which stops every agent
+  a snapshot age later, so it traces the `PATH` it searched and exits.
 - **The agent's own timer.** `systemd --user` gives a service a minimal `PATH`
   and reads no profile at all, so the first `scontrol` fails on exactly the
   hosts where it works when you log in. That is why both units run
@@ -86,10 +86,11 @@ command and want to see it fail loudly if a path is wrong.
   all call `module load slurm` themselves and say so when it did not help — that
   message means this page, not a broken controller.
 - **`squeue -O` field widths.** Unrelated to the shell, but it bites in the same
-  session: `-O 'Name:|'` pads every field to 20 characters and the `|`
-  separators arrive with the padding attached. Names longer than 20 are *not*
-  truncated, so a comparison against a full job name is safe — but it has to be
-  trimmed first, which is what `_yield_trim` in `get-out-of-the-way.sh` is for.
+  session if you are typing one by hand: `-O 'Name:|'` pads every field to 20
+  characters and the `|` separators arrive with the padding attached, and a long
+  `NodeList` is truncated outright. Nothing in the tree uses `-O` for that
+  reason — `slurm-snapshot.sh` uses `-o` with `%`-style fields, which neither
+  pads nor truncates, and puts the free-text reason last.
 
 ## Related
 

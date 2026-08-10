@@ -11,8 +11,9 @@ head node                          every node under test
 ─────────────────────────          ────────────────────────────────────────────
 bringup-supervisor.timer           bringup-agent.timer  → agent/node-agent.sh
   → agent/supervisor.sh                 │
-      sinfo: idle or drained            ├── touch results/<node>/.heartbeat
-      stat:  heartbeat stale?           ├── any job on this node? → say so, stop
+      sinfo+squeue: the fleet's one     ├── touch results/<node>/.heartbeat
+        look at Slurm → .slurm-view     ├── any job on this node? → say so, stop
+      stat:  heartbeat stale?           │   (reads .slurm-view; asks nothing)
       clush: install-agent.sh           │
                                         ├── file_copy.sh
                                         │     Rsyncs containers/ to /tmp/containers/ so job

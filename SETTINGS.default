@@ -113,6 +113,11 @@ ARM_RETRY_MINUTES=10
 ARM_MAX_ATTEMPTS=3
 ARM_WINDOW_HOURS=24
 
+## How old the watchdog's node view may be before an agent stops deciding from
+## it. Empty is three watchdog cycles, floored at five minutes.
+## See docs/explanation/the-fleet-snapshot.md.
+SLURM_SNAPSHOT_MAX_AGE_MINUTES=
+
 ## Which host arms the others. Empty means whichever claims it and keeps the
 ## claim fresh. See docs/explanation/the-agent-and-the-watchdog.md#only-one-watchdog.
 SUPERVISOR_HOST=

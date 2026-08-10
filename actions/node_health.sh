@@ -122,12 +122,8 @@ fi
 source /etc/profile.d/modules.sh
 module load slurm
 
-state=$(sinfo -N -n "$HOSTNAME" -h -o '%T')
-if [[ -z "$state" ]]
-then
-        trace "EXIT: 'sinfo -N -n $HOSTNAME' returned nothing, so it is not known whether this is a compute node -- no checks run. A busy controller answers this way too."
-        exit 0
-fi
+## Nothing asks Slurm whether this is a compute node; the gates above did.
+## See docs/explanation/the-fleet-snapshot.md#what-was-dropped-rather-than-moved.
 
 reason=""
 
@@ -336,6 +332,11 @@ if command -v /cm/local/apps/slurm/current/bin/scontrol >/dev/null 2>&1; then
       RECOVER_ACCEPT="machine health"
       # shellcheck disable=SC2034
       RECOVER_LOG="$home/results/${node_name}/recover.log"
+      ## Where recovery reads the node view. See docs/explanation/the-fleet-snapshot.md.
+      # shellcheck disable=SC2034
+      SNAPSHOT_RESULTS="$home/results"
+      [[ -f "$home/slurm-snapshot.sh" ]] && source "$home/slurm-snapshot.sh"
+      snapshot_log() { trace "$@"; }
       source "$home/slurm-recovery.sh"
       slurm_recover_node "${node_name}"
     else

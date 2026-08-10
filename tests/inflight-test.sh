@@ -35,34 +35,14 @@ fi
 exit 0
 EOF
 
-## Two questions, told apart the way the script asks them: one job by id in the
-## stale branch, and the whole queue in the guard before a submission. Either
-## can be made to fail, which is the case that matters.
+## Both questions this script used to ask the controller are answered from the
+## node view now. The stubs stay on PATH and record: a case asserting the
+## controller was not asked needs something that would have recorded it if it
+## had been. See docs/explanation/the-fleet-snapshot.md.
 cat > "$stub/squeue" <<'EOF'
 #!/bin/bash
 printf '%s\n' "$*" >> "$STUB_DIR/squeue.calls"
-case "$*" in
-    *-j*)
-        if [[ -n "$STUB_SQUEUE_J_FAIL" ]]; then
-            printf 'slurm_load_jobs error: Socket timed out on send/recv operation\n' >&2
-            exit 1
-        fi
-        if [[ -n "$STUB_SQUEUE_J_INVALID" ]]; then
-            printf 'slurm_load_jobs error: Invalid job id specified\n' >&2
-            exit 1
-        fi
-        [[ -n "$STUB_SQUEUE_J" ]] && printf '%s\n' "$STUB_SQUEUE_J"
-        exit 0 ;;
-    *-n*)
-        exit 0 ;;
-    *)
-        if [[ -n "$STUB_QUEUE_FAIL" ]]; then
-            printf 'slurm_load_jobs error: Unable to contact slurm controller\n' >&2
-            exit 1
-        fi
-        [[ -n "$STUB_QUEUE" ]] && printf '%s\n' "$STUB_QUEUE"
-        exit 0 ;;
-esac
+exit 0
 EOF
 
 cat > "$stub/sbatch" <<'EOF'
@@ -80,7 +60,7 @@ EOF
 
 cat > "$stub/sinfo" <<'EOF'
 #!/bin/bash
-printf '%s|idle|none\n' "$3"
+printf '%s\n' "$*" >> "$STUB_DIR/sinfo.calls"
 exit 0
 EOF
 
@@ -106,7 +86,8 @@ chmod 755 "$stub"/*
 ## walltime the gate reads, and nothing else.
 tree="$work/tree"
 mkdir -p "$tree/jobs/nvl72" "$tree/parsers/nvl72" "$tree/results/$NODE"
-cp "$repo/settings.sh" "$repo/reason-map.sh" "$repo/slurm-recovery.sh" "$tree/"
+cp "$repo/settings.sh" "$repo/reason-map.sh" "$repo/slurm-recovery.sh" \
+   "$repo/slurm-snapshot.sh" "$tree/"
 cp "$repo/parsers/nvl72/verdict.sh" "$tree/parsers/nvl72/"
 
 ## `probe` takes the generic gate rather than a bandwidth one, so a result file
@@ -155,6 +136,36 @@ bad() { printf '  FAIL %s\n' "$*"; fail=$((fail + 1)); }
 logs=""
 CASE_DIR=""
 setup=""
+
+## The watchdog's node view, in place of the two squeues this script used to
+## make. STUB_NO_VIEW is the "no answer" case -- a watchdog that has stopped, or
+## a controller that would not say -- and every gate must fail towards not
+## acting on it. See docs/explanation/the-fleet-snapshot.md#no-view-is-not-an-empty-queue.
+##
+## STUB_SQUEUE_J is `<state> <reason...>` for the job in the marker; STUB_QUEUE
+## is `<id> <name>` per line for the guard before a submission. Both become the
+## `ours` lines a node reads.
+write_view() {
+    [[ -n "$STUB_NO_VIEW" ]] && return 0
+    {
+        printf 'stamp\t%s\n'  "$(date +%s)"
+        printf 'state\tidle\n'
+        printf 'setter\tnone\n'
+        printf 'when\t\n'
+        printf 'gres\tgpu:gb200:4\n'
+        printf 'cputot\t72\n'
+        printf 'fleet\t0\n'
+        if [[ -n "$STUB_SQUEUE_J" ]]; then
+            printf 'ours\t4242\t%s\tbringup-%s\t%s\n' \
+                   "${STUB_SQUEUE_J%% *}" "$NODE" "${STUB_SQUEUE_J#* }"
+        fi
+        while read -r _id _name; do
+            [[ -n "$_id" ]] && printf 'ours\t%s\tPENDING\t%s\tResources\n' "$_id" "$_name"
+        done <<< "$STUB_QUEUE"
+        printf 'reason\t\n'
+        printf 'end\t%s\n' "$(date +%s)"
+    } > "$logs/.slurm-view"
+}
 ## One case: $1 name, rest VAR=value for the stubs. $setup runs inside the case
 ## directory with $logs set, and is what seeds the marker and the result file.
 run_case() {
@@ -166,10 +177,11 @@ run_case() {
     (
         export PATH="$stub:$PATH" STUB_DIR="$CASE_DIR" HOME="$work"
         export HOSTNAME="$NODE" LAUNCH_JOB_HOME="$CASE_DIR"
-        export STUB_LOCAL_JOBS="" STUB_QUEUE="" STUB_QUEUE_FAIL=""
-        export STUB_SQUEUE_J="" STUB_SQUEUE_J_FAIL="" STUB_SQUEUE_J_INVALID=""
+        export STUB_LOCAL_JOBS="" STUB_QUEUE="" STUB_NO_VIEW=""
+        export STUB_SQUEUE_J=""
         for kv in "$@"; do export "${kv?}"; done
         eval "$setup"
+        write_view
         "$repo/actions/launch_job.sh" --quiet
     ) > "$CASE_DIR/out" 2>&1
 
@@ -200,7 +212,7 @@ run_case "queued, no result file yet, inside its window" >/dev/null
 check "marker kept"          'marker_kept'
 check "traced as waiting"    'traced "not running here yet -- waiting"'
 check "nothing submitted"    '! submitted'
-check "controller not asked" '[[ ! -f "$CASE_DIR/squeue.calls" ]]'
+check "controller not asked" '[[ ! -f "$CASE_DIR/squeue.calls" && ! -f "$CASE_DIR/sinfo.calls" ]]'
 
 setup='marker 40; result_started'
 run_case "started, no end marker, inside its window" >/dev/null
@@ -231,9 +243,9 @@ setup='marker 40; STUB_LOCAL_JOBS=4242'
 run_case "running here now" >/dev/null
 check "marker kept"          'marker_kept'
 check "traced as running"    'traced "running here for"'
-check "controller not asked" '[[ ! -f "$CASE_DIR/squeue.calls" ]]'
+check "controller not asked" '[[ ! -f "$CASE_DIR/squeue.calls" && ! -f "$CASE_DIR/sinfo.calls" ]]'
 
-echo "== past the grace, so the controller is asked =="
+echo "== past the grace, so the node view is read =="
 
 ## 30m grace, so 4000s is past the bound and the 40s cases above are inside it.
 setup='marker 4000; STUB_SQUEUE_J="PENDING Resources"'
@@ -245,33 +257,36 @@ check "nothing submitted"  '! submitted'
 ## Past the 30m grace, inside the 20m walltime the bound used to add to it.
 setup='marker 2000; STUB_SQUEUE_J="PENDING Resources"'
 run_case "past the grace, inside what the walltime used to buy" >/dev/null
-check "controller asked" '[[ -f "$CASE_DIR/squeue.calls" ]]'
+check "view read, controller still not asked" '[[ ! -f "$CASE_DIR/squeue.calls" ]]'
 check "traced as queued" 'traced "still queued after"'
 
-## Held at priority 0, so it never starts: given up on rather than waited out.
+## Held at priority 0, so it never starts. The node no longer cancels it --
+## the watchdog does, fleet-wide, and this node just waits for the marker to go
+## stale. tests/supervisor-test.sh is where the cancel is asserted.
+## See docs/explanation/sequencing.md#jobs-the-scheduler-has-given-up-on.
 setup='marker 4000; STUB_SQUEUE_J="PENDING launch failed requeued held"'
 run_case "held after a failed launch" >/dev/null
-check "cancelled"          '[[ -f "$CASE_DIR/scancel.calls" ]]'
-check "traced as cancelled" 'traced "held after a failed launch"'
-check "resubmitted"        'submitted'
+check "the node cancels nothing" '[[ ! -f "$CASE_DIR/scancel.calls" ]]'
+check "traced as queued"         'traced "still queued after"'
+check "nothing submitted on top" '! submitted'
 
 ## The marker is cleared and the cycle carries on to resubmit, so what proves
 ## the old one went is the new id in its place.
-setup='marker 4000; STUB_SQUEUE_J_INVALID=1'
+setup='marker 4000'
 run_case "slurm has forgotten the job" >/dev/null
-check "traced as gone"        'traced "is gone from the queue"'
+check "traced as gone"        'traced "gone from the queue"'
 check "resubmitted"           'submitted'
 check "marker holds the new id" 'grep -q "^90001" "$logs/.in-flight"'
 
-setup='marker 4000; STUB_SQUEUE_J_FAIL=1'
-run_case "the controller would not answer" >/dev/null
+setup='marker 4000; STUB_NO_VIEW=1'
+run_case "there is no usable node view" >/dev/null
 check "marker kept"          'marker_kept'
-check "traced as unanswered" 'traced "would not answer"'
+check "traced as unanswered" 'traced "not known whether"'
 check "nothing archived"     '[[ ! -f "$logs/probe.fail1.txt" ]]'
 check "nothing submitted"    '! submitted'
 
-setup='marker 4000; result_started; STUB_SQUEUE_J_FAIL=1'
-run_case "unanswered, with a partial result on disk" >/dev/null
+setup='marker 4000; result_started; STUB_NO_VIEW=1'
+run_case "no view, with a partial result on disk" >/dev/null
 check "partial result untouched" '[[ -f "$logs/probe.txt" && ! -f "$logs/probe.fail1.txt" ]]'
 
 echo "== the guard before a submission =="
@@ -288,10 +303,10 @@ check "traced"            'traced "no marker, but"'
 
 ## The other half of the duplicate: an unanswered query used to read as an
 ## empty queue, and an empty queue is a licence to submit.
-setup='STUB_QUEUE_FAIL=1'
-run_case "no marker, and the queue cannot be read" >/dev/null
+setup='STUB_NO_VIEW=1'
+run_case "no marker, and no usable node view" >/dev/null
 check "nothing submitted" '! submitted'
-check "traced"            'traced "the queue could not be read"'
+check "traced"            'traced "whether a job of ours is already out"'
 check "no marker written" '! marker_kept'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

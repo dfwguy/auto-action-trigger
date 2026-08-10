@@ -103,7 +103,7 @@ permissions:
       # Sourced libraries. verdict-scan.sh is also run, but as
       # `bash verdict-scan.sh` from xargs, like the health checks below.
       for f in settings.sh priv.sh fanout.sh reason-map.sh slurm-recovery.sh verdict-scan.sh \
-               get-out-of-the-way.sh report-format.sh health-scan.sh \
+               get-out-of-the-way.sh report-format.sh health-scan.sh slurm-snapshot.sh \
                $(git ls-files 'parsers/*/verdict.sh'); do
         check 100644 "$f"
       done
@@ -144,7 +144,7 @@ permissions:
       for f in $(git ls-files -- '*.sh' | grep -v '/'); do
         case "$f" in
           settings.sh|priv.sh|fanout.sh|reason-map.sh|slurm-recovery.sh|verdict-scan.sh) continue ;;
-          get-out-of-the-way.sh|report-format.sh|health-scan.sh)               continue ;;
+          get-out-of-the-way.sh|report-format.sh|health-scan.sh|slurm-snapshot.sh) continue ;;
         esac
         check 100755 "$f"
       done
@@ -256,6 +256,15 @@ yield:
   stage: test
   script:
     - ./tests/yield-test.sh
+
+# One query written into a node-side script is seventeen a second across the
+# fleet, and the reason each of them was removed is invisible in the diff that
+# adds one back. See docs/explanation/the-fleet-snapshot.md.
+node-queries:
+  extends: .base
+  stage: lint
+  script:
+    - ./tests/node-queries-test.sh
 
 # Both directions of this gate are silent: a false positive retires a real node
 # from the fleet, a false negative is the head node in every report.

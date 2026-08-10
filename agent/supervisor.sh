@@ -6,9 +6,14 @@
 # drained and has stopped writing one. Nothing polls a node to ask whether it is
 # alive; the answer is already on NFS.
 #
-# It also carries the one decision a node can no longer make for itself: a job of
-# ours running past MAX_JOB_HOURS drains the node from here, because the node's
-# own cycle stops at the busy gate.
+# It is also the only host in the deployment that asks slurmctld anything. Two
+# queries here answer for the whole fleet, sharded into one small file per node
+# that every agent reads instead of querying for itself --
+# docs/explanation/the-fleet-snapshot.md.
+#
+# And it carries the decisions a node cannot make for itself: a job of ours past
+# MAX_JOB_HOURS, the pending jobs a pause has to reach, a job the scheduler gave
+# up launching, and giving a node back to somebody who is queued for it.
 #
 # See docs/explanation/the-agent-and-the-watchdog.md.
 
@@ -22,6 +27,12 @@ source "$home/settings.sh"
 source "$home/priv.sh"
 # shellcheck source=/dev/null
 [[ -f "$home/report-format.sh" ]] && source "$home/report-format.sh"
+if [[ ! -f "$home/slurm-snapshot.sh" ]]; then
+    echo "########ERROR: $home/slurm-snapshot.sh is missing -- without it no node" >&2
+    echo "               can be told what Slurm says, and every agent stops deciding." >&2
+    exit 1
+fi
+source "$home/slurm-snapshot.sh"
 if [[ ! -f "$home/fanout.sh" ]]; then
     echo "########ERROR: $home/fanout.sh is missing -- it is the only thing here that" >&2
     echo "               reaches a node, so nothing could be armed." >&2
@@ -163,9 +174,13 @@ if [[ "$EXPLAIN" -eq 0 && "$beat_age" -ge 0 ]] &&
     exit 0
 fi
 
+## Scoped to the arming below rather than exiting, unlike every other pause: the
+## snapshot this cycle writes is what the whole fleet decides from, and a paused
+## watchdog that stops writing it stops every agent as well.
+## See docs/reference/settings.md#pause-switches.
+ARMING_PAUSED=0
 if setting_enabled "$PAUSE_ARMING" && [[ "$EXPLAIN" -eq 0 ]]; then
-    trace "EXIT: PAUSE_ARMING=$PAUSE_ARMING in ${SETTINGS_FILE:-<none>} -- no node is armed. Agents already running are untouched and keep cycling."
-    exit 0
+    ARMING_PAUSED=1
 fi
 
 if [[ -f /etc/profile.d/modules.sh ]]; then
@@ -180,23 +195,25 @@ if [[ -f /etc/profile.d/modules.sh ]]; then
 else
     slurm_tried="$slurm_tried, no /etc/profile.d/modules.sh here"
 fi
-for tool in sinfo squeue; do
+for tool in sinfo squeue scontrol; do
     command -v "$tool" >/dev/null 2>&1 || {
-        trace "EXIT: $tool is not on PATH ($slurm_tried; PATH=$PATH) -- which nodes are ready cannot be answered here. If it works in your login shell, whatever puts it there is not reaching this one."
+        trace "EXIT: $tool is not on PATH ($slurm_tried; PATH=$PATH) -- which nodes are ready cannot be answered here, and no node can be told either. If it works in your login shell, whatever puts it there is not reaching this one."
         exit 0
     }
 done
 
-## ── Who is ready ──────────────────────────────────────────────────────────
+## ── The fleet's one look at Slurm ─────────────────────────────────────────
 ##
 ## Empty output is not an answer: a saturated slurmctld exits 0 with nothing,
 ## and believing it would arm, or fail to arm, the entire fleet on no
-## information. See docs/explanation/sequencing.md#when-the-controller-does-not-answer.
-states=$(sinfo -N -h -o '%N %T' 2>/dev/null)
-if [[ -z "$states" ]]; then
-    trace "EXIT: 'sinfo -N -h' returned nothing -- no node was armed. A busy controller answers this way too, so nothing here treats it as an empty cluster."
+## information -- and would blank two thousand node views at once.
+## See docs/explanation/sequencing.md#when-the-controller-does-not-answer.
+snapshot_log() { trace "$@"; }
+if ! snapshot_query; then
+    trace "EXIT: $SNAPSHOT_WRITE_WHY -- no node was armed and no view was rewritten."
     exit 0
 fi
+states="$SNAPSHOT_NODES"
 
 stale_min="$HEARTBEAT_STALE_MINUTES"
 [[ "$stale_min" =~ ^[0-9]+$ && "$stale_min" -gt 0 ]] || {
@@ -209,8 +226,12 @@ stale_min="$HEARTBEAT_STALE_MINUTES"
 ## See docs/explanation/the-agent-and-the-watchdog.md#which-states-are-armed.
 arm=(); fresh=0; busy=0; unreachable=0; skipped=0; limited=(); waiting=0
 inflight_ids=(); inflight_nodes=(); inflight_ages=()
+## Every node that gets a view written: the same filter the sequencer applies, so
+## the fleet a node believes it is in is the one this walks.
+scope=()
 
-while read -r node state; do
+## Reason last and free text, so it takes the remainder of the line.
+while IFS='|' read -r node state _setter _when _reason; do
     [[ -n "$node" ]] || continue
     node_excluded "$node" && { skipped=$((skipped + 1)); continue; }
 
@@ -225,6 +246,7 @@ while read -r node state; do
         done
         [[ "$_match" -eq 1 ]] || { skipped=$((skipped + 1)); continue; }
     fi
+    scope+=("$node")
 
     ## Collected for the MAX_JOB_HOURS pass below whatever the node's state is:
     ## a job running past its limit is the reason the node is not idle.
@@ -269,6 +291,20 @@ while read -r node state; do
     arm+=("$node")
 done <<< "$states"
 
+## ── Tell every node what Slurm said ───────────────────────────────────────
+##
+## Above the arming and above every pause: this is the only thing a node has to
+## decide from, and a cycle that skips it stops the fleet a snapshot age later.
+## Not gated on --explain either -- a view is what the controller said, not an
+## action taken on it. See docs/explanation/the-fleet-snapshot.md.
+if [[ "${#scope[@]}" -eq 0 ]]; then
+    trace "WARNING: no node survived EXCLUDE_NODES='$EXCLUDE_NODES' and NODE_FILTER='$NODE_FILTER' -- no view was written, so every agent will stop deciding once the one it has ages out."
+elif snapshot_write "$results" "$now" "${scope[@]}"; then
+    trace "snapshot: $SNAPSHOT_WRITTEN of ${#scope[@]} node view(s) written, $SNAPSHOT_QUEUED_FLEET job(s) of ours in the queue fleet-wide"
+else
+    trace "WARNING: $SNAPSHOT_WRITE_WHY"
+fi
+
 ## ── Arm them ──────────────────────────────────────────────────────────────
 ##
 ## One fan-out across the whole list, not a loop of sshes: output arrives
@@ -288,6 +324,10 @@ if [[ "$ARM_BATCH" =~ ^[0-9]+$ ]] && [[ "$ARM_BATCH" -gt 0 ]] && [[ "${#arm[@]}"
 fi
 
 armed_list=""
+if [[ "$ARMING_PAUSED" -eq 1 ]]; then
+    trace "PAUSE_ARMING=$PAUSE_ARMING in ${SETTINGS_FILE:-<none>} -- ${#arm[@]} node(s) left unarmed. Agents already running are untouched and keep cycling, and this cycle still wrote their views."
+    arm=()
+fi
 if [[ "${#arm[@]}" -gt 0 ]]; then
     joined=$(IFS=,; printf '%s' "${arm[*]}")
     armed_list=$(declare -F compress >/dev/null && compress "$joined" || printf '%s' "$joined")
@@ -318,8 +358,8 @@ fi
 ## ── The job that outran its limit ─────────────────────────────────────────
 ##
 ## The node's own cycle stops at the busy gate, so this is the one drain it can
-## no longer issue for itself. The marker holds the submit epoch; the controller
-## is asked only about the ids that are already past the limit.
+## no longer issue for itself. The marker holds the submit epoch, and which ids
+## are running comes out of the queue this cycle already read.
 ## See docs/explanation/sequencing.md#the-busy-gate.
 overrun=0
 if [[ "${#inflight_ids[@]}" -gt 0 && "$MAX_JOB_HOURS" =~ ^[0-9]+$ && "$MAX_JOB_HOURS" -gt 0 ]]; then
@@ -329,10 +369,9 @@ if [[ "${#inflight_ids[@]}" -gt 0 && "$MAX_JOB_HOURS" =~ ^[0-9]+$ && "$MAX_JOB_H
         past+=("${inflight_ids[$i]}"); past_nodes+=("${inflight_nodes[$i]}"); past_ages+=("${inflight_ages[$i]}")
     done
     if [[ "${#past[@]}" -gt 0 ]]; then
-        ids=$(IFS=,; printf '%s' "${past[*]}")
         ## Only RUNNING counts: a job queued behind a dead node reads 0:00 for as
         ## long as it waits, and "timeout" would bury why the node is unusable.
-        running=$(squeue -h -o '%i %T' -j "$ids" 2>/dev/null | awk '$2 == "RUNNING" { print $1 }')
+        running=$(awk -F'|' '$4 == "RUNNING" { print $1 }' <<<"$SNAPSHOT_QUEUE")
         for i in "${!past[@]}"; do
             grep -qx "${past[$i]}" <<<"$running" || continue
             node="${past_nodes[$i]}"; hours=$(( past_ages[i] / 3600 ))
@@ -353,6 +392,87 @@ if [[ "${#inflight_ids[@]}" -gt 0 && "$MAX_JOB_HOURS" =~ ^[0-9]+$ && "$MAX_JOB_H
     fi
 fi
 
+## ── The queue decisions no node can make any more ─────────────────────────
+##
+## All three read the one queue this cycle already has, and all three used to be
+## a query per node per cycle. The prefix is what makes them safe: nothing here
+## touches a job that is not this framework's.
+## See docs/explanation/the-fleet-snapshot.md#what-moved-to-the-head-node.
+##
+## The reason Slurm gives a job it gave up launching. Named rather than inlined
+## because an empty pattern matches every job, and the branch it guards cancels.
+LAUNCH_FAILED_HELD='launch failed requeued held'
+
+cancel_ids() {
+    local what="$1" ids="$2" out
+    [[ -n "$ids" ]] || return 0
+    if [[ "$EXPLAIN" -eq 1 ]]; then
+        trace "WOULD CANCEL $what: $ids"
+        return 0
+    fi
+    if ! command -v scancel >/dev/null 2>&1; then
+        trace "WARNING: scancel is not on PATH here -- $what left queued: $ids"
+        return 0
+    fi
+    ## scancel reports a refused kill on stdout and can still exit 0, so the
+    ## output is the report and not the status -- as in kill-jobs.sh.
+    # shellcheck disable=SC2086  # a deliberate word split: scancel takes a list
+    out=$(scancel $ids 2>&1)
+    trace "CANCELLED $what: $ids${out:+ -- $out}"
+}
+
+paused=0
+if setting_enabled "$PAUSE_JOBS"; then
+    ## A pause has to reach the queue too, or it is not a pause: pending jobs go,
+    ## a running one is left to finish. See docs/reference/settings.md#pause-switches.
+    pend=$(awk -F'|' -v p="$SNAPSHOT_PREFIXES" \
+        'BEGIN { n = split(p, a, " ") }
+         $4 == "PENDING" { for (i = 1; i <= n; i++) if (index($2, a[i]) == 1) { print $1; break } }' \
+        <<<"$SNAPSHOT_QUEUE" | tr '\n' ' ')
+    paused=$(wc -w <<<"$pend")
+    cancel_ids "pending under PAUSE_JOBS=$PAUSE_JOBS" "${pend% }"
+    while IFS='|' read -r _id _name _rest; do
+        [[ -n "$_id" ]] && trace "PAUSE_JOBS: job $_id ($_name) still RUNNING -- left to finish; 'scancel $_id' to stop it now"
+    done < <(awk -F'|' -v p="$SNAPSHOT_PREFIXES" \
+        'BEGIN { n = split(p, a, " ") }
+         $4 == "RUNNING" { for (i = 1; i <= n; i++) if (index($2, a[i]) == 1) { print $1 "|" $2; break } }' \
+        <<<"$SNAPSHOT_QUEUE")
+fi
+
+## A job held after a failed launch reads as PENDING at priority 0 and never
+## starts, so the node waiting on it waits for ever. Its marker goes stale and
+## the next cycle there resubmits.
+## See docs/explanation/sequencing.md#jobs-the-scheduler-has-given-up-on.
+held=""
+if [[ -n "$LAUNCH_FAILED_HELD" ]]; then
+    held=$(awk -F'|' -v p="$SNAPSHOT_PREFIXES" -v want="$LAUNCH_FAILED_HELD" \
+        'BEGIN { n = split(p, a, " ") }
+         $4 == "PENDING" && index($0, want) {
+             for (i = 1; i <= n; i++) if (index($2, a[i]) == 1) { print $1; break } }' \
+        <<<"$SNAPSHOT_QUEUE" | tr '\n' ' ')
+    cancel_ids "held after a failed launch ('$LAUNCH_FAILED_HELD')" "${held% }"
+fi
+
+## ── Giving a node back ────────────────────────────────────────────────────
+##
+## The one thing here that cancels a job of ours that is working, so it ships
+## off. See docs/explanation/sequencing.md#getting-out-of-the-way.
+yielded=0
+if [[ -f "$home/get-out-of-the-way.sh" ]]; then
+    yield_log() { trace "$@"; }
+    # shellcheck disable=SC2034  # read by get-out-of-the-way.sh, sourced below
+    YIELD_USER="$JOB_USER"
+    # shellcheck disable=SC2034
+    YIELD_STAMP="$results/.yield-check"
+    # shellcheck disable=SC2034
+    YIELD_DRY_RUN="$EXPLAIN"
+    source "$home/get-out-of-the-way.sh"
+    yield_scan "$results" "$SNAPSHOT_QUEUE" "$now"
+    yielded="$YIELD_CANCELLED"
+elif setting_enabled "$GET_OUT_OF_THE_WAY"; then
+    trace "WARNING: GET_OUT_OF_THE_WAY=$GET_OUT_OF_THE_WAY but $home/get-out-of-the-way.sh is missing -- no node will ever be given up. Stale deployment?"
+fi
+
 ## ── Say what this cycle decided ───────────────────────────────────────────
 ##
 ## Written every cycle including the quiet ones: a watchdog that has stopped
@@ -361,6 +481,9 @@ summary="checked $(wc -l <<<"$states") node(s): $fresh fresh, ${#arm[@]} armed, 
 [[ "$waiting" -gt 0 ]] && summary+=", $waiting waiting out the ${ARM_RETRY_MINUTES}m arm interval"
 [[ "$overrun" -gt 0 ]] && summary+=", $overrun past MAX_JOB_HOURS"
 [[ "$deferred" -gt 0 ]] && summary+=", $deferred held back by ARM_BATCH=$ARM_BATCH"
+[[ "$paused" -gt 0 ]] && summary+=", $paused pending cancelled by PAUSE_JOBS"
+[[ -n "${held// /}" ]] && summary+=", $(wc -w <<<"$held") cancelled after a failed launch"
+[[ "$yielded" -gt 0 ]] && summary+=", $yielded node(s) given up to a waiter"
 if [[ "${#limited[@]}" -gt 0 ]]; then
     lim=$(IFS=,; printf '%s' "${limited[*]}")
     lim_pretty=$(declare -F compress >/dev/null && compress "$lim" || printf '%s' "$lim")

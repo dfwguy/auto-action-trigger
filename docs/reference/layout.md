@@ -29,8 +29,9 @@ pieces fit together this way is
 ├── reason-map.sh                  # Slurm drain reason → check names (health-check.sh)
 ├── report-format.sh               # Node-list compression, wrapping and elision (health-check.sh, overall_report.sh)
 ├── health-scan.sh                 # The health verdict from logs/ against the baseline (health-check.sh, overall_report.sh)
+├── slurm-snapshot.sh              # The fleet's one look at Slurm: written by the watchdog, read by every node
 ├── slurm-recovery.sh              # Clears drains Slurm set itself, never an operator's (both actions)
-├── get-out-of-the-way.sh          # Cancels this node's own job when somebody else is queued for it (launch_job.sh)
+├── get-out-of-the-way.sh          # Cancels a node's job when somebody else is queued for it (supervisor.sh)
 ├── verdict-scan.sh                # Judges every cell of the fleet in parallel (status-check.sh, daily-report.sh)
 │
 ├── health-checks/                 # One directory per platform; HEALTHCHECKS picks one
@@ -126,11 +127,16 @@ location and `BRINGUP_HOME` disagree.
 | `$BRINGUP_HOME/valid-config/default/` | Symlink to the reference baseline node |
 | `$BRINGUP_HOME/results/<node>/` | Per-node benchmark result files |
 | `$BRINGUP_HOME/results/<node>/.heartbeat` | Touched at the top of every agent cycle, before any gate. Empty; only its mtime is read. See [explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means](../explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means) |
+| `$BRINGUP_HOME/results/<node>/.slurm-view` | What Slurm says about this node and its jobs, written every watchdog cycle and read instead of querying the controller. Tab separated, key first, sealed with an `end` line — see [explanation/the-fleet-snapshot.md#what-is-on-disk](../explanation/the-fleet-snapshot.md#what-is-on-disk) |
+| `$BRINGUP_HOME/results/<node>/.yielded` | Left by the watchdog when it cancelled this node's job for a waiter, so the next cycle can say why rather than reporting it as gone. Tab separated: epoch, text. Read once and removed — see [explanation/the-fleet-snapshot.md#what-moved-to-the-head-node](../explanation/the-fleet-snapshot.md#what-moved-to-the-head-node) |
 | `$BRINGUP_HOME/results/<node>/agent.log` | Per-cycle trace from `node-agent.sh`: the busy gate, the lock, which steps ran |
 | `$BRINGUP_HOME/results/<node>/arm.log` | One line per arming attempt by the watchdog, and what came back. Tab separated: epoch, output. The attempt history `ARM_MAX_ATTEMPTS` is counted from |
 | `$BRINGUP_HOME/results/.supervisor-owner` | Which host is arming the fleet, refreshed every watchdog cycle. Tab separated: hostname, epoch. A second host that finds this fresh stands by — see [explanation/the-agent-and-the-watchdog.md#only-one-watchdog](../explanation/the-agent-and-the-watchdog.md#only-one-watchdog) |
 | `$BRINGUP_HOME/results/.supervisor-heartbeat` | Touched at the top of every watchdog cycle. Doubles as the clock every heartbeat age is measured against — see [explanation/the-agent-and-the-watchdog.md#whose-clock-decides](../explanation/the-agent-and-the-watchdog.md#whose-clock-decides) |
 | `$BRINGUP_HOME/results/supervisor.log` | One line per watchdog cycle, including the ones that armed nothing |
+| `$BRINGUP_HOME/results/.slurm/nodes.psv` | The fleet-wide `sinfo` the per-node views are cut from. For the head node's own tools; no compute node reads it |
+| `$BRINGUP_HOME/results/.slurm/queue.psv` | The fleet-wide `squeue`, same |
+| `$BRINGUP_HOME/results/.yield-check` | When the watchdog last looked for waiters, one stamp for the fleet — `GET_OUT_OF_THE_WAY_POLL_MINUTES` |
 | `$BRINGUP_HOME/results/<node>/trigger.log` | Per-cycle decision trace from `launch_job.sh` |
 | `$BRINGUP_HOME/results/<node>/copy.log` | Per-cycle trace from `file_copy.sh`, and where the detached copy reports what it did after the cycle that started it has ended |
 | `$BRINGUP_HOME/results/<node>/health.log` | Per-cycle decision trace from `node_health.sh` |
@@ -227,6 +233,7 @@ style-level findings below it are largely deliberate here.
 The `test` stage runs the suites — `tests/verdict-test.sh`,
 `tests/health-runner-test.sh`, `tests/recover-test.sh`, `tests/inflight-test.sh`,
 `tests/yield-test.sh`, `tests/help-text-test.sh`, `tests/scan-cache-test.sh`,
+`tests/node-queries-test.sh`,
 `tests/llmb-check-test.sh`, `tests/exclude-test.sh`, `tests/report-format-test.sh`,
 `tests/health-scan-test.sh`, `tests/health-report-test.sh`,
 `tests/doc-links-test.sh` — as one job each, so a failure names the gate that broke without anyone opening

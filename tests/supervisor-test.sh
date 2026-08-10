@@ -18,21 +18,46 @@ pass=0; fail=0
 ok()  { printf '  ok   %s\n' "$*"; pass=$((pass + 1)); }
 bad() { printf '  FAIL %s\n' "$*"; fail=$((fail + 1)); }
 
-## STUB_SINFO is verbatim `sinfo -N -h -o '%N %T'` output. Empty is the case a
-## saturated controller produces and must never read as an empty cluster.
+## STUB_SINFO stays `<node> <state>` per line, which is what every case below is
+## written in; the stub renders it into the two formats the snapshot library asks
+## for. Empty is the case a saturated controller produces and must never read as
+## an empty cluster. See docs/explanation/the-fleet-snapshot.md#the-two-queries.
 cat > "$stub/sinfo" <<'EOF'
 #!/bin/bash
-[[ -n "$STUB_SINFO" ]] && printf '%s\n' "$STUB_SINFO"
+[[ -n "$STUB_SINFO" ]] || exit 0
+## The hardware call: node, gres, cpus.
+for a in "$@"; do
+    [[ "$a" == '%N|%G|%c' ]] &&
+        { awk '{ print $1 "|gpu:gb200:4|72" }' <<< "$STUB_SINFO"; exit 0; }
+done
+## The state call: node, state, who set the drain, when, and the free-text reason
+## last. The cases care only about the first two.
+awk '{ print $1 "|" $2 "|none||" $3 }' <<< "$STUB_SINFO"
 exit 0
 EOF
+
+## STUB_SQUEUE stays `<id> <state>` per line and is rendered into the eleven
+## fields snapshot_query reads. The name carries a node so the fleet count and
+## the per-node view have something to key on.
 cat > "$stub/squeue" <<'EOF'
 #!/bin/bash
-[[ -n "$STUB_SQUEUE" ]] && printf '%s\n' "$STUB_SQUEUE"
+[[ -n "$STUB_SQUEUE" ]] || exit 0
+awk -v n="${STUB_JOB_NODE:-n-long}" \
+    '{ print $1 "|bringup-" n "|" ENVIRON["USER"] "|" $2 "|4294901759|2026-01-01T00:00:00|N/A|" \
+             ($2 == "RUNNING" ? n : "") "|" n "|" n "|None" }' <<< "$STUB_SQUEUE"
 exit 0
 EOF
+
 cat > "$stub/scontrol" <<'EOF'
 #!/bin/bash
 printf '%s\n' "$*" >> "$STUB_DIR/scontrol.calls"
+## snapshot_expand asks for hostnames; every other call here is an update.
+[[ "$1" == "show" && "$2" == "hostnames" ]] && printf '%s\n' ${3//,/ }
+exit 0
+EOF
+cat > "$stub/scancel" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "$STUB_DIR/scancel.calls"
 exit 0
 EOF
 ## Records the whole invocation, then answers as install-agent.sh would for each
@@ -58,7 +83,8 @@ EOF
 sed 's|/pdsh.calls|/fanout.calls|' "$stub/pdsh" > "$stub/clush"
 chmod 755 "$stub"/*
 
-cp "$home/settings.sh" "$home/priv.sh" "$home/fanout.sh" "$home/report-format.sh" "$tree/"
+cp "$home/settings.sh" "$home/priv.sh" "$home/fanout.sh" "$home/report-format.sh" \
+   "$home/slurm-snapshot.sh" "$home/get-out-of-the-way.sh" "$tree/"
 cp "$home/agent/supervisor.sh" "$tree/agent/"
 cat > "$tree/SETTINGS" <<EOF
 JOB_USER=$(id -un)
@@ -83,9 +109,10 @@ beat() {
 }
 
 run_sup() {
-    rm -f "$work/fanout.calls" "$work/scontrol.calls"
+    rm -f "$work/fanout.calls" "$work/scontrol.calls" "$work/scancel.calls"
     ( export PATH="$stub:$PATH" HOSTNAME=headnode AGENT_HOME="$tree" STUB_DIR="$work" \
-             STUB_SINFO="$1" STUB_SQUEUE="${STUB_SQUEUE:-}" STUB_ARM_FAIL="${STUB_ARM_FAIL:-}"
+             STUB_SINFO="$1" STUB_SQUEUE="${STUB_SQUEUE:-}" STUB_ARM_FAIL="${STUB_ARM_FAIL:-}" \
+             STUB_RAW_QUEUE="${STUB_RAW_QUEUE:-}" STUB_JOB_NODE="${STUB_JOB_NODE:-n-long}"
       "$tree/agent/supervisor.sh" "${2:---quiet}" >/dev/null 2>&1 )
 }
 
@@ -358,6 +385,93 @@ else
     bad "the suppressed drain was not traced: $(last_line)"
 fi
 sed -i 's/^DRAIN_AFTER_FAILED_BENCHMARK=no/DRAIN_AFTER_FAILED_BENCHMARK=yes/' "$tree/SETTINGS"
+
+echo "== the node view is written for the fleet =="
+
+## The whole point of the watchdog's queries: two of them, and every node reads
+## a file. See docs/explanation/the-fleet-snapshot.md.
+rm -rf "$results"
+beat 60 n-a; beat 60 n-b
+STUB_SQUEUE='4242 RUNNING' STUB_JOB_NODE=n-a run_sup 'n-a idle
+n-b idle'
+for n in n-a n-b; do
+    [[ -f "$results/$n/.slurm-view" ]] &&
+        ok "$n was given a view" || bad "$n got no view -- it will stop deciding"
+done
+grep -q '^end' "$results/n-a/.slurm-view" &&
+    ok "the view is sealed, so a torn read is detectable" ||
+    bad "the view has no end marker"
+grep -q '^ours	4242	RUNNING' "$results/n-a/.slurm-view" &&
+    ok "a job of ours reaches the node it was submitted for" ||
+    bad "n-a's view does not carry its own job: $(cat "$results/n-a/.slurm-view")"
+grep -q '^ours' "$results/n-b/.slurm-view" &&
+    bad "n-b was given another node's job" ||
+    ok "and does not reach a node it is not for"
+grep -q '^fleet	1' "$results/n-b/.slurm-view" &&
+    ok "the fleet-wide count reaches every node, for MAX_QUEUED_JOBS" ||
+    bad "no fleet count in the view: $(cat "$results/n-b/.slurm-view")"
+
+## A view is what the controller said, not an action taken on it, so it is
+## written whatever else this cycle is or is not allowed to do.
+rm -rf "$results"; beat 3600 n-paused
+sed -i 's/^PAUSE_ARMING=no$/PAUSE_ARMING=yes/' "$tree/SETTINGS"
+run_sup 'n-paused idle'
+armed n-paused && bad "PAUSE_ARMING armed a node" || ok "PAUSE_ARMING still arms nothing"
+[[ -f "$results/n-paused/.slurm-view" ]] &&
+    ok "but the view is still written, so the fleet keeps deciding" ||
+    bad "PAUSE_ARMING stopped the views, which stops every agent"
+sed -i 's/^PAUSE_ARMING=yes$/PAUSE_ARMING=no/' "$tree/SETTINGS"
+
+echo "== the cancels that left the nodes =="
+
+## Both of these were a squeue per node per cycle. They are one pass over the
+## queue this cycle already read.
+## See docs/explanation/the-fleet-snapshot.md#what-moved-to-the-head-node.
+rm -rf "$results"; beat 60 n-held
+cat > "$stub/squeue" <<'EOF'
+#!/bin/bash
+[[ -n "$STUB_RAW_QUEUE" ]] && printf '%s\n' "$STUB_RAW_QUEUE"
+exit 0
+EOF
+chmod 755 "$stub/squeue"
+
+STUB_RAW_QUEUE="7001|bringup-n-held|$(id -un)|PENDING|0|2026-01-01T00:00:00|N/A||n-held|n-held|launch failed requeued held" \
+    run_sup 'n-held idle'
+grep -q '7001' "$work/scancel.calls" 2>/dev/null &&
+    ok "a job held after a failed launch is cancelled from here" ||
+    bad "the held job was left to wait for ever: $(cat "$work/scancel.calls" 2>/dev/null)"
+
+## Ours by prefix is the gate. A foreign job held the same way is somebody's.
+rm -rf "$results"; beat 60 n-held
+STUB_RAW_QUEUE="7002|train-70b|alice|PENDING|0|2026-01-01T00:00:00|N/A||n-held|n-held|launch failed requeued held" \
+    run_sup 'n-held idle'
+[[ -f "$work/scancel.calls" ]] &&
+    bad "somebody else's held job was cancelled: $(cat "$work/scancel.calls")" ||
+    ok "a foreign held job is left alone"
+
+rm -rf "$results"; beat 60 n-pj
+sed -i 's/^PAUSE_ARMING=no$/PAUSE_ARMING=no\nPAUSE_JOBS=yes/' "$tree/SETTINGS"
+STUB_RAW_QUEUE="7003|bringup-n-pj|$(id -un)|PENDING|4294901759|2026-01-01T00:00:00|N/A||n-pj|n-pj|Resources
+7004|burnin-n-pj|$(id -un)|RUNNING|4294901759|2026-01-01T00:00:00|N/A|n-pj|n-pj||None" \
+    run_sup 'n-pj idle'
+grep -q '7003' "$work/scancel.calls" 2>/dev/null &&
+    ok "PAUSE_JOBS cancels a pending job of ours" ||
+    bad "PAUSE_JOBS left a pending job queued: $(cat "$work/scancel.calls" 2>/dev/null)"
+grep -q '7004' "$work/scancel.calls" 2>/dev/null &&
+    bad "PAUSE_JOBS killed a running job -- it is meant to be left to finish" ||
+    ok "and leaves the running one to finish"
+sed -i '/^PAUSE_JOBS=yes$/d' "$tree/SETTINGS"
+
+## Restored for the cases below, which drive the queue through STUB_SQUEUE.
+cat > "$stub/squeue" <<'EOF'
+#!/bin/bash
+[[ -n "$STUB_SQUEUE" ]] || exit 0
+awk -v n="${STUB_JOB_NODE:-n-long}" \
+    '{ print $1 "|bringup-" n "|" ENVIRON["USER"] "|" $2 "|4294901759|2026-01-01T00:00:00|N/A|" \
+             ($2 == "RUNNING" ? n : "") "|" n "|" n "|None" }' <<< "$STUB_SQUEUE"
+exit 0
+EOF
+chmod 755 "$stub/squeue"
 
 echo "== --explain touches nothing =="
 

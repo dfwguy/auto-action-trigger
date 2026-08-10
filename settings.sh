@@ -136,6 +136,8 @@ fi
 : "${ARM_RETRY_MINUTES:=10}"
 : "${ARM_MAX_ATTEMPTS:=3}"
 : "${ARM_WINDOW_HOURS:=24}"
+## `=` not `:=`: empty means three watchdog cycles, floored at five minutes.
+: "${SLURM_SNAPSHOT_MAX_AGE_MINUTES=}"
 ## Empty means whichever host claims it first and keeps refreshing the claim.
 ## Name one to settle it deterministically where two hosts read as head.
 ## See docs/explanation/the-agent-and-the-watchdog.md#only-one-watchdog.

@@ -17,8 +17,9 @@ systemd --user (lingering, JOB_USER)       systemd --user (lingering, JOB_USER)
         │                                          │
         ▼                                          ▼
   agent/supervisor.sh                        agent/node-agent.sh
-        │  sinfo: who is idle or drained            │  touch .heartbeat
-        │  stat:  whose heartbeat is stale          │  any job here? -> say so, stop
+        │  sinfo + squeue: the fleet's one         │  touch .heartbeat
+        │    look at Slurm, written per node        │  any job here? -> say so, stop
+        │  stat:  whose heartbeat is stale          │  reads its own .slurm-view
         │                                           │
         └──── clush -w ──────────────►        ├── actions/file_copy.sh
         └──── clush -w ────────────────────►        ├── actions/file_copy.sh
@@ -107,7 +108,9 @@ to have it: nothing watches the watchdog.
 
 ## Which states are armed
 
-`sinfo -N -h -o '%N %T'`, once per cycle, and only two states are candidates:
+From the same `sinfo` the node views are cut from — see
+[the-fleet-snapshot.md](the-fleet-snapshot.md) — once per cycle, and only two
+states are candidates:
 
 | State | Armed | Why |
 |---|---|---|
@@ -130,7 +133,27 @@ busy, every cycle, for the whole length of every job.
 An empty `sinfo` is not an answer. A saturated `slurmctld` exits 0 with no
 output, and a fleet-wide re-arm on that basis is precisely the kind of damage
 [sequencing.md#when-the-controller-does-not-answer](sequencing.md#when-the-controller-does-not-answer)
-describes. The cycle traces it and stops.
+describes. The cycle traces it and stops — and, just as importantly, rewrites no
+node views. Every node keeps the one it has until it ages out, rather than two
+thousand of them being blanked at once because the controller was busy.
+
+## What else the watchdog carries
+
+Arming is the oldest of its jobs and no longer the largest. It is also the only
+host in the deployment that asks slurmctld anything, and four decisions live
+here because they need a view of the whole fleet or because making them per node
+cost a query per node per cycle:
+
+- the node views themselves, one small file per node
+- `MAX_JOB_HOURS`, which the node's own cycle cannot reach past the busy gate
+- pending jobs under `PAUSE_JOBS`, and jobs the scheduler gave up launching
+- [giving a node back](sequencing.md#getting-out-of-the-way) to somebody queued for it
+
+All of it is in [the-fleet-snapshot.md](the-fleet-snapshot.md). The consequence
+for operating the fleet is that a watchdog which has stopped no longer merely
+stops re-arming dead nodes — it stops every healthy node deciding anything, one
+`SLURM_SNAPSHOT_MAX_AGE_MINUTES` later. Each of them says so, every cycle, and
+names the file it is missing.
 
 ## One unit for both roles
 

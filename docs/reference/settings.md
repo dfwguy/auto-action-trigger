@@ -208,11 +208,12 @@ times across the fleet. Why two intervals and no backoff:
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | `AGENT_INTERVAL_MINUTES` | `2` | How often `bringup-agent.timer` fires one cycle, on every host. Must divide 60 — `1 2 3 4 5 6 10 12 15 20 30` — because the timer is `OnCalendar=*:0/N`; anything else is refused and 2 is used |
-| `SUPERVISOR_INTERVAL_MINUTES` | `2` | How often `bringup-supervisor.timer` fires the watchdog on the head node |
+| `SUPERVISOR_INTERVAL_MINUTES` | `2` | How often `bringup-supervisor.timer` fires the watchdog on the head node. Also how often the fleet's node views are rewritten — see [explanation/the-fleet-snapshot.md](../explanation/the-fleet-snapshot.md) |
 | `HEARTBEAT_STALE_MINUTES` | `10` | A heartbeat older than this, on an `idle` or `drained` node, is armed again |
 | `ARM_BATCH` | `200` | Most nodes one watchdog cycle reaches at once; the rest are deferred to the next. `0` is no cap. Every arm is an ssh from one host — see [explanation/the-agent-and-the-watchdog.md#arming-is-bounded](../explanation/the-agent-and-the-watchdog.md#arming-is-bounded) |
 | `ARM_RETRY_MINUTES` | `10` | Shortest gap between two arming attempts on the same node |
 | `ARM_MAX_ATTEMPTS` | `3` | Attempts inside `ARM_WINDOW_HOURS` before the node is left for an operator |
+| `SLURM_SNAPSHOT_MAX_AGE_MINUTES` | empty | How old a node view may be before the agent stops deciding from it. Empty is three watchdog cycles, floored at five minutes. A node past it says so every cycle and acts on nothing — see [explanation/the-fleet-snapshot.md#no-view-is-not-an-empty-queue](../explanation/the-fleet-snapshot.md#no-view-is-not-an-empty-queue) |
 | `ARM_WINDOW_HOURS` | `24` | The window that count is taken over |
 | `SUPERVISOR_HOST` | *empty* | Which host arms the others. Empty means whichever claims `results/.supervisor-owner` and keeps it fresh; naming one settles it where two hosts read as head. See [explanation/the-agent-and-the-watchdog.md#only-one-watchdog](../explanation/the-agent-and-the-watchdog.md#only-one-watchdog) |
 
@@ -262,13 +263,16 @@ quietly getting `pdsh` has a preference nobody honoured. See
 | `PAUSE_HEALTH_CHECKS` | `no` | `node_health.sh`: run no checks, touch Slurm in neither direction |
 | `PAUSE_CONTAINER_COPY` | `no` | `file_copy.sh`: start no new rsync into `/tmp/containers` |
 | `PAUSE_RECOVERY` | `no` | `launch_job.sh` and `node_health.sh`: clear no drains Slurm set itself |
-| `PAUSE_ARMING` | `no` | `supervisor.sh`: arm no node. Agents already running carry on cycling |
+| `PAUSE_ARMING` | `no` | `supervisor.sh`: arm no node. Agents already running carry on cycling, and their node views are still written |
 
 `PAUSE_RECOVERY` is **independent of `PAUSE_JOBS`**. `PAUSE_JOBS` also cancels
 this framework's pending jobs and leaves its running one to finish.
 `PAUSE_ARMING` is the odd one out: it stops the watchdog restarting a node that
 has *stopped*, and does nothing to a node that is running — to stop one of those
 see [how-to/arm-a-node.md#disarming-a-node](../how-to/arm-a-node.md#disarming-a-node).
+It is scoped to the arming alone, and deliberately: the watchdog's other job is
+writing the node view every agent decides from, and a pause that stopped that
+would stop the whole fleet a snapshot age later.
 `--explain` is stopped by none of them. The reasoning for all of them is in
 [explanation/sequencing.md#what-a-pause-is-for](../explanation/sequencing.md#what-a-pause-is-for);
 what to expect while paused is
@@ -474,14 +478,17 @@ for what turning it on commits a site to.
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `GET_OUT_OF_THE_WAY` | `no` | Cancel this node's own running job when somebody else is queued for the node |
-| `GET_OUT_OF_THE_WAY_AFTER_MINUTES` | `5` | How long the other job must have been pending before the node gives itself up |
-| `GET_OUT_OF_THE_WAY_POLL_MINUTES` | `5` | How often a node with a job running asks the queue whether anybody is waiting |
+| `GET_OUT_OF_THE_WAY` | `no` | Cancel a node's own running job when somebody else is queued for that node |
+| `GET_OUT_OF_THE_WAY_AFTER_MINUTES` | `5` | How long the other job must have been pending before the node is given up |
+| `GET_OUT_OF_THE_WAY_POLL_MINUTES` | `5` | How often the watchdog scans for waiters. One stamp for the fleet, at `results/.yield-check` |
 
+Decided on the head node, for every node at once — see
+[explanation/the-fleet-snapshot.md#what-moved-to-the-head-node](../explanation/the-fleet-snapshot.md#what-moved-to-the-head-node).
 Only a job named `bringup-<node>` or `burnin-<node>`, owned by `JOB_USER`, and
-confirmed `RUNNING` on this node by `squeue -j` is ever cancelled — the marker's
-job id is not taken as evidence on its own. Nothing is drained, and the
-cancelled run is re-queued like any other interrupted attempt.
+confirmed `RUNNING` on the wanted node by the queue itself is ever cancelled —
+no marker is taken as evidence. Nothing is drained, and the cancelled run is
+re-queued like any other interrupted attempt. The node is left a note at
+`results/<node>/.yielded` so its next cycle says why its job went.
 
 Both intervals are minutes and the second one is a cost control: a cycle with a
 job running otherwise costs the controller nothing at all. The whole design,
