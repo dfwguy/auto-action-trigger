@@ -324,6 +324,7 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/supervisor-test.sh     # which nodes get armed, if you touched supervisor.sh
 ./tests/priv-test.sh           # the sudo layer, if you touched priv.sh or a check that needs root
 ./tests/fanout-test.sh         # clush before pdsh, if you touched fanout.sh
+./tests/next-run-test.sh       # the buckets, if you touched next-run.sh or either cadence
 ./tests/doc-links-test.sh      # every docs/ anchor the code points at, if you moved or retitled one
 bash -n <changed script>       # these scripts run as root on 200+ nodes
 shellcheck -S warning <changed script>   # CI gates on this; see below

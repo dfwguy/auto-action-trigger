@@ -92,6 +92,7 @@ The following scripts are run manually by an operator from the headnode and do n
 | `health-check.sh --refresh` | write access to `logs/<node>/` |
 | `trigger-debug.sh` | `sinfo`, read access to `results/`; `--ask-nodes` also needs `clush` or `pdsh` |
 | `trigger-log.sh` | read access to `results/` and `logs/` |
+| `next-run.sh` | `clubak` or `dshbak`, read access to `results/` and `logs/` |
 | `watch-rack.sh` | `sinfo` |
 | `single-node-purge.sh` | write access to `results/` |
 | `kill-jobs.sh` | `squeue`, `scancel` as `JOB_USER` or root; `-p` also needs write access to `SETTINGS` |
@@ -290,6 +291,7 @@ A node that has stopped testing:
 bash trigger-log.sh                       # read the traces: is it firing, and what did it decide
 bash trigger-log.sh ink50-dh01-h20-11     # one node, with its raw trace
 bash trigger-debug.sh ink50-dh01-h20      # walk watchdog → sbatch, name the broken link
+bash next-run.sh                          # the other half: when each node fires next
 ```
 
 Start with `trigger-log.sh` — it reads the heartbeats and what the sequencer

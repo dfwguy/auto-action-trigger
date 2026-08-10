@@ -65,6 +65,7 @@ Task-oriented, for someone who already knows the system.
 | Page | Covers |
 |------|--------|
 | [diagnose-nothing-running.md](how-to/diagnose-nothing-running.md) | `trigger-log.sh` then `trigger-debug.sh`, the heartbeats, and reading the queue. Try this first |
+| [see-what-fires-next.md](how-to/see-what-fires-next.md) | `next-run.sh` — when each node next tests or checks itself, and the three answers that are not times |
 | [diagnose-a-failed-node.md](how-to/diagnose-a-failed-node.md) | Reading a failure back to the device that caused it |
 | [diagnose-ib-visibility.md](how-to/diagnose-ib-visibility.md) | `ib-visibility.sh`, for the two `-nonvlink` jobs |
 | [release-a-held-job.md](how-to/release-a-held-job.md) | A job held at priority 0 on `launch failed requeued held` that is not the framework's: whose it is, release against cancel-and-resubmit, and what a release cannot fix |

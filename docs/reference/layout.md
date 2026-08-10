@@ -94,6 +94,7 @@ pieces fit together this way is
 ├── pause-agents.sh                # Stop every agent timer in the fleet, and start them again
 ├── trigger-debug.sh               # Walk the watchdog → sbatch chain and name the broken link
 ├── trigger-log.sh                 # Read what the chain wrote: trigger.log and health.log
+├── next-run.sh                    # When each node next submits a benchmark or runs its checks
 └── watch-rack.sh                  # Watch a nodelist for DOWN/drained nodes
 ```
 

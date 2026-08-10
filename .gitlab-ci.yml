@@ -324,6 +324,14 @@ fanout:
   script:
     - ./tests/fanout-test.sh
 
+# A second copy of the two cadences, and a wrong bucket reads exactly like a
+# right one. See docs/how-to/see-what-fires-next.md#how-the-buckets-are-chosen.
+next-run:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/next-run-test.sh
+
 # The code points at docs/ by anchor and nothing renders those links, so a
 # reworded heading silently lands the reader on the wrong section.
 doc-links:
