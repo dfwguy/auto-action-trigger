@@ -36,15 +36,27 @@ fanout_resolve() {
     return 1
 }
 
+## Both tools spell these the same: -t to connect, -u to run. Neither bounds the
+## command by default, and a node whose NFS mount is hung answers the ssh and
+## then never returns. See docs/explanation/architecture.md#a-fan-out-is-bounded.
+fanout_timeouts() {
+    local ct="${FANOUT_CONNECT_TIMEOUT:-10}" cmd="${FANOUT_COMMAND_TIMEOUT:-60}"
+    [[ "$ct" =~ ^[0-9]+$ ]] || ct=10
+    [[ "$cmd" =~ ^[0-9]+$ ]] || cmd=60
+    printf '%s %s' "$ct" "$cmd"
+}
+
 ## $1 nodeset, $2 the command. stderr is merged: a node that refused says so on
 ## it, and losing that leaves a failure with no text. `-R ssh` is spelled out
 ## because several packaged pdsh builds default to rsh.
 fanout() {
     fanout_resolve || return 127
+    local ct cmd
+    read -r ct cmd < <(fanout_timeouts)
     if [[ "$FANOUT_CMD" == "clush" ]]; then
-        clush -w "$1" -- "$2" 2>&1
+        clush -t "$ct" -u "$cmd" -w "$1" -- "$2" 2>&1
     else
-        pdsh -R ssh -w "$1" "$2" 2>&1
+        pdsh -t "$ct" -u "$cmd" -R ssh -w "$1" "$2" 2>&1
     fi
 }
 

@@ -340,13 +340,15 @@ if [[ "${#arm[@]}" -gt 0 ]]; then
         exit 0
     else
         trace "ARM ${#arm[@]} node(s) whose heartbeat is older than ${stale_min}m, over $FANOUT_CMD: $armed_list${FANOUT_WHY:+ ($FANOUT_WHY)}${deferred:+$( ((deferred)) && printf '. %s more deferred to the next cycle by ARM_BATCH=%s' "$deferred" "$ARM_BATCH")}"
-        out=$(fanout "$joined" "XDG_RUNTIME_DIR=/run/user/\$(id -u) $home/agent/install-agent.sh")
+        ## --quiet: one line per node, so arm.log holds a verdict rather than a
+        ## screen of steps. See docs/how-to/arm-a-node.md#one-line-per-node.
+        out=$(fanout "$joined" "XDG_RUNTIME_DIR=/run/user/\$(id -u) $home/agent/install-agent.sh --quiet")
         for node in "${arm[@]}"; do
             said=$(grep "^$node:" <<<"$out" | sed "s/^$node: *//" | tr '\n' ' ')
             printf '%s\t%s\n' "$now" "${said:-no output from $FANOUT_CMD}" >> "$results/$node/arm.log" 2>/dev/null
             case "$said" in
                 *FAILED*|"")
-                    trace "ARM FAILED $node: ${said:-$FANOUT_CMD said nothing; is ssh as $JOB_USER working from here?}"
+                    trace "ARM FAILED $node: ${said:-$FANOUT_CMD said nothing within ${FANOUT_COMMAND_TIMEOUT}s; unreachable, or a hung mount on the node}"
                     trace "  what that node says for itself: $FANOUT_CMD -w $node '$home/agent/cycle.sh --verbose'"
                     trace "  and what its own timer's runs said: $FANOUT_CMD -w $node 'journalctl --user -u bringup-agent.service -n 20 --no-pager'"
                     trace "  see docs/how-to/arm-a-node.md#when-a-node-will-not-stay-armed" ;;

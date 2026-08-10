@@ -112,6 +112,44 @@ transport a property of the command instead of a property of whichever pdsh
 package the site installed. clush has no equivalent problem — ssh is its
 default and its `--worker` alternatives are opt-in.
 
+### A fan-out is bounded
+
+Neither tool limits how long a command may run unless it is told to. `pdsh -u`
+documents its default as "no limit"; clush takes `command_timeout` from
+`clush.conf`, where the shipped value is `0`, which means the same thing. The
+connect timeouts do default to something sane — ten seconds on both — but a
+connect timeout only covers the handshake, and the handshake is not what hangs.
+
+What hangs is a node that answers the ssh perfectly well and then blocks
+forever inside the command. The usual cause is the share: `install-agent.sh`
+sources `$BRINGUP_HOME/settings.sh` as its first act, and a node whose NFS mount
+has gone stale blocks in that `source` in uninterruptible sleep. The ssh is up,
+the remote shell is running, and nothing will ever come back. One such node
+holds the whole fan-out open, so `pause-agents.sh --resume` appears to complete
+its work and then sit there — the grouped output is already printed and the last
+node is still being waited on.
+
+So `fanout()` passes both timeouts on every call, from `FANOUT_CONNECT_TIMEOUT`
+and `FANOUT_COMMAND_TIMEOUT` in `SETTINGS`. The two tools spell them
+identically — `-t` to connect, `-u` to run — which is the only reason this fits
+in one function. Sixty seconds is the shipped command limit against a healthy
+arm that takes about three.
+
+Giving up on a node is safe here in a way it would not be in most systems,
+because arming is not the only path to an armed node. Anything the fan-out
+dropped still has a stale heartbeat, so the watchdog picks it up on its next
+cycle, `ARM_BATCH` at a time, with `arm.log` recording each attempt. The
+timeout does not lose a node; it defers one. See
+[the-agent-and-the-watchdog.md#arming-is-bounded](the-agent-and-the-watchdog.md#arming-is-bounded)
+and
+[../how-to/update-the-deployment.md#stragglers-are-the-watchdogs-job](../how-to/update-the-deployment.md#stragglers-are-the-watchdogs-job).
+
+The one place this needs care is the *stop* path, where a node that never
+answered is a node that may still be cycling and reading the tree you are about
+to replace. That is why the stop asks for `&& echo STOPPED` rather than reading
+silence as success, and why `--status` — which reads heartbeats, not replies —
+remains the thing that decides whether a replacement is safe.
+
 ### Nothing is pushed over it
 
 The fan-out carries commands, never files. Arming a node runs

@@ -22,12 +22,16 @@ source "$home/settings.sh"
 source "$home/priv.sh"
 
 ROLE=""
+QUIET=0
 usage() {
     cat <<USAGE
-Usage: install-agent.sh [--node|--head] [--help]
+Usage: install-agent.sh [--node|--head] [--quiet] [--help]
 
   --node   report this host as a compute node whatever it looks like
   --head   report it as the host that watches them
+  --quiet  one line for this host: ARMED, or the WARNING and FAILED lines.
+           What a fan-out over the fleet wants; run it without to see every
+           step. See docs/how-to/arm-a-node.md#one-line-per-node
 
 Both install the same unit -- cycle.sh asks the same question again on every
 run, so these change what this run checks and prints, not what gets installed.
@@ -38,16 +42,23 @@ for arg in "$@"; do
     case "$arg" in
         --node) ROLE="node" ;;
         --head) ROLE="head" ;;
+        -q|--quiet) QUIET=1 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "ERROR: unrecognised argument '$arg' -- nothing was installed." >&2
            usage >&2; exit 2 ;;
     esac
 done
 
+## Two hundred nodes saying the same thing should read as one line, and clubak
+## groups on an exact match -- so under --quiet a message carries no hostname,
+## no timestamp and no pid, and the caller's own label says which host it was.
+## See docs/how-to/arm-a-node.md#one-line-per-node.
 rc=0
-ok()   { printf 'ok: %s\n' "$*"; }
-warn() { printf 'WARNING: %s\n' "$*" >&2; }
-fail() { printf 'FAILED: %s\n' "$*" >&2; rc=1; }
+warns=0
+say() { [[ "$QUIET" -eq 1 ]] && printf '%s\n' "${1//$HOSTNAME/<host>}" || printf '%s\n' "$1"; }
+ok()   { [[ "$QUIET" -eq 1 ]] || printf 'ok: %s\n' "$*"; }
+warn() { say "WARNING: $*" >&2; warns=$((warns + 1)); }
+fail() { say "FAILED: $*" >&2; rc=1; }
 
 ## ── Who is running this ───────────────────────────────────────────────────
 ##
@@ -56,9 +67,7 @@ fail() { printf 'FAILED: %s\n' "$*" >&2; rc=1; }
 ## See docs/explanation/running-unprivileged.md.
 me=$(id -un)
 if [[ "$me" != "$JOB_USER" ]]; then
-    echo "FAILED: this is $me, and the agent runs as $JOB_USER (JOB_USER in ${SETTINGS_FILE:-<none>})." >&2
-    echo "        Arming as anyone else installs the timer into the wrong user's" >&2
-    echo "        systemd, where nothing on the fleet ever looks for it." >&2
+    fail "running as $me, and the agent runs as $JOB_USER -- the timer would go into the wrong user's systemd. docs/explanation/running-unprivileged.md"
     exit 1
 fi
 
@@ -78,7 +87,7 @@ interval="$AGENT_INTERVAL_MINUTES"
 ## step of each hour is short. See docs/reference/settings.md#the-agent-and-the-watchdog.
 case "$interval" in
     1|2|3|4|5|6|10|12|15|20|30) ;;
-    *)  warn "AGENT_INTERVAL_MINUTES is '$interval'; the timer repeats within the hour, so it has to divide 60 (1 2 3 4 5 6 10 12 15 20 30) -- using 2"
+    *)  warn "AGENT_INTERVAL_MINUTES='$interval' does not divide 60 -- using 2. docs/reference/settings.md#the-agent-and-the-watchdog"
         interval=2 ;;
 esac
 
@@ -96,7 +105,7 @@ for s in "$script" "$home/agent/node-agent.sh" "$home/agent/supervisor.sh"; do
     fi
 done
 command -v systemctl >/dev/null 2>&1 || fail "systemctl is not installed -- this host cannot run a timer"
-[[ "$rc" -eq 0 ]] || { echo "refusing to arm $HOSTNAME while something is unusable" >&2; exit "$rc"; }
+[[ "$rc" -eq 0 ]] || { say "refusing to arm while something is unusable" >&2; exit "$rc"; }
 
 ok "$HOSTNAME is $([[ "$ROLE" == "head" ]] && printf 'not a compute node' || printf 'a compute node') ($role_why) -- every host installs $unit.timer, and cycle.sh asks again on each run"
 
@@ -122,7 +131,7 @@ elif [[ "${PRIV_SCONTROL,,}" != "direct" ]]; then
     priv_what="a job past MAX_JOB_HOURS could not be drained from here"
 fi
 if [[ "${#priv_cmds[@]}" -gt 0 ]] && ! priv_ready "${priv_cmds[@]}"; then
-    warn "sudo as $me would refuse: $PRIV_MISSING -- $priv_what. Those rules are deployed by the site, via the BCM software image so they survive a reprovision; $home/agent/sudoers.default is the reference."
+    warn "sudo would refuse: $PRIV_MISSING -- $priv_what. docs/explanation/running-unprivileged.md#the-sudoers-drop-in"
 fi
 
 ## ── Lingering ─────────────────────────────────────────────────────────────
@@ -134,7 +143,7 @@ if [[ "$(loginctl show-user "$me" -p Linger --value 2>/dev/null)" == "yes" ]]; t
 elif loginctl enable-linger "$me" 2>/dev/null || priv loginctl enable-linger "$me" 2>/dev/null; then
     ok "enabled lingering for $me"
 else
-    fail "could not enable lingering for $me -- 'sudo loginctl enable-linger $me' on this host, or add the rule from agent/sudoers.default"
+    fail "could not enable lingering for $me -- the timer dies with the ssh session. docs/explanation/the-agent-and-the-watchdog.md#why-lingering"
 fi
 
 ## ── The unit ──────────────────────────────────────────────────────────────
@@ -163,7 +172,7 @@ for suffix in service timer; do
     tmp="$dst/.$unit.$suffix.$HOSTNAME.$$"
     sed -e "s|@BRINGUP_HOME@|$home|g" -e "s|@INTERVAL@|$interval|g" \
         -e "s|@SPREAD@|$(( interval * 30 ))|g" "$src" > "$tmp" \
-        || { fail "cannot write $tmp"; rm -f "$tmp"; continue; }
+        || { fail "cannot write into $dst"; rm -f "$tmp"; continue; }
     ## A zero-length unit file, or a symlink to /dev/null, is what systemd calls
     ## masked -- so those are replaced rather than compared.
     if [[ -s "$dst/$unit.$suffix" && ! -L "$dst/$unit.$suffix" ]] && cmp -s "$tmp" "$dst/$unit.$suffix"; then
@@ -179,7 +188,7 @@ for suffix in service timer; do
         fi
     fi
 done
-[[ "$rc" -eq 0 ]] || { echo "refusing to start $unit.timer with a unit missing" >&2; exit "$rc"; }
+[[ "$rc" -eq 0 ]] || { say "refusing to start $unit.timer with a unit missing" >&2; exit "$rc"; }
 
 ## ── Start it ──────────────────────────────────────────────────────────────
 systemctl --user daemon-reload 2>/dev/null || warn "systemctl --user daemon-reload failed"
@@ -193,7 +202,7 @@ if [[ "$out" == *masked* ]]; then
     [[ -n "$out" ]] || ok "unmasked $unit.timer"
 fi
 if [[ -z "$out" || ( "$out" != *Fail* && "$out" != *rror* ) ]]; then
-    ok "$unit.timer enabled and started on $HOSTNAME"
+    ok "$unit.timer enabled and started"
 else
     fail "systemctl --user enable --now $unit.timer -- $out"
 fi
@@ -220,7 +229,7 @@ fi
 ## the install succeeds again, and nothing anywhere says why.
 ## See docs/how-to/arm-a-node.md#armed-but-never-heartbeats.
 if ! systemctl --user is-active --quiet "$unit.timer" 2>/dev/null; then
-    fail "$unit.timer is not active after enabling it -- 'systemctl --user status $unit.timer' on this host"
+    fail "$unit.timer is not active after enabling it. docs/how-to/arm-a-node.md#armed-but-never-heartbeats"
 else
     ## Active is not the same as scheduled: a timer whose next elapse is
     ## `infinity` reports active, reports Result=success, and never fires again.
@@ -252,7 +261,7 @@ else
     if [[ -n "$scheduled" ]]; then
         ok "$unit.timer is scheduled, next elapse $(systemctl --user list-timers "$unit.timer" --no-pager 2>/dev/null | awk 'NR==2 {print $1, $2, $3}')"
     elif [[ "$next_m" == "infinity" && ( -z "$next_r" || "$next_r" == "0" ) ]]; then
-        fail "$unit.timer is active but has no next elapse even after a reload and a restart, so it will never fire again. 'systemctl --user cat $unit.timer' on this host -- a unit still using OnUnitActiveSec= behaves exactly this way"
+        fail "$unit.timer active, next elapse never -- monotonic unit still loaded. docs/how-to/arm-a-node.md#armed-but-never-heartbeats"
     else
         ok "$unit.timer is active; systemd reported no next elapse (realtime=[$next_r] monotonic=[$next_m]) -- 'systemctl --user list-timers $unit.timer' is the readable answer"
     fi
@@ -272,14 +281,18 @@ beat_dir="$home/results/$HOSTNAME"
 if node_excluded "$HOSTNAME" || [[ "$ROLE" == "head" ]]; then
     :   ## no heartbeat is written here; the watchdog has its own
 elif ! mkdir -p "$beat_dir" 2>/dev/null; then
-    fail "cannot create $beat_dir, so this node will never write a heartbeat and the watchdog will keep arming it. sudo chown -R $JOB_USER:$JOB_USER $home/results"
+    fail "cannot create $beat_dir -- this node can never write a heartbeat. docs/how-to/arm-a-node.md#armed-but-never-heartbeats"
 elif ! touch "$beat_dir/.heartbeat" 2>/dev/null; then
-    fail "cannot write $beat_dir/.heartbeat as $me -- $(stat -c '%U owns it' "$beat_dir" 2>/dev/null). This node will never be seen as alive. sudo chown -R $JOB_USER:$JOB_USER $home/results"
+    fail "cannot write $beat_dir/.heartbeat as $me -- $(stat -c '%U owns it' "$beat_dir" 2>/dev/null). docs/how-to/arm-a-node.md#armed-but-never-heartbeats"
 else
     ok "wrote $beat_dir/.heartbeat -- the watchdog can see this host is alive"
 fi
 
-if [[ "$rc" -ne 0 ]]; then
+## The three states partition the fleet, so a caller can tally them: a host says
+## ARMED, or it says why it did not, and never both.
+if [[ "$QUIET" -eq 1 ]]; then
+    [[ "$rc" -eq 0 && "$warns" -eq 0 ]] && echo "ARMED"
+elif [[ "$rc" -ne 0 ]]; then
     echo "       one cycle by hand, which prints every gate it evaluates:" >&2
     echo "         $home/agent/cycle.sh --verbose" >&2
     echo "       and what the timer's own runs said:" >&2

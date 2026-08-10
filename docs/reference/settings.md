@@ -248,6 +248,14 @@ and run unprivileged. There is deliberately no autodetection; see
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | `FANOUT_TOOL` | `auto` | `auto` prefers `clush` and falls back to `pdsh`; `clush` or `pdsh` pins it and fails with a named reason when that one is missing |
+| `FANOUT_CONNECT_TIMEOUT` | `10` | Seconds to reach a node, passed as `-t` to either tool. `0` is no limit |
+| `FANOUT_COMMAND_TIMEOUT` | `60` | Seconds a command may run on a node, passed as `-u` to either tool. `0` is no limit, which is what both tools do unasked |
+
+Neither tool bounds the command by default, and a node with a hung mount answers
+the ssh and then never returns — one of those holds a whole fan-out open. A node
+dropped by the timeout still has a stale heartbeat and is armed by the watchdog
+on its next cycle, so the limit defers a node rather than losing one. See
+[explanation/architecture.md#a-fan-out-is-bounded](../explanation/architecture.md#a-fan-out-is-bounded).
 
 `fanout.sh` is the only place either is invoked, and every trace line that
 reaches a node says which was used. A pinned value that is not installed is a

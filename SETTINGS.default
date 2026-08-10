@@ -130,6 +130,9 @@ PRIV_SCONTROL=sudo
 ## ── Reaching more than one node ───────────────────────────────────────────
 ## auto prefers clush and falls back to pdsh. clush or pdsh pins it.
 FANOUT_TOOL=auto
+## Seconds; 0 is no limit.
+FANOUT_CONNECT_TIMEOUT=10
+FANOUT_COMMAND_TIMEOUT=60
 
 ## ── Getting out of the way (experimental) ─────────────────────────────────
 ## Cancels this node's own running job when somebody else is queued for the

@@ -148,6 +148,10 @@ fi
 ## How more than one node is reached: auto prefers clush and falls back to pdsh.
 ## See docs/explanation/architecture.md#reaching-nodes-is-clush-or-pdsh.
 : "${FANOUT_TOOL:=auto}"
+## Seconds. 0 on either means no limit, which is what both tools do unasked.
+## See docs/explanation/architecture.md#a-fan-out-is-bounded.
+: "${FANOUT_CONNECT_TIMEOUT:=10}"
+: "${FANOUT_COMMAND_TIMEOUT:=60}"
 ## `=` not `:=`: empty is the shipped answer and a real one.
 ## Deliberately not exported -- launch_job.sh is the only reader and hands it
 ## to sbatch --export. See docs/reference/settings.md#extra-environment-for-every-job.

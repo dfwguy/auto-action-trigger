@@ -65,11 +65,42 @@ journalctl --user -u bringup-supervisor.service -n 20    # as cmods, on the head
 To arm a rack yourself rather than wait:
 
 ```bash
-clush -w 'ink50-dh01-h02-[11-18]' '/home/cmods/bringup/agent/install-agent.sh'
-pdsh -R ssh -w 'ink50-dh01-h02-[11-18]' '/home/cmods/bringup/agent/install-agent.sh'
+clush -w 'ink50-dh01-h02-[11-18]' '/home/cmods/bringup/agent/install-agent.sh --quiet' | clubak -b
+pdsh -R ssh -w 'ink50-dh01-h02-[11-18]' '/home/cmods/bringup/agent/install-agent.sh --quiet' | dshbak -c
 ```
 
 Re-running is safe and is how a changed unit or interval is picked up.
+
+## One line per node
+
+Run by hand on one node, `install-agent.sh` prints every step it took, which is
+what you want when that node is the question. Run over a fan-out it prints that
+nine times per host, and a two-hundred-node arm is two thousand lines in which
+the four that matter are indistinguishable from the rest. Nobody reads that, so
+nobody notices the four.
+
+`--quiet` is the fan-out form. Each host prints exactly one of three things:
+
+| Line | Meaning |
+|---|---|
+| `ARMED` | lingering on, unit current, timer scheduled, heartbeat written |
+| `WARNING: …` | armed, but something it needs is missing — the sudo rules, usually. The cycle will run and part of it will not |
+| `FAILED: …` | not armed, and the line names which step |
+
+They partition the fleet: a host says `ARMED` or it says why not, never both.
+That is what lets `pause-agents.sh` tally them, and it is why a `WARNING` host
+is counted apart from an armed one rather than folded in.
+
+The lines carry no hostname, no timestamp and no pid — deliberately, because
+`clubak -b` and `dshbak -c` group on an exact string match, and one varying
+character per host defeats the grouping entirely. The fan-out already labels
+every line with the node it came from; repeating it inside the message costs the
+grouping and buys nothing. Anything genuinely per-host, like the next elapse
+time, is in the full output and not in this one.
+
+`pause-agents.sh --resume` and the watchdog both use `--quiet`, so
+`results/<node>/arm.log` holds a verdict per attempt rather than a screen of
+steps.
 
 ## Is this node armed?
 
@@ -108,13 +139,15 @@ the node in its summary line rather than sshing at it for ever. What
 
 | What `arm.log` holds | What it means |
 |---|---|
-| `no output from clush` | ssh as `$JOB_USER` is not working from the head node to that node |
+| `no output from clush` | nothing came back within `FANOUT_COMMAND_TIMEOUT`. Either ssh as `$JOB_USER` does not work from the head node, or the node answered and then blocked — a stale `$BRINGUP_HOME` mount is the usual reason, since `install-agent.sh` sources `settings.sh` off it as its first act. See [../explanation/architecture.md#a-fan-out-is-bounded](../explanation/architecture.md#a-fan-out-is-bounded) |
 | `FAILED: could not enable lingering` | polkit refuses, and there is no sudo rule for `loginctl`. `sudo loginctl enable-linger cmods` on the node |
 | `FAILED: … does not exist` | the node cannot see `$BRINGUP_HOME` — NFS not mounted, or mounted somewhere else |
 | `FAILED: systemctl --user enable --now …` | no user session bus. Almost always lingering that did not take; check it directly |
+| `FAILED: bringup-agent.timer active, next elapse never` | the manager is still holding a monotonic unit. See [Armed, but never heartbeats](#armed-but-never-heartbeats) |
+| `FAILED: cannot write …/.heartbeat` | `results/<node>` is not writable by `cmods`. `sudo chown -R cmods:cmods /home/cmods/bringup/results` |
 | `Unit file … is masked` | a zero-length unit, left by two hosts racing on a shared `$HOME` before the temp file was made unique. Re-run `install-agent.sh`, which replaces an empty unit and unmasks it |
 | armed, but `agent.log` says `scontrol is not on PATH` | the unit is not reaching whatever puts the Slurm tools on `PATH`. Both units run `/bin/bash -lc` for this; a unit installed before that ran the script directly, so re-run `install-agent.sh`. See [run-slurm-commands-remotely.md](run-slurm-commands-remotely.md) |
-| `WARNING: sudo as cmods would refuse: …` | armed, and the health checks will not run. The sudoers drop-in is missing |
+| `WARNING: sudo would refuse: …` | armed, and the health checks will not run. The sudoers drop-in is missing |
 | nothing at all | the node is not idle or drained, so the watchdog never considered it. `sinfo -n <node>` |
 
 The last row is the one that surprises people. Only `idle` and `drained` nodes

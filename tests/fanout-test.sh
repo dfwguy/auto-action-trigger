@@ -117,6 +117,40 @@ out=$(run "$neither" auto 'fanout_resolve; printf "%s" "$FANOUT_WHY"')
     ok "and says which two it looked for" ||
     bad "the reason is not usable: [$out]"
 
+echo "== a fan-out is bounded =="
+
+## Neither tool limits the command by default, and a node that answers the ssh
+## and then blocks on a hung mount holds the whole fan-out open for ever. Both
+## spell the pair the same way, which is the only reason one function covers
+## them. See docs/explanation/architecture.md#a-fan-out-is-bounded.
+out=$(run "$only_clush" auto 'fanout n[1-4] "hostname"')
+[[ "$out" == *"-t 10 -u 60"* ]] &&
+    ok "clush is given both timeouts: $out" ||
+    bad "clush was called unbounded: $out"
+
+out=$(run "$only_pdsh" auto 'fanout n[1-4] "hostname"')
+[[ "$out" == *"-t 10 -u 60"* ]] &&
+    ok "pdsh is given both timeouts: $out" ||
+    bad "pdsh was called unbounded: $out"
+
+out=$(run "$both" auto 'FANOUT_CONNECT_TIMEOUT=3 FANOUT_COMMAND_TIMEOUT=25 fanout n1 "hostname"')
+[[ "$out" == *"-t 3 -u 25"* ]] &&
+    ok "SETTINGS decides both: $out" ||
+    bad "the settings were not honoured: $out"
+
+## A site that empties or fat-fingers one of these gets the default, not an
+## unbounded fan-out and not a tool that refuses to start.
+out=$(run "$both" auto 'FANOUT_CONNECT_TIMEOUT= FANOUT_COMMAND_TIMEOUT=soon fanout n1 "hostname"')
+[[ "$out" == *"-t 10 -u 60"* ]] &&
+    ok "a non-numeric value falls back rather than passing it through: $out" ||
+    bad "a bad value reached the tool: $out"
+
+## 0 is how both tools spell "no limit", so a site can turn it off deliberately.
+out=$(run "$both" auto 'FANOUT_COMMAND_TIMEOUT=0 fanout n1 "hostname"')
+[[ "$out" == *"-u 0"* ]] &&
+    ok "0 is passed through as the tools' own 'no limit': $out" ||
+    bad "0 was overridden: $out"
+
 echo "== the example an operator is given =="
 
 ## Both spellings, always: a site has one of the two and nobody should have to

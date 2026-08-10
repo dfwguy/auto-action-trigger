@@ -151,6 +151,39 @@ immediately rather than leaving the node silent until the first tick. It reports
 per node, and the watchdog starts last so it is not arming nodes while that pass
 is still going.
 
+Each node reports one line — `ARMED`, or the `WARNING` and `FAILED` lines
+saying why not — and identical lines are grouped under a compressed nodeset, so
+a clean fleet is two or three lines rather than one per node. See
+[arm-a-node.md#one-line-per-node](arm-a-node.md#one-line-per-node). A tally
+follows it:
+
+```
+208 asked, 205 armed, 2 failed, 1 warned, 0 unreachable
+```
+
+### Stragglers are the watchdog's job
+
+`unreachable` is a node that said nothing at all within
+`FANOUT_COMMAND_TIMEOUT`. It is named rather than counted, because a node that
+answers the ssh and then blocks — a stale NFS mount is the usual reason — is
+invisible in every other line of the output.
+
+**Do not re-run `--resume` for those.** They still have a stale heartbeat, so
+the watchdog arms them on its next cycle, `ARM_BATCH` at a time, and records
+each attempt in `results/<node>/arm.log`. Giving it a cycle and then reading
+`trigger-log.sh` is both faster and more informative than a second fan-out that
+will hang on the same nodes for the same reason. If a node is still unarmed
+after `ARM_MAX_ATTEMPTS`, `arm.log` says what it said, and
+[arm-a-node.md#when-a-node-will-not-stay-armed](arm-a-node.md#when-a-node-will-not-stay-armed)
+reads it.
+
+The stop path is where this is *not* true. A node that does not confirm a stop
+may still be cycling out of the tree you are replacing, and no watchdog fixes
+that for you — which is why the stop asks each node to echo `STOPPED` and names
+the ones that did not, and why `--status` is the gate rather than the stop's own
+output. See
+[../explanation/architecture.md#a-fan-out-is-bounded](../explanation/architecture.md#a-fan-out-is-bounded).
+
 Then:
 
 ```bash

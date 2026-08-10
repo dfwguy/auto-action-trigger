@@ -19,11 +19,17 @@
 #   pattern     node filter, same rules as status-check.sh: a bare string
 #               matches by prefix, globs are honored as written.
 #
+# Both fan-outs give up on a node after FANOUT_COMMAND_TIMEOUT and name it. On
+# --resume that is not worth a second pass: a node it missed still has a stale
+# heartbeat, so the watchdog arms it on its next cycle, ARM_BATCH at a time. On
+# a stop it matters -- an unconfirmed node may still be reading the tree -- and
+# --status is what settles that, because it reads heartbeats rather than replies.
+#
 # This is a stop, not a pause: PAUSE_JOBS and the rest live in SETTINGS on the
 # share, which is unreachable exactly when the share is the problem. Nothing
 # re-enables these timers until --resume or install-agent.sh runs.
 #
-# See docs/how-to/update-the-deployment.md.
+# See docs/how-to/update-the-deployment.md#stragglers-are-the-watchdogs-job.
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,7 +44,7 @@ while [[ $# -gt 0 ]]; do
         --resume)      mode=resume; shift ;;
         --status)      mode=status; shift ;;
         -n|--dry-run)  dry=1; shift ;;
-        -h|--help)     sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        -h|--help)     sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         -*)            echo "ERROR: unknown argument $1" >&2; exit 1 ;;
         *)             pattern="$1"; shift ;;
     esac
@@ -133,8 +139,23 @@ stop)
     echo "stopped the watchdog on $HOSTNAME${out:+ -- $out}"
     fanout_resolve || { echo "ERROR: $FANOUT_WHY -- the nodes cannot be reached." >&2; exit 1; }
     echo "stopping ${#nodes[@]} node timer(s) over $FANOUT_CMD: $pretty"
-    fanout "$joined" "$remote_env systemctl --user stop bringup-agent.timer" |
-        grep -v '^[^ ]*: *$' | sed 's/^/  /'
+    ## `&& echo STOPPED`, because a successful stop prints nothing and so does a
+    ## node the fan-out never reached. Now that the fan-out gives up after
+    ## FANOUT_COMMAND_TIMEOUT, those two have to be told apart.
+    ## See docs/how-to/update-the-deployment.md#stragglers-are-the-watchdogs-job.
+    stop_out=$(fanout "$joined" "$remote_env systemctl --user stop bringup-agent.timer && echo STOPPED")
+    if bak_resolve; then printf '%s\n' "$stop_out" | bak; else printf '%s\n' "$stop_out" | grep -v '^[^ ]*: *$'; fi
+    quiet_nodes=()
+    for n in "${nodes[@]}"; do
+        grep -q "^$n:.*STOPPED" <<<"$stop_out" || quiet_nodes+=("$n")
+    done
+    if [[ "${#quiet_nodes[@]}" -gt 0 ]]; then
+        silent_list=$(IFS=,; printf '%s' "${quiet_nodes[*]}")
+        declare -F compress >/dev/null && silent_list=$(compress "$silent_list")
+        printf '\n%d of %d did not confirm a stop: %s\n' \
+            "${#quiet_nodes[@]}" "${#nodes[@]}" "$silent_list"
+        echo "  Those may still be cycling and reading the tree. --status below is what settles it."
+    fi
     ## Not "the fleet is quiet" on the strength of having asked. A stop that
     ## reported nothing can still have missed a node -- one the fan-out could
     ## not reach, or one that is not in sinfo -- and one node still cycling is
@@ -152,10 +173,35 @@ resume)
     fanout_resolve || { echo "ERROR: $FANOUT_WHY -- the nodes cannot be reached." >&2; exit 1; }
     ## install-agent.sh rather than `systemctl start`: it also picks up a unit
     ## or an interval that changed in whatever was just copied over, and it
-    ## reports per node when a host cannot be armed.
+    ## reports per node when a host cannot be armed. --quiet, because a fleet
+    ## saying the same thing should read as one line.
+    ## See docs/how-to/arm-a-node.md#one-line-per-node.
     echo "re-arming ${#nodes[@]} node(s) over $FANOUT_CMD: $pretty"
-    fanout "$joined" "$remote_env $home/agent/install-agent.sh" |
-        grep -E 'FAILED|WARNING|ok: bringup-agent.timer is scheduled' | sed 's/^/  /'
+    armed_out=$(fanout "$joined" "$remote_env $home/agent/install-agent.sh --quiet")
+    if bak_resolve; then printf '%s\n' "$armed_out" | bak; else printf '%s\n' "$armed_out"; fi
+
+    ## A node that said nothing is the one the fan-out timed out on or could not
+    ## reach, and it is the only outcome the grouped block above cannot show --
+    ## there is no line of its own to group. So it is counted and named here.
+    ## See docs/how-to/update-the-deployment.md#stragglers-are-the-watchdogs-job.
+    armed=0; failed=0; warned=0; quiet_nodes=()
+    for n in "${nodes[@]}"; do
+        case "$(grep "^$n:" <<<"$armed_out")" in
+            *FAILED*)  failed=$((failed + 1)) ;;
+            *WARNING*) warned=$((warned + 1)) ;;
+            *ARMED*)   armed=$((armed + 1)) ;;
+            *)         quiet_nodes+=("$n") ;;
+        esac
+    done
+    printf '\n%d asked, %d armed, %d failed, %d warned, %d unreachable\n' \
+        "${#nodes[@]}" "$armed" "$failed" "$warned" "${#quiet_nodes[@]}"
+    if [[ "${#quiet_nodes[@]}" -gt 0 ]]; then
+        silent_list=$(IFS=,; printf '%s' "${quiet_nodes[*]}")
+        declare -F compress >/dev/null && silent_list=$(compress "$silent_list")
+        echo "  no answer within ${FANOUT_COMMAND_TIMEOUT}s: $silent_list"
+    fi
+    [[ "$failed" -gt 0 || "${#quiet_nodes[@]}" -gt 0 ]] &&
+        echo "  The watchdog re-arms whatever is still stale, ARM_BATCH per cycle. Leave them to it, or ./trigger-log.sh once it has had a cycle."
     ## Last, so it does not arm nodes while the pass above is still going.
     out=$(local_timer start)
     echo "started the watchdog on $HOSTNAME${out:+ -- $out}"
