@@ -15,8 +15,11 @@ cluster. Push to `main`, and open a merge request for major changes.
 must not overwrite one cluster's node list and drain switches with another's.
 `SETTINGS.default` is the shipped copy and *is* tracked. Six directories are the
 site's too and are never in a drop — `results/`, `logs/`, `valid-config/`,
-`containers/`, `container-src/`, `reports/`. A copy that does not exclude them
-destroys the cluster's history and its health baseline.
+`containers/`, `container-src/`, `reports/`. Nothing may add them to the
+tarball, and nothing may delete on the way in: the drop is a plain `cp -Rp`,
+which cannot touch a directory the source does not have. `rsync --delete` can,
+and its `--exclude` list is then the only thing between a drop and the
+cluster's history — see `docs/how-to/update-the-deployment.md#why-the-copy-needs-no-exclude-list`.
 
 **A change is not deployed until the fleet is re-armed.** Two thousand agents
 execute out of that directory, so a drop is stop, copy, confirm, resume — and a
@@ -351,7 +354,7 @@ drifted twice.
 A change under `agent/units/` is not testable from a checkout: the suites stub
 systemd, and a unit only takes effect when `install-agent.sh` rewrites and
 restarts it on every host. Say so in the commit, because the reader deploying it
-needs `pause-agents.sh --resume` and not just an `rsync`.
+needs `pause-agents.sh --resume` and not just a copy.
 
 ## Privilege is asked for, never held
 

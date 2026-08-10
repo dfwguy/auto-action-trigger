@@ -16,11 +16,8 @@ tar -jxvf /tmp/auto-action-trigger-*.tar.bz2 -C /tmp
 # 2. stop the fleet
 bash /cluster/bringup/pause-agents.sh
 
-# 3. copy
-rsync -av --delete \
-  --exclude=SETTINGS --exclude=results/ --exclude=logs/ --exclude=valid-config/ \
-  --exclude=containers/ --exclude=container-src/ --exclude=reports/ --exclude=dmesg-archive/ \
-  /tmp/auto-action-trigger-*/ /cluster/bringup/
+# 3. copy -- the /. copies dotfiles too, and -p keeps the exec bits
+cp -Rp /tmp/auto-action-trigger-*/. /cluster/bringup/
 
 # 4. confirm the unit landed -- do not continue if this prints nothing
 grep OnCalendar /cluster/bringup/agent/units/bringup-agent.timer
@@ -89,26 +86,73 @@ could not reach, one that is not in `sinfo`. Those nodes are reading
 `settings.sh` and `launch_job.sh` on every cycle, which are the files a stuck
 copy stalls on.
 
-## `rsync`, not `cp -R`
+## Why the copy needs no exclude list
 
-Three reasons, only the first of which is speed:
+A copy only writes what the source has, and **the site's own data is not in the
+drop**: `SETTINGS` is gitignored, and `results/`, `logs/`, `valid-config/`,
+`containers/`, `container-src/`, `reports/` and `dmesg-archive/` are the
+cluster's, never the tarball's. So `cp -R` cannot touch any of them. There is
+nothing to exclude.
 
-- `cp` rewrites all ~700 files whether or not they changed; `rsync` skips the
-  ones that match, so the second drop copies a handful.
-- `cp` opens each destination `O_WRONLY|O_TRUNC`, so every live script is
-  momentarily zero-length. `rsync` writes a temp file and renames, so a reader
-  sees the old file or the new one and never a truncated one.
-- `--delete` removes files that went away upstream. Without it the deployment
-  keeps every script the framework has ever shipped.
+That is worth saying plainly because this procedure used to carry a
+seven-entry `--exclude` list, and every one of those entries existed for
+`rsync --delete` and for nothing else. `--delete` is what turns a missing
+exclude into a deleted health baseline — the risk and the apparatus that guards
+against it were both self-inflicted. Dropping the flag drops both.
 
-`-v` lists what it transferred and what it deleted. On a normal drop that is a
-handful of lines, which is the point: a long list means more changed than you
-expected, and an empty one means the copy did nothing.
+`-p` keeps the mode bits, which are load-bearing here: a `644` agent script
+installs fine and runs nothing. The trailing `/.` copies dotfiles; `src/*` would
+silently skip `.gitlab-ci.yml`.
 
-**The `--exclude` list is load-bearing because `--delete` is.** Those seven
-directories are the site's own data and none of them is in the tarball, so
-without the excludes `--delete` removes `SETTINGS`, every result, and the health
-baseline. Prove it once:
+What `cp` gives up, and what to do about it:
+
+- **It rewrites all ~700 files every time.** On local disk with the fleet
+  stopped that is a second or two, and it is why there is no `-v` here: a list
+  of 700 lines tells you nothing, where `rsync -v`'s handful was the signal.
+- **It truncates in place.** Each destination is opened `O_WRONLY|O_TRUNC`, so a
+  live script is momentarily zero-length; `rsync` wrote a temp file and renamed.
+  This makes step 2 load-bearing rather than merely polite — with `rsync` a node
+  that missed the stop cost speed, with `cp` it costs correctness. Confirm the
+  fleet is quiet before copying, and see
+  [when the copy misbehaves](#when-the-copy-misbehaves-check-whether-it-actually-stopped).
+- **It never deletes.** A script dropped upstream stays on the cluster for ever.
+  Nothing breaks, but the tree accumulates. Check after a drop that removed
+  something:
+
+  ```bash
+  src=$(echo /tmp/auto-action-trigger-*/)
+  fw=(actions agent docs health-checks jobs parsers tests)
+  comm -13 <(cd "$src" && find "${fw[@]}" -type f | sort) \
+           <(cd /cluster/bringup && find "${fw[@]}" -type f | sort)
+  ```
+
+  Anything printed is on the cluster and not in the drop. Delete it by hand.
+  `docs/reference/layout.md` and its `layout-doc` CI job cover the top level.
+
+**Ownership still bites.** A tree carried over from the years these cycles ran
+as root has root-owned files in it, and `cp` cannot overwrite those as
+`$JOB_USER` any more than `rsync` could: it reports `Permission denied` per
+file, exits non-zero, and leaves the tree **half replaced** — new scripts, old
+unit files — which is worse than either. Once, as root:
+
+```bash
+sudo chown -R cmods:cmods /cluster/bringup
+```
+
+### `rsync` as the alternative
+
+Still the better tool when you want the deletion semantics, an itemised list of
+what actually changed, or a copy over a slow link. The cost is that the exclude
+list comes back, and it is load-bearing the moment `--delete` is:
+
+```bash
+rsync -av --delete \
+  --exclude=SETTINGS --exclude=results/ --exclude=logs/ --exclude=valid-config/ \
+  --exclude=containers/ --exclude=container-src/ --exclude=reports/ --exclude=dmesg-archive/ \
+  /tmp/auto-action-trigger-*/ /cluster/bringup/
+```
+
+Prove the excludes before trusting them — `-n` is a dry run:
 
 ```bash
 rsync -an --delete --exclude=SETTINGS --exclude=results/ --exclude=logs/ \
@@ -117,17 +161,8 @@ rsync -an --delete --exclude=SETTINGS --exclude=results/ --exclude=logs/ \
   /tmp/auto-action-trigger-*/ /cluster/bringup/ | grep '^deleting'
 ```
 
-Only framework files should appear. Anything else means an exclude is missing.
-
-**Read what it says.** A tree carried over from the years these cycles ran as
-root has root-owned files in it, and `rsync` cannot overwrite those as
-`$JOB_USER`: it reports `Permission denied` per file, exits non-zero, and leaves
-the tree **half replaced** — new scripts, old unit files — which is worse than
-either. Once, as root:
-
-```bash
-sudo chown -R cmods:cmods /cluster/bringup
-```
+Only framework files should appear. Anything else means an exclude is missing,
+and running it for real would take the cluster's history with it.
 
 ## Confirm what landed, then resume
 
