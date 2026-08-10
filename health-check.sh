@@ -140,6 +140,16 @@ if ! command -v sinfo &>/dev/null; then
     module load slurm
 fi
 
+# Above every mode: --refresh compresses the node list it suggests, and reads
+# scontrol to do it, so this follows the module load rather than the report.
+if [[ ! -f "$home/report-format.sh" ]]; then
+    echo "ERROR: $home/report-format.sh is missing -- it carries the node-list" >&2
+    echo "       compression and wrapping this report is printed through." >&2
+    exit 1
+fi
+REPORT_FULL=$(( summary || drained || individual ))
+source "$home/report-format.sh"
+
 ## Above the three modes below, all of which filter on it.
 pattern="${args[0]}"
 if [[ -z "$pattern" ]]; then
@@ -157,6 +167,37 @@ if [[ "$refresh" -eq 1 ]]; then
         echo "       bash health-check.sh --refresh node001 'node00[2-9]'" >&2
         exit 2
     fi
+    ## Every other mode takes a glob and this one does not, so an unquoted
+    ## `ink50*` arrives as a literal name. Checked over all the arguments before
+    ## any sentinel is written, so a bad one does not queue half of a list.
+    ## See docs/explanation/health-cadence.md#asking-for-a-re-check.
+    for arg in "${args[@]}"; do
+        [[ "$arg" != *[\*\?]* ]] && continue
+        matched=""
+        for dir in "$logs_dir"/*/; do
+            node=$(basename "$dir")
+            # shellcheck disable=SC2053  # $arg is the caller's glob
+            [[ "$node" == $arg ]] && matched+="${matched:+,}$node"
+        done
+        echo "ERROR: --refresh takes node names and Slurm nodelists, not globs, and" >&2
+        echo "       '$arg' reached it as a literal name -- nothing was queued. It" >&2
+        echo "       writes a sentinel per node, so the set is spelled out -- by a" >&2
+        echo "       tool that expands one, or as a quoted nodeset:" >&2
+        ## Single-quoted: these are examples to read, not commands to run here.
+        echo '           bash health-check.sh --refresh $(nodeset -e @IDLE)' >&2
+        echo '           bash health-check.sh --refresh "$(sinfo -h -t idle -o %N)"' >&2
+        if [[ -n "$matched" ]]; then
+            n_matched=$(count_list "$matched")
+            echo "       $n_matched $(plural "$n_matched") under $logs_dir match it, as a" >&2
+            echo "       nodeset -- quoted, or the shell expands the brackets:" >&2
+            print_wrapped "           bash health-check.sh --refresh " \
+                "'$(compress "$matched")'" >&2
+        else
+            echo "       Nothing under $logs_dir matches it either --" >&2
+            echo "       bash health-check.sh --explain '$arg' lists what does." >&2
+        fi
+        exit 2
+    done
     for arg in "${args[@]}"; do
         while IFS= read -r node; do
             [[ -z "$node" ]] && continue
@@ -173,7 +214,9 @@ if [[ "$refresh" -eq 1 ]]; then
                     echo "ERROR: cannot write $logs_dir/$node/refresh as $(id -un) -- $node will re-check on its own cadence instead." >&2
                 fi
             else
-                echo "No health log for $node in $logs_dir — it will run fresh on its next agent cycle"
+                ## Nothing here can tell a node that has never checked from a
+                ## name that is not a node, and only one of them ever cycles.
+                echo "Nothing queued for $node: no $logs_dir/$node. If it is a node, its first agent cycle creates one and runs the checks; if it is a typo, nothing will."
             fi
         done < <(scontrol show hostnames "$arg" 2>/dev/null || echo "$arg")
     done
@@ -252,14 +295,6 @@ if [[ "$summary" -eq 1 || "$drained" -eq 1 ]]; then
     max_groups=100000; max_checks=100000; max_reasons=100000
 fi
 
-if [[ ! -f "$home/report-format.sh" ]]; then
-    echo "ERROR: $home/report-format.sh is missing -- it carries the node-list" >&2
-    echo "       compression and wrapping this report is printed through." >&2
-    exit 1
-fi
-REPORT_FULL=$(( summary || drained || individual ))
-source "$home/report-format.sh"
-
 ## Groups nodes whose <check> file is identical, largest group first.
 ## See docs/reference/scripts.md#--individual.
 if [[ "$individual" -eq 1 ]]; then
@@ -284,6 +319,15 @@ if [[ "$individual" -eq 1 ]]; then
         ((total_ind++))
     done
     if [[ "$total_ind" -eq 0 ]]; then
+        ## A node name in the check slot is the common miss, and it matches
+        ## nothing rather than erroring. See docs/reference/scripts.md#--individual.
+        if [[ -d "$logs_dir/$check" ]]; then
+            echo "ERROR: '$check' is a node, and --individual takes a check name --" >&2
+            echo "       one check across the fleet. For one node's checks:" >&2
+            echo "           bash health-check.sh --diff $check" >&2
+            echo "       For a check on that node:  bash health-check.sh -i <check> $check" >&2
+            exit 2
+        fi
         echo "No logs/<node>/$check found for '${args[1]:-*}'" >&2
         exit 1
     fi

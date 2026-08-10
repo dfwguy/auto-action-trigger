@@ -94,6 +94,33 @@ an operator holding a node name wants to look at the checks and re-run them in
 the same breath, and two scripts meant remembering which one took a nodelist and
 which took a glob.
 
+Merging them did not merge the argument, though, and that is deliberate. Every
+reading mode takes a node glob; `--refresh` writes, and a glob that quietly
+expands is how one character queues a full check run on two thousand nodes at
+once. So it takes names and nodelists, which have to be meant. The cost is that
+`--refresh 'ink50*'` is a natural thing to type and used to fail twice over: the
+shell passed the pattern through untouched, and `[[ -d ]]` does not glob, so the
+literal string was reported as a node with no health log that would "run fresh
+on its next agent cycle". Neither half was true. It is refused by name now, with
+the nodeset of the `logs/` directories it would have matched printed ready to
+paste — the set spelled out, which is the whole point, without making the
+operator spell it.
+
+Taking names rather than a pattern is also what lets a tool that *expands* one
+compose with it, `$(nodeset -e @IDLE)` being the case worth knowing: the group
+is resolved by something that understands groups, and what arrives is an
+explicit list. That is the distinction the rule is really drawing — not "no
+convenience", but "the expansion happens somewhere the operator can see it
+before it is acted on". `sinfo -h -t idle -o %N` is the same idea where
+ClusterShell is not installed. See
+[reference/scripts.md#--explain-and---refresh](../reference/scripts.md#--explain-and---refresh).
+
+The same restraint applies to a name that simply has no `logs/<node>`. Nothing
+on the head node can tell a node that has never run the checks from a
+misspelling, and a sentinel cannot be written for either, so the line says what
+was not queued and gives both readings rather than predicting a cycle that may
+have nobody to run it.
+
 The sentinel is consumed at exactly one place in `node_health.sh`, below the
 `PAUSE_HEALTH_CHECKS` gate. A refresh queued during a pause is therefore still
 waiting when the pause lifts, rather than being eaten by a cycle that then

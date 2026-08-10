@@ -506,6 +506,32 @@ queued has not happened yet:
 bash health-check.sh --refresh ink50-dh01-h01-14 'ink50-dh01-h02-[11-14]'
 ```
 
+Because it takes names, a tool that produces them composes with it directly —
+which is usually what someone reaching for a glob actually wanted:
+
+```bash
+bash health-check.sh --refresh $(nodeset -e @IDLE)          # ClusterShell
+bash health-check.sh --refresh "$(sinfo -h -t idle -o %N)"  # Slurm, anywhere
+```
+
+`nodeset` ships with ClusterShell, so it is there on a `clush` site and absent
+on a `pdsh`-only one; `sinfo` is there wherever Slurm is. The quoting differs
+and both are deliberate: `nodeset -e` prints space-separated names and is left
+unquoted so the shell splits them into arguments, while `sinfo -o %N` prints one
+compressed nodelist that must stay a single argument for `scontrol show
+hostnames` to expand.
+
+A glob is refused rather than passed through. `--refresh 'ink50*'` is the one
+spelling every *other* mode accepts, and unquoted it reaches the script as a
+literal name once the shell finds no file to expand it against; the refusal
+prints both spellings above, and the nodeset of the `logs/` directories it would
+have matched, ready to paste back. Quote a nodeset, or the shell expands the
+brackets before the script sees them.
+
+A name with no `logs/<node>` queues nothing and says so without predicting: a
+node that has never run the checks and a typo are the same string here, and only
+the first one ever cycles.
+
 It needs write access to `logs/<node>/` and contacts no node — so it queues
 successfully on a node that has stopped cycling, and says so on the same line
 rather than reporting a re-check that will not happen. See

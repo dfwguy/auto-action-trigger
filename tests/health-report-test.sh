@@ -279,6 +279,32 @@ absent "and does not warn"          "has not cycled" "$queue_live"
 check "queueing on a stopped node"  "has not cycled in 10m" "$queue_dead"
 check "and the sentinel is written anyway" "yes" \
     "$([[ -f "$work/logs/node02/refresh" ]] && echo yes)"
+rm -f "$work/logs/node02/refresh" "$work/logs/node05/refresh"
+
+## Every other mode takes a glob, so an unquoted one reaches --refresh as a
+## literal name and matches no directory. Refused with the nodeset it meant,
+## rather than reported as a node that will run on its next cycle -- which is
+## what it used to say, about a name that is not a node at all.
+glob=$(run --refresh 'node0*')
+check "a glob is refused"            "not globs" "$glob"
+check "and counted"                  "5 nodes under" "$glob"
+check "and spelled as a nodeset"     "--refresh 'node0" "$glob"
+## Both spellings, because nodeset is ClusterShell's and a pdsh site has none.
+check "with the group-expansion form" 'refresh $(nodeset -e @IDLE)' "$glob"
+check "and its Slurm equivalent"      'sinfo -h -t idle -o %N' "$glob"
+check "with a non-zero status"       "rc=2" \
+    "$(run --refresh 'node0*' >/dev/null 2>&1; echo "rc=$?")"
+absent "and queues nothing at all"   "yes" \
+    "$([[ -f "$work/logs/node05/refresh" ]] && echo yes)"
+
+## A glob nothing matches still names the form rather than going quiet.
+check "a glob matching nothing"      "Nothing under" "$(run --refresh 'zzz*')"
+
+## A name with no logs/ is a node that has never checked or a typo, and this
+## cannot tell them apart -- so it must not promise a cycle for either.
+missing=$(run --refresh node99)
+check "an unknown name queues nothing" "Nothing queued for node99" "$missing"
+check "and does not promise a cycle"   "if it is a typo, nothing will" "$missing"
 
 echo
 if [[ "$fails" -eq 0 ]]; then
