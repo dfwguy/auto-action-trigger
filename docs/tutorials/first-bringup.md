@@ -100,7 +100,7 @@ ls logs/<your-node>/
 bash set-valid-default.sh <your-node>
 ```
 
-You should see around 38 files, one per check, and `valid-config/default` should
+You should see around 45 files, one per check, and `valid-config/default` should
 now be a symlink. If `logs/<your-node>/` is empty, nothing is armed yet — that is
 the next step, so carry on and come back.
 

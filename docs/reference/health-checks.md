@@ -61,6 +61,13 @@ node is next due. See
 | `dmesg-knvlink` | NVLink discovery failures |
 | `dmesg-ipmi_ssif` | IPMI SSIF errors |
 | `dmesg-mlx5_core` | Mellanox health issue errors |
+| `os-release` | Distribution ID and version (`uname -r` is `os`) |
+| `ofed` | MLNX_OFED version, or the `mlx5_core` module version when `ofed_info` is absent |
+| `hpcx` | HPC-X version, from the install directory under `/opt` |
+| `fabricmanager` | Fabric Manager version and service state |
+| `imex-version` | IMEX binary version (GB series) |
+| `bmc-firmware` | BMC firmware revision, manufacturer and product |
+| `nodeinfo` | Per-node inventory — serials, UUIDs, MACs, addresses — **informational** |
 
 ## The check file format
 
@@ -88,7 +95,7 @@ Three things are load-bearing:
   what the log file, the baseline file and the drain reason all use.
   Renumbering a check does not invalidate a baseline; renaming one does.
 - **Each check runs in its own `bash`**, not sourced. One check that exits or
-  sets a shell option cannot truncate the other 37.
+  sets a shell option cannot truncate the other 44.
 
 The metadata block is read from the first 10 lines and nowhere else —
 `check_meta` in `node_health.sh` narrows to that range before matching, so a
@@ -106,14 +113,20 @@ which produces the check's stdout with no banner, no log file and no diff.
 
 The cycle runs as `$JOB_USER`, so a check that needs privilege says `sudo -n`
 inline — these files are read and run on their own, and a helper on `PATH`
-would break that. Eleven of the 38 do:
+would break that. Thirteen of the 45 do:
 
 | Command | Checks |
 |---|---|
 | `dmesg` | `32-dmesg-nv_err`, `33-dmesg-trace`, `34-dmesg-hw_err`, `35-dmesg-xid`, `36-dmesg-knvlink`, `37-dmesg-ipmi_ssif`, `38-dmesg-mlx5_core` |
-| `dmidecode` | `06-memory` |
+| `dmidecode` | `06-memory`, `45-nodeinfo` |
 | `lspci -vvv` | `20-pcie-lnk-stat`, `21-pcie-acs`, `22-pcie-mrrs` |
-| `ipmitool` | `37-dmesg-ipmi_ssif` |
+| `ipmitool` | `37-dmesg-ipmi_ssif`, `44-bmc-firmware`, `45-nodeinfo` |
+
+Neither `44-bmc-firmware` nor `45-nodeinfo` needs a new sudoers rule:
+`dmidecode` and `ipmitool` were already granted for `06-memory` and
+`37-dmesg-ipmi_ssif`. Both wrap their `ipmitool` calls in `timeout`, because a
+wedged BMC blocks rather than failing and would hold the whole run — see
+[explanation/node-inventory.md#a-missing-value-still-gets-a-line](../explanation/node-inventory.md#a-missing-value-still-gets-a-line).
 
 `lspci` without `-vvv`, `nvidia-smi`, `ibstatus`, `systemctl is-active` and
 every `/sys` and `/proc` read are unprivileged.
@@ -128,19 +141,28 @@ will not match. Why that is fatal where every other gate here carries on is
 
 ## Informational checks
 
-Three checks carry `# informational: yes`: `node_health.sh` still runs them and
+Four checks carry `# informational: yes`: `node_health.sh` still runs them and
 still writes `logs/<node>/<check>`, but never appends them to the reason, so
 they cannot appear in a drain reason and cannot take a node down.
 
-All three compare something that is per-rack, so they can never match a single
-cluster-wide baseline — every node outside the baseline node's rack differs by
-design, and enforcing them drains the fleet for its own topology:
+Three of them compare something that is per-rack, so they can never match a
+single cluster-wide baseline — every node outside the baseline node's rack
+differs by design, and enforcing them drains the fleet for its own topology:
 
 | Check | Why it is per-rack |
 |-------|--------------------|
 | `nvidia-smi-cuuid` | ClusterUUID is shared within a rack, not across the cluster |
 | `imex-node-config` | `nodes_config.cfg` lists that rack's IMEX domain members |
 | `imex-status` | live domain membership matrix — per-rack, and it changes every time a node in the rack goes down, so any baseline for it goes stale |
+
+The fourth, `nodeinfo`, is not a comparison at all. It is this node's inventory
+— serials, UUIDs, MACs, BMC address — every value of which is unique to the
+node by design, so there is no baseline that could express a correct answer.
+The flag gives it the one behaviour it needs: collected on the cadence,
+written per node, never judged. The keys are
+[reference/node-inventory.md](node-inventory.md) and the reason it is a check at
+all rather than a script of its own is
+[explanation/node-inventory.md#it-rides-the-health-check-runner](../explanation/node-inventory.md#it-rides-the-health-check-runner).
 
 Read them with `less logs/<node>/<check>` or `health-check.sh --diff --all <node>`.
 

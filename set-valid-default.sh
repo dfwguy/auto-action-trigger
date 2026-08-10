@@ -35,7 +35,8 @@ rm -rf "${valid:?}/$node"
 cp -r "$logs/$node" "$valid/"
 
 # A copy, never a pointer -- docs/explanation/health-cadence.md#the-golden-baseline.
-rm -f "$valid/$node/refresh" "$valid/$node/.last-check"
+# nodeinfo too -- docs/explanation/node-inventory.md#it-is-not-a-baseline.
+rm -f "$valid/$node/refresh" "$valid/$node/.last-check" "$valid/$node/nodeinfo"
 
 # Relative, so the link resolves wherever the tree is unpacked.
 ln -s "$node" "$valid/default"
