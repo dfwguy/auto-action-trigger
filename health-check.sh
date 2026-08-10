@@ -36,7 +36,9 @@
 #            each node, what that run concluded, and when the next one is due.
 #            Answers "why has this node not re-checked", which the report below
 #            cannot -- it reads a snapshot of the logs, and a node that has
-#            stopped checking keeps whatever it last wrote.
+#            stopped checking keeps whatever it last wrote. A node whose
+#            heartbeat has gone stale is reported as not cycling instead of
+#            being given a due time nothing will act on.
 #
 #   --individual|-i <check> [pattern]
 #            group nodes whose <check> log file is byte-for-byte identical,
@@ -58,7 +60,9 @@
 #            queue an immediate re-check on the named nodes by setting the
 #            refresh sentinel, instead of waiting out HEALTH_INTERVAL_HOURS.
 #            Takes node names and Slurm nodelists (node00[1-18]), repeatable.
-#            Nothing else is read or printed.
+#            Nothing else is read or printed, and no node is contacted -- so a
+#            node that has stopped cycling is queued successfully and says so,
+#            because the sentinel is consumed on the node and not here.
 #
 # Cluster-wide summary of health-check failures, grouped by what has to be
 # fixed rather than by what has to be fixed on: 60 nodes that all fail the same
@@ -77,6 +81,7 @@
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
 logs_dir="$home/logs"
+results_dir="$home/results"
 valid_dir="$home/valid-config/default"
 
 # Parse before loading Slurm, so --help works on a host that has neither.
@@ -99,7 +104,7 @@ for arg in "$@"; do
         --diff|-D)       diff_mode=1 ;;
         --all|-a)        all=1 ;;
         --refresh|-r)    refresh=1 ;;
-        -h|--help)     sed -n '2,74p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        -h|--help)     sed -n '2,78p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         *)             args+=("$arg") ;;
     esac
 done
@@ -135,6 +140,16 @@ if ! command -v sinfo &>/dev/null; then
     module load slurm
 fi
 
+# Above every mode: --refresh compresses the node list it suggests, and reads
+# scontrol to do it, so this follows the module load rather than the report.
+if [[ ! -f "$home/report-format.sh" ]]; then
+    echo "ERROR: $home/report-format.sh is missing -- it carries the node-list" >&2
+    echo "       compression and wrapping this report is printed through." >&2
+    exit 1
+fi
+REPORT_FULL=$(( summary || drained || individual ))
+source "$home/report-format.sh"
+
 ## Above the three modes below, all of which filter on it.
 pattern="${args[0]}"
 if [[ -z "$pattern" ]]; then
@@ -152,17 +167,56 @@ if [[ "$refresh" -eq 1 ]]; then
         echo "       bash health-check.sh --refresh node001 'node00[2-9]'" >&2
         exit 2
     fi
+    ## Every other mode takes a glob and this one does not, so an unquoted
+    ## `ink50*` arrives as a literal name. Checked over all the arguments before
+    ## any sentinel is written, so a bad one does not queue half of a list.
+    ## See docs/explanation/health-cadence.md#asking-for-a-re-check.
+    for arg in "${args[@]}"; do
+        [[ "$arg" != *[\*\?]* ]] && continue
+        matched=""
+        for dir in "$logs_dir"/*/; do
+            node=$(basename "$dir")
+            # shellcheck disable=SC2053  # $arg is the caller's glob
+            [[ "$node" == $arg ]] && matched+="${matched:+,}$node"
+        done
+        echo "ERROR: --refresh takes node names and Slurm nodelists, not globs, and" >&2
+        echo "       '$arg' reached it as a literal name -- nothing was queued. It" >&2
+        echo "       writes a sentinel per node, so the set is spelled out -- by a" >&2
+        echo "       tool that expands one, or as a quoted nodeset:" >&2
+        ## Single-quoted: these are examples to read, not commands to run here.
+        echo '           bash health-check.sh --refresh $(nodeset -e @IDLE)' >&2
+        echo '           bash health-check.sh --refresh "$(sinfo -h -t idle -o %N)"' >&2
+        if [[ -n "$matched" ]]; then
+            n_matched=$(count_list "$matched")
+            echo "       $n_matched $(plural "$n_matched") under $logs_dir match it, as a" >&2
+            echo "       nodeset -- quoted, or the shell expands the brackets:" >&2
+            print_wrapped "           bash health-check.sh --refresh " \
+                "'$(compress "$matched")'" >&2
+        else
+            echo "       Nothing under $logs_dir matches it either --" >&2
+            echo "       bash health-check.sh --explain '$arg' lists what does." >&2
+        fi
+        exit 2
+    done
     for arg in "${args[@]}"; do
         while IFS= read -r node; do
             [[ -z "$node" ]] && continue
             if [[ -d "$logs_dir/$node" ]]; then
                 if touch "$logs_dir/$node/refresh" 2>/dev/null; then
-                    echo "Refresh queued for $node"
+                    ## The sentinel is consumed by the node, so queueing one on a
+                    ## node that has stopped cycling succeeds and does nothing.
+                    if heartbeat_stale "$results_dir" "$node"; then
+                        echo "Refresh queued for $node -- but it has not cycled in ${HEARTBEAT_STALE_MINUTES}m, so nothing there will pick it up. ./trigger-log.sh section 0."
+                    else
+                        echo "Refresh queued for $node"
+                    fi
                 else
                     echo "ERROR: cannot write $logs_dir/$node/refresh as $(id -un) -- $node will re-check on its own cadence instead." >&2
                 fi
             else
-                echo "No health log for $node in $logs_dir — it will run fresh on its next agent cycle"
+                ## Nothing here can tell a node that has never checked from a
+                ## name that is not a node, and only one of them ever cycles.
+                echo "Nothing queued for $node: no $logs_dir/$node. If it is a node, its first agent cycle creates one and runs the checks; if it is a typo, nothing will."
             fi
         done < <(scontrol show hostnames "$arg" 2>/dev/null || echo "$arg")
     done
@@ -180,6 +234,7 @@ if [[ "$explain" -eq 1 ]]; then
     printf '%-28s %-20s %-8s %s\n' NODE 'LAST RUN' OUTCOME 'NEXT DUE'
     now=$(date +%s)
     shown=0
+    not_cycling=0
     for dir in "$logs_dir"/*/; do
         node=$(basename "$dir")
         # shellcheck disable=SC2053  # $pattern is the caller's node glob
@@ -190,13 +245,24 @@ if [[ "$explain" -eq 1 ]]; then
         else
             epoch=""; outcome=""
         fi
+        ## A due time is a prediction about a node that is still cycling, so this
+        ## is asked before the stamp is read rather than printed beside it.
+        ## See docs/explanation/health-cadence.md#a-due-time-assumes-a-live-node.
+        stale=0
+        if heartbeat_stale "$results_dir" "$node"; then stale=1; ((not_cycling++)); fi
         if [[ ! "$epoch" =~ ^[0-9]+$ ]]; then
-            printf '%-28s %-20s %-8s %s\n' "$node" '(never)' '-' 'next agent cycle'
+            due='next agent cycle'
+            [[ "$stale" -eq 1 ]] && due='not cycling — no agent to run them'
+            printf '%-28s %-20s %-8s %s\n' "$node" '(never)' '-' "$due"
             continue
         fi
         hours="$HEALTH_INTERVAL_HOURS"
         [[ "$outcome" == "failed" ]] && hours="$HEALTH_RETRY_INTERVAL_HOURS"
-        if [[ -f "$dir/refresh" ]]; then
+        if [[ -f "$dir/refresh" && "$stale" -eq 1 ]]; then
+            due='refresh queued — not cycling, so nothing picks it up'
+        elif [[ "$stale" -eq 1 ]]; then
+            due='not cycling — no check re-runs here'
+        elif [[ -f "$dir/refresh" ]]; then
             due='refresh queued'
         elif [[ ! "$hours" =~ ^[0-9]+$ || "$hours" -eq 0 ]]; then
             due='never (cadence off)'
@@ -214,6 +280,8 @@ if [[ "$explain" -eq 1 ]]; then
     fi
     echo
     echo "Why a run stopped:  tail results/<node>/health.log"
+    [[ "$not_cycling" -gt 0 ]] &&
+        echo "Not cycling:        $not_cycling of $shown node(s) have written no heartbeat in ${HEARTBEAT_STALE_MINUTES}m -- ./trigger-log.sh section 0"
     exit 0
 fi
 
@@ -226,14 +294,6 @@ max_reasons=8
 if [[ "$summary" -eq 1 || "$drained" -eq 1 ]]; then
     max_groups=100000; max_checks=100000; max_reasons=100000
 fi
-
-if [[ ! -f "$home/report-format.sh" ]]; then
-    echo "ERROR: $home/report-format.sh is missing -- it carries the node-list" >&2
-    echo "       compression and wrapping this report is printed through." >&2
-    exit 1
-fi
-REPORT_FULL=$(( summary || drained || individual ))
-source "$home/report-format.sh"
 
 ## Groups nodes whose <check> file is identical, largest group first.
 ## See docs/reference/scripts.md#--individual.
@@ -259,6 +319,15 @@ if [[ "$individual" -eq 1 ]]; then
         ((total_ind++))
     done
     if [[ "$total_ind" -eq 0 ]]; then
+        ## A node name in the check slot is the common miss, and it matches
+        ## nothing rather than erroring. See docs/reference/scripts.md#--individual.
+        if [[ -d "$logs_dir/$check" ]]; then
+            echo "ERROR: '$check' is a node, and --individual takes a check name --" >&2
+            echo "       one check across the fleet. For one node's checks:" >&2
+            echo "           bash health-check.sh --diff $check" >&2
+            echo "       For a check on that node:  bash health-check.sh -i <check> $check" >&2
+            exit 2
+        fi
         echo "No logs/<node>/$check found for '${args[1]:-*}'" >&2
         exit 1
     fi

@@ -94,6 +94,33 @@ an operator holding a node name wants to look at the checks and re-run them in
 the same breath, and two scripts meant remembering which one took a nodelist and
 which took a glob.
 
+Merging them did not merge the argument, though, and that is deliberate. Every
+reading mode takes a node glob; `--refresh` writes, and a glob that quietly
+expands is how one character queues a full check run on two thousand nodes at
+once. So it takes names and nodelists, which have to be meant. The cost is that
+`--refresh 'ink50*'` is a natural thing to type and used to fail twice over: the
+shell passed the pattern through untouched, and `[[ -d ]]` does not glob, so the
+literal string was reported as a node with no health log that would "run fresh
+on its next agent cycle". Neither half was true. It is refused by name now, with
+the nodeset of the `logs/` directories it would have matched printed ready to
+paste — the set spelled out, which is the whole point, without making the
+operator spell it.
+
+Taking names rather than a pattern is also what lets a tool that *expands* one
+compose with it, `$(nodeset -e @IDLE)` being the case worth knowing: the group
+is resolved by something that understands groups, and what arrives is an
+explicit list. That is the distinction the rule is really drawing — not "no
+convenience", but "the expansion happens somewhere the operator can see it
+before it is acted on". `sinfo -h -t idle -o %N` is the same idea where
+ClusterShell is not installed. See
+[reference/scripts.md#--explain-and---refresh](../reference/scripts.md#--explain-and---refresh).
+
+The same restraint applies to a name that simply has no `logs/<node>`. Nothing
+on the head node can tell a node that has never run the checks from a
+misspelling, and a sentinel cannot be written for either, so the line says what
+was not queued and gives both readings rather than predicting a cycle that may
+have nobody to run it.
+
 The sentinel is consumed at exactly one place in `node_health.sh`, below the
 `PAUSE_HEALTH_CHECKS` gate. A refresh queued during a pause is therefore still
 waiting when the pause lifts, rather than being eaten by a cycle that then
@@ -132,7 +159,10 @@ would take the whole fleet out over a missing `valid-config/`.
 Neither is a check, and a `.last-check` sitting in the baseline directory reads
 as a check name to every consumer that lists it —
 `health-check.sh` filters it as well, because a baseline taken before this
-change still has one.
+change still has one. The informational checks go the same way and for a
+related reason: nothing diffs them, so a copy in the baseline is an answer
+nobody asked for. See
+[node-inventory.md#it-is-not-a-baseline](node-inventory.md#it-is-not-a-baseline).
 
 ## Every cycle says what it decided
 
@@ -149,3 +179,28 @@ the sequencer's volume rotating the health trace away long before it was stale.
 `health-check.sh --explain` answers the question the trace cannot: not what the
 last cycle did, but when the next one is due, read from the stamps across the
 whole fleet.
+
+## A due time assumes a live node
+
+Everything above is a prediction about a node that is still running cycles, and
+both `--explain` and `--refresh` are read on the head node from files the *node*
+writes. Neither contacts anything. So a node whose agent has stopped produces
+the most misleading output either one can produce: a stamp that still parses, a
+due time that arrives and passes, and a `refresh` sentinel that is queued
+successfully and sits there for ever, because the only code that consumes it
+runs on the node that is not running.
+
+That is what `overdue by 28h` means and what it does not. It reads as a cadence
+problem and is almost always an agent problem — the interval elapsed and nothing
+was there to notice. So both modes ask `heartbeat_stale` first, and a node that
+has written no heartbeat in `HEARTBEAT_STALE_MINUTES` is reported as **not
+cycling** rather than being given a time nothing will act on. `--refresh` still
+writes the sentinel, since it is valid the moment the node comes back, and says
+in the same breath that nothing will pick it up yet.
+
+The heartbeat is the right question because the agent touches it every cycle
+before any gate, so it separates "the checks decided not to run" from "nothing
+ran". `./trigger-log.sh` section 0 is where a stale one gets diagnosed; this is
+the same judgement `next-run.sh` prints as `not cycling`, from the same helper in
+`settings.sh`. See
+[the-agent-and-the-watchdog.md#what-the-heartbeat-means](the-agent-and-the-watchdog.md#what-the-heartbeat-means).

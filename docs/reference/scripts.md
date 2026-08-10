@@ -476,12 +476,27 @@ ink50-dh01-h01-11            2026-08-08 04:12:31  clean    in 96m
 ink50-dh01-h01-14            2026-08-08 07:31:02  failed   in 21m
 ink50-dh01-h01-17            2026-08-07 22:04:55  clean    overdue by 6h
 ink50-dh01-h01-29            (never)              -        next agent cycle
+ink50-dh01-h01-33            2026-08-07 11:26:20  failed   not cycling — no check re-runs here
 ```
 
 `overdue` is the one to read: the node is past its interval and has not
 re-checked, so no agent cycle is reaching it. `tail
 results/<node>/health.log` names the gate. `(never)` on a node that has a
 `logs/<node>` means the stamp predates the cadence, and one cycle fixes it.
+
+| `NEXT DUE` | What it means |
+|---|---|
+| `in 96m` | cycling, and the interval has that long to run |
+| `overdue by 6h` | cycling, past its interval — read the trace for the gate |
+| `refresh queued` | a sentinel is waiting; the next cycle consumes it |
+| `never (cadence off)` | both intervals are `0`, so only `--refresh` re-runs them |
+| `next agent cycle` | no stamp yet — the checks have not run since the cadence was deployed |
+| `not cycling` | no heartbeat in `HEARTBEAT_STALE_MINUTES`; nothing there reaches any gate, so no due time would be acted on |
+
+`not cycling` displaces every other value, including `refresh queued`, and the
+footer counts them. It is an agent fault rather than a health one — see
+[explanation/health-cadence.md#a-due-time-assumes-a-live-node](../explanation/health-cadence.md#a-due-time-assumes-a-live-node),
+and `./trigger-log.sh` section 0 to fix it.
 
 `--refresh` takes node names and Slurm nodelists rather than a glob, repeatable,
 and does nothing else — no report is printed, because the re-check it just
@@ -491,7 +506,35 @@ queued has not happened yet:
 bash health-check.sh --refresh ink50-dh01-h01-14 'ink50-dh01-h02-[11-14]'
 ```
 
-It needs write access to `logs/<node>/` and contacts no node. See
+Because it takes names, a tool that produces them composes with it directly —
+which is usually what someone reaching for a glob actually wanted:
+
+```bash
+bash health-check.sh --refresh $(nodeset -e @IDLE)          # ClusterShell
+bash health-check.sh --refresh "$(sinfo -h -t idle -o %N)"  # Slurm, anywhere
+```
+
+`nodeset` ships with ClusterShell, so it is there on a `clush` site and absent
+on a `pdsh`-only one; `sinfo` is there wherever Slurm is. The quoting differs
+and both are deliberate: `nodeset -e` prints space-separated names and is left
+unquoted so the shell splits them into arguments, while `sinfo -o %N` prints one
+compressed nodelist that must stay a single argument for `scontrol show
+hostnames` to expand.
+
+A glob is refused rather than passed through. `--refresh 'ink50*'` is the one
+spelling every *other* mode accepts, and unquoted it reaches the script as a
+literal name once the shell finds no file to expand it against; the refusal
+prints both spellings above, and the nodeset of the `logs/` directories it would
+have matched, ready to paste back. Quote a nodeset, or the shell expands the
+brackets before the script sees them.
+
+A name with no `logs/<node>` queues nothing and says so without predicting: a
+node that has never run the checks and a typo are the same string here, and only
+the first one ever cycles.
+
+It needs write access to `logs/<node>/` and contacts no node — so it queues
+successfully on a node that has stopped cycling, and says so on the same line
+rather than reporting a re-check that will not happen. See
 [explanation/health-cadence.md#asking-for-a-re-check](../explanation/health-cadence.md#asking-for-a-re-check).
 
 ## The rest

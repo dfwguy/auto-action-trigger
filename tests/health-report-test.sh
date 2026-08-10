@@ -230,6 +230,82 @@ check "--summary and --drained do not combine" "rc=2" "$both"
 check "--individual does not combine either" "rc=2" \
     "$(run --individual beta --summary >/dev/null 2>&1; echo "rc=$?")"
 
+## ── --explain and --refresh against the heartbeat ─────────────────────────
+##
+## Both are read on the head node from files the node writes, so a node whose
+## agent has stopped still parses: the stamp is there, the due time arrives, and
+## the sentinel is queued and never consumed. That is the output being tested.
+## See docs/explanation/health-cadence.md#a-due-time-assumes-a-live-node.
+
+now=$(date +%s)
+mkdir -p "$work"/results/{node01,node02,node03,node05,node06}
+touch "$work/results/node01/.heartbeat" "$work/results/node05/.heartbeat" \
+      "$work/results/node06/.heartbeat"
+touch -d '2 hours ago' "$work/results/node02/.heartbeat"
+## node03 is armed and cycling; node02 stopped; node09 was never armed at all,
+## which reads identically to a stopped one from here.
+touch "$work/results/node03/.heartbeat"
+mkdir -p "$work/logs/node09"
+for c in alpha beta; do printf 'b\ngood\n' > "$work/logs/node09/$c"; done
+printf '%s\tclean\n'  "$(( now - 600 ))"   > "$work/logs/node05/.last-check"
+printf '%s\tfailed\n' "$(( now - 86400 ))" > "$work/logs/node01/.last-check"
+printf '%s\tfailed\n' "$(( now - 86400 ))" > "$work/logs/node02/.last-check"
+
+explain=$(run --explain)
+
+check "a cycling node gets a due time"        "node05" "$explain"
+check "and it is a time"                      "in 1" "$explain"
+check "a cycling node past its interval"      "overdue by 23h" "$explain"
+check "a stopped node is not given one"       "not cycling — no check re-runs here" "$explain"
+check "and the footer counts them"            "node(s) have written no heartbeat" "$explain"
+check "a node with no stamp and no heartbeat" "not cycling — no agent to run them" "$explain"
+check "a node with no stamp that is cycling"  "next agent cycle" "$explain"
+
+## The queued sentinel must not read as progress on a node that cannot consume
+## it: "refresh queued" alone is the line that sent an operator looking at the
+## cadence for a fault that was in the agent.
+touch "$work/logs/node02/refresh" "$work/logs/node05/refresh"
+queued=$(run --explain)
+check "a sentinel on a cycling node"      "refresh queued" "$queued"
+check "a sentinel on a stopped one"       "refresh queued — not cycling, so nothing picks it up" "$queued"
+rm -f "$work/logs/node02/refresh" "$work/logs/node05/refresh"
+
+## --refresh still writes it -- the sentinel is valid the moment the node comes
+## back -- and says in the same breath that nothing will pick it up yet.
+queue_live=$(run --refresh node05)
+queue_dead=$(run --refresh node02)
+check "queueing on a cycling node"  "Refresh queued for node05" "$queue_live"
+absent "and does not warn"          "has not cycled" "$queue_live"
+check "queueing on a stopped node"  "has not cycled in 10m" "$queue_dead"
+check "and the sentinel is written anyway" "yes" \
+    "$([[ -f "$work/logs/node02/refresh" ]] && echo yes)"
+rm -f "$work/logs/node02/refresh" "$work/logs/node05/refresh"
+
+## Every other mode takes a glob, so an unquoted one reaches --refresh as a
+## literal name and matches no directory. Refused with the nodeset it meant,
+## rather than reported as a node that will run on its next cycle -- which is
+## what it used to say, about a name that is not a node at all.
+glob=$(run --refresh 'node0*')
+check "a glob is refused"            "not globs" "$glob"
+check "and counted"                  "5 nodes under" "$glob"
+check "and spelled as a nodeset"     "--refresh 'node0" "$glob"
+## Both spellings, because nodeset is ClusterShell's and a pdsh site has none.
+check "with the group-expansion form" 'refresh $(nodeset -e @IDLE)' "$glob"
+check "and its Slurm equivalent"      'sinfo -h -t idle -o %N' "$glob"
+check "with a non-zero status"       "rc=2" \
+    "$(run --refresh 'node0*' >/dev/null 2>&1; echo "rc=$?")"
+absent "and queues nothing at all"   "yes" \
+    "$([[ -f "$work/logs/node05/refresh" ]] && echo yes)"
+
+## A glob nothing matches still names the form rather than going quiet.
+check "a glob matching nothing"      "Nothing under" "$(run --refresh 'zzz*')"
+
+## A name with no logs/ is a node that has never checked or a typo, and this
+## cannot tell them apart -- so it must not promise a cycle for either.
+missing=$(run --refresh node99)
+check "an unknown name queues nothing" "Nothing queued for node99" "$missing"
+check "and does not promise a cycle"   "if it is a typo, nothing will" "$missing"
+
 echo
 if [[ "$fails" -eq 0 ]]; then
     echo "all checks passed"

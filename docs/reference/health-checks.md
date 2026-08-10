@@ -164,7 +164,11 @@ written per node, never judged. The keys are
 all rather than a script of its own is
 [explanation/node-inventory.md#it-rides-the-health-check-runner](../explanation/node-inventory.md#it-rides-the-health-check-runner).
 
-Read them with `less logs/<node>/<check>` or `health-check.sh --diff --all <node>`.
+Read them with `less logs/<node>/<check>`, or across the fleet with
+`health-check.sh --individual <check>`. Not `--diff --all`: that widens the diff
+to every *gated* check, and `set-valid-default.sh` keeps the informational ones
+out of the baseline, so there is nothing there to diff against — see
+[explanation/node-inventory.md#it-is-not-a-baseline](../explanation/node-inventory.md#it-is-not-a-baseline).
 
 This trades away automatic detection of a genuinely wrong ClusterUUID — a node
 cabled into the wrong rack no longer drains for it. That is caught by the
