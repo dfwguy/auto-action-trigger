@@ -79,6 +79,26 @@ The container images do **not** have to live under that home directory: `CONTAIN
 | `clubak` (ClusterShell), or `dshbak` (pdsh) | `status-check.sh`, to group identical rows. Ships with `clush`/`pdsh` respectively, so installing either family covers both |
 | `rsync` | `actions/file_copy.sh` (optional) |
 
+### Required host settings (the NFS server)
+
+Whichever host exports `$BRINGUP_HOME` to the compute nodes — the headnode at most sites — must not hand out NFSv4 delegations:
+
+| Setting | Where | Why |
+|---------|-------|-----|
+| `fs.leases-enable = 0` | `/etc/sysctl.d/` on the NFS server, applied with `sysctl --system` | Every node polls its own `results/<node>/.slurm-view` read-only and never writes it, so NFSv4 grants a read delegation on it. The watchdog rewrites all of them every cycle, and each one has to be recalled first — about 30 seconds for a node that does not answer. Enough silent nodes and the cycle exceeds its `TimeoutStartSec` and is killed before it writes anything, which stops the whole fleet |
+
+Check it and set it with:
+
+```bash
+cat /proc/sys/fs/leases-enable                                                  ## want 0
+echo 'fs.leases-enable = 0' | sudo tee /etc/sysctl.d/90-nfsd-no-delegations.conf
+sudo sysctl --system
+```
+
+It takes effect immediately and needs no remount, no client change and no reboot; delegations already granted lapse rather than being recalled. What it trades away, and the measurement that identifies the problem when it is *not* set, are in [docs/explanation/the-fleet-snapshot.md#the-server-must-not-hand-out-delegations](docs/explanation/the-fleet-snapshot.md#the-server-must-not-hand-out-delegations).
+
+`agent/install-agent.sh` refuses to arm the serving host until this is set, and says so rather than arming a fleet that will stall hours later. It checks nothing on a compute node — a host that mounts the tree has no delegation to grant. `ALLOW_NFS_DELEGATIONS=yes` forces the install past the refusal and downgrades it to a warning on every run. **Do not use it outside a deliberate experiment.** It changes nothing about the recalls; it only removes the one warning you would get before the fleet stops, and the stall it leads to reads as a dead watchdog rather than as a filesystem problem — which is what made this cost ten hours the first time.
+
 ### Operational scripts (headnode only)
 
 The following scripts are run manually by an operator from the headnode and do not require the `cmods` user — they only need standard Slurm CLI access and read/write access to the repo directory:

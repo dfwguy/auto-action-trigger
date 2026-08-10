@@ -100,6 +100,25 @@ bash trigger-debug.sh --ask-nodes
 A node whose heartbeat is stale and which the watchdog cannot arm is
 [arm-a-node.md#when-a-node-will-not-stay-armed](arm-a-node.md#when-a-node-will-not-stay-armed).
 
+### Every node's view is stale and the watchdog log stopped mid-cycle
+
+A fleet where every `.slurm-view` is hours old, `results/supervisor.log` ends
+without an `EXIT:` line, and `systemctl --user status bringup-agent.service`
+shows `activating (start)` killed on a timeout, is the head node failing to
+write the views rather than failing to decide anything. Time a write to a file
+the fleet holds open against a file it does not:
+
+```bash
+time bash -c 'printf x > results/<node>/.probe'; rm -f results/<node>/.probe
+time bash -c 'printf x >> results/<node>/.slurm-view'
+```
+
+Milliseconds against tens of seconds means the NFS server is handing out
+delegations it then has to recall. Fix it with the required host setting in
+[the root README](../../README.md#required-host-settings-the-nfs-server); why it
+happens is
+[the-fleet-snapshot.md#the-server-must-not-hand-out-delegations](../explanation/the-fleet-snapshot.md#the-server-must-not-hand-out-delegations).
+
 ## 3. Ask one node directly
 
 Rather than waiting for an agent cycle:
