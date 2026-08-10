@@ -149,3 +149,28 @@ the sequencer's volume rotating the health trace away long before it was stale.
 `health-check.sh --explain` answers the question the trace cannot: not what the
 last cycle did, but when the next one is due, read from the stamps across the
 whole fleet.
+
+## A due time assumes a live node
+
+Everything above is a prediction about a node that is still running cycles, and
+both `--explain` and `--refresh` are read on the head node from files the *node*
+writes. Neither contacts anything. So a node whose agent has stopped produces
+the most misleading output either one can produce: a stamp that still parses, a
+due time that arrives and passes, and a `refresh` sentinel that is queued
+successfully and sits there for ever, because the only code that consumes it
+runs on the node that is not running.
+
+That is what `overdue by 28h` means and what it does not. It reads as a cadence
+problem and is almost always an agent problem — the interval elapsed and nothing
+was there to notice. So both modes ask `heartbeat_stale` first, and a node that
+has written no heartbeat in `HEARTBEAT_STALE_MINUTES` is reported as **not
+cycling** rather than being given a time nothing will act on. `--refresh` still
+writes the sentinel, since it is valid the moment the node comes back, and says
+in the same breath that nothing will pick it up yet.
+
+The heartbeat is the right question because the agent touches it every cycle
+before any gate, so it separates "the checks decided not to run" from "nothing
+ran". `./trigger-log.sh` section 0 is where a stale one gets diagnosed; this is
+the same judgement `next-run.sh` prints as `not cycling`, from the same helper in
+`settings.sh`. See
+[the-agent-and-the-watchdog.md#what-the-heartbeat-means](the-agent-and-the-watchdog.md#what-the-heartbeat-means).

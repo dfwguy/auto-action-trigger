@@ -476,12 +476,27 @@ ink50-dh01-h01-11            2026-08-08 04:12:31  clean    in 96m
 ink50-dh01-h01-14            2026-08-08 07:31:02  failed   in 21m
 ink50-dh01-h01-17            2026-08-07 22:04:55  clean    overdue by 6h
 ink50-dh01-h01-29            (never)              -        next agent cycle
+ink50-dh01-h01-33            2026-08-07 11:26:20  failed   not cycling — no check re-runs here
 ```
 
 `overdue` is the one to read: the node is past its interval and has not
 re-checked, so no agent cycle is reaching it. `tail
 results/<node>/health.log` names the gate. `(never)` on a node that has a
 `logs/<node>` means the stamp predates the cadence, and one cycle fixes it.
+
+| `NEXT DUE` | What it means |
+|---|---|
+| `in 96m` | cycling, and the interval has that long to run |
+| `overdue by 6h` | cycling, past its interval — read the trace for the gate |
+| `refresh queued` | a sentinel is waiting; the next cycle consumes it |
+| `never (cadence off)` | both intervals are `0`, so only `--refresh` re-runs them |
+| `next agent cycle` | no stamp yet — the checks have not run since the cadence was deployed |
+| `not cycling` | no heartbeat in `HEARTBEAT_STALE_MINUTES`; nothing there reaches any gate, so no due time would be acted on |
+
+`not cycling` displaces every other value, including `refresh queued`, and the
+footer counts them. It is an agent fault rather than a health one — see
+[explanation/health-cadence.md#a-due-time-assumes-a-live-node](../explanation/health-cadence.md#a-due-time-assumes-a-live-node),
+and `./trigger-log.sh` section 0 to fix it.
 
 `--refresh` takes node names and Slurm nodelists rather than a glob, repeatable,
 and does nothing else — no report is printed, because the re-check it just
@@ -491,7 +506,9 @@ queued has not happened yet:
 bash health-check.sh --refresh ink50-dh01-h01-14 'ink50-dh01-h02-[11-14]'
 ```
 
-It needs write access to `logs/<node>/` and contacts no node. See
+It needs write access to `logs/<node>/` and contacts no node — so it queues
+successfully on a node that has stopped cycling, and says so on the same line
+rather than reporting a re-check that will not happen. See
 [explanation/health-cadence.md#asking-for-a-re-check](../explanation/health-cadence.md#asking-for-a-re-check).
 
 ## The rest
