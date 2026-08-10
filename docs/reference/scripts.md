@@ -207,23 +207,24 @@ bash overall_report.sh --full             # that report, nothing elided
 bash overall_report.sh -o ~/today.txt
 ```
 
-One line per node — `PASS`, or the names of what is not passing on it — grouped
-through `clubak`/`dshbak` so that every node saying the same thing is one entry
-under one compressed node list:
+One line per node — whether it is cycling, what Slurm calls it, then `PASS` or
+the names of what is not passing on it — grouped through `clubak`/`dshbak` so
+that every node saying the same thing is one entry under one compressed node
+list:
 
 ```
 ---------------
 ink50-dh01-h20-[03-07,11] (6)
 ---------------
- tests - allreduce hpl **** healthchecks - bios kernel-params
+ UP **** MIXED **** tests - allreduce hpl **** healthchecks - bios kernel-params
 ---------------
 ink50-dh01-h20-19 (1)
 ---------------
- tests -  **** healthchecks - bios
+ DOWN **** DRAINED **** tests - PASS **** healthchecks - bios
 ---------------
 ink50-dh01-h20-[01-02,08-10,12-18] (12)
 ---------------
- PASS
+ UP **** IDLE **** tests - PASS **** healthchecks - PASS
 ```
 
 The size of a group is the size of the incident, which is the same argument
@@ -235,20 +236,28 @@ faults and must not fold together.
 **Names, nothing else.** Not why a benchmark has no pass, and not how it failed:
 whether a column was rejected, never attempted or is mid-retry is a question for
 `--details`, and putting it on the line would split one group of sixty into six
-of ten. Both halves are always spelled out and empty when there is nothing under
-them, so every line has one shape; the report prints a legend above the groups
-so the line itself carries no words it does not need.
+of ten. All four fields are always spelled out, with `PASS` under a half that
+has nothing outstanding, so every line has one shape and no field is ever empty;
+the report prints a legend above the groups so the line itself carries no words
+it does not need.
 
-| Half | Names |
+| Field | Is |
 |---|---|
-| `tests - ` | every benchmark column with no passing result |
-| `healthchecks - ` | every check whose `logs/<node>/<check>` differs from `valid-config/default` |
+| `UP` / `DOWN` | whether `results/<node>/.heartbeat` has been written in `HEARTBEAT_STALE_MINUTES`. Not a probe — see [explanation/the-agent-and-the-watchdog.md](../explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means) |
+| `<state>` | `sinfo`'s state for the node, uppercased. `UNKNOWN` when `sinfo` has no row for it, `NO-SLURM` when `sinfo` itself did not answer — neither of which is a state |
+| `tests - ` | every benchmark column with no passing result, or `PASS` |
+| `healthchecks - ` | every check whose `logs/<node>/<check>` differs from `valid-config/default`, or `PASS` |
+
+The first two fields are the node rather than the work on it, and they come
+first because everything after them is read from files: a `DOWN` node's two
+halves are the last thing written rather than what is true now, and the count of
+those nodes is in the `NOTE:` block above the groups.
 
 **A column that never ran reads the same as one that was rejected**, because
 neither is passing. So do the checks on a node with no `logs/<node>` at all, and
 the checks on *every* node when there is no `valid-config/default`: nothing was
-compared, so nothing passed, and every gated check is named. An empty half is
-what a pass looks like, and none of those three is a pass.
+compared, so nothing passed, and every gated check is named. A half with nothing
+under it prints `PASS`, and none of those three is a pass.
 
 ### `--details` — everything without a pass
 

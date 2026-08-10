@@ -12,14 +12,32 @@ problem is [how-to/diagnose-a-failed-node.md](../how-to/diagnose-a-failed-node.m
 
 ## One line per node
 
-The default report gives each node exactly one line — `PASS`, or the names of
-what is not passing on it — and pipes the fleet through `clubak`, so nodes that
-say the same thing collapse into one entry under one node list. Everything below
-this section describes `--details`, which is what that default was before, and
-which is still where every *reason* lives.
+The default report gives each node exactly one line — whether it is cycling,
+what Slurm calls it, then `PASS` or the names of what is not passing under each
+half — and pipes the fleet through `clubak`, so nodes that say the same thing
+collapse into one entry under one node list. Everything below this section
+describes `--details`, which is what that default was before, and which is still
+where every *reason* lives.
 
 The line answers one question, and the discipline is in what it refuses to also
 answer.
+
+**The node before the work on it.** `UP`/`DOWN` is the node's own heartbeat and
+the Slurm state is one `sinfo` for the fleet, and they lead the line because
+everything after them is read from files: a node whose agent stopped is judged
+from results nobody is refreshing, and a drained node has an explanation for its
+two halves that the halves themselves cannot carry. Both are also the fields
+that stop the report from being read as a to-do list — sixty nodes failing `hpl`
+where all sixty are `DRAINED` is one incident about the drain, not sixty about
+`hpl`. Neither is a probe: nothing here reaches a node, and `DOWN` means the
+heartbeat is stale rather than that the host is off the network. And when
+`sinfo` does not answer, the field says `NO-SLURM` rather than picking a state:
+no answer is not an answer.
+
+Grouping over them is deliberate, and it splits groups that used to fold
+together. That is the same argument as one line rather than two: a set of nodes
+that can be fixed the same way is the unit, and a `DRAINED` node and an `IDLE`
+one failing the same column are not fixed the same way.
 
 **Names, not verdicts.** Not why a column has no pass, not whether it was
 rejected or never attempted or is mid-retry, not how far below a floor it came
@@ -40,8 +58,8 @@ of nodes that can be fixed the same way.
 **Not passing is one category.** A column that never ran and a column the gate
 rejected read identically, because the question the line answers is not "how did
 this fail" but "is this passing". That has a consequence worth being deliberate
-about: **an empty half is exactly what a pass looks like**, so anything nothing
-ever *judged* has to put names on the line anyway or it silently becomes one. A
+about: **a half with nothing under it prints `PASS`**, so anything nothing ever
+*judged* has to put names on the line anyway or it silently becomes one. A
 node with no `logs/<node>` names every gated check, and so does every node on
 the fleet when `valid-config/default` does not resolve — nothing was compared,
 so nothing passed. `tests/brief-report-test.sh` exists mostly to hold those
