@@ -1,7 +1,8 @@
 #!/bin/bash
 #
 # Checks the one-line report overall_report.sh prints by default: one line per
-# node naming what is not passing on it, and the bare word PASS when nothing is.
+# node saying whether it is cycling, what Slurm calls it, and what is not
+# passing on it -- with PASS under a half that has nothing outstanding.
 #
 # The failure this exists for is a node reading PASS for the wrong reason. An
 # empty half is exactly what a pass looks like, so anything nothing ever judged
@@ -86,6 +87,18 @@ for n in node01 node02 node03; do
     printf 'good\n' > "$work/logs/$n/bios"
     printf 'good\n' > "$work/logs/$n/kernel"
 done
+## The Slurm field, from the one sinfo the report runs. node03 is drained, so
+## it leaves the group it would otherwise share with node02 -- a drained node
+## and a cycling one are not one incident even when they fail the same column.
+mkdir -p "$work/bin"
+cat > "$work/bin/sinfo" <<'EOF'
+#!/bin/bash
+printf '%s\n' 'node01|idle|none|Unknown|' 'node02|mixed|none|Unknown|' \
+               'node03|drained|root|2026-08-10T09:00:00|Prolog error'
+EOF
+chmod 755 "$work/bin/sinfo"
+export PATH="$work/bin:$PATH"
+
 for n in node01 node02 node03; do echo PASS > "$work/results/$n/allreduce.txt"; done
 echo PASS > "$work/results/node01/hpl.txt"
 echo NOPE > "$work/results/node02/hpl.txt"
@@ -100,12 +113,14 @@ cd "$work" || exit 1
 ## fallback is exercised by construction, and it is the same lines either way.
 out=$(bash overall_report.sh 2>&1)
 
-check "a clean node is one word about both halves" \
-      'node01: PASS' "$out"
+check "a clean node says so under each half" \
+      'node01: UP **** IDLE **** tests - PASS **** healthchecks - PASS' "$out"
 check "names only, both halves always spelled out" \
-      'node02: tests - hpl **** healthchecks - bios' "$out"
+      'node02: UP **** MIXED **** tests - hpl **** healthchecks - bios' "$out"
 check "a node that never ran is not passing either" \
-      'node04: tests - allreduce hpl' "$out"
+      'node04: UP **** UNKNOWN **** tests - allreduce hpl' "$out"
+check "the Slurm state comes from sinfo" \
+      'node03: UP **** DRAINED **** tests - hpl' "$out"
 check "one line per node" "4" "$(grep -c '^node0' <<< "$out")"
 
 ## The line is names. A status word on it splits one group of sixty into six of
@@ -116,7 +131,8 @@ absent "no status word on the line" 'NOT_RUN' "$out"
 ## The legend carries what the line does not, so it has to be there.
 check "the header explains the tests half"  'tests - <benchmark columns'   "$out"
 check "the header explains the checks half" 'healthchecks - <checks'       "$out"
-check "the header explains PASS"            'PASS, or what is not passing' "$out"
+check "the header explains the heartbeat"   'UP / DOWN - whether'          "$out"
+check "the header explains the state"       "sinfo's state for it"        "$out"
 
 ## The default is the one-line report, so none of the long report's furniture
 ## may appear in it -- and its four section headers are how you would tell.
@@ -127,20 +143,29 @@ absent "no NODES section by default"       '── NODES'         "$out"
 ## two failures are the same string on every node and fold into one group.
 mixed=$(cd "$work" && rm -f results/node02/allreduce.txt && bash overall_report.sh 2>&1)
 check "columns are named in column order" \
-      'node02: tests - allreduce hpl' "$mixed"
+      'node02: UP **** MIXED **** tests - allreduce hpl' "$mixed"
 echo PASS > "$work/results/node02/allreduce.txt"
 
 ## A node nothing has ever compared has no passing check, so it carries the
 ## same names a node failing all of them would. An empty half is what a pass
 ## looks like, and neither of these is one.
 check "a never-checked node names every check" \
-      'node04: tests - allreduce hpl **** healthchecks - bios kernel' "$out"
+      'node04: UP **** UNKNOWN **** tests - allreduce hpl **** healthchecks - bios kernel' "$out"
+
+## Whether the node is still cycling comes first, because everything after it
+## on the line is the last thing written rather than what is true now.
+touch -d '2 hours ago' "$work/results/node04/.heartbeat"
+down=$(cd "$work" && bash overall_report.sh 2>&1)
+check "a stale heartbeat reads DOWN"      'node04: DOWN **** UNKNOWN' "$down"
+check "a cycling node still reads UP"     'node01: UP **** IDLE'      "$down"
+check "and the count is above the groups" 'written no heartbeat'     "$down"
+touch "$work/results/node04/.heartbeat"
 
 rm -f "$work/valid-config/default"
 nobase=$(cd "$work" && bash overall_report.sh 2>&1)
 check "no baseline names every check, on every node" \
-      'node01: tests -  **** healthchecks - bios kernel' "$nobase"
-absent "no baseline never reads as a pass" 'node01: PASS' "$nobase"
+      'node01: UP **** IDLE **** tests - PASS **** healthchecks - bios kernel' "$nobase"
+absent "no baseline never reads as a pass" 'healthchecks - PASS' "$nobase"
 ln -sfn baseline "$work/valid-config/default"
 
 ## --details is the old report, unchanged, and --full still implies it.
@@ -154,7 +179,7 @@ check "--full implies --details" '── NODES' "$fullo"
 
 ## A pattern narrows the fleet here the same way it does everywhere else.
 one=$(cd "$work" && bash overall_report.sh node02 2>&1)
-check "a pattern narrows the report" 'node02: tests - hpl' "$one"
+check "a pattern narrows the report" 'node02: UP **** MIXED **** tests - hpl' "$one"
 absent "a pattern excludes the rest"  'node01:'                "$one"
 
 echo

@@ -2,28 +2,35 @@
 #
 # Usage: overall_report.sh [--details [--full]] [--no-cache] [-o file] [pattern]
 #
-# One line per node -- PASS, or the names of what is not passing on it --
-# grouped so that every node saying the same thing is one entry with one node
-# list:
+# One line per node -- whether it is cycling, what Slurm calls it, then PASS or
+# the names of what is not passing under each half -- grouped so that every node
+# saying the same thing is one entry with one node list:
 #
 #   ---------------
 #   ink50-dh01-h20-[03-07,11] (6)
 #   ---------------
-#   tests - allreduce hpl **** healthchecks - bios kernel-params
+#   UP **** MIXED **** tests - allreduce hpl **** healthchecks - bios kernel-params
 #   ---------------
 #   ink50-dh01-h20-19 (1)
 #   ---------------
-#   tests -  **** healthchecks - bios
+#   DOWN **** DRAINED **** tests - PASS **** healthchecks - bios
 #   ---------------
 #   ink50-dh01-h20-[01-02,08-10,12-18] (12)
 #   ---------------
-#   PASS
+#   UP **** IDLE **** tests - PASS **** healthchecks - PASS
+#
+# The first two fields are the node rather than the work on it. UP or DOWN is
+# its own heartbeat and not a probe: DOWN means nothing has written
+# results/<node>/.heartbeat in HEARTBEAT_STALE_MINUTES, so everything after it
+# on the line is the last thing written rather than what is true now. The second
+# is sinfo's state for the node, uppercased -- UNKNOWN when sinfo has no row for
+# it, NO-SLURM when sinfo itself did not answer, neither of which is a state.
 #
 # Names, nothing else. Not why a benchmark has no pass and not how it failed --
 # whether it was rejected, never attempted or is being retried is a question for
 # --details, and putting it here would split one group of sixty into six of ten.
-# Both halves are always spelled out, empty when there is nothing under them, so
-# every line has one shape; a node with nothing under either reads PASS.
+# All four fields are always spelled out, PASS under a half with nothing
+# outstanding, so every line has one shape and no field is ever empty.
 #
 # A node that passes is still on the report, so this covers the whole fleet
 # rather than only its exceptions, and the size of a group is the size of the
@@ -76,9 +83,9 @@
 #   WHAT TO RUN NEXT
 #               the commands that answer the questions this report raises.
 #
-# Slurm is asked for the whole fleet, never once per node: squeue for the queue,
-# and with --details also sinfo for state and drain reason and scontrol to
-# compress node lists and expand another user's job. The default asks it once.
+# Slurm is asked for the whole fleet, never once per node: sinfo for state and
+# drain reason, squeue for the queue, and with --details also scontrol to
+# compress node lists and expand another user's job.
 #
 # Read-only apart from -o. It submits nothing, drains nothing, resumes nothing.
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
@@ -106,7 +113,7 @@ while (($#)); do
         -o|--output)
             [[ -n "$2" ]] || { echo "ERROR: $1 needs a file to write" >&2; exit 1; }
             report_file="$2"; shift 2 ;;
-        -h|--help)    sed -n '2,83p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        -h|--help)    sed -n '2,90p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         -*)           echo "ERROR: unknown argument $1" >&2; exit 1 ;;
         *)            args+=("$1"); shift ;;
     esac
@@ -231,17 +238,24 @@ fi
 [[ ${#excluded[@]} -gt 0 ]] &&
     note "Left out, not compute nodes: ${excluded[*]}"
 
+## The first field of every one-line entry, and only that report prints it.
+## See docs/explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means.
+declare -A node_down
+if [[ "$details" -eq 0 ]]; then
+    for node in "${nodes[@]}"; do
+        heartbeat_stale "$results_dir" "$node" && node_down["$node"]=1
+    done
+    [[ ${#node_down[@]} -gt 0 ]] &&
+        note "${#node_down[@]} of ${#nodes[@]} node(s) have written no heartbeat in ${HEARTBEAT_STALE_MINUTES}m and read DOWN below -- everything after that field on their line is the last thing written rather than what is true now. ./trigger-log.sh section 0 is why."
+fi
+
 ## ── Slurm, once for the fleet ─────────────────────────────────────────────
 ## Reason last in the format string: a Slurm reason is free text with spaces
 ## and pipes are what separates the rest.
 
 declare -A slurm_state slurm_setter slurm_when slurm_reason
 slurm_default="unknown"
-if [[ "$details" -eq 0 ]]; then
-    ## The one-line report prints no state, no drain and no trace, so the whole
-    ## of this section is work the default would throw away.
-    slurm_default="not read"
-elif command -v sinfo >/dev/null 2>&1; then
+if command -v sinfo >/dev/null 2>&1; then
     while IFS='|' read -r n state setter when reason; do
         [[ -z "$n" || -n "${slurm_state[$n]}" ]] && continue
         slurm_state["$n"]="$state"
@@ -251,11 +265,11 @@ elif command -v sinfo >/dev/null 2>&1; then
         slurm_reason["$n"]="$reason"
     done < <(sinfo -N -h -o '%N|%T|%u|%H|%E' 2>/dev/null)
     [[ ${#slurm_state[@]} -eq 0 ]] && {
-        note "sinfo returned no nodes -- no state, no drain reason and no prolog verdict below."
+        note "sinfo returned no nodes -- every Slurm state below reads NO-SLURM, with no drain reason and no prolog verdict behind it."
         slurm_default="no-slurm"
     }
 else
-    note "sinfo is not on PATH even after 'module load slurm' -- no state, no drain reason and no prolog verdict below."
+    note "sinfo is not on PATH even after 'module load slurm' -- every Slurm state below reads NO-SLURM, with no drain reason and no prolog verdict behind it."
     slurm_default="no-slurm"
 fi
 
@@ -498,7 +512,10 @@ fi
 BRIEF_LINE=""
 brief_line() {
     local node="$1"
-    local tests="${node_not_passing[$node]}" health
+    local tests="${node_not_passing[$node]}" health reach=UP
+    local state="${slurm_state[$node]:-$slurm_default}"
+
+    [[ -n "${node_down[$node]}" ]] && reach=DOWN
 
     if [[ "$have_baseline" -ne 1 || -n "${never_checked[$node]}" ]]; then
         ## Nothing was compared here, so nothing passed -- every gated check is
@@ -508,11 +525,7 @@ brief_line() {
         health="${health_fail_list[$node]//,/ }"
     fi
 
-    if [[ -z "$tests" && -z "$health" ]]; then
-        BRIEF_LINE="PASS"
-    else
-        BRIEF_LINE="tests - $tests **** healthchecks - $health"
-    fi
+    BRIEF_LINE="$reach **** ${state^^} **** tests - ${tests:-PASS} **** healthchecks - ${health:-PASS}"
 }
 
 emit_brief() {
@@ -533,7 +546,10 @@ emit_brief() {
 
     ## The legend, so the line itself does not have to carry the words. Nothing
     ## below it is repeated per node, which is the point of putting it here.
-    printf 'One line per node, grouped: PASS, or what is not passing on it.\n'
+    printf 'One line per node, grouped: the node itself, then what is not passing on it.\n'
+    printf '  UP / DOWN - whether the node has written a heartbeat in %sm\n' \
+        "$HEARTBEAT_STALE_MINUTES"
+    printf "  <state> - sinfo's state for it, or NO-SLURM when sinfo did not answer\n"
     printf '  tests - <benchmark columns with no passing result>\n'
     printf '  healthchecks - <checks whose logs/<node> differs from valid-config/default>\n'
     printf 'Why any of them: bash overall_report.sh --details\n\n'
