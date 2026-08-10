@@ -368,7 +368,7 @@ Full command reference in [docs/reference/scripts.md](docs/reference/scripts.md)
 bash pause-agents.sh          # the watchdog here, then every node timer
 ```
 
-That is also the thing to run before replacing the deployment with a new drop — `cp -Rp /tmp/auto-action-trigger-*/. /cluster/bringup/`, which needs no exclude list because the site's own data is not in the drop to begin with. The stop matters more than it used to, though: `cp` truncates in place. See [docs/how-to/pause-and-resume.md#replacing-the-tree](docs/how-to/pause-and-resume.md#replacing-the-tree). To remove the framework rather than stop it, carry on: on the head node, as `cmods`,
+That is also the thing to run before replacing the deployment with a new drop — `rsync -av /tmp/auto-action-trigger-*/ /cluster/bringup/`, with no `--delete` and so no exclude list, because the site's own data is not in the drop to begin with. See [docs/how-to/pause-and-resume.md#replacing-the-tree](docs/how-to/pause-and-resume.md#replacing-the-tree). To remove the framework rather than stop it, carry on: on the head node, as `cmods`,
 
 ```bash
 bash /home/cmods/bringup/agent/uninstall-agent.sh

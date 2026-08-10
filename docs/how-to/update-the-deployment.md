@@ -16,8 +16,8 @@ tar -jxvf /tmp/auto-action-trigger-*.tar.bz2 -C /tmp
 # 2. stop the fleet
 bash /cluster/bringup/pause-agents.sh
 
-# 3. copy -- the /. copies dotfiles too, and -p keeps the exec bits
-cp -Rp /tmp/auto-action-trigger-*/. /cluster/bringup/
+# 3. copy -- no --delete, so no --exclude list to get wrong
+rsync -av /tmp/auto-action-trigger-*/ /cluster/bringup/
 
 # 4. confirm the unit landed -- do not continue if this prints nothing
 grep OnCalendar /cluster/bringup/agent/units/bringup-agent.timer
@@ -91,78 +91,89 @@ copy stalls on.
 A copy only writes what the source has, and **the site's own data is not in the
 drop**: `SETTINGS` is gitignored, and `results/`, `logs/`, `valid-config/`,
 `containers/`, `container-src/`, `reports/` and `dmesg-archive/` are the
-cluster's, never the tarball's. So `cp -R` cannot touch any of them. There is
-nothing to exclude.
+cluster's, never the tarball's. Nothing can overwrite what it does not have. So
+there is nothing to exclude.
 
-That is worth saying plainly because this procedure used to carry a
-seven-entry `--exclude` list, and every one of those entries existed for
-`rsync --delete` and for nothing else. `--delete` is what turns a missing
-exclude into a deleted health baseline — the risk and the apparatus that guards
-against it were both self-inflicted. Dropping the flag drops both.
+This procedure used to carry a seven-entry `--exclude` list, a dry run to prove
+the list, and a warning that a missing entry deletes the health baseline. Every
+one of those existed for `--delete` and for nothing else: `--delete` is the only
+thing that can reach a file the source has never heard of. Drop the flag and the
+whole apparatus goes with it — the risk and the guard against it were both
+self-inflicted.
 
-`-p` keeps the mode bits, which are load-bearing here: a `644` agent script
-installs fine and runs nothing. The trailing `/.` copies dotfiles; `src/*` would
-silently skip `.gitlab-ci.yml`.
+What `--delete` bought was that a script dropped upstream also leaves the
+cluster. Without it the tree accumulates, which breaks nothing and is worth
+checking after a drop that removed something:
 
-What `cp` gives up, and what to do about it:
+```bash
+src=$(echo /tmp/auto-action-trigger-*/)
+fw=(actions agent docs health-checks jobs parsers tests)
+comm -13 <(cd "$src" && find "${fw[@]}" -type f | sort) \
+         <(cd /cluster/bringup && find "${fw[@]}" -type f | sort)
+```
 
-- **It rewrites all ~700 files every time.** On local disk with the fleet
-  stopped that is a second or two, and it is why there is no `-v` here: a list
-  of 700 lines tells you nothing, where `rsync -v`'s handful was the signal.
-- **It truncates in place.** Each destination is opened `O_WRONLY|O_TRUNC`, so a
-  live script is momentarily zero-length; `rsync` wrote a temp file and renamed.
-  This makes step 2 load-bearing rather than merely polite — with `rsync` a node
-  that missed the stop cost speed, with `cp` it costs correctness. Confirm the
-  fleet is quiet before copying, and see
-  [when the copy misbehaves](#when-the-copy-misbehaves-check-whether-it-actually-stopped).
-- **It never deletes.** A script dropped upstream stays on the cluster for ever.
-  Nothing breaks, but the tree accumulates. Check after a drop that removed
-  something:
+Anything printed is on the cluster and not in the drop; delete it by hand.
+`docs/reference/layout.md` and its `layout-doc` CI job cover the top level.
 
-  ```bash
-  src=$(echo /tmp/auto-action-trigger-*/)
-  fw=(actions agent docs health-checks jobs parsers tests)
-  comm -13 <(cd "$src" && find "${fw[@]}" -type f | sort) \
-           <(cd /cluster/bringup && find "${fw[@]}" -type f | sort)
-  ```
+`-v` lists what it transferred. On a normal drop that is a handful of lines,
+which is the point: a long list means more changed than you expected, and an
+empty one means the copy did nothing.
 
-  Anything printed is on the cluster and not in the drop. Delete it by hand.
-  `docs/reference/layout.md` and its `layout-doc` CI job cover the top level.
-
-**Ownership still bites.** A tree carried over from the years these cycles ran
-as root has root-owned files in it, and `cp` cannot overwrite those as
-`$JOB_USER` any more than `rsync` could: it reports `Permission denied` per
-file, exits non-zero, and leaves the tree **half replaced** — new scripts, old
-unit files — which is worse than either. Once, as root:
+**Ownership bites.** A tree carried over from the years these cycles ran as root
+has root-owned files in it, and `rsync` cannot overwrite those as `$JOB_USER`:
+it reports `Permission denied` per file, exits non-zero, and leaves the tree
+**half replaced** — new scripts, old unit files — which is worse than either.
+Once, as root:
 
 ```bash
 sudo chown -R cmods:cmods /cluster/bringup
 ```
 
-### `rsync` as the alternative
+### Not `cp -R`, and the reason is not speed
 
-Still the better tool when you want the deletion semantics, an itemised list of
-what actually changed, or a copy over a slow link. The cost is that the exclude
-list comes back, and it is load-bearing the moment `--delete` is:
+`rsync` writes a temp file and renames it into place. `cp` opens the
+destination `O_WRONLY|O_TRUNC` and writes through it — the same inode a running
+`bash` is still reading from.
 
-```bash
-rsync -av --delete \
-  --exclude=SETTINGS --exclude=results/ --exclude=logs/ --exclude=valid-config/ \
-  --exclude=containers/ --exclude=container-src/ --exclude=reports/ --exclude=dmesg-archive/ \
-  /tmp/auto-action-trigger-*/ /cluster/bringup/
+`bash` reads a script lazily, seeking as it executes, so rewriting that inode
+under a live cycle resumes it at a byte offset that now means something else.
+It is not a torn read that fails cleanly; it is a script that keeps going and
+does the wrong thing. Replacing a four-line script under itself, with two
+comment lines added above:
+
+```
+line A: started
+./victim.sh: line 4: am,: command not found     ## resumed mid-token
+line A: started                                 ## and re-ran an earlier line
+line B: finished cleanly
 ```
 
-Prove the excludes before trusting them — `-n` is a dry run:
+The same replacement by `rsync` prints `line A` and `line B` and nothing else:
+the rename leaves the running process on the old inode, which it finishes
+reading before anything reopens the path.
 
-```bash
-rsync -an --delete --exclude=SETTINGS --exclude=results/ --exclude=logs/ \
-  --exclude=valid-config/ --exclude=containers/ --exclude=container-src/ \
-  --exclude=reports/ --exclude=dmesg-archive/ \
-  /tmp/auto-action-trigger-*/ /cluster/bringup/ | grep '^deleting'
-```
+That is the whole argument. `cp` also rewrites all ~700 files rather than the
+handful that changed, which costs a second and, worse, buries the `-v` list that
+tells you what a drop actually did.
 
-Only framework files should appear. Anything else means an exclude is missing,
-and running it for real would take the cluster's history with it.
+### What the stop is still for
+
+The rename means a node that missed `pause-agents.sh` no longer risks a
+corrupted script. It does not make the stop optional, because a cycle is
+several `bash` invocations and the copy can land between them: `node-agent.sh`
+runs `file_copy.sh`, `node_health.sh` and `launch_job.sh` as separate execs, so
+a cycle can run the old agent against a new action. Each file is intact and the
+combination is one nobody tested.
+
+The exposure is small and bounded — a cycle lasts a second or two out of every
+two minutes, so a copy of a few seconds catches a few dozen of the two thousand
+nodes mid-cycle, each for exactly one cycle, and the next one two minutes later
+is wholly on the new tree. Nothing is corrupted and nothing needs repair.
+
+So: keep the stop. It costs seconds and removes the question, and
+`pause-agents.sh` writes nothing to the share. The honest exception is a drop
+that touches one file or only `docs/` — there is no skew to have — and even
+then the stop is cheaper than deciding whether you are right.
 
 ## Confirm what landed, then resume
 

@@ -26,15 +26,14 @@ replaces scripts under running processes, so it is a stop-copy-resume:
 
 ```bash
 bash pause-agents.sh              # stop the watchdog here, then every node timer
-cp -Rp /tmp/auto-action-trigger-*/. /cluster/bringup/
+rsync -av /tmp/auto-action-trigger-*/ /cluster/bringup/
 bash pause-agents.sh --resume     # re-arm the nodes, then start the watchdog
 ```
 
-The stop is not optional: `cp` truncates each file in place, so a node still
-cycling can read a zero-length script. The whole procedure — where to unpack,
-why the copy needs no exclude list, what `cp` gives up against `rsync`, and what
-to confirm before resuming — is
-[update-the-deployment.md](update-the-deployment.md).
+No `--delete`, so no `--exclude` list: the site's own data is not in the drop
+and cannot be overwritten by it. The whole procedure — where to unpack, why the
+excludes went with the flag, why not `cp -R`, and what to confirm before
+resuming — is [update-the-deployment.md](update-the-deployment.md).
 
 ## Stopping it when the share is the problem
 

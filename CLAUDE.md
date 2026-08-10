@@ -16,10 +16,11 @@ must not overwrite one cluster's node list and drain switches with another's.
 `SETTINGS.default` is the shipped copy and *is* tracked. Six directories are the
 site's too and are never in a drop — `results/`, `logs/`, `valid-config/`,
 `containers/`, `container-src/`, `reports/`. Nothing may add them to the
-tarball, and nothing may delete on the way in: the drop is a plain `cp -Rp`,
-which cannot touch a directory the source does not have. `rsync --delete` can,
-and its `--exclude` list is then the only thing between a drop and the
-cluster's history — see `docs/how-to/update-the-deployment.md#why-the-copy-needs-no-exclude-list`.
+tarball, and nothing may delete on the way in: the drop is `rsync -av` with no
+`--delete`, which cannot reach a directory the source does not have, and so
+needs no `--exclude` list to get wrong. Not `cp -R` — it rewrites the inode a
+running `bash` is mid-way through reading. See
+`docs/how-to/update-the-deployment.md#why-the-copy-needs-no-exclude-list`.
 
 **A change is not deployed until the fleet is re-armed.** Two thousand agents
 execute out of that directory, so a drop is stop, copy, confirm, resume — and a
