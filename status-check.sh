@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: status-check.sh [-t test] [-s] [pattern]
+# Usage: status-check.sh [-t test] [-s] [--sort-by-hostname] [pattern]
 #
 #   pattern  optional node-name filter. A bare string matches every node whose
 #            name starts with it, so a rack prefix (dh01-rack01) covers the
@@ -41,6 +41,13 @@
 #            alone, and an exported list that does not say so is one paste away
 #            from draining nodes for a test they were never judged on.
 #
+#   --sort-by-hostname
+#            order the report by node rather than by test. The default walks the
+#            benchmark columns in the order they are configured and prints one
+#            section per test, so a test's whole fleet reads as one block; this
+#            sorts every row by node name instead, so one node's columns sit
+#            together and the tests are interleaved.
+#
 #   --no-cache
 #            judge every node from its files, ignoring results/.result_cache.*.
 #            A cached report is the report you would have got anyway; reach for
@@ -57,6 +64,7 @@ jobs_dir="$JOBS_DIR"
 
 tests=()
 summary=0
+by_node=0
 args=()
 while (($#)); do
     case "$1" in
@@ -64,8 +72,9 @@ while (($#)); do
             [[ -n "$2" ]] || { echo "ERROR: $1 needs a test pattern" >&2; exit 1; }
             tests+=("$2"); shift 2 ;;
         -s|--summary) summary=1; shift ;;
+        --sort-by-hostname) by_node=1; shift ;;
         --no-cache) export SCAN_CACHE=0; shift ;;
-        -h|--help) sed -n '2,49p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        -h|--help) sed -n '2,56p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         *)         args+=("$1"); shift ;;
     esac
 done
@@ -257,13 +266,31 @@ if [[ "$summary" -ne 1 ]]; then
     # a missing one empties stdout while the pipeline still exits 0 -- silently
     # identical to "no nodes match". Print ungrouped and say why instead.
     if bak_resolve; then
-        scan_fleet "${nodes[@]}" | report_lines | sort | bak
+        group() { bak; }
     else
         echo "NOTE: neither clubak (ships with clush) nor dshbak (ships with pdsh)" >&2
         echo "      is on PATH -- printing one line per node instead of grouping" >&2
         echo "      identical statuses. Install ClusterShell to get the grouped form." >&2
-        scan_fleet "${nodes[@]}" | report_lines | sort
+        group() { cat; }
     fi
+
+    if [[ "$by_node" -eq 1 ]]; then
+        scan_fleet "${nodes[@]}" | report_lines | sort | group
+        exit 0
+    fi
+
+    ## One scan split per column, then one invocation per test: the grouping
+    ## tool orders its own output, so test order cannot come from sorting the
+    ## rows. See docs/reference/scripts.md#the-order-of-the-report.
+    scan_dir=$(mktemp -d) || exit 1
+    trap 'rm -f "$running_file"; rm -rf "$scan_dir"' EXIT
+    scan_fleet "${nodes[@]}" |
+        awk -F"$SCAN_FS" -v dir="$scan_dir" '{ print > (dir "/" $2) }'
+    for col in "${columns[@]}"; do
+        ## A column nothing has a row for is skipped, not printed empty.
+        [[ -s "$scan_dir/$col" ]] || continue
+        report_lines < "$scan_dir/$col" | sort | group
+    done
     exit 0
 fi
 

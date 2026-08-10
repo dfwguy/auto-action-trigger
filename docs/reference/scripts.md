@@ -20,6 +20,7 @@ bash status-check.sh ink50-dh01-h20        # one rack (bare prefix)
 bash status-check.sh -t allreduce          # one benchmark, every run of it
 bash status-check.sh -t 'allreduce*' -t dcgmi-r3 ink50-dh01-h20
 bash status-check.sh -s                    # node lists per status, no reasons
+bash status-check.sh --sort-by-hostname    # by node instead of by test
 ```
 
 Reads `results/` and prints per-node status for each benchmark column, grouped
@@ -75,6 +76,23 @@ burn-in list does not leave a permanent `NOT_RUN` column that reads like work
 outstanding. Per node, `results/<node>/quick-view.txt` carries the state
 directly: `BURN-IN OFF` when the switch is off, and `IN QUEUE` for anything
 submitted and not yet judged.
+
+### The order of the report
+
+The report is ordered by test: the benchmark columns are walked in the order
+`BENCHMARKS` (then `BURNIN`) configures them, and each test's blocks are printed
+together, so one test's whole fleet reads as one section. That is the order the
+jobs run in and the order `-t` names them in, so narrowing with `-t` removes
+sections from the report rather than rearranging it.
+
+`--sort-by-hostname` orders by node instead: every row sorted by node name, so
+one node's columns sit together and the tests are interleaved. It is the shape
+to reach for when the question is about a node rather than about a benchmark.
+
+The grouping tool below sorts its own output, so the test order cannot come from
+sorting the rows — the report is one invocation of it per column, over a single
+scan split by column. That is also why the two orders are a flag and not a
+`sort` pipeline the reader could write themselves.
 
 ### Grouping identical rows
 
