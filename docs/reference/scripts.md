@@ -191,9 +191,10 @@ how many cells failed but not which job they belong to. It is counted from the
 status rather than from the cell, so a job with a metric is broken out here too:
 its cells hold a number that says nothing about whether the gate accepted it.
 
-Both halves are laid out the same way, always, under one rule: **TSV at a
-terminal** is column-aligned for reading, and **anything else** — a pipe, a
-redirect, `-o`, or `-c` — is the raw separated rows. Getting it into a
+Both halves follow one rule: **TSV at a terminal** is column-aligned for
+reading, and **anything else** — a pipe, a redirect, `-o`, or `-c` — is the raw
+separated rows. It is asked of each stream on its own, so `daily-report.sh >
+/dev/null` still prints the summary aligned. Getting it into a
 spreadsheet is [how-to/export-a-report.md](../how-to/export-a-report.md).
 
 ## `overall_report.sh` — everything without a pass

@@ -124,12 +124,11 @@ even if you redirect the table — and it stays out of any file you export.
 bash daily-report.sh > /dev/null      # summary only
 ```
 
-One thing to notice while you do that: the summary you just got is raw
-tab-separated rather than the aligned columns you saw a moment ago. That is the
-report's single layout rule doing its job — **aligned only for TSV at a
-terminal, raw separated rows for anything else** — and "anything else" includes
-sending the table to `/dev/null`. Run it without the redirect to read it
-aligned; use the redirect when you want the summary alone.
+One thing to notice while you do that: the summary is still in aligned columns,
+on the same grid it had with the table above it. The report's layout rule —
+**aligned only for TSV at a terminal, raw separated rows for anything else** —
+is asked of each stream separately, and the redirect was on stdout. The table
+went to `/dev/null` raw; the summary is still at a terminal.
 
 Five blocks. The two worth learning now:
 

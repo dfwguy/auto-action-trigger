@@ -39,22 +39,22 @@
 # is on stderr and not in the rows on purpose: the file written by -o and a
 # redirect of stdout both have to stay machine-readable.
 #
-# The two halves are laid out the same way, always. One rule decides it for the
-# whole report:
+# One layout rule, asked of each stream, since the two have separate
+# destinations:
 #
 #   TSV at a terminal    column-aligned on one shared grid -- see the note on
 #                        the grid below -- for reading on screen.
 #   anything else        the raw separated rows. A pipe, a redirect, -o, or -c.
 #
-# So -c gives comma separated rows for the table AND the summary, which is the
-# form to use for a spreadsheet: paste it and split on the delimiter. Aligned
-# text is for reading, not for importing -- a fixed-width import has to guess
-# where the columns are, and it guesses from whatever was selected, so pasting
-# part of a report gets different break points than pasting all of it. Nothing
-# about the layout can fix that. Splitting on a separator has nothing to guess.
+# So `daily-report.sh > /dev/null` still reads aligned -- the table went to the
+# redirect, the summary is still at a terminal -- and -c gives comma separated
+# rows for the table AND the summary, the form to use for a spreadsheet: paste
+# it and split on the delimiter. Aligned text is for reading, not importing --
+# a fixed-width import has to guess where the columns are, and it guesses from
+# whatever was selected, so pasting part of a report gets different break
+# points than pasting all of it. Splitting on a separator has nothing to guess.
 #
-# `daily-report.sh | cat` is the same thing with tabs, which a spreadsheet
-# splits on paste without a dialog at all.
+# `daily-report.sh | cat` is the table with tabs, which a spreadsheet splits.
 #
 # Read-only apart from -o. It submits nothing and drains nothing.
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
@@ -469,13 +469,11 @@ if [[ -n "$report_file" ]]; then
     printf '%s\n' "${rows[@]}" | tr '\t' "$sep" > "$report_file" || exit 1
 fi
 
-## Table and summary alike: the grid is for reading TSV at a terminal, anything
-## else gets raw separated rows. See docs/reference/scripts.md.
-##
-## Decided once for the whole report, not per stream -- the summary is on stderr
-## and the table on stdout, so testing each would put an aligned block under a
-## raw table whenever only stdout was redirected.
-aligned=0; [[ "$sep" == $'\t' && -t 1 ]] && aligned=1
+## The grid is for reading TSV at a terminal, anything else gets raw separated
+## rows -- asked of each stream, because they have separate destinations.
+## See docs/reference/scripts.md.
+table_aligned=0;   [[ "$sep" == $'\t' && -t 1 ]] && table_aligned=1
+summary_aligned=0; [[ "$sep" == $'\t' && -t 2 ]] && summary_aligned=1
 
 ## Guarded on the argument count: `printf '%s\n'` with nothing to print still
 ## emits one empty line, which is an empty record in a separated stream.
@@ -489,30 +487,30 @@ emit_rows() {
     fi
 }
 
-emit_rows "$aligned" "${rows[@]}"
+emit_rows "$table_aligned" "${rows[@]}"
 
 {
     echo
-    emit_rows "$aligned" "${total_rows[@]}"
+    emit_rows "$summary_aligned" "${total_rows[@]}"
 
     if [[ ${#slurm_rows[@]} -gt 0 ]]; then
         echo
-        emit_rows "$aligned" "${slurm_rows[@]}"
+        emit_rows "$summary_aligned" "${slurm_rows[@]}"
     fi
 
     if [[ ${#status_rows[@]} -gt 0 ]]; then
         echo
-        emit_rows "$aligned" "${status_rows[@]}"
+        emit_rows "$summary_aligned" "${status_rows[@]}"
     fi
 
     if [[ ${#metric_rows[@]} -gt 0 ]]; then
         echo
-        emit_rows "$aligned" "${metric_rows[@]}"
+        emit_rows "$summary_aligned" "${metric_rows[@]}"
     fi
 
     if [[ ${#passfail_rows[@]} -gt 0 ]]; then
         echo
-        emit_rows "$aligned" "${passfail_rows[@]}"
+        emit_rows "$summary_aligned" "${passfail_rows[@]}"
     fi
 
     ## Last, so everything between the first row and the last stays on the grid

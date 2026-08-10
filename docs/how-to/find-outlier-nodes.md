@@ -11,10 +11,9 @@ weeks. The numbers will.
 bash daily-report.sh > /dev/null
 ```
 
-The summary is on stderr, so that discards the table and keeps it. Rows come
-back raw tab-separated rather than aligned — the report aligns only for TSV at a
-terminal, and redirecting stdout is not that. Drop the redirect to read it
-aligned with the table above it.
+The summary is on stderr, so that discards the table and keeps it — aligned,
+because the layout rule is asked of each stream and the redirect was on stdout.
+Pipe or redirect *stderr* and the same rows come back raw tab-separated.
 
 The block you want is `job (metric)`:
 
