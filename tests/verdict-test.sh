@@ -76,6 +76,9 @@ cases=(
   ## Synthetic; replace with captures once a node has run it. See docs/explanation/llmb.md.
   "llm-pretrain-solo__good|DONE|"
   "llm-pretrain-solo__missing-rank|FAIL|fewer than 4 GPUs reported step timings"
+  ## Real i05-30: the recipe half of the llmb install missing, so nothing ran at
+  ## all. Read as a short count of GPUs until the zero case got its own reason.
+  "llm-pretrain-solo__no-ranks|FAIL|no training step timings"
   ## A run that stopped part-way has a healthy-looking median over the part that
   ## ran, so the ceiling passes it. See docs/explanation/llmb.md#a-run-that-stopped-early.
   "llm-pretrain__short-run|FAIL|fewer than 50 training step timings"

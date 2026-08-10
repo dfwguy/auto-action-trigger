@@ -1,0 +1,4 @@
+preflight: ink50-dh01-i05-30 gpus=4 cores=144/144
+no /cluster/workspace/llmb/workloads/pretrain_llama3.1/Megatron-Bridge/scripts/performance/run_script.py -- the recipe half of the llmb install is missing
+exit status: 1
+FAIL

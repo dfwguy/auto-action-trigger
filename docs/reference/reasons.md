@@ -89,9 +89,9 @@ comparison is direct.
 
 | Reason | Implicates |
 |--------|-----------|
-| `no training step timings` | The run produced no training output at all. Staging or the container, not the node — check the image, `$LLMB_INSTALL` and `$HF_HOME` before touching hardware |
+| `no training step timings` | The run produced no training output at all — both LLM jobs. Staging or the container, not the node — check the image, `$LLMB_INSTALL` and `$HF_HOME` before touching hardware. `VERDICT_DETAIL` gives the line count of the result file, which says whether the job got far enough to print anything |
 | `fewer than <n> training step timings` | `llm-pretrain` started and stopped. The wall limit, a rank dying quietly, or a container exiting mid-run. The median it did produce is not evidence of health |
-| `fewer than <n> GPUs reported step timings` | `llm-pretrain-solo`: a GPU produced nothing while its siblings trained. `VERDICT_DETAIL` names which ranks did report, so the missing one is the finding |
+| `fewer than <n> GPUs reported step timings` | `llm-pretrain-solo`: a GPU produced nothing **while its siblings trained**. `VERDICT_DETAIL` names which ranks did report, so the missing one is the finding. None reporting is `no training step timings` above, not this |
 | `a GPU reported fewer than <n> step timings` | All four started, one stopped early. Names the GPU and its count. A single-device fault, not a node-wide one |
 | `per-GPU step times disagree -- spread above <n>` | The four copies ran to completion and one was slow. `VERDICT_DETAIL` names the GPU and its margin — the most specific per-device finding in the tree |
 | `step time above <n> ms` | The whole tray is slow together, which the spread check passes by construction. Read it against the fleet median before assuming the node |

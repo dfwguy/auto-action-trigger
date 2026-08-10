@@ -547,6 +547,13 @@ _v_llm_solo_ranks() {
     counts=$(grep -oE "^[0-9]+:.*($VERDICT_STEP_TIMING)" "$file" 2>/dev/null |
         cut -d: -f1 | sort -n | uniq -c)
     n=$(printf '%s' "$counts" | grep -c .)
+    ## Nothing at all is not a short count of GPUs -- it is staging or the
+    ## container. See docs/explanation/llmb.md#nothing-at-all-is-a-different-fault.
+    if [[ "$n" -eq 0 ]]; then
+        VERDICT_REASON="no training step timings"
+        VERDICT_DETAIL="$(wc -l < "$file" 2>/dev/null | tr -d ' ') lines in the result file"
+        return 1
+    fi
     if [[ "$n" -lt "$min" ]]; then
         VERDICT_REASON="fewer than $min GPUs reported step timings"
         VERDICT_DETAIL="reported: $(awk '{ printf "%s%s", s, $2; s="," }' <<<"$counts")"

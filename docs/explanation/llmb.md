@@ -531,6 +531,33 @@ grep -oE '^[0-9]+:.*train_step_timing' results/<node>/llm-pretrain-solo.txt |
 Nothing else in the tree ties a gate to a count the recipe chose, which is why
 this one is written down rather than left in the constant.
 
+### Nothing at all is a different fault
+
+`llm-pretrain` asks two questions in order: did *any* timing appear, and then
+were there enough of them. `_v_llm_solo_ranks` asked only the second, so a solo
+run where no rank reported failed the floor of four and was reported as `fewer
+than 4 GPUs reported step timings` — which says three GPUs trained and one did
+not, and points the reader at hardware. `i05-30` read that way while its log
+held four lines saying the recipe half of the llmb install was missing.
+
+The two are not the same finding and do not have the same fix. Some ranks
+reporting is a per-device fault on a node that staged and started; none
+reporting is staging or the container, and no GPU on that node is implicated.
+So zero gets `no training step timings` — the reason the four-way gate already
+gives for it, so the two jobs group together in a report rather than describing
+one fault in two ways.
+
+`VERDICT_DETAIL` carries the line count of the result file, because the next
+question is always whether the job got anywhere at all. Four lines is a launch
+that was refused before the container ran; four hundred is a run that started
+and never reached its first step, which is a different place to look.
+
+Note what this does *not* do: it does not consult `VERDICT_RUN_ERRORS`, and a
+log carrying one of those strings **and** no timings is still reported here. The
+preflight messages that produce this case — a missing recipe, an unreadable
+`$LLMB_INSTALL` — match none of them, so nothing is being hidden today. A gate
+that learns to read those messages belongs above this one, not inside it.
+
 ## Judging the four step times
 
 `_v_gate_llm_pretrain_solo` in `parsers/nvl72/verdict.sh` asks two questions the
