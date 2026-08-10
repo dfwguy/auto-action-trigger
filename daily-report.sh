@@ -9,7 +9,9 @@
 #   -c, --csv         comma separated instead of tab separated.
 #   -o, --output <f>  also write the rows to <f>. Without it nothing is
 #                     written to disk -- a report is only ever produced
-#                     because someone asked for one.
+#                     because someone asked for one. The directory has to
+#                     exist; naming a path is a statement about where the
+#                     report goes, and this creates nothing.
 #   --no-cache        judge every node from its files, ignoring
 #                     results/.result_cache.*. A cached report is the report you
 #                     would have got anyway; reach for this when you suspect the
@@ -76,7 +78,7 @@ while [[ $# -gt 0 ]]; do
         --no-cache)
             export SCAN_CACHE=0; shift ;;
         -h|--help)
-            sed -n '2,57p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+            sed -n '2,59p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         -*) echo "ERROR: unknown argument $1" >&2; exit 1 ;;
         *)  args+=("$1"); shift ;;
     esac
@@ -97,8 +99,21 @@ elif [[ "$pattern" != *[\*\?\[]* ]]; then
     pattern="${pattern}*"
 fi
 
+## Checked here rather than at the write below: this report takes a scan of the
+## whole fleet to build, and one that cannot be written has wasted it. Nothing
+## is created -- see docs/how-to/export-a-report.md.
 if [[ -n "$report_file" ]]; then
-    mkdir -p "$(dirname "$report_file")" || exit 1
+    report_dir=$(dirname "$report_file")
+    if [[ ! -d "$report_dir" ]]; then
+        echo "ERROR: $report_dir does not exist, so -o $report_file cannot be written." >&2
+        echo "       Create it, or name a path that exists. Nothing was scanned." >&2
+        exit 1
+    fi
+    if [[ ! -w "$report_dir" ]]; then
+        echo "ERROR: $report_dir is not writable by $(id -un), so -o $report_file" >&2
+        echo "       cannot be written. Nothing was scanned." >&2
+        exit 1
+    fi
 fi
 
 ## Without this an operator shell that never loaded the slurm module reads
@@ -149,6 +164,19 @@ done
 if [[ ${#excluded[@]} -gt 0 ]]; then
     echo "NOTE: left out, not compute nodes: ${excluded[*]}" >&2
 fi
+## A node that has stopped cycling still has rows, and they are the last thing
+## written rather than what is true now.
+## See docs/explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means.
+declare -a silent
+for node in "${nodes[@]}"; do
+    heartbeat_stale "$results_dir" "$node" && silent+=("$node")
+done
+if [[ ${#silent[@]} -gt 0 ]]; then
+    echo "NOTE: ${#silent[@]} node(s) have not cycled in ${HEARTBEAT_STALE_MINUTES}m, so their rows are the last thing written rather than what is true now: ${silent[*]}" >&2
+    echo "      Their timers are not firing. ./trigger-log.sh section 0 is the fleet view;" >&2
+    echo "      results/<node>/arm.log is what the watchdog heard back from each." >&2
+fi
+
 if [[ ${#nodes[@]} -eq 0 ]]; then
     # args[0], not $1 -- $1 is whichever flag came first once -c/-o are in play.
     echo "No nodes under $results_dir match '${args[0]:-*}'" >&2

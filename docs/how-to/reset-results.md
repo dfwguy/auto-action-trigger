@@ -6,7 +6,7 @@ mv results results.$(date +%F)       # everything, kept
 rm -rf results                       # everything, gone
 ```
 
-Safe at any time — the tree is recreated and re-owned on the next monitoring
+Safe at any time — the tree is recreated on the next agent
 cycle. See
 [reference/layout.md#result-path-ownership](../reference/layout.md#result-path-ownership)
 for why ownership matters and how to fix a tree immediately rather than waiting.

@@ -4,7 +4,7 @@
 #
 # Saves each node's kernel ring buffer into the tree, and optionally clears it
 # and resumes the node. For the one drain the recovery cannot argue its way out
-# of: a node whose dmesg has filled with call traces fails BCM's pre-job `dmesg`
+# of: a node whose dmesg has filled with call traces fails the pre-job `dmesg`
 # check on every job, so it drains, resumes, drains again, and spends its
 # attempt cap discovering that. Clearing the buffer is what breaks the loop.
 #
@@ -34,7 +34,7 @@
 #                node's own.
 #
 #                Read on the host you run this from -- it is a local grep, not a
-#                pdsh -- so run it on the head node the fleet forwards to, and
+#                the fan-out -- so run it on the head node the fleet forwards to, and
 #                read the `on <host>` line to see which one that was. Matched as
 #                `<node> kernel:`, so a line that merely names the node is not
 #                counted as coverage.
@@ -69,6 +69,7 @@ set -u
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
+source "$home/fanout.sh"
 
 clear_buf=0
 resume=0
@@ -160,9 +161,12 @@ for n in "${nodes[@]}"; do
 done
 
 ## `--time-format=iso` is util-linux 2.30 and later; -T is the older spelling
-## and a bare dmesg is the fallback that always answers.
-pdsh -R ssh -w "$nodelist" \
-    'dmesg --time-format=iso 2>/dev/null || dmesg -T 2>/dev/null || dmesg' 2>/dev/null |
+## and a bare dmesg is the fallback that always answers. Each is tried through
+## sudo first: dmesg_restrict is on in these images and this may be run as
+## JOB_USER. See docs/explanation/running-unprivileged.md.
+fanout "$nodelist" \
+    'sudo -n dmesg --time-format=iso 2>/dev/null || sudo -n dmesg -T 2>/dev/null || sudo -n dmesg 2>/dev/null ||
+     dmesg --time-format=iso 2>/dev/null || dmesg -T 2>/dev/null || dmesg' 2>/dev/null |
     awk -v dir="$archive" -v stamp="$stamp" '
         { i = index($0, ": "); if (i == 0) next
           node = substr($0, 1, i - 1)
@@ -192,7 +196,7 @@ done
 
 if [[ "${#empty[@]}" -gt 0 ]]; then
     echo "   ${#empty[@]} node(s) returned no dmesg. Unreachable, or dmesg is root-only here:"
-    echo "     pdsh -R ssh -w $(IFS=,; printf '%s' "${empty[*]}") 'dmesg | tail -5'"
+    fanout_example "$(IFS=,; printf '%s' "${empty[*]}")" 'sudo -n dmesg | tail -5'
 fi
 if [[ "${#unlogged[@]}" -gt 0 ]]; then
     echo "   ${#unlogged[@]} node(s) are not in $syslog, so the archive is the only copy."
@@ -203,7 +207,7 @@ fi
 savedlist=$(IFS=,; printf '%s' "${saved[*]}")
 
 if [[ "$clear_buf" -eq 1 ]]; then
-    pdsh -R ssh -w "$savedlist" 'dmesg -C' 2>&1 | sed 's/^/   clear: /'
+    fanout "$savedlist" 'sudo -n dmesg -C 2>/dev/null || dmesg -C' | sed 's/^/   clear: /'
     for n in "${saved[@]}"; do
         printf '## ring buffer cleared %s by %s; anything older is only in the syslog above\n' \
             "$(date '+%F %T')" "${USER:-unknown}" >> "$archive/$n/$stamp.txt"

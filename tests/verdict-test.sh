@@ -70,6 +70,9 @@ cases=(
   ## about, and it still has to be caught.
   "nvbandwidth__missing-peer|FAIL|missing peer transfer -- N/A off the matrix diagonal"
   "nvbandwidth__unstable|FAIL|bandwidth unstable -- coefficient of variation above 0.08"
+  ## Real g21-17: every host transfer healthy, every peer test waived. See
+  ## docs/explanation/judging-benchmarks.md#a-waived-test-is-a-test-that-did-not-run.
+  "nvbandwidth__waived|FAIL|WAIVED -- nvbandwidth skipped tests it could not run"
   ## Synthetic; replace with captures once a node has run it. See docs/explanation/llmb.md.
   "llm-pretrain-solo__good|DONE|"
   "llm-pretrain-solo__missing-rank|FAIL|fewer than 4 GPUs reported step timings"

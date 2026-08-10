@@ -43,8 +43,8 @@ source "$home/settings.sh"
 Afterwards `SETTINGS_FILE` holds the path that was actually read, or is empty if
 neither file was found. Nothing treats an empty one as fatal, because the
 defaults inside `settings.sh` are a complete working configuration on their own.
-The three BCM actions are the exception in one respect only: they treat a
-missing `settings.sh` as fatal, because a defaulted empty benchmark or check
+The agent and its three steps are the exception in one respect only: they treat
+a missing `settings.sh` as fatal, because a defaulted empty benchmark or check
 list reads as "everything passing" on every node. They resolve their own
 location like everything else.
 
@@ -144,15 +144,16 @@ under the Slurm job names `bringup-<node>` and `burnin-<node>`. What that
 separation buys, and what to expect once the switch is on, is in
 [explanation/sequencing.md#two-lists](../explanation/sequencing.md#two-lists).
 
-The image has to be there **before** the switch is flipped — `mnubergemm` is in
-the default `CONTAINERS` for that reason even though its job does not run by
-default.
+The image has to be there **before** the switch is flipped: build `mnubergemm`
+when you build the rest, even though its job does not run by default.
 
 ## Container images
 
-| Setting | Default | Meaning |
-|---------|---------|---------|
-| `CONTAINERS` | `hpc-benchmarks nvbandwidth mnubergemm` | What `build_containers.sh` builds when no image is named on the command line |
+There is **no setting for which images to build**. `build_containers.sh` takes
+them on the command line, and every `.sqsh` in `CONTAINER_DIR` is cached on
+every node — one place decides, and the copy has no opinion. Why, and what the
+`CONTAINERS` key that used to be here cost, is
+[explanation/containers.md#what-gets-built-is-what-you-ask-for](../explanation/containers.md#what-gets-built-is-what-you-ask-for).
 
 | Image | Jobs that use it | Source |
 |-------|-----------------|--------|
@@ -186,20 +187,6 @@ not carry the version at all.
 against — see
 [explanation/llmb.md#the-frozen-recipe](../explanation/llmb.md#the-frozen-recipe).
 
-```bash
-CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm"   # default -- needs an NGC login
-CONTAINERS="hpc-benchmarks"                          # no credentials
-CONTAINERS="hpc-benchmarks nvbandwidth nvloom"       # adds the source build -- run with -S
-CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm nemo"  # adds the two LLM jobs' image
-CONTAINERS=""                                        # build nothing
-```
-
-An explicitly empty `CONTAINERS=""` means "build nothing" and is left that way —
-the one setting where empty is a real answer, so `settings.sh` backfills it only
-when the key is absent altogether. `-A` builds everything regardless of this
-setting, and naming images as arguments overrides it. See
-[how-to/build-containers.md](../how-to/build-containers.md).
-
 ## Health-check cadence
 
 | Setting | Default | Meaning |
@@ -216,6 +203,66 @@ which of the two applies. `health-check.sh --explain` prints the resulting due
 times across the fleet. Why two intervals and no backoff:
 [explanation/health-cadence.md#choosing-the-two-intervals](../explanation/health-cadence.md#choosing-the-two-intervals).
 
+## The agent and the watchdog
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `AGENT_INTERVAL_MINUTES` | `2` | How often `bringup-agent.timer` fires one cycle, on every host. Must divide 60 — `1 2 3 4 5 6 10 12 15 20 30` — because the timer is `OnCalendar=*:0/N`; anything else is refused and 2 is used |
+| `SUPERVISOR_INTERVAL_MINUTES` | `2` | How often `bringup-supervisor.timer` fires the watchdog on the head node. Also how often the fleet's node views are rewritten — see [explanation/the-fleet-snapshot.md](../explanation/the-fleet-snapshot.md) |
+| `HEARTBEAT_STALE_MINUTES` | `10` | A heartbeat older than this, on an `idle` or `drained` node, is armed again |
+| `ARM_BATCH` | `200` | Most nodes one watchdog cycle reaches at once; the rest are deferred to the next. `0` is no cap. Every arm is an ssh from one host — see [explanation/the-agent-and-the-watchdog.md#arming-is-bounded](../explanation/the-agent-and-the-watchdog.md#arming-is-bounded) |
+| `ARM_RETRY_MINUTES` | `10` | Shortest gap between two arming attempts on the same node |
+| `ARM_MAX_ATTEMPTS` | `3` | Attempts inside `ARM_WINDOW_HOURS` before the node is left for an operator |
+| `SLURM_SNAPSHOT_MAX_AGE_MINUTES` | empty | How old a node view may be before the agent stops deciding from it. Empty is three watchdog cycles, floored at five minutes. A node past it says so every cycle and acts on nothing — see [explanation/the-fleet-snapshot.md#no-view-is-not-an-empty-queue](../explanation/the-fleet-snapshot.md#no-view-is-not-an-empty-queue) |
+| `ARM_WINDOW_HOURS` | `24` | The window that count is taken over |
+| `SUPERVISOR_HOST` | *empty* | Which host arms the others. Empty means whichever claims `results/.supervisor-owner` and keeps it fresh; naming one settles it where two hosts read as head. See [explanation/the-agent-and-the-watchdog.md#only-one-watchdog](../explanation/the-agent-and-the-watchdog.md#only-one-watchdog) |
+
+On a large fleet the interval is also the load lever: every read in a cycle is
+multiplied by the node count, and 2,016 nodes on two minutes is 17 reads a
+second for each file a cycle touches. See
+[explanation/the-agent-and-the-watchdog.md#what-a-cycle-costs-the-share](../explanation/the-agent-and-the-watchdog.md#what-a-cycle-costs-the-share).
+
+The two intervals are read only at install time: they are substituted into the
+unit files by `agent/install-agent.sh`, so changing one means re-running it —
+across the fleet for `AGENT_INTERVAL_MINUTES`, on the head node for the other.
+Everything else here is read fresh on every cycle.
+
+A value that is not a whole number of minutes is warned about and replaced with
+the default rather than stopping the fleet, on the same principle as
+`MAX_QUEUED_JOBS`. Why these numbers and not others is
+[explanation/the-agent-and-the-watchdog.md#choosing-the-three-numbers](../explanation/the-agent-and-the-watchdog.md#choosing-the-three-numbers).
+
+## Privilege
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `PRIV_SCONTROL` | `sudo` | How `scontrol update` is issued. `sudo` uses the rule in `agent/sudoers.default`; `direct` is for a site that gave `JOB_USER` Slurm `AdminLevel=Operator` |
+
+Anything other than `direct` reads as `sudo`. Only `update` goes through it —
+`scontrol show node`, `scontrol listjobs` and `scontrol show hostlist` are reads
+and run unprivileged. There is deliberately no autodetection; see
+[explanation/running-unprivileged.md#draining-without-root](../explanation/running-unprivileged.md#draining-without-root).
+
+## Reaching more than one node
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `FANOUT_TOOL` | `auto` | `auto` prefers `clush` and falls back to `pdsh`; `clush` or `pdsh` pins it and fails with a named reason when that one is missing |
+| `FANOUT_CONNECT_TIMEOUT` | `10` | Seconds to reach a node, passed as `-t` to either tool. `0` is no limit |
+| `FANOUT_COMMAND_TIMEOUT` | `60` | Seconds a command may run on a node, passed as `-u` to either tool. `0` is no limit, which is what both tools do unasked |
+
+Neither tool bounds the command by default, and a node with a hung mount answers
+the ssh and then never returns — one of those holds a whole fan-out open. A node
+dropped by the timeout still has a stale heartbeat and is armed by the watchdog
+on its next cycle, so the limit defers a node rather than losing one. See
+[explanation/architecture.md#a-fan-out-is-bounded](../explanation/architecture.md#a-fan-out-is-bounded).
+
+`fanout.sh` is the only place either is invoked, and every trace line that
+reaches a node says which was used. A pinned value that is not installed is a
+refusal rather than a silent fall back — a site that chose `clush` and is
+quietly getting `pdsh` has a preference nobody honoured. See
+[explanation/architecture.md#reaching-nodes-is-clush-or-pdsh](../explanation/architecture.md#reaching-nodes-is-clush-or-pdsh).
+
 ## Pause switches
 
 | Setting | Default | Stops |
@@ -223,12 +270,18 @@ times across the fleet. Why two intervals and no backoff:
 | `PAUSE_JOBS` | `no` | `launch_job.sh`: submit nothing, drain nothing |
 | `PAUSE_HEALTH_CHECKS` | `no` | `node_health.sh`: run no checks, touch Slurm in neither direction |
 | `PAUSE_CONTAINER_COPY` | `no` | `file_copy.sh`: start no new rsync into `/tmp/containers` |
-| `PAUSE_RECOVERY` | `no` | Both actions: clear no drains Slurm set itself |
+| `PAUSE_RECOVERY` | `no` | `launch_job.sh` and `node_health.sh`: clear no drains Slurm set itself |
+| `PAUSE_ARMING` | `no` | `supervisor.sh`: arm no node. Agents already running carry on cycling, and their node views are still written |
 
 `PAUSE_RECOVERY` is **independent of `PAUSE_JOBS`**. `PAUSE_JOBS` also cancels
 this framework's pending jobs and leaves its running one to finish.
-`launch_job.sh --explain` is stopped by neither. The reasoning for all three is
-in
+`PAUSE_ARMING` is the odd one out: it stops the watchdog restarting a node that
+has *stopped*, and does nothing to a node that is running — to stop one of those
+see [how-to/arm-a-node.md#disarming-a-node](../how-to/arm-a-node.md#disarming-a-node).
+It is scoped to the arming alone, and deliberately: the watchdog's other job is
+writing the node view every agent decides from, and a pause that stopped that
+would stop the whole fleet a snapshot age later.
+`--explain` is stopped by none of them. The reasoning for all of them is in
 [explanation/sequencing.md#what-a-pause-is-for](../explanation/sequencing.md#what-a-pause-is-for);
 what to expect while paused is
 [how-to/pause-and-resume.md](../how-to/pause-and-resume.md).
@@ -324,16 +377,18 @@ NODE_FILTER="ink40-dh4-0[1-9]"          # part of one
 **These are shell globs, not regular expressions** — deliberately not an ERE,
 unlike `RECOVER_REASONS`. Patterns are separated by whitespace, a node matches
 if **any** of them matches, and the comparison is against `$HOSTNAME` as Slurm
-and BCM know it, so the short name rather than an FQDN.
+knows it, so the short name rather than an FQDN.
 
 It gates benchmarks and burn-in only: health checks, reporting, container copy
 and drain recovery still run everywhere. `--force` does not open it; `--test`
 does; `--explain` reads through it. See
 [explanation/sequencing.md#site-switches-are-not-timing-gates](../explanation/sequencing.md#site-switches-are-not-timing-gates).
 
-To take a node out of the framework entirely, use BCM's node execution filters
-at registration time instead — see the commented example at the bottom of
-`pre-post/create-action-trigger.sh`.
+To take a node out of the framework entirely, use `EXCLUDE_NODES` below, or
+disarm it — see
+[how-to/arm-a-node.md#disarming-a-node](../how-to/arm-a-node.md#disarming-a-node).
+Bear in mind that the watchdog arms an idle node back unless `EXCLUDE_NODES` or
+`NODE_FILTER` takes it out of the set it considers.
 
 ## Hosts that are not compute nodes
 
@@ -390,7 +445,7 @@ Why the detection is that particular question, and not `sinfo -N -n`, is in
 | `INFLIGHT_GRACE_MINUTES` | `30` | How long a submitted job that never started is believed before the controller is asked about it |
 | `DRAIN_MARKER` | `auto-retry` | Written into every drain reason this framework issues; only drains carrying it are ever cleared automatically |
 
-`DRAIN_WINDOW_MINUTES` has to sit above the BCM monitoring interval or the drain
+`DRAIN_WINDOW_MINUTES` has to sit above `AGENT_INTERVAL_MINUTES` or the drain
 is missed entirely, and well below `RETRY_INTERVAL_HOURS`.
 
 `RETRY_BACKOFF` slows down a job that keeps failing and nothing else: it never
@@ -431,14 +486,17 @@ for what turning it on commits a site to.
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `GET_OUT_OF_THE_WAY` | `no` | Cancel this node's own running job when somebody else is queued for the node |
-| `GET_OUT_OF_THE_WAY_AFTER_MINUTES` | `5` | How long the other job must have been pending before the node gives itself up |
-| `GET_OUT_OF_THE_WAY_POLL_MINUTES` | `5` | How often a node with a job running asks the queue whether anybody is waiting |
+| `GET_OUT_OF_THE_WAY` | `no` | Cancel a node's own running job when somebody else is queued for that node |
+| `GET_OUT_OF_THE_WAY_AFTER_MINUTES` | `5` | How long the other job must have been pending before the node is given up |
+| `GET_OUT_OF_THE_WAY_POLL_MINUTES` | `5` | How often the watchdog scans for waiters. One stamp for the fleet, at `results/.yield-check` |
 
+Decided on the head node, for every node at once — see
+[explanation/the-fleet-snapshot.md#what-moved-to-the-head-node](../explanation/the-fleet-snapshot.md#what-moved-to-the-head-node).
 Only a job named `bringup-<node>` or `burnin-<node>`, owned by `JOB_USER`, and
-confirmed `RUNNING` on this node by `squeue -j` is ever cancelled — the marker's
-job id is not taken as evidence on its own. Nothing is drained, and the
-cancelled run is re-queued like any other interrupted attempt.
+confirmed `RUNNING` on the wanted node by the queue itself is ever cancelled —
+no marker is taken as evidence. Nothing is drained, and the cancelled run is
+re-queued like any other interrupted attempt. The node is left a note at
+`results/<node>/.yielded` so its next cycle says why its job went.
 
 Both intervals are minutes and the second one is a cost control: a cycle with a
 job running otherwise costs the controller nothing at all. The whole design,
@@ -517,8 +575,9 @@ requires, or every `sbatch` is refused — that refusal is captured in
 `trigger.log` rather than swallowed.
 
 Nothing needs `BRINGUP_HOME` to find the tree; the scripts resolve their own
-location. It is read by the jobs, which cannot, and by
-`pre-post/create-action-trigger.sh`, which registers it with BCM. See
+location. It is read by the jobs, which cannot, and checked by
+`agent/install-agent.sh`, which warns when the tree it is arming from is not the
+deployed one. See
 [reference/layout.md#runtime-paths](layout.md#runtime-paths).
 
 ### Where the images live

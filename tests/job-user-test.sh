@@ -141,12 +141,22 @@ build_tree() {
     mkdir -p "$tree/actions" "$tree/jobs/nvl72" "$tree/parsers/nvl72" \
              "$tree/results/$NODE" "$tree/containers"
     cp "$repo/settings.sh" "$repo/reason-map.sh" "$repo/slurm-recovery.sh" \
-       "$repo/get-out-of-the-way.sh" "$repo/trigger-debug.sh" "$tree/"
+       "$repo/slurm-snapshot.sh" "$repo/trigger-debug.sh" "$tree/"
     cp "$repo/actions/launch_job.sh" "$repo/actions/file_copy.sh" "$tree/actions/"
     cp "$repo/parsers/nvl72/verdict.sh" "$tree/parsers/nvl72/"
 
     printf '#!/bin/bash\n#SBATCH -t 00:20:00\necho PENDING\n' \
         > "$tree/jobs/nvl72/probe.sbatch"
+    ## The watchdog's node view. Nothing on a node asks the controller any more,
+    ## so without one every gate below stops before it decides anything.
+    ## See docs/explanation/the-fleet-snapshot.md.
+    {
+        printf 'stamp\t%s\n' "$(date +%s)"
+        printf 'state\tidle\nsetter\tnone\nwhen\t\n'
+        printf 'gres\tgpu:gb200:4\ncputot\t72\nfleet\t0\n'
+        printf 'reason\t\n'
+        printf 'end\t%s\n' "$(date +%s)"
+    } > "$tree/results/$NODE/.slurm-view"
     ## An image to copy, or file_copy.sh exits before naming its source.
     : > "$tree/containers/probe.sqsh"
 
@@ -230,10 +240,9 @@ else
     sed 's/^/         /' "$work/norm-a" | head -20
 fi
 
-## --explain returns before the privilege drop, so the branch that actually
-## reaches the cluster needs a real submission. Which of its two halves runs
-## depends on who is asking, and both name the account -- root by dropping to
-## it, anyone else by refusing and saying whose password `su` would want.
+## --explain returns before the submission, so the branch that actually reaches
+## the cluster needs a real one. There is no privilege drop left to take: the
+## cycle is the account, and anyone else is refused by name.
 ## See docs/how-to/run-a-job-by-hand.md.
 rm -f "$work/home/$USER_B/su.calls"
 (
@@ -242,17 +251,19 @@ rm -f "$work/home/$USER_B/su.calls"
     "$tree_b/actions/launch_job.sh" --force --all --verbose
 ) > "$work/submit-b" 2>&1
 
-if [[ "$EUID" -eq 0 ]]; then
-    if grep -q 'sbatch' "$work/home/$USER_B/su.calls" 2>/dev/null; then
-        ok "root: the submission was made through 'su - $USER_B'"
-    else
-        bad "root: nothing reached 'su - $USER_B': $(cat "$work/home/$USER_B/su.calls" 2>/dev/null || echo '<su never called>')"
-    fi
-elif grep -q "which is neither root nor $USER_B" "$work/submit-b"; then
-    ok "uid $EUID: refused, naming the account it would have needed"
+if grep -q "a job is submitted as $USER_B" "$work/submit-b"; then
+    ok "uid $EUID: refused, naming the account the submission needed"
 else
     bad "uid $EUID: the refusal does not name $USER_B:"
     grep -i 'submit' "$work/submit-b" | sed 's/^/         /'
+fi
+
+## Nothing drops privilege any more, whoever runs this -- including root, which
+## is how every cycle used to arrive. docs/explanation/running-unprivileged.md
+if [[ -s "$work/home/$USER_B/su.calls" ]]; then
+    bad "uid $EUID: went through 'su - $USER_B', which nothing should do now"
+else
+    ok "uid $EUID: no su on the submission path"
 fi
 
 ## A batch script runs from Slurm's spool copy and can neither read SETTINGS nor

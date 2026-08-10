@@ -1,6 +1,6 @@
 # Get a node list you can act on
 
-You have a report and you need the nodes out of it, in a form `pdsh -R ssh -w`,
+You have a report and you need the nodes out of it, in a form `clush -w`,
 `scancel`, `scontrol` or `health-check.sh --refresh` will take. Both roll-ups exist
 for this and neither is the default output.
 
@@ -101,20 +101,22 @@ bash health-check.sh --refresh 'ink50-dh01-h20-[03,17]'
 bash single-node-purge.sh 'ink50-dh01-h20-[03,17]'
 
 # run something on each node
+clush -w 'ink50-dh01-h20-[03,17]' 'nvidia-smi -L'
 pdsh -R ssh -w 'ink50-dh01-h20-[03,17]' 'nvidia-smi -L'
 
 # resume them
 scontrol update nodename='ink50-dh01-h20-[03,17]' state=RESUME
 
 # force a sweep now
+clush -w 'ink50-dh01-h20-[03,17]' '/home/cmods/bringup/actions/launch_job.sh -f -v'
 pdsh -R ssh -w 'ink50-dh01-h20-[03,17]' '/home/cmods/bringup/actions/launch_job.sh -f -v'
 ```
 
-**`pdsh`, never `ssh`.** Every remote command here is a `pdsh -R ssh -w`, which
+**`clush` or `pdsh`, never `ssh`.** Every remote command here is one of the two, which
 is why a node list is the only thing that changes between running against one
 node and against the whole fleet — see
-[explanation/architecture.md#reaching-nodes-is-pdsh-not-ssh](../explanation/architecture.md#reaching-nodes-is-pdsh-not-ssh).
-Pipe the output through `dshbak -c` when the list is long enough that
+[explanation/architecture.md#reaching-nodes-is-clush-or-pdsh](../explanation/architecture.md#reaching-nodes-is-clush-or-pdsh).
+Pipe the output through `clubak -b` (or `dshbak -c`) when the list is long enough that
 per-node lines stop being readable.
 
 **Quote the list.** The `[03,17]` range syntax contains glob characters, and an

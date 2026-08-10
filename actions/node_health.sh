@@ -1,5 +1,5 @@
 #!/bin/bash
-# BCM finalize script and health check runner: run this site's checks in numeric
+# The health check runner, run by the node agent: this site's checks in numeric
 # order, write each one's output to logs/<node>/<check>, diff that against
 # valid-config/default/<check>, and drain this node with the names that differ.
 # Checks live in health-checks/$HEALTHCHECKS/NN-<check>.sh -- a platform is a
@@ -17,7 +17,7 @@
 # that file, so its exact text -- including the leading '#' count -- is
 # load-bearing: change one and every node fails against every older baseline.
 #
-# Fires on every BCM monitoring cycle and re-checks on a cadence, tracing every
+# Runs on every agent cycle and re-checks on a cadence, tracing every
 # gate to results/<node>/health.log. See docs/explanation/health-cadence.md.
 
 ## Located from this file, not a literal path. See docs/reference/layout.md#runtime-paths.
@@ -31,11 +31,12 @@ if [[ ! -f "$home/settings.sh" ]]; then
     exit 1
 fi
 source "$home/settings.sh"
+source "$home/priv.sh"
 
 ## ── Flags ─────────────────────────────────────────────────────────────────
 ##
 ## The same surface as launch_job.sh, and for the same reason: this decides
-## about the node it runs on, so a sweep is pdsh over the nodes.
+## about the node it runs on, so a sweep is a clush or pdsh over the nodes.
 ## See docs/how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand.
 EXPLAIN=0
 FORCE=0
@@ -52,9 +53,10 @@ Usage: node_health.sh [--explain] [--force] [--verbose|--quiet]
 Decides about the node it runs on, and takes no node argument. To sweep a set
 of nodes, name them where they can be reached:
 
+  clush -w 'ink50-dh01-h02-[11,13-18]' '$home/actions/node_health.sh -f -v'
   pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '$home/actions/node_health.sh -f -v'
 
-With no arguments -- how BCM invokes it -- the checks re-run once every
+With no arguments -- how the node agent invokes it -- the checks re-run once every
 HEALTH_INTERVAL_HOURS, or sooner if the last run found something.
 USAGE
 }
@@ -111,10 +113,6 @@ trace() {
     [[ "$EXPLAIN" -eq 1 || "$VERBOSE" -eq 1 ]] && printf '%s\n' "$*"
     return 0
 }
-own_file() {
-    [[ -e "$1" && "$EUID" -eq 0 ]] || return 0
-    [[ "$(stat -c %U "$1" 2>/dev/null)" == "$JOB_USER" ]] || chown "$JOB_USER:$JOB_USER" "$1" 2>/dev/null
-}
 if [[ -f "$tracelog" ]] && [[ "$(stat -c %s "$tracelog" 2>/dev/null || echo 0)" -gt 1000000 ]]; then
     tail -2000 "$tracelog" > "$tracelog.tmp" && mv "$tracelog.tmp" "$tracelog"
 fi
@@ -124,12 +122,8 @@ fi
 source /etc/profile.d/modules.sh
 module load slurm
 
-state=$(sinfo -N -n "$HOSTNAME" -h -o '%T')
-if [[ -z "$state" ]]
-then
-        trace "EXIT: 'sinfo -N -n $HOSTNAME' returned nothing, so it is not known whether this is a compute node -- no checks run. A busy controller answers this way too."
-        exit 0
-fi
+## Nothing asks Slurm whether this is a compute node; the gates above did.
+## See docs/explanation/the-fleet-snapshot.md#what-was-dropped-rather-than-moved.
 
 reason=""
 
@@ -209,6 +203,23 @@ else
     trace "last run ${age}s ago was ${last_status:-unknown}, past its ${interval_hours}h interval -- re-checking"
 fi
 
+## ── The checks that need root ─────────────────────────────────────────────
+##
+## Below the cadence gate, not above it: this reads every check file to find the
+## commands they need, and on a 2,000-node fleet doing that per cycle rather
+## than per run is 77,000 NFS reads every couple of minutes for an answer worth
+## having every four hours.
+##
+## Discovered from the check files, so a new one needing a rule is preflighted
+## without editing this script. A refused sudo changes a check's output rather
+## than failing it, which is why this is fatal.
+## See docs/explanation/running-unprivileged.md#a-lost-rule-must-stop-the-run.
+mapfile -t priv_cmds < <(grep -hoE 'sudo -n [a-z0-9_.-]+' "$HEALTHCHECKS_DIR"/[0-9]*.sh 2>/dev/null | awk '{print $3}' | sort -u)
+if [[ "${#priv_cmds[@]}" -gt 0 ]] && ! priv_ready "${priv_cmds[@]}"; then
+    trace "EXIT: sudo as $(id -un) would refuse: $PRIV_MISSING -- the checks needing them would report something other than what the baseline was captured from, so nothing was run and nothing was judged. Those rules come from the site's sudoers deployment; $home/agent/sudoers.default is the reference for what is missing."
+    exit 1
+fi
+
 if [[ "$EXPLAIN" -eq 1 ]]; then
     trace "--explain: would run $(find "$HEALTHCHECKS_DIR" -maxdepth 1 -name '[0-9]*.sh' | wc -l) check(s) from $HEALTHCHECKS_DIR against $valid_health, and write neither a log nor a drain"
     exit 0
@@ -254,7 +265,7 @@ for check_file in "$HEALTHCHECKS_DIR"/[0-9]*.sh; do
     reason_detail=$(check_meta "$check_file" reason-detail)
 
     ## stderr is deliberately uncaptured: a tool's own complaint belongs in the
-    ## BCM action output, not in the file being diffed against the baseline.
+    ## agent's output, not in the file being diffed against the baseline.
     out=$(bash "$check_file" 2>/dev/null)
 
     printf '%s\n' "$banner" > "$node_health/$check"
@@ -283,9 +294,6 @@ done
 ## See docs/explanation/health-cadence.md#the-stamp-file.
 flat_reason=$(echo "${reason}" | tr $'\n' ' ' | sed 's/  */ /g')
 printf '%s\t%s\n' "$(date +%s)" "$([[ -n "$reason" ]] && echo failed || echo clean)" > "$stamp"
-
-chown -R "$JOB_USER:$JOB_USER" $node_health
-own_file "$tracelog"
 
 if [[ -n "$reason" ]]; then
     trace "differs from $valid_health:$flat_reason"
@@ -318,17 +326,25 @@ if command -v /cm/local/apps/slurm/current/bin/scontrol >/dev/null 2>&1; then
       trace "PAUSE_RECOVERY=${PAUSE_RECOVERY} in ${SETTINGS_FILE:-<none>} -- ${node_name} passed every check but its drain is left where it is"
     elif [[ -f "$home/slurm-recovery.sh" ]]; then
       recover_log() { trace "$@"; }
+      ## SC2034: read by slurm-recovery.sh, sourced below, which shellcheck
+      ## cannot see from here. Repeated: it covers one assignment.
+      # shellcheck disable=SC2034
       RECOVER_ACCEPT="machine health"
+      # shellcheck disable=SC2034
       RECOVER_LOG="$home/results/${node_name}/recover.log"
+      ## Where recovery reads the node view. See docs/explanation/the-fleet-snapshot.md.
+      # shellcheck disable=SC2034
+      SNAPSHOT_RESULTS="$home/results"
+      [[ -f "$home/slurm-snapshot.sh" ]] && source "$home/slurm-snapshot.sh"
+      snapshot_log() { trace "$@"; }
       source "$home/slurm-recovery.sh"
       slurm_recover_node "${node_name}"
-      [[ -f "$RECOVER_LOG" ]] && chown "$JOB_USER:$JOB_USER" "$RECOVER_LOG" 2>/dev/null
     else
       trace "WARNING: $home/slurm-recovery.sh is missing -- ${node_name} passed every check but no drain was cleared. Stale deployment?"
     fi
   else
     trace "DOWN: ${node_name} --$flat_reason"
-    scontrol update NodeName="${node_name}" State=DOWN Reason="$flat_reason"
+    scontrol_update NodeName="${node_name}" State=DOWN Reason="$flat_reason"
   fi
 else
   trace "WARNING: scontrol not found; unable to update ${node_name} in Slurm."

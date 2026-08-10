@@ -1,0 +1,22 @@
+[Unit]
+Description=Bring-up cycle: the node agent, or the watchdog on the host that watches them
+Documentation=file://@BRINGUP_HOME@/docs/explanation/the-agent-and-the-watchdog.md
+
+[Service]
+Type=oneshot
+# A login shell, not the script directly: systemd gives a service a minimal
+# PATH and reads no profile, so `scontrol` is missing on exactly the hosts
+# where it works when you log in. See
+# docs/how-to/run-slurm-commands-remotely.md.
+#
+# cycle.sh, not either script by name: $HOME is NFS-shared, so this one file is
+# read by every host and cannot say which role any of them has.
+ExecStart=/bin/bash -lc "@BRINGUP_HOME@/agent/cycle.sh --quiet"
+# A wedged cycle must not hold the flock for ever, and the watchdog's fan-out
+# across the fleet is the slowest thing either role does.
+TimeoutStartSec=900
+# Nothing here is expected to outlive the cycle. The container copy, which has
+# to, gets a transient unit of its own rather than being a background child of
+# this one -- see docs/explanation/containers.md#the-copy-is-its-own-unit. So the
+# default KillMode=control-group is right: anything still in this cgroup when
+# ExecStart returns is something that leaked.

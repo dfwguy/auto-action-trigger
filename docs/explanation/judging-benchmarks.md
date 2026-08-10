@@ -83,6 +83,60 @@ file — and it carries a comment saying so, because no healthy `nvsm show healt
 output has been captured to narrow it against. That is the shape of an unpaid
 debt in this file, not a pattern to copy.
 
+## A waived test is a test that did not run
+
+`Waived:` and `not supported` were one rule in `_v_gate_nvbandwidth`, reported
+as *test not supported on this platform*. They are not the same finding, and the
+wrong one of the two is the common one. A GB300 tray that reports four healthy
+GPUs, a full set of host↔device numbers and `exit status: 0` can still print
+seventeen `Waived:` lines — and every one of them is a test the node was
+supposed to run and could not.
+
+nvbandwidth waives a testcase when its filter says the transfer is impossible on
+this system, not when the platform lacks the feature. So the *identity* of the
+waived tests is the diagnosis, and v0.9 prints a bare `Waived:` with no name —
+the identity has to be read off the position, because the suite always runs in
+the same order. In the g21-17 capture (`tests/fixtures/nvbandwidth__waived.txt`)
+the seventeen fall exactly on the tests that need a GPU→GPU path:
+
+| Where | Waived | What they are |
+|---|---|---|
+| after `device_to_host_bidirectional_memcpy_ce` | 4 | `device_to_device_*_ce` |
+| after `host_to_all_bidirectional_memcpy_ce` | 4 | `all_to_one_*_ce`, `one_to_all_*_ce` |
+| the same two positions in the `_sm` half | 8 | the SM copies of both |
+| after `host_device_latency_sm` | 1 | `device_to_device_latency_sm` |
+
+Everything that touches only the host survived; everything peer-to-peer was
+skipped. `cudaDeviceCanAccessPeer` returned false for all twelve ordered pairs,
+which on this platform means the NVLink fabric never came up under the job. The
+causes seen, most common first:
+
+- **The IMEX daemon is not running, or the node is not in a healthy IMEX
+  domain.** On NVL72 all peer traffic crosses the NVSwitch, so no IMEX means no
+  peer. Check `nvidia-smi -q | grep -A3 -i fabric`: `Fabric State` must be
+  `Completed` with `Status: Success`. `In Progress` is a node still joining and
+  a job that started too early; `Not Supported` is a driver without the fabric
+  stack loaded.
+- **`nvidia-fabricmanager` down or version-mismatched with the driver.** It
+  refuses to start against a driver it does not match, and the GPUs come up
+  unregistered — visible, benchmarkable against the host, and unable to reach
+  each other.
+- **The IMEX channel devices are not in the container.** `/dev/nvidia-caps-imex-channels/*`
+  has to be passed through; without it the container sees the GPUs and not the
+  fabric, which is the same shape as
+  [host HCAs are not container HCAs](#host-hcas-are-not-container-hcas).
+- **MIG enabled on the node.** Peer access is disabled outright in MIG mode.
+- **A partial GPU set.** `CUDA_VISIBLE_DEVICES` pinning one device, or a GPU
+  that fell off the bus, leaves too few peers for the pair tests to have
+  anything to do.
+
+So the verdict is `WAIVED -- nvbandwidth skipped tests it could not run`, and the
+detail carries the count and the first line. It stays a fail: a run that skipped
+its peer tests has not measured the thing the job exists to measure, and passing
+it would report a node with a dead fabric as healthy. Start at the fabric state,
+not at the bandwidth numbers — the numbers that did print are fine, and that is
+the trap.
+
 ## Gate on *how* the work ran, not only that it ran
 
 `allreduce-forcesharp` exists for this reason, one level down. Both it and
@@ -162,7 +216,7 @@ what is visible there, via `ibv_devinfo` — the same libibverbs call NCCL makes
 
 Those answer different questions. enroot gives the container a fresh `/dev`, so
 the host list can be complete and correct while the container sees nothing at
-all. Checking by hand over `pdsh` puts you on the host and will show a healthy HCA
+all. Checking by hand over `clush` puts you on the host and will show a healthy HCA
 list no matter how broken the container's view is. Both lists are now printed
 into every result file:
 

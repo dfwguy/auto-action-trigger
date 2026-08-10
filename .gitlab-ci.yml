@@ -102,8 +102,8 @@ permissions:
 
       # Sourced libraries. verdict-scan.sh is also run, but as
       # `bash verdict-scan.sh` from xargs, like the health checks below.
-      for f in settings.sh reason-map.sh slurm-recovery.sh verdict-scan.sh \
-               get-out-of-the-way.sh report-format.sh health-scan.sh \
+      for f in settings.sh priv.sh fanout.sh reason-map.sh slurm-recovery.sh verdict-scan.sh \
+               get-out-of-the-way.sh report-format.sh health-scan.sh slurm-snapshot.sh \
                $(git ls-files 'parsers/*/verdict.sh'); do
         check 100644 "$f"
       done
@@ -128,8 +128,14 @@ permissions:
         check 100644 "$f"
       done
 
-      # Entry points -- anything a human or BCM invokes by path.
-      for f in $(git ls-files 'actions/*.sh' 'pre-post/*.sh' 'tests/*.sh'); do
+      # systemd reads the units; install-agent.sh copies them with @BRINGUP_HOME@
+      # substituted. sudoers.default is a reference the site installs at 0440.
+      for f in $(git ls-files 'agent/units/*' agent/sudoers.default); do
+        check 100644 "$f"
+      done
+
+      # Entry points -- anything a human or a systemd unit invokes by path.
+      for f in $(git ls-files 'actions/*.sh' 'agent/*.sh' 'tests/*.sh'); do
         check 100755 "$f"
       done
 
@@ -137,8 +143,8 @@ permissions:
       # handled above.
       for f in $(git ls-files -- '*.sh' | grep -v '/'); do
         case "$f" in
-          settings.sh|reason-map.sh|slurm-recovery.sh|verdict-scan.sh) continue ;;
-          get-out-of-the-way.sh|report-format.sh|health-scan.sh)        continue ;;
+          settings.sh|priv.sh|fanout.sh|reason-map.sh|slurm-recovery.sh|verdict-scan.sh) continue ;;
+          get-out-of-the-way.sh|report-format.sh|health-scan.sh|slurm-snapshot.sh) continue ;;
         esac
         check 100755 "$f"
       done
@@ -251,6 +257,15 @@ yield:
   script:
     - ./tests/yield-test.sh
 
+# One query written into a node-side script is seventeen a second across the
+# fleet, and the reason each of them was removed is invisible in the diff that
+# adds one back. See docs/explanation/the-fleet-snapshot.md.
+node-queries:
+  extends: .base
+  stage: lint
+  script:
+    - ./tests/node-queries-test.sh
+
 # Both directions of this gate are silent: a false positive retires a real node
 # from the fleet, a false negative is the head node in every report.
 exclude:
@@ -276,6 +291,46 @@ job-user:
   stage: test
   script:
     - ./tests/job-user-test.sh
+
+# The busy gate and the heartbeat: a cycle that does work on a busy node, or one
+# that stops writing the heartbeat before a gate, is invisible from outside.
+agent:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/agent-test.sh
+
+# Which nodes the watchdog arms. Arming the wrong set is an ssh storm; arming
+# none is a fleet that quietly stops.
+supervisor:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/supervisor-test.sh
+
+# A refused sudo does not fail a health check, it changes its output -- which
+# reads as bad hardware. See docs/explanation/running-unprivileged.md.
+priv:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/priv-test.sh
+
+# The one place this tree reaches more than one node. A silent fall back to pdsh
+# on a site that installed clush is a preference nobody chose.
+fanout:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/fanout-test.sh
+
+# A second copy of the two cadences, and a wrong bucket reads exactly like a
+# right one. See docs/how-to/see-what-fires-next.md#how-the-buckets-are-chosen.
+next-run:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/next-run-test.sh
 
 # The code points at docs/ by anchor and nothing renders those links, so a
 # reworded heading silently lands the reader on the wrong section.

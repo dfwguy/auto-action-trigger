@@ -43,8 +43,9 @@ RUN_BURNIN=no
 BURNIN="mnubergemm"
 
 ## ── Container images ──────────────────────────────────────────────────────
-CONTAINERS="hpc-benchmarks nvbandwidth mnubergemm"
-
+## Which images exist is decided by build_containers.sh, which takes them on the
+## command line -- every .sqsh in CONTAINER_DIR is cached on every node.
+##
 ## The tag or ref each image is built from. The job files build the same
 ## filename, so these move together. See docs/reference/settings.md#image-versions.
 HPC_BENCHMARKS_TAG=26.02
@@ -64,6 +65,7 @@ PAUSE_JOBS=no
 PAUSE_HEALTH_CHECKS=no
 PAUSE_CONTAINER_COPY=no
 PAUSE_RECOVERY=no
+PAUSE_ARMING=no
 
 ## ── Drains ────────────────────────────────────────────────────────────────
 DRAIN_AFTER_FAILED_HEALTH_CHECK=no
@@ -100,6 +102,37 @@ MAX_JOB_HOURS=7
 DRAIN_WINDOW_MINUTES=15
 INFLIGHT_GRACE_MINUTES=30
 DRAIN_MARKER="auto-retry"
+
+## ── The agent and the watchdog ────────────────────────────────────────────
+## Minutes. See docs/explanation/the-agent-and-the-watchdog.md.
+AGENT_INTERVAL_MINUTES=2
+SUPERVISOR_INTERVAL_MINUTES=2
+HEARTBEAT_STALE_MINUTES=10
+ARM_BATCH=200
+ARM_RETRY_MINUTES=10
+ARM_MAX_ATTEMPTS=3
+ARM_WINDOW_HOURS=24
+
+## How old the watchdog's node view may be before an agent stops deciding from
+## it. Empty is three watchdog cycles, floored at five minutes.
+## See docs/explanation/the-fleet-snapshot.md.
+SLURM_SNAPSHOT_MAX_AGE_MINUTES=
+
+## Which host arms the others. Empty means whichever claims it and keeps the
+## claim fresh. See docs/explanation/the-agent-and-the-watchdog.md#only-one-watchdog.
+SUPERVISOR_HOST=
+
+## ── Privilege ─────────────────────────────────────────────────────────────
+## sudo, or direct where JOB_USER has Slurm AdminLevel=Operator.
+## See docs/explanation/running-unprivileged.md#draining-without-root.
+PRIV_SCONTROL=sudo
+
+## ── Reaching more than one node ───────────────────────────────────────────
+## auto prefers clush and falls back to pdsh. clush or pdsh pins it.
+FANOUT_TOOL=auto
+## Seconds; 0 is no limit.
+FANOUT_CONNECT_TIMEOUT=10
+FANOUT_COMMAND_TIMEOUT=60
 
 ## ── Getting out of the way (experimental) ─────────────────────────────────
 ## Cancels this node's own running job when somebody else is queued for the

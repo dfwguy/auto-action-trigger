@@ -41,7 +41,7 @@ bash status-check.sh
 
 One line per node per benchmark column, grouped by identical status so a rack
 behaving the same way is one block rather than eighteen lines. The grouping is
-`dshbak`, from `pdsh` — if it is not installed the script says so and prints
+`clubak`, from ClusterShell — or `dshbak`, from `pdsh`. If neither is installed the script says so and prints
 ungrouped rather than silently printing nothing.
 
 Each line reads `node: column: status`, with a reason appended when there is one:
@@ -266,7 +266,7 @@ wasted.
 **`trigger-log.sh` last, and only if the first three are suspiciously empty.**
 It answers "why is nothing being produced", which is a different question from
 all of the above — that is
-[understanding-the-triggers.md](understanding-the-triggers.md).
+[understanding-the-agent.md](understanding-the-agent.md).
 
 ## What a good site looks like
 

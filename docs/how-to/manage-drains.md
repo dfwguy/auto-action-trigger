@@ -28,7 +28,7 @@ Two consequences worth knowing:
   taking work. `health-check.sh` says how many, and `--drained` is the separate
   report of what Slurm has taken out, grouped by reason.
 - Turning either on does not clear drains that already exist, and does not drain
-  a node that is already failing — the next monitoring cycle does that.
+  a node that is already failing — the next agent cycle does that.
 
 ## A drain the logs no longer support
 
@@ -55,7 +55,7 @@ brings the re-check forward.
 last. A health check drains on *any* diff against `valid-config/default`, so a
 baseline taken from a node that is itself slightly off, or one check that is
 per-rack rather than per-cluster, drains the entire cluster on the first
-monitoring cycle. Bring it up only once this reads clean across the fleet:
+agent cycle. Bring it up only once this reads clean across the fleet:
 
 ```bash
 bash health-check.sh --summary
@@ -114,7 +114,7 @@ cat results/<node>/recover.log                       # one line per resume
 `overall_report.sh` is the one to reach for first. Its NODES section carries the
 Slurm state and drain reason, the pre-job check that failed, the `held` and
 `skipped` traces, and — for a prolog drain whose cause is not in our logs — the
-`pdsh` line that reads BCM's own log **on the node**, which is where
+fan-out line that reads BCM's own log **on the node**, which is where
 `/cm/local/apps/slurm/var/pre-post-job-logs/` lives. Running that path on the
 head node finds nothing, every time.
 
@@ -132,6 +132,7 @@ why, in the same place everything else does.
 reads through `PAUSE_RECOVERY`:
 
 ```bash
+clush -w ink50-dh01-h03-16 '/home/cmods/bringup/actions/launch_job.sh --explain'
 pdsh -R ssh -w ink50-dh01-h03-16 '/home/cmods/bringup/actions/launch_job.sh --explain'
 ```
 

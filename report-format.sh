@@ -16,7 +16,7 @@ REPORT_WIDTH="${COLUMNS:-}"
 [[ -z "$REPORT_WIDTH" ]] && REPORT_WIDTH=$(tput cols 2>/dev/null)
 [[ -z "$REPORT_WIDTH" || "$REPORT_WIDTH" -lt 60 ]] && REPORT_WIDTH=100
 
-# Ranges rather than a bare comma list, for pasting into scontrol/pdsh -R ssh -w. The
+# Ranges rather than a bare comma list, for pasting into scontrol/clush -w. The
 # raw list is still valid input to most of the same tools, so falling back is ok.
 compress() {
     local out

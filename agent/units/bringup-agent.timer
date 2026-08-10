@@ -1,0 +1,21 @@
+[Unit]
+Description=Fire the bring-up cycle every @INTERVAL@ minutes
+
+[Timer]
+# A wall-clock schedule, not OnUnitActiveSec=. A monotonic timer is measured
+# from the last activation of the service, and once that oneshot has finished
+# and been released systemd has no reference left to measure from: the timer
+# stays active, reports Result=success, and computes NextElapse=infinity. It
+# then fires exactly once per manager start, for ever, on every host at once.
+# See docs/explanation/the-agent-and-the-watchdog.md#why-the-timer-is-a-calendar.
+OnCalendar=*:0/@INTERVAL@
+# Half the interval, so a fleet of any size is smeared rather than arriving on
+# the tick together. Substituted at install like the interval itself.
+RandomizedDelaySec=@SPREAD@
+AccuracySec=10s
+# No catch-up burst from a node that was powered off.
+Persistent=false
+Unit=bringup-agent.service
+
+[Install]
+WantedBy=timers.target

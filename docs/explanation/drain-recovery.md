@@ -12,7 +12,7 @@ carrying `DRAIN_MARKER`. Nodes accumulated in `drained`, the sequencer traced
 to run `scontrol update ... state=RESUME` by hand, per node, indefinitely.
 
 `slurm-recovery.sh` is what clears them, and both actions use it:
-`launch_job.sh` on every monitoring cycle, `node_health.sh` after a clean check
+`launch_job.sh` on every agent cycle, `node_health.sh` after a clean check
 run. The settings are in
 [reference/settings.md#recovering-drains-slurm-set-itself](../reference/settings.md#recovering-drains-slurm-set-itself);
 the operator commands are in
@@ -243,7 +243,7 @@ returning nothing.
 
 Naming the check in `trigger.log` is not enough on its own, because that file is
 trimmed to its last 2000 lines once it passes 1 MB, and a node gets a line or
-two per monitoring cycle. A busy node loses a day of trace, and what it loses
+two per agent cycle. A busy node loses a day of trace, and what it loses
 first is the note explaining a drain that is still on it.
 
 The rack this was found on made the point by itself: `d06-15`, `-18`, `-28` and
@@ -317,7 +317,7 @@ and it gates *every* class, not just the count drains:
   cannot answer is not read as "still booting".
 
 Neither is a failure. The node is held with the reason written to `recover.log`,
-**no attempt is spent**, and the next monitoring cycle picks it up a few minutes
+**no attempt is spent**, and the next agent cycle picks it up a few minutes
 later, by which time the numbers have stopped moving.
 
 ## A count drain is checked against the hardware
@@ -330,7 +330,7 @@ every other `machine` reason is:
 | Source | GPUs | CPUs |
 |--------|------|------|
 | What the node has now | `nvidia-smi -L` | `slurmd -C`, falling back to `nproc --all` |
-| What the config asks for | the configured count in Slurm's own reason, else `Gres=` from `scontrol show node` | `CPUTot=` from `scontrol show node` |
+| What the config asks for | the configured count in Slurm's own reason, else the `gres` line of the node view | the `cputot` line of the node view |
 
 The GRES reason has two spellings in the field and both are read:
 
@@ -412,11 +412,14 @@ nothing of ours is running here. The exception is the job that outran
 `MAX_JOB_HOURS`: that is the one path that gets this far with a live job, it is
 drained immediately below, and recovery would only hold on it.
 
-The cost is one `sinfo -N -n <node>` per node per cycle, which is the price of
-seeing a drain at all — the node cannot answer this one about itself, and
+It costs the controller nothing. Seeing a drain at all used to mean one
+`sinfo -N -n <node>` per node per cycle — the node cannot answer this one about
+itself — and that is now a line in the node view the cycle has already read.
 `slurm_recover_node` returns `not-drained` and traces nothing on the healthy
-majority. See
-[sequencing.md#what-the-node-can-answer-by-itself](sequencing.md#what-the-node-can-answer-by-itself).
+majority. See [the-fleet-snapshot.md#what-a-node-reads](the-fleet-snapshot.md#what-a-node-reads).
+
+A view this cycle could not use returns `unknown-node` and says which node and
+why. Nothing is resumed on a state nobody could read.
 
 ## Why a resume is not enough on its own
 
@@ -509,9 +512,11 @@ When it does act:
 - **And Slurm has to agree, independently.** A stationary pid set is suggestive,
   not conclusive — a long job that has settled into a steady set of ranks looks
   identical. So the second proof is asked of Slurm: no job assigned to the node
-  may still be inside its own time limit. This is read from `squeue -o '%e'`,
-  which is start plus the job's limit as an absolute time, so nothing here
-  parses a Slurm duration in a format that varies by release. A step kill can
+  may still be inside its own time limit. That comes from the `job` lines of the
+  node view, which carry `squeue`'s `%e` — start plus the job's limit as an
+  absolute time — already resolved to an epoch by the watchdog, so nothing here
+  parses a Slurm duration in a format that varies by release. A job with no
+  limit is written `none` and is never read as expired. A step kill can
   fail on one step while the job legitimately carries on with the next, and that
   job is not a wedge.
 - **An unlimited job is never enough.** `%e` reports `N/A` when there is no time

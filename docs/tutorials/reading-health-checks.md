@@ -72,7 +72,7 @@ drain sit side by side because to the scheduler they are the same thing: a node
 not taking work.
 
 The node lists are compressed into ranges deliberately — they paste straight
-into `scontrol`, `pdsh -R ssh -w`, or the `--refresh` flag.
+into `scontrol`, `clush -w`, or the `--refresh` flag.
 
 ## 2. `--summary` — what is broken, and how far does one fix reach?
 
@@ -317,7 +317,7 @@ new to show. All it does is set a sentinel in `logs/<node>/`.
 
 ### Step 2 — wait for it to actually run
 
-The node picks the sentinel up on its next monitoring cycle. Confirm it did
+The node picks the sentinel up on its next agent cycle. Confirm it did
 rather than assuming:
 
 ```bash
@@ -372,6 +372,7 @@ The supported way is `launch_job.sh --test`, because it goes through the same
 gates and writes its result where the reports read it:
 
 ```bash
+clush -w ink50-dh01-h01-11 '/home/cmods/bringup/actions/launch_job.sh -t allreduce -v'
 pdsh -R ssh -w ink50-dh01-h01-11 '/home/cmods/bringup/actions/launch_job.sh -t allreduce -v'
 ```
 

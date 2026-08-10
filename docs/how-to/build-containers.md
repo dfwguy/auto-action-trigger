@@ -4,7 +4,7 @@ Run on the headnode, once per CPU architecture in the cluster.
 
 ```bash
 ./build_containers.sh -L       # log in to nvcr.io, once per machine
-./build_containers.sh          # download the CONTAINERS list, whatever is missing
+./build_containers.sh hpc-benchmarks nvbandwidth mnubergemm   # these, whatever is missing
 ./build_containers.sh -l       # what is present, what is not, and the login state
 ```
 
@@ -17,7 +17,7 @@ source is a fallback that happens only when `-S` asks for it.
 ```
 -L            write the nvcr.io entry in ~/.config/enroot/.credentials, then exit
 -S            allow the source-build fallback when a download fails
--A            every image the script knows about, ignoring CONTAINERS (implies -S)
+-A            every image the script knows about (implies -S)
 -f            rebuild even if the .sqsh is already there
 -l            list images and whether they are present, build nothing
 -d DIR        write somewhere other than /home/cmods/bringup/containers
@@ -27,8 +27,9 @@ source is a fallback that happens only when `-S` asks for it.
 ```
 
 Options must come before image names — `getopts` stops at the first non-option
-argument. With no image named and no `-A`, the list is `CONTAINERS` from
-`SETTINGS`.
+argument. **Naming the images is required**: with none named and no `-A` the
+script prints the known list and exits, rather than guessing from a setting.
+See [explanation/containers.md#what-gets-built-is-what-you-ask-for](../explanation/containers.md#what-gets-built-is-what-you-ask-for).
 
 `CONTAINER_DIR` and `CONTAINER_STAGE_DIR` are `SETTINGS` keys, not just
 environment overrides, and each has a `_HEAD` pair for a share the head node
@@ -40,16 +41,13 @@ Environment: `ARCH` (same as `-a`), `WORKDIR`
 (scratch, default `/tmp/container-build-$UID`), `ENROOT_CACHE_PATH`,
 `ENROOT_TEMP_PATH`, `ENROOT_DATA_PATH`, `ENROOT_RUNTIME_PATH`.
 
-Two ways to override `CONTAINERS` for one run:
-
 ```bash
-./build_containers.sh nvloom   # just this image, ignoring CONTAINERS
+./build_containers.sh nvloom   # just this one
 ./build_containers.sh -A       # every image the script knows about
 ```
 
-`-A` differs from the shipped `CONTAINERS` by one image, `nvloom`, which no
-registry publishes at all — so `-A` implies `-S` and compiles it, which is a
-much longer run than the three downloads.
+`-A` includes `nvloom`, which no registry publishes at all — so it implies `-S`
+and compiles it, which is a much longer run than the downloads.
 
 ## Prerequisites
 
@@ -245,8 +243,8 @@ srun --nodes=1 --nodelist=<node> --exclusive --gpus-per-node=4 \
 ```
 
 If that resolves and runs, the job will too. If `/tmp/containers/` is empty on
-the node, the rsync has not run yet — `actions/file_copy.sh` fires on the BCM
-monitoring cycle, or run it by hand.
+the node, the rsync has not run yet — `actions/file_copy.sh` runs on every agent
+cycle, or run it by hand.
 
 Check `results/<node>/<job>.txt` after the first real run — the last line is
 `DONE` or `FAIL`.

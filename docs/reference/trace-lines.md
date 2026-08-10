@@ -1,12 +1,19 @@
 # Every line the trace can write
 
-`launch_job.sh` writes `results/<node>/trigger.log` and `node_health.sh` writes
-`results/<node>/health.log`, one timestamped line per decision, appending rather
-than truncating — they are the record, not a status file. Reading them across
-the cluster is `trigger-log.sh`, in
+Four files, one timestamped line per decision, appending rather than truncating
+— they are the record, not a status file:
+
+| File | Written by |
+|---|---|
+| `results/<node>/agent.log` | `agent/node-agent.sh` — [the agent trace](#the-agent-trace) |
+| `results/<node>/trigger.log` | `actions/launch_job.sh` — everything up to [the health trace](#the-health-trace) |
+| `results/<node>/copy.log` | `actions/file_copy.sh` — [the container copy trace](#the-container-copy-trace) |
+| `results/<node>/health.log` | `actions/node_health.sh` — [the health trace](#the-health-trace) |
+| `results/supervisor.log` | `agent/supervisor.sh` — [the watchdog trace](#the-watchdog-trace) |
+
+Reading them across the cluster is `trigger-log.sh`, in
 [how-to/diagnose-nothing-running.md](../how-to/diagnose-nothing-running.md);
-this page is what the lines mean. Everything up to
-[the health trace](#the-health-trace) is `trigger.log`.
+this page is what the lines mean.
 
 Three conventions hold across all of them:
 
@@ -19,14 +26,14 @@ Three conventions hold across all of them:
   ` --force does not override that.` to its own line, where the operator is
   already looking.
 - **A trace that cannot be written is spoken instead.** Writability is tested
-  once per run; if `trigger.log` is not writable by whoever is running — the
-  common case being an operator running as `cmods` against a log root's cycle
-  created — the run turns verbose, says so on stderr with the `chown` to fix it,
-  and mirrors everything to stdout. A run that can neither write nor speak is
-  the one state this whole mechanism exists to make impossible.
+  once per run; if the log is not writable by whoever is running — the common
+  case being a tree left root-owned by the years these cycles ran as root — the
+  run turns verbose, says so on stderr with the `chown` to fix it, and mirrors
+  everything to stdout. A run that can neither write nor speak is the one state
+  this whole mechanism exists to make impossible.
 
 The log is trimmed to its last 2000 lines when it passes 1 MB. It gets a line or
-two per monitoring cycle, forever.
+two per agent cycle, forever.
 
 ## Startup and housekeeping
 
@@ -34,8 +41,7 @@ two per monitoring cycle, forever.
 |------|------|
 | `MANUAL: --force -- hourly gate bypassed[, --all -- passing jobs re-queued too]` | A human ran it. Without this, an hour of off-cadence results reads as the sequencer misbehaving |
 | `MANUAL TEST: --test <jobs> -- BENCHMARKS and BURNIN not surveyed this run, no drains, quick-view.txt left alone` | A human ran an ad-hoc job. Replaces the `MANUAL:` line, and is what explains a result in a column the reports do not have — see [how-to/run-a-job-by-hand.md#running-a-job-that-is-not-in-the-list](../how-to/run-a-job-by-hand.md#running-a-job-that-is-not-in-the-list) |
-| `chown <user> <path>` | `results/` or `results/<node>`, or `trigger.log` / `quick-view.txt`, handed back to `JOB_USER` — see [layout.md#result-path-ownership](layout.md#result-path-ownership) |
-| `WARNING: <dir> is owned by <user>, not <JOB_USER>, and we are not root` | The same problem seen from a hand-run, which can diagnose it but not fix it |
+| `WARNING: <dir> is owned by <user> and not writable by <user>` | A directory left behind by the root cycles. Nothing repairs it now; the `chown` is in the line — see [layout.md#result-path-ownership](layout.md#result-path-ownership) |
 | `WARNING: JOB_ENV entry '<pair>' is not NAME=VALUE …  -- dropped` | A rejected `JOB_ENV` entry. The sweep still runs, and the reason it ran without your variable is written next to it — see [settings.md#what-is-rejected](settings.md#what-is-rejected) |
 | `EXIT: <tool> not on PATH after 'module load slurm' (PATH=…)` | No Slurm client tools; every check below would have read as a healthy idle node |
 | `EXIT: NODE_FILTER='<globs>' … does not match <node> -- no jobs submitted here` | This node is outside the set being tested — see [settings.md#restricting-which-nodes-run-jobs](settings.md#restricting-which-nodes-run-jobs). Written every cycle on purpose: "why is this node not testing" has to be answerable from the node's own trace. Names `--force` when it was passed, so the flag does not look ignored |
@@ -70,19 +76,18 @@ two per monitoring cycle, forever.
 | `EXIT: <host> runs slurmctld and has no slurmd, so it is a head node` | The same conclusion reached by the host itself. Writes `results/<host>/.not-a-compute-node`, which is what keeps it out of the reports |
 | `EXIT: <n> job(s) not ours on <node> -- leaving the node to them` | Somebody else is using the node |
 | `queue: bench=<n> burnin=<n> [running=<t>] [<id> <state> <reason>…]` | Every cycle that gets this far. The per-job detail is only rendered for jobs that are not cleanly schedulable, so a healthy cycle keeps this to one line |
-| `job <id> held after a failed launch ('<reason>') <n>s ago -- cancelling and resubmitting in <n>s` | A held job seen before its retry interval is up |
-| `CANCELLED <id> -- held <n>s after a failed launch` | Cleared; the survey below decides what to resubmit |
-| `job <id> is held after a failed launch, but its submit time … did not parse -- left queued` | Cancel it by hand |
-| `EXIT: <job> run <n> (job <id>) running here for <n>s -- <what the yield check decided\|slurmctld not asked>` | The busy cycle. Ends in `slurmctld not asked` unless `GET_OUT_OF_THE_WAY` is on and this was a polling cycle, in which case it says what the queue said instead |
-| `YIELDED <node>: cancelled our job <id> to get out of the way of job <id> (<name>, <user>) pending <n>m for <node>` | Somebody else is queued for the node and our own running job was given up for them — see [explanation/sequencing.md#getting-out-of-the-way](../explanation/sequencing.md#getting-out-of-the-way) |
-| `EXIT: <job> run <n> (job <id>) cancelled after <n>s to free <node>` | The line after it: the marker is cleared and the run is re-queued once the node is free |
-| `not yielding: <what squeue said about job <id>>` | A waiter was found and the job in the marker did not confirm as ours. Names what it saw — another user, another node's job name, two answers for one id — and cancels nothing |
-| `WOULD CANCEL our job <id> to get out of the way of <waiter>` | `--explain` only |
-| `WARNING: scancel <id> said '<output>' -- the node was not given up` | The kill was refused; `scancel` reports that on stdout while exiting `0`, so the output is the report |
-| `WARNING: squeue would not list the pending queue, so nothing is yielded to: <output>` | No answer is not an answer: the node stays put rather than cancelling on no information |
-| `WARNING: GET_OUT_OF_THE_WAY=<value> but <home>/get-out-of-the-way.sh is missing` | A deployment that predates the file. Named rather than skipped quietly, as with `slurm-recovery.sh` |
-| `EXIT: 'squeue -j <id>' would not answer … -- the marker is kept and nothing is archived or resubmitted: <output>` | The stale branch could not reach the controller. Empty output means "gone" only from a query that succeeded; `Invalid job id specified` is a real answer, a timeout is not |
-| `EXIT: the queue could not be read, so it is not known whether a job of ours is already out -- <job> run <n> stays eligible …` | The submission guard's query failed. Failing closed here is what stops a busy controller turning into two jobs on one node |
+| `EXIT: <job> run <n> (job <id>) running here for <n>s -- slurmctld not asked` | The busy cycle |
+| `EXIT: <job> run <n> (job <id>) still queued after <n>s -- left alone (<state> <reason>)` | Past the grace, and the node view still carries the job. Carries `scancel <id> && rm <marker>`, both halves: cancelling without clearing the marker leaves the node pinned |
+| `<job> run <n> (job <id>) after <n>s: cancelled our job … to get out of the way of <waiter> (<n>s ago)` | The watchdog gave this node up to somebody queued for it, and left the note this line is read from — see [explanation/sequencing.md#getting-out-of-the-way](../explanation/sequencing.md#getting-out-of-the-way) |
+| `<job> run <n> (job <id>) after <n>s: gone from the queue with no end marker …` | The same branch with no note: cancelled, killed, or the node was drained under it |
+| `EXIT: no <path>/.slurm-view … -- so it is not known whether <job> run <n> is still queued` | The watchdog has stopped writing this node's view. The marker is kept and nothing is archived — see [explanation/the-fleet-snapshot.md#no-view-is-not-an-empty-queue](../explanation/the-fleet-snapshot.md#no-view-is-not-an-empty-queue) |
+| `EXIT: <path>/.slurm-view is <n>s old, past the <n>m this trusts …` | The same, from a view that has gone stale rather than one that is missing. Names the `systemctl --user status` to run on the head node |
+| `EXIT: <path>/.slurm-view has no end marker …` | A torn read: the watchdog was rewriting the file as this cycle read it. Self-correcting on the next cycle |
+| `EXIT: … so it is not known whether a job of ours is already out, and <job> run <n> stays eligible …` | The submission guard had no usable view. Failing closed here is what stops a stale view turning into two jobs on one node |
+| `EXIT: $home/slurm-snapshot.sh is missing …` | This node has no way to read what Slurm says, and asking the controller from here is what that file exists to stop. A partial drop |
+| `PAUSE_JOBS: job <id> (<name>) is <state> -- pending ones are cancelled from the head node` | What this node can see of its own jobs while paused. The cancel itself is the watchdog's |
+| `<job> run <n> was host-launched and Slurm gave it job <id> -- marker filled in` | The id came back from the node view a cycle after the launcher ran — see [explanation/sequencing.md#getting-the-job-id-right](../explanation/sequencing.md#getting-the-job-id-right) |
+| `NOTE: <job> run <n> was host-launched and <n> jobs of ours are in the view … none adopted` | Ambiguous, so no id is taken: the wrong one in the marker pins this node to somebody else's job |
 | `EXIT: waiting on our own queue [(RUNNING for <t>, limit <n>h)] [<detail>]` | The normal busy cycle. The scheduler's reason for a job that is not cleanly schedulable is appended — this line reads identically whether the job starts in a minute or never, and the reason is the whole difference |
 
 ## The survey
@@ -130,6 +135,83 @@ legitimately have nothing to do, so a node that has silently stopped testing
 looks exactly like a node that is quietly idle. See
 [explanation/architecture.md#silence-is-the-enemy](../explanation/architecture.md#silence-is-the-enemy).
 
+## The agent trace
+
+`results/<node>/agent.log`, one line per cycle. It answers "did the timer fire,
+and did the cycle get as far as the three steps"; what each step then decided is
+in that step's own file.
+
+| Line | When |
+|------|------|
+| `idle: no job here -- file_copy node_health launch_job` | The ordinary line of a working cycle. A step that exited non-zero has `(exit N)` after its name |
+| `BUSY: job(s) <ids> running here -- no copy, no health check, no submission` | Any job at all, ours or a neighbour's. The whole cycle stops here — see [explanation/sequencing.md#the-busy-gate](../explanation/sequencing.md#the-busy-gate) |
+| `BUSY: 'scontrol listjobs' exited <n> (<output>)` | An inconclusive answer reads as busy, which is the direction that cannot interrupt a running job |
+| `NOTE: GET_OUT_OF_THE_WAY=<value>, but it only ever acts on a job of ours that is running` | The one switch the busy gate makes unreachable, said out loud rather than left looking live |
+| `EXIT: the cycle that started <n>s ago still holds /tmp/.bringup-agent.lock` | One cycle at a time. A long first container copy is the usual cause, and it detaches, so this is rare |
+| `NOTE: cannot open /tmp/.bringup-agent.lock` | The cycle runs anyway, without the one-at-a-time guard, rather than not running |
+| `EXIT: scontrol is not on PATH after 'module load slurm' (PATH=…)` | Whether a job is running here cannot be answered, and every step below needs Slurm anyway |
+| `WARNING: cannot touch <path>/.heartbeat as <user>` | The watchdog will keep arming this node, because it cannot see that it is alive. Almost always a root-owned `results/<node>` |
+| `NOTE: <path> is missing -- skipped` | A step's script is not in the tree. Partial drop, or a stale deployment |
+
+The heartbeat itself is written above every one of these, including `BUSY` and
+the lock line: it says the timer fired, never that the cycle did work. See
+[explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means](../explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means).
+
+## The watchdog trace
+
+`results/supervisor.log`, one line per cycle on the head node, plus a line per
+node it acted on. Every cycle writes the summary, including the ones that did
+nothing — this host is the single point the fleet depends on.
+
+| Line | When |
+|------|------|
+| `checked <n> node(s): <n> fresh, <n> armed, <n> with work on them, <n> not answering, <n> filtered out` | The summary. Grows a clause for nodes waiting out `ARM_RETRY_MINUTES`, for jobs past `MAX_JOB_HOURS`, and for nodes over the arm limit |
+| `ARM <n> node(s) whose heartbeat is older than <n>m: <nodelist>` | One fan-out going out. The nodelist is compressed for pasting |
+| `ARM FAILED <node>: <what it said>` | That node's half of the fan-out output. `arm.log` keeps the full text per attempt |
+| `EXIT: 'sinfo -N -h' returned nothing` | No answer is not an answer: a busy controller looks identical to an empty cluster, so nothing is armed — see [explanation/sequencing.md#when-the-controller-does-not-answer](../explanation/sequencing.md#when-the-controller-does-not-answer) |
+| `EXIT: <host> refreshed the watchdog claim <n>s ago … stands by` | Another host is arming the fleet. Two hosts reading as head is worth settling with `SUPERVISOR_HOST` |
+| `took the watchdog claim from <host>` | The previous watchdog stopped refreshing and this host took over past the lease |
+| `EXIT: SUPERVISOR_HOST=<host> … and this is <host>` | Pinned elsewhere by the site |
+| `PAUSE_ARMING=<value> in <settings file> -- <n> node(s) left unarmed` | No node is armed. Agents already running are untouched and keep cycling, and this cycle still wrote their views |
+| `snapshot: <n> of <n> node view(s) written, <n> job(s) of ours in the queue fleet-wide` | The fleet's one look at Slurm, landed. Every node decides from this — see [explanation/the-fleet-snapshot.md](../explanation/the-fleet-snapshot.md) |
+| `WARNING: no node survived EXCLUDE_NODES=… and NODE_FILTER=… -- no view was written` | Every agent will stop deciding once the view it has ages out |
+| `CANCELLED pending under PAUSE_JOBS=<value>: <ids>` | The pause reaching the queue, fleet-wide in one call |
+| `PAUSE_JOBS: job <id> (<name>) still RUNNING -- left to finish` | A pause stops new work; it does not kill work in progress |
+| `CANCELLED held after a failed launch ('launch failed requeued held'): <ids>` | Jobs the scheduler gave up launching, which sit at priority 0 and never start — see [explanation/sequencing.md#jobs-the-scheduler-has-given-up-on](../explanation/sequencing.md#jobs-the-scheduler-has-given-up-on) |
+| `YIELDED <node>: cancelled our job <id> (<name>) to get out of the way of job <id> (<name>, <user>) pending <n>m` | Somebody else is queued for the node and our running job was given up for them |
+| `not yielded, nothing of ours confirmed running there: <node> (<waiter>)…` | A node somebody is queued for that this did not give up. Says so, rather than leaving it indistinguishable from the scan never running |
+| `WARNING: scancel <id> said '<output>' -- <node> was not given up` | The kill was refused; `scancel` reports that on stdout while exiting `0`, so the output is the report |
+| `EXIT: <neither clush nor pdsh is installed here>` | Nothing was armed and no attempt was recorded, so nothing is spent against `ARM_MAX_ATTEMPTS` |
+| `DRAIN <node>: job timeout after <n>h (RUNNING, job <id>)` | `MAX_JOB_HOURS`, issued from here because the node's own cycle stops at the busy gate. Carries no `DRAIN_MARKER`, so nothing clears it automatically |
+| `drain suppressed by DRAIN_AFTER_FAILED_BENCHMARK=<value>: <node> -- <reason>` | The same finding with drains off. What it would have done is still written down |
+| `WOULD ARM …` / `WOULD DRAIN …` / `WOULD CANCEL …` / `WOULD YIELD …` | `--explain`. It reads the queue and the markers and changes nothing — but it does still write the node views, which are what the controller said rather than an action taken on it |
+
+## The container copy trace
+
+`results/<node>/copy.log`, plus the copy's own transient unit —
+`journalctl --user -u bringup-copy.service` on the node is what it is doing right
+now. Every precondition ends the run and every one says so,
+because "the images never arrived" and "the images are not built yet" are the
+same silence from outside. A cycle with nothing to do writes nothing here — the
+copy is the one step whose steady state is genuinely no-op, and a line per node
+per cycle saying so would bury the ones that matter.
+
+| Line | When |
+|------|------|
+| `EXIT: no *.sqsh in <dir> -- nothing to copy yet` | The normal state until `build_containers.sh` has run |
+| `EXIT: <dir> does not exist here (CONTAINER_DIR from …)` | The share is not mounted on this node, or `CONTAINER_DIR` names somewhere that is not there |
+| `EXIT: PAUSE_CONTAINER_COPY=<value> in <settings file>` | No new copy; one already running finishes |
+| `EXIT: cannot open /tmp/.file_copy.lock … Fix: sudo rm -f …` | A lock left by the root cycles. `/tmp` is sticky, so it can be neither written nor removed by this account — run the command in the line. See [explanation/containers.md#a-lock-left-by-the-old-chain](../explanation/containers.md#a-lock-left-by-the-old-chain) |
+| `EXIT: rsync is not installed here` | Jobs read the image over the share instead, which works and is slower |
+| `copying: <n> of <n> image(s) here, from <dir>` | A copy just started, detached. The next line comes when it finishes, which may be several cycles later |
+| `copied: <n> of <n> image(s) now in /tmp/containers` | Done. `<n> of <n>` is the fact that matters — a job starts off local disk only when the count is complete |
+| `COPY FAILED (rsync exit <n>): <what rsync said>` | With the counts, so a partial copy is distinguishable from none |
+| `neither systemd-run nor setsid is available -- copying inline` | The copy holds the cycle rather than running as its own unit |
+
+The counts come from globbing both directories rather than from rsync's own
+output: "rsync ran" and "the images are here" are different facts, and only the
+second lets a job start off local disk.
+
 ## The health trace
 
 `results/<node>/health.log`, written by `actions/node_health.sh`. The same three
@@ -139,7 +221,6 @@ conventions hold, and the same 1 MB / 2000-line trim. Why it is a separate file:
 | Line | When |
 |------|------|
 | `MANUAL: --force -- cadence gate bypassed` | A human ran it with `-f` |
-| `EXIT: 'sinfo -N -n <node>' returned nothing …` | The node is not in Slurm, or the controller was too busy to answer. Both look the same from here, and neither is grounds for running checks |
 | `EXIT: PAUSE_HEALTH_CHECKS=<value> … a queued refresh is held rather than consumed` | Paused. The sentinel survives, so a re-check asked for during a maintenance window happens when it lifts — see [how-to/pause-and-resume.md](../how-to/pause-and-resume.md) |
 | `EXIT: the baseline … resolves to this node's own log directory` | The golden baseline points at the directory this run would overwrite. Fatal, and the one health line that means *stop and fix the tree* — see [explanation/health-cadence.md#the-golden-baseline](../explanation/health-cadence.md#the-golden-baseline) |
 | `EXIT: no health check set at <dir> …` | `HEALTHCHECKS` names a directory that is not there. Refused rather than run, because zero checks pass trivially |

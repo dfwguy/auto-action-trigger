@@ -1,8 +1,12 @@
 #!/bin/bash
 #
-# Checks the gates in get-out-of-the-way.sh against stubbed squeue/scancel/
-# scontrol on PATH, driven by STUB_*. The library under test is the real one,
-# sourced; see docs/explanation/sequencing.md#getting-out-of-the-way.
+# Checks the gates in get-out-of-the-way.sh, which decides for the whole fleet on
+# the head node now rather than per node. The library under test is the real one,
+# sourced, and driven by one queue string in the shape snapshot_query hands it:
+#
+#   id|name|user|state|priority|submit|end|nodelist|reqnodes|schednodes|reason
+#
+# See docs/explanation/sequencing.md#getting-out-of-the-way.
 #
 # The assertion that matters most is the negative one: every case that must not
 # cancel checks scancel.calls, not just the result string.
@@ -17,27 +21,6 @@ trap 'rm -rf "$work"' EXIT
 
 stub="$work/bin"
 mkdir -p "$stub"
-
-## Two shapes, told apart the way the library asks them: the pending queue and
-## one job by id. Both calls are recorded -- a case that must not ask is as much
-## of an assertion as one that must.
-cat > "$stub/squeue" <<'EOF'
-#!/bin/bash
-printf '%s\n' "$*" >> "$STUB_DIR/squeue.calls"
-case "$*" in
-    *"-t PENDING"*)
-        if [[ -n "$STUB_SQUEUE_FAIL" ]]; then
-            printf 'slurm_load_jobs error: Unable to contact slurm controller\n'
-            exit 1
-        fi
-        [[ -n "$STUB_PENDING" ]] && printf '%s\n' "$STUB_PENDING"
-        exit 0 ;;
-    *-j*)
-        [[ -n "$STUB_JOB" ]] && printf '%s\n' "$STUB_JOB"
-        exit 0 ;;
-esac
-exit 0
-EOF
 
 ## `show hostnames` expands prefix[11-18,28-37] as Slurm's does -- commas inside
 ## the brackets and all, which is the form the real queue hands back. A case can
@@ -82,55 +65,43 @@ printf '%s\n' "$*" >> "$STUB_DIR/scancel.calls"
 exit 0
 EOF
 
-## The cancel drops to YIELD_USER when it is root, and CI runs its jobs as root
-## while a developer does not -- so without this the suite tests a different
-## branch depending on who ran it, and was green locally and red in CI.
-## See docs/explanation/sequencing.md#the-prefix-is-the-gate.
-cat > "$stub/su" <<'EOF'
-#!/bin/bash
-printf '%s\n' "$*" >> "$STUB_DIR/su.calls"
-[[ -n "$STUB_SU_OUT" ]] && { printf '%s\n' "$STUB_SU_OUT"; exit 1; }
-## What a login shell is for here is putting the client tools on PATH, which
-## the stub PATH has already done: run the scancel, not the module lines.
-cmd=""
-for ((i = 1; i <= $#; i++)); do
-    [[ "${!i}" == "-c" ]] && { j=$((i + 1)); cmd="${!j}"; }
-done
-exec bash -c "${cmd##*;}"
-EOF
-
 chmod 755 "$stub"/*
 
 pass=0
 fail=0
 ok()  { printf '  ok   %s\n' "$*"; pass=$((pass + 1)); }
 bad() { printf '  FAIL %s\n' "$*"; fail=$((fail + 1)); }
-## Counted as neither: a case this uid cannot reach has not passed.
-skip() { printf '  skip %s\n' "$*"; }
 
 NODE=ink50-dh01-i01-13
-OURS="bringup-$NODE burnin-$NODE"
-## What the controller says about the job in the marker unless a case differs:
-## ours, our user's, running here.
-JOB_OK="4242|cmods|bringup-$NODE|RUNNING|$NODE|"
-## A foreign job that has been pending for an hour on this node by name, at a
-## priority that is not 0 -- 0 is held, and held is not waiting.
-WAITER="9001|alice|train-70b|$NODE||3600|4294901759|"
+## One clock for the whole suite, so a case's submit times are exact relative to
+## it. The library measures every wait against this, not against its own date.
+NOW=$(date +%s)
+HOUR_AGO=$(date -d "@$(( NOW - 3600 ))" '+%Y-%m-%dT%H:%M:%S')
+MIN_AGO=$(date -d "@$(( NOW - 60 ))" '+%Y-%m-%dT%H:%M:%S')
+ENDS=$(date -d "@$(( NOW + 3600 ))" '+%Y-%m-%dT%H:%M:%S')
+
+## Our benchmark, running on the node: ours by name, our user's, RUNNING, here.
+OURJOB="4242|bringup-$NODE|cmods|RUNNING|4294901759|$HOUR_AGO|$ENDS|$NODE|$NODE||None"
+## A foreign job pending for an hour on this node by name, at a priority that is
+## not 0 -- 0 is held, and held is not waiting.
+WAITER="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|$NODE|Resources"
 
 ## One case: $1 name, $2 expected YIELD_RESULT, rest VAR=value overrides.
+## STUB_QUEUE is the whole fleet queue; it defaults to one waiter and one job of
+## ours, which is the case that must cancel.
 run_case() {
     local name="$1" want="$2"; shift 2
     local dir="$work/case-$((pass + fail))"
-    mkdir -p "$dir"
+    mkdir -p "$dir/results/$NODE"
 
     (
         export PATH="$stub:$PATH" STUB_DIR="$dir"
-        export STUB_PENDING="$WAITER" STUB_JOB="$JOB_OK"
-        export STUB_SQUEUE_FAIL="" STUB_SCANCEL_OUT="" STUB_SU_OUT=""
+        export STUB_SCANCEL_OUT=""
+        STUB_QUEUE="$WAITER
+$OURJOB"
 
         source "$home/settings.sh"
         GET_OUT_OF_THE_WAY=yes
-        YIELD_OURS="$OURS"
         YIELD_USER=cmods
         YIELD_STAMP="$dir/.yield-check"
         YIELD_DRY_RUN=0
@@ -145,9 +116,11 @@ run_case() {
         [[ -n "$setup_stamp" ]] && : > "$YIELD_STAMP"
 
         yield_log() { printf '%s\n' "$*" >> "$dir/trace"; }
+        source "$home/slurm-snapshot.sh"
         source "$home/get-out-of-the-way.sh"
-        yield_to_waiter "${STUB_WANT:-4242}" "$NODE" > "$dir/out" 2>&1
+        yield_scan "$dir/results" "$STUB_QUEUE" "$NOW" > "$dir/out" 2>&1
         printf '%s' "$YIELD_RESULT" > "$dir/result"
+        printf '%s' "$YIELD_CANCELLED" > "$dir/count"
     )
 
     local got; got=$(cat "$dir/result" 2>/dev/null)
@@ -162,156 +135,147 @@ run_case() {
 
 cancelled()      { grep -q '4242' "$CASE_DIR/scancel.calls" 2>/dev/null; }
 nothing_killed() { [[ ! -f "$CASE_DIR/scancel.calls" ]]; }
+breadcrumb()     { [[ -f "$CASE_DIR/results/$NODE/.yielded" ]]; }
 
 echo "== a job is waiting for the node =="
 
-run_case "waiter names the node" yielded
-cancelled || bad "  ... but scancel was never called"
+run_case "waiter names the node" scanned
+cancelled  || bad "  ... but scancel was never called"
+breadcrumb || bad "  ... but the node was left nothing saying why its job went"
 
 ## Compressed, and the node is inside the range: proof the list is expanded.
-run_case "waiter is scheduled onto the node" yielded \
-    STUB_PENDING="9001|alice|train-70b||ink50-dh01-i01-[11-18]|3600|4294901759|"
+run_case "waiter is scheduled onto the node" scanned \
+    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A|||ink50-dh01-i01-[11-18]|Resources
+$OURJOB"
 cancelled || bad "  ... but scancel was never called"
 
 ## Straight off a head node, and the case this feature exists for: the waiter
 ## runs as JOB_USER too, so only the job name tells it from one of ours, and
 ## SchedNodes reads `(null)` rather than empty.
-run_case "the real queue's waiter" yielded \
-    STUB_PENDING="130938|cmods|microbenchmark_nccl_nccl_fp8|ink50-dh01-i01-[11-18,28-37]|(null)|1698|4294901759|
-130939|cmods|bringup-ink50-dh01-i05-31|ink50-dh01-i05-31|(null)|1677|4294901758|"
+run_case "the real queue's waiter" scanned \
+    STUB_QUEUE="130938|microbenchmark_nccl_nccl_fp8|cmods|PENDING|4294901759|$HOUR_AGO|N/A||ink50-dh01-i01-[11-18,28-37]|(null)|Resources
+130939|bringup-ink50-dh01-i05-31|cmods|PENDING|4294901758|$HOUR_AGO|N/A||ink50-dh01-i05-31|(null)|Priority
+$OURJOB"
 cancelled || bad "  ... but scancel was never called"
 
 run_case "only jobs of ours are queued" no-waiter \
-    STUB_PENDING="130939|cmods|bringup-$NODE|$NODE|(null)|1677|4294901759|
-130937|cmods|burnin-$NODE|$NODE|(null)|1710|4294901758|"
+    STUB_QUEUE="130939|bringup-$NODE|cmods|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|(null)|Priority
+130937|burnin-$NODE|cmods|PENDING|4294901758|$HOUR_AGO|N/A||$NODE|(null)|Priority
+$OURJOB"
 nothing_killed || bad "  ... but something was cancelled"
-
-## squeue -O pads to the field width; every field arrives with it attached.
-run_case "padded squeue output" yielded \
-    STUB_PENDING="9001      |alice   |train-70b   |$NODE   |    |3600  |4294901759  |" \
-    STUB_JOB="4242    |cmods   |bringup-$NODE  |RUNNING |$NODE  |"
-cancelled || bad "  ... but scancel was never called"
 
 echo "== nobody is waiting =="
 
-run_case "empty queue"            no-waiter STUB_PENDING=""
+run_case "empty queue"             empty-queue STUB_QUEUE=""
 nothing_killed || bad "  ... but something was cancelled"
 
-run_case "waiter is a job of ours" no-waiter STUB_PENDING="9001|cmods|bringup-othernode|$NODE||3600|4294901759|"
+run_case "nothing pending at all"  no-waiter STUB_QUEUE="$OURJOB"
 nothing_killed || bad "  ... but something was cancelled"
 
-run_case "waiter wants other nodes" no-waiter \
-    STUB_PENDING="9001|alice|train-70b|ink50-dh01-i01-[11-12]||3600|4294901759|"
+run_case "waiter is a job of ours" no-waiter \
+    STUB_QUEUE="9001|bringup-othernode|cmods|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|$NODE|Priority
+$OURJOB"
+nothing_killed || bad "  ... but something was cancelled"
+
+run_case "waiter wants other nodes" scanned \
+    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A||ink50-dh01-i01-[11-12]|(null)|Resources
+$OURJOB"
 nothing_killed || bad "  ... but something was cancelled"
 
 ## Under GET_OUT_OF_THE_WAY_AFTER_MINUTES: a job that may yet be satisfied
 ## somewhere else is not worth throwing a benchmark away for.
-run_case "waiter queued 60s ago" no-waiter STUB_PENDING="9001|alice|train-70b|$NODE||60|4294901759|"
+run_case "waiter queued 60s ago" no-waiter \
+    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$MIN_AGO|N/A||$NODE|$NODE|Resources
+$OURJOB"
 nothing_killed || bad "  ... but something was cancelled"
 
-run_case "waiter queued 60s ago, with the wait set to 0" yielded \
-    STUB_PENDING="9001|alice|train-70b|$NODE||60|4294901759|" GET_OUT_OF_THE_WAY_AFTER_MINUTES=0
+run_case "waiter queued 60s ago, with the wait set to 0" scanned \
+    GET_OUT_OF_THE_WAY_AFTER_MINUTES=0 \
+    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$MIN_AGO|N/A||$NODE|$NODE|Resources
+$OURJOB"
+cancelled || bad "  ... but scancel was never called"
 
 ## Held at priority 0: it passes every other condition -- foreign name, this
 ## node by name, pending for hours -- and will never start.
 ## docs/explanation/sequencing.md#a-held-job-is-not-a-waiter
 run_case "waiter is held after a failed launch" no-waiter \
-    STUB_PENDING="132492|cmods|microbenchmark_nccl_nccl_fp8|ink50-dh01-i01-[11-18,28-37]|(null)|75600|0|"
+    STUB_QUEUE="132492|microbenchmark_nccl_nccl_fp8|cmods|PENDING|0|$HOUR_AGO|N/A||ink50-dh01-i01-[11-18,28-37]|(null)|launch failed requeued held
+$OURJOB"
 nothing_killed || bad "  ... but a benchmark was thrown away for a job that cannot start"
 
-## An operator's hold is the same priority 0 and the same answer.
 run_case "waiter is held by an operator" no-waiter \
-    STUB_PENDING="9001      |alice   |train-70b   |$NODE   |    |3600  |0      |"
-nothing_killed || bad "  ... but something was cancelled"
-
-## The whole queue held: not "the controller would not answer", which is a
-## different result and must not be reached by this path.
-run_case "every waiter is held" no-waiter \
-    STUB_PENDING="9001|alice|train-70b|$NODE||3600|0|
-9002|bob|inference|$NODE||3600|0|"
+    STUB_QUEUE="9001|train-70b|alice|PENDING|0|$HOUR_AGO|N/A||$NODE|$NODE|JobHeldUser
+$OURJOB"
 nothing_killed || bad "  ... but something was cancelled"
 
 ## One real waiter behind two held ones: the held lines must be skipped over
 ## rather than ending the scan.
-run_case "a real waiter behind two held ones" yielded \
-    STUB_PENDING="9001|alice|train-70b|$NODE||3600|0|
-9002|bob|inference|$NODE||3600|0|
-9003|carol|sweep|$NODE||3600|4294901759|"
+run_case "a real waiter behind two held ones" scanned \
+    STUB_QUEUE="9001|train-70b|alice|PENDING|0|$HOUR_AGO|N/A||$NODE|$NODE|JobHeldUser
+9002|inference|bob|PENDING|0|$HOUR_AGO|N/A||$NODE|$NODE|JobHeldUser
+9003|sweep|carol|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|$NODE|Resources
+$OURJOB"
 cancelled || bad "  ... but scancel was never called"
 
-## Fail open: a squeue that does not give a number for priority leaves the
+## Fail open: a queue that does not give a number for priority leaves the
 ## feature exactly as it was before the field was asked for.
-run_case "priority field is empty" yielded \
-    STUB_PENDING="9001|alice|train-70b|$NODE||3600||"
+run_case "priority field is empty" scanned \
+    STUB_QUEUE="9001|train-70b|alice|PENDING||$HOUR_AGO|N/A||$NODE|$NODE|Resources
+$OURJOB"
 cancelled || bad "  ... but scancel was never called"
 
-echo "== the job in the marker is not confirmed ours =="
+echo "== the running job is not confirmed ours =="
 
-run_case "another user owns it"   not-ours STUB_JOB="4242|bob|bringup-$NODE|RUNNING|$NODE|"
+## Every one of these has a real waiter: the only thing standing between it and
+## a scancel is what the queue says about the job on the node.
+with_waiter() { printf '%s\n%s' "$WAITER" "$1"; }
+
+run_case "another user owns it" scanned \
+    STUB_QUEUE="$(with_waiter "4242|bringup-$NODE|bob|RUNNING|4294901759|$HOUR_AGO|$ENDS|$NODE|$NODE||None")"
 nothing_killed || bad "  ... but somebody else's job was cancelled"
 
-run_case "not a bringup name"     not-ours STUB_JOB="4242|cmods|train-70b|RUNNING|$NODE|"
-nothing_killed || bad "  ... but somebody else's job was cancelled"
+run_case "not a bringup name" scanned \
+    STUB_QUEUE="$(with_waiter "4242|train-70b|cmods|RUNNING|4294901759|$HOUR_AGO|$ENDS|$NODE|$NODE||None")"
+nothing_killed || bad "  ... but a foreign job was cancelled"
 
-run_case "another node's bringup" not-ours STUB_JOB="4242|cmods|bringup-othernode|RUNNING|$NODE|"
-nothing_killed || bad "  ... but another node's job was cancelled"
-
-run_case "caller named no job of its own" not-ours YIELD_OURS=""
-nothing_killed || bad "  ... but a job was cancelled with nothing to compare the name against"
-
-## A caller that vouches for a foreign job: YIELD_OURS is set to the name of a
-## real neighbouring job, owned by JOB_USER and running here, so user, id, state
-## and node all pass and the name is the only thing left standing between it and
-## a scancel. See docs/explanation/sequencing.md#the-prefix-is-the-gate.
-run_case "caller vouches for a foreign name" not-ours \
-    STUB_JOB="4242|cmods|microbenchmark_nccl_nccl_fp8|RUNNING|$NODE|" \
-    YIELD_OURS="microbenchmark_nccl_nccl_fp8"
-nothing_killed || bad "  ... but the prefix gate let a foreign job through"
-
-run_case "id does not match the answer" unconfirmed STUB_JOB="4243|cmods|bringup-$NODE|RUNNING|$NODE|"
-nothing_killed || bad "  ... but a job we did not ask about was cancelled"
-
-run_case "two answers for one id" unconfirmed \
-    STUB_JOB="4242|cmods|bringup-$NODE|RUNNING|$NODE|
-4242|cmods|bringup-$NODE|RUNNING|$NODE|"
-nothing_killed || bad "  ... but an ambiguous answer was acted on"
-
-run_case "job is pending, not running" not-running STUB_JOB="4242|cmods|bringup-$NODE|PENDING||"
+run_case "ours, but pending rather than running" scanned \
+    STUB_QUEUE="$(with_waiter "4242|bringup-$NODE|cmods|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|$NODE|Resources")"
 nothing_killed || bad "  ... but a job holding nothing was cancelled"
 
-run_case "job is running elsewhere" elsewhere \
-    STUB_JOB="4242|cmods|bringup-$NODE|RUNNING|ink50-dh01-i01-14|"
+run_case "ours, but running on another node" scanned \
+    STUB_QUEUE="$(with_waiter "4242|bringup-ink50-dh01-i01-14|cmods|RUNNING|4294901759|$HOUR_AGO|$ENDS|ink50-dh01-i01-14|ink50-dh01-i01-14||None")"
 nothing_killed || bad "  ... but a job on another node was cancelled"
 
-run_case "job has left the queue" gone STUB_JOB=""
-nothing_killed || bad "  ... but a job that is not in the queue was cancelled"
-
-run_case "marker holds an unusable id" no-job STUB_WANT="4242-bad"
-[[ -f "$CASE_DIR/squeue.calls" ]] && bad "  ... and it asked the controller anyway"
+## A neighbouring node's benchmark, running on a node somebody wants: ours by
+## prefix and by user, but it is not on the node being waited for.
+run_case "our job elsewhere while this node is wanted" scanned \
+    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|$NODE|Resources
+4242|bringup-ink50-dh01-i01-99|cmods|RUNNING|4294901759|$HOUR_AGO|$ENDS|ink50-dh01-i01-99|ink50-dh01-i01-99||None"
+nothing_killed || bad "  ... but a job on a node nobody is waiting for was cancelled"
 
 echo "== switches, polling and failures =="
 
 run_case "switched off" disabled GET_OUT_OF_THE_WAY=no
-[[ -f "$CASE_DIR/squeue.calls" ]] && bad "  ... and it asked the controller anyway"
+nothing_killed || bad "  ... but a switched-off feature cancelled a job"
 
-run_case "dry run" would-yield YIELD_DRY_RUN=1
+run_case "dry run" scanned YIELD_DRY_RUN=1
 nothing_killed || bad "  ... but --explain cancelled a job"
 [[ -f "$CASE_DIR/.yield-check" ]] && bad "  ... and --explain wrote the poll stamp"
+breadcrumb && bad "  ... and --explain left the node a breadcrumb for a cancel that did not happen"
 
-run_case "the poll stamp is written" yielded
+run_case "the poll stamp is written" scanned
 [[ -f "$CASE_DIR/.yield-check" ]] || bad "  ... but no poll stamp was left behind"
 
-## The stamp is what keeps a running cycle off the controller. See
-## docs/explanation/sequencing.md#what-a-yield-costs.
+## The stamp is the last gate in front of the one destructive thing here.
+## See docs/explanation/sequencing.md#what-a-yield-costs.
 setup_stamp=1
 run_case "polled a moment ago" polled-recently
-[[ -f "$CASE_DIR/squeue.calls" ]] && bad "  ... and it asked the controller anyway"
+nothing_killed || bad "  ... but it cancelled inside its own poll interval"
 unset setup_stamp
 
-run_case "the queue cannot be read" no-queue-answer STUB_SQUEUE_FAIL=1
-nothing_killed || bad "  ... but it cancelled a job on no information"
-
-run_case "scancel refuses" cancel-failed STUB_SCANCEL_OUT="scancel: error: Kill job error on job id 4242: Access/permission denied"
+run_case "scancel refuses" scanned \
+    STUB_SCANCEL_OUT="scancel: error: Kill job error on job id 4242: Access/permission denied"
+breadcrumb && bad "  ... but a refused cancel still told the node it had been yielded"
 
 echo "== the cancel itself =="
 
@@ -352,32 +316,15 @@ cancel_case ""                              refused
 ## Not a prefix match by accident: the framework's name has to start the string.
 cancel_case "not-a-bringup-job"             refused
 
-echo "== dropping to YIELD_USER =="
+echo "== the cancel runs as this cycle =="
 
-## The uid decides which half of the cancel runs, and only one of them can be
-## exercised per run. Named, so a green suite says which half it proved rather
-## than implying both. docs/explanation/sequencing.md#the-prefix-is-the-gate
-run_case "the cancel path taken by this uid" yielded YIELD_AFTER_SECS=0
-if [[ "$EUID" -eq 0 ]]; then
-    [[ -f "$CASE_DIR/su.calls" ]] &&
-        ok "root: dropped to YIELD_USER rather than cancelling as itself" ||
-        bad "root: cancelled as root, without dropping to YIELD_USER"
-else
-    [[ -f "$CASE_DIR/su.calls" ]] &&
-        bad "uid $EUID: dropped to YIELD_USER without being root" ||
-        ok "uid $EUID: cancelled directly (root takes the su path; CI runs as root)"
-fi
-
-## What CI hit for real: JOB_USER does not exist on the node. su reports it and
-## fails, and the node must not be recorded as given up. Only reachable as root,
-## so it is skipped rather than counted where it cannot run.
-if [[ "$EUID" -eq 0 ]]; then
-    run_case "the user we drop to does not exist" cancel-failed \
-        STUB_SU_OUT="su: user cmods does not exist"
-    nothing_killed || bad "  ... and it cancelled anyway"
-else
-    skip "the user we drop to does not exist (needs root; CI runs as root)"
-fi
+## There is no drop to YIELD_USER -- the watchdog is already that account, so
+## `su` is never called whoever runs the suite.
+## docs/explanation/running-unprivileged.md#the-cancel-runs-as-the-cycle
+run_case "the cancel path" scanned
+[[ -f "$CASE_DIR/su.calls" ]] &&
+    bad "uid $EUID: went through su, which nothing should do now" ||
+    ok "uid $EUID: cancelled directly, as $(id -un)"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

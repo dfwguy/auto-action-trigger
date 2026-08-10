@@ -6,15 +6,23 @@ describes what you have to keep true while editing them.
 
 ## The checkout is not the deployment
 
-The tree runs at `/home/cmods/bringup/` on cluster head nodes, exported over
-NFS to every compute node. A git checkout is a *source* of that tree, never the
-tree itself. Nothing in the repo updates the deployment — the user manages
-getting it to the cluster. Push to `main`, and open a merge request for major
-changes.
+The tree runs at `$BRINGUP_HOME` on cluster head nodes, exported to every
+compute node. A git checkout is a *source* of that tree, never the tree itself.
+Nothing in the repo updates the deployment — the user manages getting it to the
+cluster. Push to `main`, and open a merge request for major changes.
 
 `SETTINGS` is gitignored on purpose: it is the site's file, and a tarball drop
 must not overwrite one cluster's node list and drain switches with another's.
-`SETTINGS.default` is the shipped copy and *is* tracked.
+`SETTINGS.default` is the shipped copy and *is* tracked. Six directories are the
+site's too and are never in a drop — `results/`, `logs/`, `valid-config/`,
+`containers/`, `container-src/`, `reports/`. A copy that does not exclude them
+destroys the cluster's history and its health baseline.
+
+**A change is not deployed until the fleet is re-armed.** Two thousand agents
+execute out of that directory, so a drop is stop, copy, confirm, resume — and a
+unit file only reaches a node when `install-agent.sh` runs again. Scripts alone
+land immediately; units do not. `docs/how-to/update-the-deployment.md` is the
+procedure, and it is worth reading before changing anything under `agent/`.
 
 ## Comments point at the docs; they do not contain them
 
@@ -134,8 +142,9 @@ is:
 
 | Mode | What | Why |
 |------|------|-----|
-| `755` | Entry points — anything a human or BCM invokes directly | Must be `exec`able. BCM registers an action against a path and runs it; a `644` action registers fine and silently runs nothing |
-| `644` | Sourced libraries: `settings.sh`, `reason-map.sh`, `slurm-recovery.sh`, `get-out-of-the-way.sh`, `verdict-scan.sh`, `report-format.sh`, `health-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is also *run*, but as `bash verdict-scan.sh` from its own `xargs`, like the health checks below |
+| `755` | Entry points — anything a human or a systemd unit invokes directly, `agent/*.sh` included | Must be `exec`able. The unit names a path and runs it; a `644` agent script installs fine and silently runs nothing, which is why `install-agent.sh` preflights the bit |
+| `644` | Sourced libraries: `settings.sh`, `priv.sh`, `fanout.sh`, `reason-map.sh`, `slurm-recovery.sh`, `get-out-of-the-way.sh`, `verdict-scan.sh`, `report-format.sh`, `health-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is also *run*, but as `bash verdict-scan.sh` from its own `xargs`, like the health checks below |
+| `644` | `agent/units/*.service`, `agent/units/*.timer`, `agent/sudoers.default` | Read, never run. `install-agent.sh` copies the units with `@BRINGUP_HOME@` and `@INTERVAL@` substituted; the sudoers file is a reference the site installs itself, at `0440` |
 | `644` | `llmb_check.py` | `build_llmb.sh` runs it as `python3 llmb_check.py`, like the health checks below |
 | `644` | `health-checks/*/NN-*.sh` | `node_health.sh` runs each as `bash "$check_file"` — deliberately, so one check's `exit 1` cannot truncate the set of 38 |
 | `644` | `jobs/*/*.sbatch`, including `example.sbatch` | `sbatch` reads them; it does not exec them. `example.sbatch` is a template that gets `cp`'d, so a stray `755` propagates into every new job |
@@ -147,18 +156,38 @@ Check the whole tree with:
 git ls-files -s | awk '{print $1, $4}' | sort
 ```
 
-## Reaching a node is `pdsh -R ssh -w`, never a bare `ssh`
+## Reaching a node is `clush -w` or `pdsh -R ssh -w`, never a bare `ssh`
 
-Every remote command in the tree and in `docs/` — including the ones scripts
-*print* for an operator to paste — is written `pdsh -R ssh -w <nodes> '<cmd>'`.
-A command written as an `ssh` has to be rewritten the first time it is wanted on
-more than one node; written as a `pdsh` it scales by widening `-w`. `-R ssh` is
-always spelled out: `pdsh` picks its rcmd module at build time and several
-packaged builds default to `rsh`, so the default is not portable between sites.
+**The automation uses clush.** `fanout.sh` is the only place either tool is
+invoked: `fanout_resolve` prefers `clush`, falls back to `pdsh` with the fact
+traced, and refuses with a named reason when neither is installed. `FANOUT_TOOL`
+pins it. Nothing calls `clush` or `pdsh` directly, and nothing calls `ssh` at
+all — a command written as an `ssh` has to be rewritten the first time it is
+wanted on more than one node.
+
+**Every example gives both spellings**, in `docs/` and in the lines scripts
+*print* for an operator to paste:
+
+```bash
+clush -w '<nodes>' '<cmd>'
+pdsh -R ssh -w '<nodes>' '<cmd>'
+```
+
+A site has one of the two installed and nobody should have to translate; the two
+take the same nodeset syntax and both label output `<node>: <line>`, so a caller
+parses one format either way. `fanout_example` prints the pair. `-R ssh` is
+always spelled out on the pdsh form: `pdsh` picks its rcmd module at build time
+and several packaged builds default to `rsh`, so the default is not portable
+between sites.
+
+**The fan-out carries commands, never files.** Arming a node runs
+`agent/install-agent.sh` *on* that node, and everything it installs it reads out
+of `$BRINGUP_HOME` over NFS. There is no `scp` and no push, which is what makes
+arming idempotent and a tarball drop on the head node reach every node at once.
 
 The exceptions are `srun -w <node>` where the command must run inside Slurm's
 view, and the job payload itself where it must run inside the container. See
-`docs/explanation/architecture.md#reaching-nodes-is-pdsh-not-ssh`.
+`docs/explanation/architecture.md#reaching-nodes-is-clush-or-pdsh`.
 
 ## Platform sets are directories, not files
 
@@ -180,6 +209,9 @@ Most cycles legitimately have nothing to do, so "nothing happened" cannot be
 distinguished from "the chain is broken" by looking at the cluster. The design
 answer is that every gate writes down why it stopped:
 
+- `node-agent.sh` touches `results/<node>/.heartbeat` before every gate — it
+  says the timer fired, never that the cycle did work — and appends one line per
+  cycle to `results/<node>/agent.log`.
 - `launch_job.sh` appends one line per cycle to `results/<node>/trigger.log`.
 - `trigger-log.sh` reads those traces — run it **first**. Fresh traces mean the
   chain is intact by definition and a gate is closed, and the gate named itself.
@@ -187,13 +219,78 @@ answer is that every gate writes down why it stopped:
   Run it when the traces are stale.
 
 New gates get a trace line. An `exit 0` with no explanation is a bug even when
-the behaviour is correct.
+the behaviour is correct. `file_copy.sh` was the last step without one, and the
+cost was months of "the images are not built yet" and "the images never arrived"
+being the same silence.
 
-`cmsh` is a specific offender here: it exits `0` even when a `set` inside the
-`-c` string was rejected, reporting the problem on stdout and committing
-anyway. Never trust its exit status — inspect its output, as `cm_run` does.
-Read trigger state with `get <property>`, not by parsing `show`, whose column
-padding and property names drift between BCM releases.
+### No answer is not an answer
+
+Every query that can come back empty has a caller that fails towards *not*
+acting. A saturated `slurmctld` returns nothing rather than an error; a
+`systemctl show` that does not answer is not a broken timer; a `scontrol
+listjobs` that fails reads as *busy*, never as idle. Getting this backwards is
+how a check written to catch a silent failure produced two thousand `FAILED`
+lines for timers that were firing perfectly well.
+
+Three outcomes, not two, wherever a probe can be inconclusive: it worked, it is
+definitely broken, or **it did not say** — and the third prints what the tool
+actually returned rather than a verdict.
+
+### Verify the outcome, not the request
+
+Every line an installer prints about what it *asked* the system to do is worth
+less than one line about what is now true. `install-agent.sh` reported six
+cheerful `ok:` lines while leaving a node that never ran a cycle, because every
+one of them described a request. It now checks that the timer is scheduled and
+that the node can write its own heartbeat — the two facts the fleet depends on —
+and those are what caught the next three faults.
+
+Nothing in the tree drives `cmsh` any more — the chain is a `systemd --user`
+timer per node and a watchdog on the head node, and BCM is not in it. When you
+reach for `cmsh` by hand, two things still hold: it exits `0` even when a `set`
+inside the `-c` string was rejected, reporting the problem on stdout and
+committing anyway, so never trust its exit status; and read state with
+`get <property>`, not by parsing `show`, whose column padding and property names
+drift between BCM releases.
+
+## Nothing may depend on how long something else took
+
+A cycle runs three steps; anything that has to outlive the cycle gets its own
+transient unit through `systemd-run --user --collect`, never a `setsid ... &`
+child. `setsid` escapes the session and not the cgroup, so a background child is
+killed when `ExecStart` returns — which gives it whatever is left of a cycle
+whose length nothing chose and nothing bounds, anywhere from milliseconds to
+seconds depending on what the other two steps decided to do. The container copy
+lost that race for a fleet-wide fill and looked like slow progress rather than a
+fault.
+
+If a thing needs to run to completion, give it a unit. The same rule applies to
+anything added later that takes longer than a cycle.
+
+## Fleet arithmetic: multiply everything by the node count
+
+Every read in a cycle is multiplied by the fleet. One file per cycle is 17 reads
+a second across two thousand nodes, sustained, for ever — so work belongs
+**below** the gate that decides whether the work happens, even when the code
+reads worse for it. The sudo preflight read all 38 check files above the cadence
+gate and cost 640 reads a second for an answer worth having every four hours.
+
+The same arithmetic applies to fan-out: `ARM_BATCH` caps how many nodes one
+watchdog cycle reaches, because a fleet that stops cycling for any reason makes
+*every* node stale in the same instant, and an uncapped pass is one ssh per node
+from one host.
+
+## A shared `$HOME` is a shared everything
+
+`~/.config/systemd/user/` is on NFS at most sites, so every node reads the same
+unit files and the same `systemctl --user enable` state. Two units differing by
+role cannot survive that — enabling one on the head node enables it fleet-wide —
+which is why there is **one** unit and `agent/cycle.sh` decides the role at run
+time. It is also why a temp file written there carries `$HOSTNAME.$$`: two
+thousand hosts writing one directory in one fan-out took each other's file and
+left a zero-length unit, which systemd reports as `masked`.
+
+Assume anything under `$HOME` is being written by two thousand hosts at once.
 
 ## A verdict is derived, and the cache does not change that
 
@@ -223,6 +320,11 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/health-scan-test.sh    # the health verdict, if you touched health-scan.sh
 ./tests/health-report-test.sh  # the buckets and --drained, if you touched health-check.sh
 ./tests/job-user-test.sh      # the two-account differential, if you touched JOB_USER, a path derived from it, or CONTAINER_DIR
+./tests/agent-test.sh          # the heartbeat, the busy gate and the lock, if you touched node-agent.sh
+./tests/supervisor-test.sh     # which nodes get armed, if you touched supervisor.sh
+./tests/priv-test.sh           # the sudo layer, if you touched priv.sh or a check that needs root
+./tests/fanout-test.sh         # clush before pdsh, if you touched fanout.sh
+./tests/next-run-test.sh       # the buckets, if you touched next-run.sh or either cadence
 ./tests/doc-links-test.sh      # every docs/ anchor the code points at, if you moved or retitled one
 bash -n <changed script>       # these scripts run as root on 200+ nodes
 shellcheck -S warning <changed script>   # CI gates on this; see below
@@ -242,8 +344,31 @@ but a rewrite is not provably equivalent, the directive *is* the correct
 outcome, not a cop-out. `export` is never the way to silence SC2034 in this
 tree — it changes the environment every sourcing script and Slurm job runs in.
 
-Keep the tree listing in `docs/explanation/architecture.md` in step with the files — it has
-drifted twice by adding a top-level script and not listing it.
+Keep the tree listing in `docs/reference/layout.md` in step with the files — the
+`layout-doc` CI job fails on a top-level script that is not listed, and it has
+drifted twice.
+
+A change under `agent/units/` is not testable from a checkout: the suites stub
+systemd, and a unit only takes effect when `install-agent.sh` rewrites and
+restarts it on every host. Say so in the commit, because the reader deploying it
+needs `pause-agents.sh --resume` and not just an `rsync`.
+
+## Privilege is asked for, never held
+
+No cycle runs as root. The agent is `$JOB_USER` under that account's
+`systemd --user`, and the few commands that need more go through `priv()` in
+`priv.sh` — `sudo -n <absolute path>`, against a rule the site installs from
+`agent/sudoers.default`. A health check that needs root says `sudo -n` inline,
+because those files are read and run on their own.
+
+The failure this guards against is not a check that fails; it is a check that
+**succeeds differently**. A refused `sudo` prints to stderr, which the runner
+discards, and produces empty stdout — so the check writes a file the baseline
+does not match, and the node is reported as bad hardware. So `node_health.sh`
+preflights every `sudo -n <cmd>` it finds in the check set and refuses to run at
+all when one would be denied. Read
+`docs/explanation/running-unprivileged.md#a-lost-rule-must-stop-the-run` before
+changing any of it.
 
 ## Some scripts print their own header as `--help`
 

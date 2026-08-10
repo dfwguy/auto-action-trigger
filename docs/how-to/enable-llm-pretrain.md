@@ -14,6 +14,16 @@ export HF_TOKEN=hf_...            # this run only; never written to a node
 ./build_llmb.sh -l                # what is present, what is not
 ```
 
+**The `nemo` image has to be in `CONTAINER_DIR`**, or every run reads it over
+the share instead of from local disk:
+
+```bash
+./build_containers.sh nemo
+```
+
+Everything in that directory is cached on every node, so building it is the
+whole of asking for it. `build_containers.sh -l` says whether it is there.
+
 To move versions, edit `LLMB_REF` in `SETTINGS` and re-run. `-l` prints both the
 ref `SETTINGS` asks for and the one actually checked out, so a drift between
 them is visible. A ref that does not exist lists the tags that do.

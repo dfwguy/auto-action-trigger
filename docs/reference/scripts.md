@@ -1,7 +1,7 @@
 # The operator scripts
 
 Every entry point, what it takes and what it prints. Everything here runs from
-the headnode and is safe to run while the triggers are live.
+the headnode and is safe to run while the timers are live.
 
 Eight of these implement `-h`/`--help` by printing their own header comment —
 `status-check.sh`, `health-check.sh`, `overall_report.sh`, `daily-report.sh`,
@@ -20,12 +20,13 @@ bash status-check.sh ink50-dh01-h20        # one rack (bare prefix)
 bash status-check.sh -t allreduce          # one benchmark, every run of it
 bash status-check.sh -t 'allreduce*' -t dcgmi-r3 ink50-dh01-h20
 bash status-check.sh -s                    # node lists per status, no reasons
+bash status-check.sh --sort-by-hostname    # by node instead of by test
 ```
 
 Reads `results/` and prints per-node status for each benchmark column, grouped
-by identical status via `dshbak`. A host that is not a compute node gets no row
-and is named on stderr instead — see
-[settings.md#hosts-that-are-not-compute-nodes](settings.md#hosts-that-are-not-compute-nodes).
+by identical status — see [grouping identical rows](#grouping-identical-rows).
+A host that is not a compute node gets no row and is named on stderr instead —
+see [settings.md#hosts-that-are-not-compute-nodes](settings.md#hosts-that-are-not-compute-nodes).
 
 | Status | Meaning |
 | --- | --- |
@@ -41,7 +42,7 @@ attempt had just been archived as one that had never been attempted. A column
 with archives is a different thing from one with no history at all.
 
 The line carries no attempt count. It is per node, so two nodes in the same
-state would print different lines and `dshbak` would split one block into a
+state would print different lines and the grouping would split one block into a
 block per count; the `.fail<N>.txt` archives on disk are the record of how many
 tries a column took.
 
@@ -54,7 +55,7 @@ active, rather than printing an empty report that reads like a clean cluster.
 
 `-s` replaces the per-column report with one compressed node list per status
 (FAIL / INCOMPLETE / RETRY / NOT_RUN / DONE), reasons dropped, for pasting into
-`scancel`, `pdsh -R ssh -w` or `scontrol`:
+`scancel`, `clush -w` or `scontrol`:
 
 ```
 SUMMARY — judged on: allreduce
@@ -76,13 +77,69 @@ outstanding. Per node, `results/<node>/quick-view.txt` carries the state
 directly: `BURN-IN OFF` when the switch is off, and `IN QUEUE` for anything
 submitted and not yet judged.
 
+### The order of the report
+
+The report is ordered by test: the benchmark columns are walked in the order
+`BENCHMARKS` (then `BURNIN`) configures them, and each test's blocks are printed
+together under a banner, so one test's whole fleet reads as one section:
+
+```
+************************************************************
+allreduce-nonvlink
+************************************************************
+ink50-dh01-h20-[03,17]: allreduce-nonvlink: FAIL -- peak busbw below floor 93 GB/s
+```
+
+That is the order the jobs run in and the order `-t` names them in, so narrowing
+with `-t` removes sections from the report rather than rearranging it. The
+column stays on every line as well as in the banner: the grouping tool prints
+its own rules between blocks, and a line that carries its own column is still
+one grep away from being read on its own.
+
+`--sort-by-hostname` orders by node instead: every row sorted by node name, so
+one node's columns sit together and the tests are interleaved. It is the shape
+to reach for when the question is about a node rather than about a benchmark.
+
+The grouping tool below sorts its own output, so the test order cannot come from
+sorting the rows — the report is one invocation of it per column, over a single
+scan split by column. That is also why the two orders are a flag and not a
+`sort` pipeline the reader could write themselves.
+
+### Grouping identical rows
+
+Two hundred nodes reporting the same thing is one fact, not two hundred lines,
+so the report is piped through a tool that collapses `<node>: <line>` input into
+one block per distinct line under a compressed nodeset. Either of two will do:
+
+| Tool | Ships with | Called as |
+|---|---|---|
+| `clubak` | ClusterShell, alongside `clush` | `clubak -b` |
+| `dshbak` | `pdsh` | `dshbak -c` |
+
+`bak_resolve` in `fanout.sh` prefers `clubak`, honours `FANOUT_TOOL` when it is
+pinned, and falls back to `dshbak`. **A site installing ClusterShell for `clush`
+gets `clubak` in the same package and needs nothing else** — `pdsh` is not
+required just for the grouped report.
+
+With neither installed the report prints one line per node and says so on
+stderr. That is the whole reason the check exists: a missing grouping tool
+empties stdout while the pipeline still exits 0, which is indistinguishable from
+"no nodes match".
+
+The lines are built to group well. The reason is on the line rather than in a
+column, and the line carries no per-node attempt count, so nodes failing the
+same way collapse into one block instead of one block per count. `verdict.sh`
+keeps `REASON` identical across nodes for the same fault and puts the varying
+part — the offending GPU, the measured bandwidth — in the detail. See
+[explanation/judging-benchmarks.md](../explanation/judging-benchmarks.md).
+
 ## `daily-report.sh` — per-node table with metrics
 
 ```bash
 bash daily-report.sh
 bash daily-report.sh ink50-dh01-h20                 # one rack (bare prefix)
 bash daily-report.sh 'ink50-dh0[12]*'               # glob, as written
-bash daily-report.sh -c -o reports/report-$(date '+%F').csv
+bash daily-report.sh -c -o ~/report-$(date '+%F').csv
 ```
 
 The node pattern is read exactly as `status-check.sh` reads its own: a bare
@@ -145,7 +202,7 @@ spreadsheet is [how-to/export-a-report.md](../how-to/export-a-report.md).
 bash overall_report.sh                    # every node
 bash overall_report.sh ink50-dh01-h20     # one rack (bare prefix)
 bash overall_report.sh --full             # nothing elided
-bash overall_report.sh -o reports/today.txt
+bash overall_report.sh -o ~/today.txt
 ```
 
 The exception list. A node that passes appears nowhere in it, so a clean cluster
@@ -191,7 +248,7 @@ ink50-dh01-h20-35
 `prolog` is the line the rest of this tree cannot give you: Slurm records only
 that the prolog failed, and the check that actually failed is named nowhere a
 head node can read it — except in the note `slurm-recovery.sh` leaves in the
-node's own trace. When that note is absent the line says so and prints the `pdsh`
+node's own trace. When that note is absent the line says so and prints the fan-out line
 that reads the node-local log directly. See
 [explanation/reading-the-whole-fleet.md](../explanation/reading-the-whole-fleet.md#a-prolog-drain-does-not-say-why).
 
@@ -201,7 +258,7 @@ outranks one that simply has a benchmark running on it. `--full` lifts every cap
 in the report.
 
 Slurm is asked three times for the whole fleet, never once per node, so this is
-safe to run while the triggers are live. It submits nothing, drains nothing and
+safe to run while the timers are live. It submits nothing, drains nothing and
 resumes nothing; `-o` is the only thing it writes.
 
 ## `health-check.sh` — cluster-wide health summary
@@ -418,11 +475,11 @@ NODE                         LAST RUN             OUTCOME  NEXT DUE
 ink50-dh01-h01-11            2026-08-08 04:12:31  clean    in 96m
 ink50-dh01-h01-14            2026-08-08 07:31:02  failed   in 21m
 ink50-dh01-h01-17            2026-08-07 22:04:55  clean    overdue by 6h
-ink50-dh01-h01-29            (never)              -        next monitoring cycle
+ink50-dh01-h01-29            (never)              -        next agent cycle
 ```
 
 `overdue` is the one to read: the node is past its interval and has not
-re-checked, so `NodeHealthTrigger` is not reaching it. `tail
+re-checked, so no agent cycle is reaching it. `tail
 results/<node>/health.log` names the gate. `(never)` on a node that has a
 `logs/<node>` means the stamp predates the cadence, and one cycle fixes it.
 
@@ -443,15 +500,22 @@ It needs write access to `logs/<node>/` and contacts no node. See
 |---|---|
 | `set-valid-default.sh <node>` | Captures a validated node's `logs/` as the new baseline — see [health-checks.md](health-checks.md) |
 | `watch-rack.sh <nodelist>` | Refreshes every 20 seconds, showing only nodes that are DOWN or drained |
-| `trigger-log.sh` | Reads `results/<node>/trigger.log` and `health.log` across the cluster — five sections, described in [how-to/diagnose-nothing-running.md](../how-to/diagnose-nothing-running.md). `--include-excluded` also reads the hosts the reports leave out |
-| `actions/node_health.sh` | The health runner BCM fires. Also runnable over `pdsh` with `--explain`/`--force`/`--verbose` — see [how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand](../how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand) |
-| `trigger-debug.sh` | Walks the BCM → `sbatch` chain and names the broken link. Read-only |
+| `trigger-log.sh` | Reads the heartbeats, `results/<node>/trigger.log` and `health.log` across the cluster — six sections, described in [how-to/diagnose-nothing-running.md](../how-to/diagnose-nothing-running.md). `--include-excluded` also reads the hosts the reports leave out |
+| `agent/cycle.sh` | What `bringup-agent.timer` runs on every host. Asks `agent_role` and hands over to `supervisor.sh` or `node-agent.sh` — one unit for both, because `$HOME` is shared. See [explanation/the-agent-and-the-watchdog.md#one-unit-for-both-roles](../explanation/the-agent-and-the-watchdog.md#one-unit-for-both-roles) |
+| `agent/node-agent.sh` | One cycle on the node it runs on: heartbeat, busy gate, then the three steps. Fired by `bringup-agent.timer`; `--explain`/`--verbose` for a hand-run over `clush` or `pdsh` |
+| `agent/supervisor.sh` | The head node's watchdog. Fired by `bringup-supervisor.timer`; `--explain` names what it would arm and drain, and does neither |
+| `agent/install-agent.sh` | Arms this host — lingering, the units, the timer. Idempotent; `--node`/`--head` override the role it works out for itself. See [how-to/arm-a-node.md](../how-to/arm-a-node.md) |
+| `agent/uninstall-agent.sh` | Stops and removes the timer and its unit. Leaves lingering and everything under `results/` alone |
+| `actions/node_health.sh` | The health runner, second of the agent's three steps. Also runnable over `clush` or `pdsh` with `--explain`/`--force`/`--verbose` — see [how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand](../how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand) |
+| `next-run.sh` | The other half of `trigger-log.sh`: when each node next submits a benchmark (`--tests`) or runs its health checks (`--healthchecks`), bucketed into `soon` and one bucket per hour and grouped with `clubak`. Read-only. See [how-to/see-what-fires-next.md](../how-to/see-what-fires-next.md) |
+| `trigger-debug.sh` | Walks the watchdog → `sbatch` chain and names the broken link. Read-only. `--ask-nodes` adds the per-node systemd and sudo checks |
 | `check_squeue.sh` | The queue in one aligned table, whole cluster; `-j <id>` adds node state and reservations |
+| `pause-agents.sh` | Stops the watchdog and every node timer, `--resume` puts them back through `install-agent.sh`, `--status` says what is running. Writes nothing to the share, which is what makes it usable when the share is the problem. See [how-to/update-the-deployment.md](../how-to/update-the-deployment.md) |
 | `kill-jobs.sh` | Cancels this framework's jobs; `-p` also sets `PAUSE_JOBS=yes`. See [how-to/pause-and-resume.md](../how-to/pause-and-resume.md) |
 | `single-node-purge.sh <nodes>` | Removes `results/<node>` outright. See [how-to/reset-results.md](../how-to/reset-results.md) |
 | `dmesg-archive.sh <nodes>` | Saves each node's ring buffer under `dmesg-archive/`, and with `--clear --resume` breaks the drain-resume-drain loop a full dmesg causes. Will not clear a node the head node's syslog does not have. See [how-to/archive-and-clear-dmesg.md](../how-to/archive-and-clear-dmesg.md) |
 | `ib-visibility.sh <node>` | Compares the HCAs the host sees against the container's. See [how-to/diagnose-ib-visibility.md](../how-to/diagnose-ib-visibility.md) |
-| `build_containers.sh` | Builds the `CONTAINERS` list. See [how-to/build-containers.md](../how-to/build-containers.md) |
+| `build_containers.sh` | Builds the images named on its command line, or `-A` for all. See [how-to/build-containers.md](../how-to/build-containers.md) |
 | `build_llmb.sh` | Installs `llmb-run`, its image and tokenizer cache. See [how-to/enable-llm-pretrain.md](../how-to/enable-llm-pretrain.md) |
 
 ## Node state

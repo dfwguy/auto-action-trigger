@@ -41,9 +41,6 @@ fi
 ## See docs/reference/settings.md#burn-in.
 : "${RUN_BURNIN:=no}"
 : "${BURNIN=mnubergemm}"
-## `=` not `:=`: an empty CONTAINERS means "build nothing" and is a real
-## answer. See docs/reference/settings.md#container-images.
-: "${CONTAINERS=hpc-benchmarks nvbandwidth mnubergemm}"
 ## Image versions. See docs/reference/settings.md#image-versions.
 : "${HPC_BENCHMARKS_TAG:=26.02}"
 : "${NVBANDWIDTH_VERSION:=v0.9}"
@@ -62,6 +59,9 @@ fi
 ## Independent of PAUSE_JOBS: stopping the sweep and stopping drains being
 ## cleared are different decisions. See docs/reference/settings.md#pause-switches.
 : "${PAUSE_RECOVERY:=no}"
+## Stops the watchdog arming nodes; agents already running are left alone.
+## See docs/reference/settings.md#pause-switches.
+: "${PAUSE_ARMING:=no}"
 : "${DRAIN_AFTER_FAILED_HEALTH_CHECK:=no}"
 : "${DRAIN_AFTER_FAILED_BENCHMARK:=no}"
 ## Recovery of drains Slurm set itself. On by default, unlike the switches
@@ -94,8 +94,8 @@ fi
 : "${RECOVER_DOWN_UNKILLABLE:=no}"
 : "${RECOVER_UNKILLABLE_REASONS:=Kill task failed|unkillable}"
 : "${RECOVER_UNKILLABLE_AFTER_SECS:=3600}"
-## `=` not `:=`, like CONTAINERS: empty is the shipped answer and a real one --
-## it means "one worker per core". See docs/reference/settings.md#reporting.
+## `=` not `:=`: empty is the shipped answer and a real one -- it means "one
+## worker per core". See docs/reference/settings.md#reporting.
 : "${SCAN_JOBS=}"
 ## Empty is a real answer here too: it means every node. See
 ## docs/reference/settings.md#restricting-which-nodes-run-jobs.
@@ -120,7 +120,39 @@ fi
 : "${DRAIN_WINDOW_MINUTES:=15}"
 : "${INFLIGHT_GRACE_MINUTES:=30}"
 : "${DRAIN_MARKER:=auto-retry}"
-## `=` not `:=`, like CONTAINERS: empty is the shipped answer and a real one.
+## ── The agent and the watchdog ────────────────────────────────────────────
+## The cycle the node runs on, the cycle the head node watches on, and how long
+## a heartbeat may go unwritten before the node is armed again.
+## See docs/explanation/the-agent-and-the-watchdog.md#choosing-the-three-numbers.
+: "${AGENT_INTERVAL_MINUTES:=2}"
+: "${SUPERVISOR_INTERVAL_MINUTES:=2}"
+: "${HEARTBEAT_STALE_MINUTES:=10}"
+## The most nodes one watchdog cycle will reach at once. Every arm is an ssh,
+## and a fleet that stops cycling makes every node stale in the same instant.
+## 0 is no cap. See docs/explanation/the-agent-and-the-watchdog.md#arming-is-bounded.
+: "${ARM_BATCH:=200}"
+## A node that cannot be armed is reported rather than sshed into every cycle,
+## on the same shape as RECOVER_MAX_ATTEMPTS.
+: "${ARM_RETRY_MINUTES:=10}"
+: "${ARM_MAX_ATTEMPTS:=3}"
+: "${ARM_WINDOW_HOURS:=24}"
+## `=` not `:=`: empty means three watchdog cycles, floored at five minutes.
+: "${SLURM_SNAPSHOT_MAX_AGE_MINUTES=}"
+## Empty means whichever host claims it first and keeps refreshing the claim.
+## Name one to settle it deterministically where two hosts read as head.
+## See docs/explanation/the-agent-and-the-watchdog.md#only-one-watchdog.
+: "${SUPERVISOR_HOST=}"
+## sudo, or direct for a site that gave JOB_USER Slurm AdminLevel=Operator.
+## See docs/explanation/running-unprivileged.md#draining-without-root.
+: "${PRIV_SCONTROL:=sudo}"
+## How more than one node is reached: auto prefers clush and falls back to pdsh.
+## See docs/explanation/architecture.md#reaching-nodes-is-clush-or-pdsh.
+: "${FANOUT_TOOL:=auto}"
+## Seconds. 0 on either means no limit, which is what both tools do unasked.
+## See docs/explanation/architecture.md#a-fan-out-is-bounded.
+: "${FANOUT_CONNECT_TIMEOUT:=10}"
+: "${FANOUT_COMMAND_TIMEOUT:=60}"
+## `=` not `:=`: empty is the shipped answer and a real one.
 ## Deliberately not exported -- launch_job.sh is the only reader and hands it
 ## to sbatch --export. See docs/reference/settings.md#extra-environment-for-every-job.
 : "${JOB_ENV=}"
@@ -134,7 +166,7 @@ fi
 : "${CONTAINER_DIR_HEAD:=$CONTAINER_DIR}"
 : "${CONTAINER_STAGE_DIR:=$BRINGUP_HOME/container-src}"
 : "${CONTAINER_STAGE_DIR_HEAD:=$CONTAINER_STAGE_DIR}"
-## `=` not `:=`, like CONTAINERS: empty means no llmb install.
+## `=` not `:=`: empty means no llmb install.
 ## See docs/explanation/llmb.md#where-the-install-lives.
 : "${LLMB_INSTALL=/home/$JOB_USER/llmb}"
 : "${LLMB_REF=v26.06.01}"
@@ -212,4 +244,58 @@ node_unmark_excluded() { rm -f "$1/$NOT_COMPUTE_MARKER" 2>/dev/null; }
 node_out_of_reporting() {
     node_excluded "$2" && return 0
     [[ -f "$1/$2/$NOT_COMPUTE_MARKER" ]]
+}
+
+## ── Which role this host plays ────────────────────────────────────────────
+## Asked at run time, not baked into a unit file: $HOME is NFS-shared at most
+## sites, so every host reads the same units and the same `systemctl --user
+## enable` state. A unit that differs by role cannot survive that.
+## See docs/explanation/the-agent-and-the-watchdog.md#one-unit-for-both-roles.
+## Sets AGENT_ROLE and AGENT_ROLE_WHY rather than printing them: a caller that
+## took the role from $(agent_role) would lose the reason to the subshell, and
+## the reason is the whole point of saying which role was chosen.
+##
+## SC2034: read by the callers, which shellcheck cannot see from here.
+# shellcheck disable=SC2034
+AGENT_ROLE=""
+# shellcheck disable=SC2034
+AGENT_ROLE_WHY=""
+agent_role() {
+    if node_excluded "$HOSTNAME"; then
+        AGENT_ROLE_WHY="EXCLUDE_NODES matches $HOSTNAME"; AGENT_ROLE="head"; return 0
+    fi
+    if command -v systemctl >/dev/null 2>&1; then
+        if systemctl is-active --quiet slurmctld 2>/dev/null; then
+            AGENT_ROLE_WHY="slurmctld is running here"; AGENT_ROLE="head"; return 0
+        fi
+        if node_self_excluded; then
+            AGENT_ROLE_WHY="slurmctld is installed here and slurmd is not"; AGENT_ROLE="head"; return 0
+        fi
+        ## Whatever else it is, Slurm can schedule nothing to a host with no
+        ## slurmd, so it is not a compute node.
+        if [[ -z "$(systemctl list-unit-files slurmd.service --no-legend 2>/dev/null)" ]]; then
+            AGENT_ROLE_WHY="there is no slurmd unit here, so nothing can be scheduled to this host"
+            AGENT_ROLE="head"; return 0
+        fi
+        AGENT_ROLE_WHY="slurmd is installed here and slurmctld is not running"
+    else
+        # shellcheck disable=SC2034
+        AGENT_ROLE_WHY="systemctl is not installed, so nothing here could say otherwise"
+    fi
+    # shellcheck disable=SC2034
+    AGENT_ROLE="node"
+}
+
+## ── Has this node stopped cycling ─────────────────────────────────────────
+## The agent touches this every cycle whatever it then decides, so a stale one
+## means the timer is not firing -- and a report judged from files nobody is
+## refreshing reads exactly like one that is up to date.
+## See docs/explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means.
+HEARTBEAT_MARKER=".heartbeat"
+HEARTBEAT_NOW=""
+heartbeat_stale() {
+    local mtime
+    [[ -n "$HEARTBEAT_NOW" ]] || HEARTBEAT_NOW=$(date +%s)   ## one fork, not one per node
+    mtime=$(stat -c %Y "$1/$2/$HEARTBEAT_MARKER" 2>/dev/null) || return 0
+    [[ $(( HEARTBEAT_NOW - mtime )) -ge $(( HEARTBEAT_STALE_MINUTES * 60 )) ]]
 }

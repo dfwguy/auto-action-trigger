@@ -7,6 +7,7 @@ rather than through `launch_job.sh`.
 whether or not `BENCHMARKS` names it, and supplies everything below correctly:
 
 ```bash
+clush -w ink50-dh01-h01-11 '/home/cmods/bringup/actions/launch_job.sh -t hpl -v'
 pdsh -R ssh -w ink50-dh01-h01-11 '/home/cmods/bringup/actions/launch_job.sh -t hpl -v'
 ```
 

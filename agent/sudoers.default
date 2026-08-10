@@ -1,0 +1,31 @@
+## Reference for what this framework needs from sudo. Nothing in this tree
+## installs it, and nothing here configures a node: deploy it through the BCM
+## software image, as /etc/sudoers.d/50-bringup mode 0440, so it survives a
+## reprovision. `visudo -c -f` checks the syntax before you hand it over.
+##
+## Confirm it landed, as JOB_USER from the head node:
+##
+##   clush -w <nodes> 'sudo -n dmesg >/dev/null 2>&1 && echo sudo-ok || echo sudo-REFUSED'
+##
+## Replace cmods with JOB_USER if the site changed it, and check the paths: the
+## Slurm client tools sit under /cm/local/apps/slurm/current/bin on a BCM node
+## and under /usr/bin elsewhere. A rule whose path does not exist is a rule that
+## never matches. See docs/explanation/running-unprivileged.md.
+##
+## Every entry is a command the health checks or the drain paths need and
+## nothing else -- see docs/reference/health-checks.md#checks-that-need-root.
+## scontrol is here rather than a wildcard because state=DOWN and state=RESUME
+## are the only updates issued; a site that gave cmods AdminLevel=Operator in
+## Slurm sets PRIV_SCONTROL=direct and drops that line.
+
+Defaults:cmods !requiretty
+
+cmods ALL=(root) NOPASSWD: /usr/bin/dmesg, \
+                           /usr/sbin/dmidecode, \
+                           /usr/bin/lspci, \
+                           /usr/sbin/lspci, \
+                           /usr/bin/ipmitool, \
+                           /usr/bin/systemctl restart slurmd, \
+                           /usr/bin/systemctl reset-failed slurmd, \
+                           /usr/bin/loginctl enable-linger cmods, \
+                           /cm/local/apps/slurm/current/bin/scontrol

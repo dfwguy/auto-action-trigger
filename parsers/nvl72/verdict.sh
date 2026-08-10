@@ -63,7 +63,7 @@ VERDICT_RUN_ERRORS='NCCL WARN|Test NCCL failure|Test failure|srun: error|Segment
 VERDICT_STEP_TIMING='train_step_timing|reduced_train_loss|elapsed time per iteration'
 
 ## Set by verdict() on every call. REASON must read IDENTICALLY on every node
-## failing the same way -- status-check.sh groups through dshbak, so anything
+## failing the same way -- status-check.sh groups identical lines, so anything
 ## per-node in it splits one block into forty. Per-node specifics (line number,
 ## matched text, measured value) go in DETAIL and nowhere else.
 ## See docs/reference/scripts.md.
@@ -137,7 +137,7 @@ _v_require_count() {
 
 ## Floor on a single value extracted by an awk program. $5 is the unit, and
 ## belongs in the REASON rather than the detail: "below floor 400000 MB/s" reads
-## the same on every node failing that way, so dshbak keeps them in one block.
+## the same on every node failing that way, so they stay in one block.
 _v_min_value() {
     local file="$1" label="$2" prog="$3" min="$4" unit="$5" val
     val=$(awk "$prog" "$file" 2>/dev/null | head -1)
@@ -307,6 +307,19 @@ _v_nvb_missing_peer() {
     return 1
 }
 
+## v0.9 prints a bare `Waived:` with no test name, so the count and the first
+## line are all the detail there is; which tests they were is read off the order
+## in docs/explanation/judging-benchmarks.md#a-waived-test-is-a-test-that-did-not-run.
+_v_nvb_waived() {
+    local file="$1" count line
+    count=$(grep -c '^Waived:' "$file" 2>/dev/null)
+    [[ "$count" -eq 0 ]] && return 0
+    line=$(grep -nm1 '^Waived:' "$file" 2>/dev/null)
+    VERDICT_REASON="WAIVED -- nvbandwidth skipped tests it could not run"
+    VERDICT_DETAIL="$count waived, first at line ${line%%:*}"
+    return 1
+}
+
 ## Each test prints its own coefficient of variation after its matrix; any one
 ## over the bar fails the run.
 _v_nvb_unstable() {
@@ -328,11 +341,12 @@ _v_gate_nvbandwidth() {
     _v_require "$file" "per-test SUM lines" '^SUM ' || return 1
     _v_forbid  "$file" "run error"          "$VERDICT_RUN_ERRORS" || return 1
 
-    ## nvbandwidth's own words for a test it declined to run, matched narrowly
-    ## and case-sensitively. Deliberately not a bare `error` sweep -- a blanket
-    ## grep over a log full of test names is how the N/A false-fail got in.
+    ## Two different findings, and they were one rule until a healthy-looking
+    ## g21-17 run waived every peer test. See
+    ## docs/explanation/judging-benchmarks.md#a-waived-test-is-a-test-that-did-not-run.
+    _v_nvb_waived "$file" || return 1
     _v_forbid "$file" "test not supported on this platform" \
-        'Waived|not supported|Unsupported' || return 1
+        'not supported|Unsupported' || return 1
 
     ## Position before magnitude: a missing P2P route explains a low number,
     ## and reporting the number would send someone to look at performance.
@@ -510,7 +524,7 @@ _v_gate_llm_pretrain() {
     local file="$1"
     _v_require  "$file" "training step timings" "$VERDICT_STEP_TIMING" || return 1
     ## Separate from the line above: nothing at all and a run that stopped after
-    ## ten iterations are different faults and group separately under dshbak.
+    ## ten iterations are different faults and group separately.
     _v_require_count "$file" "training step timings" "$VERDICT_STEP_TIMING" \
         "$VERDICT_MIN_LLM_ITERATIONS" || return 1
     _v_forbid   "$file" "run error"             "$VERDICT_RUN_ERRORS" || return 1
@@ -552,7 +566,7 @@ _v_llm_solo_ranks() {
 ## Median rather than mean because the first steps of a training run are warmup
 ## and are legitimately slower on every GPU; one outlier step must not read as
 ## an outlier device. DETAIL names the slowest GPU -- that is the actionable
-## part -- while REASON stays identical across nodes so dshbak keeps them in one
+## part -- while REASON stays identical across nodes so they stay in one
 ## block. See docs/explanation/llmb.md#judging-the-four-step-times.
 _v_llm_solo_spread() {
     local file="$1" max="$2" hit

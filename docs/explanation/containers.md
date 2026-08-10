@@ -40,6 +40,96 @@ image path on the default registry, and the pull fails against Docker Hub rather
 than against `nvcr.io`. It is the easiest part of the line to lose when copying
 it out to run something by hand.
 
+## What gets built is what you ask for
+
+There is no list in `SETTINGS` of which images a site wants. There was, and
+removing it is the point of this section.
+
+`build_containers.sh` takes the images on its command line, or `-A` for all of
+them. What it produces lands in `CONTAINER_DIR`, and `file_copy.sh` caches
+**everything** in that directory on every node, with no opinion about which of
+them matter. One place decides, once.
+
+The alternative — a `CONTAINERS` key naming the wanted set, and the copy
+filtering by it — looks tidier and is worse. It is a second place for the same
+answer, so the two drift: a site that builds an image without adding it to the
+list gets it on the share and never on a node, and the failure is a job reading
+its image over NFS on every run, which is slow rather than broken and therefore
+not noticed. Deciding at the point of building, and copying whatever resulted,
+cannot drift because there is nothing to drift from.
+
+The cost is that an image built and no longer used is copied to every node until
+somebody deletes it from `CONTAINER_DIR`. That is a `rm` on one directory, and
+it is visible — `build_containers.sh -l` lists what is there.
+
+## A lock left by the old chain
+
+`file_copy.sh` ran as root under BCM, so `/tmp/.file_copy.lock` on a node that
+ever ran the old chain is root-owned. `/tmp` is sticky, so `$JOB_USER` can
+neither write it nor remove it, and the copy stops there until the node reboots.
+
+It says so, with the command:
+
+```
+EXIT: cannot open /tmp/.file_copy.lock as cmods -- owned by root. No copy was
+      started. Fix: sudo rm -f /tmp/.file_copy.lock (on this node)
+```
+
+Fleet-wide:
+
+```bash
+clush -w '<nodes>' 'sudo rm -f /tmp/.file_copy.lock'
+pdsh -R ssh -w '<nodes>' 'sudo rm -f /tmp/.file_copy.lock'
+```
+
+The failure used to escape to the journal instead, one line per node per cycle,
+because `exec 9>"$lock" 2>/dev/null` opens its redirections **left to right**:
+the open fails, and is reported, before stderr has been redirected anywhere.
+`{ exec 9>"$lock"; } 2>/dev/null` is what suppresses it — the same trap
+`launch_job.sh` documents on its trace writability check.
+
+## The copy is its own unit
+
+A first sync is several gigabytes. It cannot finish inside an agent cycle, so it
+has to outlive one — and a background child of a `oneshot` unit does not.
+
+The obvious shape, and the one this used for years, is `setsid nohup … &`:
+detach, return, let the copy carry on. Under BCM that worked, because the action
+was a plain process and nothing tidied up after it. Under systemd it does not.
+`setsid` escapes the controlling terminal and the session; it does not escape
+the **cgroup**, and `KillMode=control-group` — the default — SIGTERMs whatever
+is left in the unit's cgroup the moment `ExecStart` returns.
+
+So the copy got whatever was left of the cycle that started it, which is not a
+duration anything chose. A cycle that runs the 38 health checks takes seconds; a
+cycle with the health cadence closed and `PAUSE_JOBS` set exits every gate at
+once and takes well under one. The same fleet showed both: nodes that filled
+completely during their first cycles, and nodes stuck at exactly one image
+because every cycle since had given the copy milliseconds. `--partial` meant
+nothing was wasted, so it looked like slow progress rather than a fault — and
+running `file_copy.sh` by hand always worked, which made the by-hand test
+misleading rather than reassuring.
+
+**The fix is not to make the cycle longer.** Depending on the parent to dawdle
+is not a design, it is a race the copy usually loses, and it makes every other
+step's runtime a hidden input to whether images arrive.
+
+`systemd-run --user --collect --unit=bringup-copy` puts the copy in a transient
+unit of its own. Its cgroup is not this cycle's, so nothing cleans it up when
+the cycle ends; it runs to completion, once, however long that takes, and
+`--collect` removes the unit when it finishes. A second cycle finding it already
+running is refused by the unit name, which is the same answer the `flock` gives
+and needs no coordination between them.
+
+`systemctl --user status bringup-copy.service` and
+`journalctl --user -u bringup-copy.service` are then the copy's own, which is a
+better answer than the trace file for "what is it doing right now".
+
+Two fallbacks, both deliberate. A hand-run from a plain shell with no user
+manager has no cgroup to be cleaned out of, so `setsid` is enough there. With
+neither available the copy runs inline and says so — it holds the cycle, which
+is worse than detaching but better than not copying.
+
 ## How the caching works
 
 Three layers, each avoiding a different transfer:
@@ -86,7 +176,7 @@ them as `$JOB_USER`.
 
 `file_copy.sh` uses `rsync -a`, not `-r`. Without `-t` (implied by `-a`) the
 destination mtimes are the copy time, the size+mtime quick check never matches,
-and every monitoring cycle re-transfers the whole directory.
+and every agent cycle re-transfers the whole directory.
 
 ## One share, two mount points
 
@@ -151,7 +241,7 @@ particularly good at looking like success:
 - The run completes, writes a valid summary, and passes at roughly 1 GB/s.
 
 That is how `allreduce-nonvlink` ran entirely over `bond0` for weeks. Checking
-by hand from a shell on the node cannot catch it, because a `pdsh` — like any
+by hand from a shell on the node cannot catch it, because a fan-out — like any
 other remote shell — puts you on the host, where the HCA list is complete and
 correct the whole time. The `-nonvlink` jobs therefore
 do two things: mount the devices with

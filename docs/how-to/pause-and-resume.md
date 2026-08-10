@@ -1,8 +1,8 @@
 # Pause the framework, and empty the queue
 
-Four switches in `SETTINGS` stop the framework doing anything, without
-unregistering it from BCM. Edit them on the head node; every node reads the same
-NFS-exported file, so a pause takes effect fleet-wide on the next monitoring
+Five switches in `SETTINGS` stop the framework doing anything, without
+disarming it. Edit them on the head node; every node reads the same
+NFS-exported file, so a pause takes effect fleet-wide on the next agent
 cycle.
 
 ```bash
@@ -10,6 +10,7 @@ PAUSE_JOBS=yes             # no benchmarks submitted; queued ones cancelled
 PAUSE_HEALTH_CHECKS=yes    # no health checks run; Slurm untouched
 PAUSE_CONTAINER_COPY=yes   # no new rsync into /tmp/containers
 PAUSE_RECOVERY=yes         # no drain Slurm set itself is cleared
+PAUSE_ARMING=yes           # the watchdog arms no node; running agents carry on
 ```
 
 The switches are separate because they stop different things: pausing the
@@ -17,6 +18,47 @@ benchmarks during a maintenance window usually should *not* stop health checks
 from telling you what state the nodes came back in. Why each behaves as it does
 is in
 [explanation/sequencing.md#what-a-pause-is-for](../explanation/sequencing.md#what-a-pause-is-for).
+
+## Replacing the tree
+
+Copying a new tree over `$BRINGUP_HOME` while two thousand agents cycle out of it
+replaces scripts under running processes, so it is a stop-copy-resume:
+
+```bash
+bash pause-agents.sh              # stop the watchdog here, then every node timer
+rsync ...
+bash pause-agents.sh --resume     # re-arm the nodes, then start the watchdog
+```
+
+The whole procedure — where to unpack, the `rsync` flags and why not `cp`, the
+`--exclude` list that `--delete` makes load-bearing, and what to confirm before
+resuming — is [update-the-deployment.md](update-the-deployment.md).
+
+## Stopping it when the share is the problem
+
+Every switch above lives in `SETTINGS`, on the exported tree — which makes them
+unreachable in the one case where you most want them: a share so loaded that a
+write to it hangs. The pause you cannot save is not a pause.
+
+`pause-agents.sh` is the answer to that too, because it writes nothing to the
+share. It stops the watchdog **first**, and locally: the watchdog arms every node
+whose heartbeat has gone stale, and a fleet that has stopped cycling for any
+reason is a fleet where every node qualifies, every interval. Stopping the nodes
+while it runs puts them straight back.
+
+If even that script cannot start — the share is where it lives — the one command
+that matters is local and needs nothing:
+
+```bash
+cd /                                                # not the shared tree
+systemctl --user stop bringup-agent.timer           # as JOB_USER, on the head node
+```
+
+`results/supervisor.log` stops growing within a cycle. Every node keeps its own
+results and drains; nothing is lost. This is a stop rather than a pause —
+nothing re-enables these timers until `pause-agents.sh --resume` or
+`agent/install-agent.sh` runs — which is what makes it safe to reach for while
+you work out what happened.
 
 ## What a pause leaves running
 
@@ -34,13 +76,17 @@ In order of how long it takes to stop:
   stays drained, marker and all, and is picked up again when the pause lifts.
   Resume by hand if you need it back sooner.
 - **Drains Slurm set itself are still cleared**, unless `PAUSE_RECOVERY=yes`.
+- **Every armed node keeps cycling**, whatever `PAUSE_ARMING` says. That switch
+  stops the watchdog arming a node that has *stopped*; it does not stop one that
+  is running. Nothing but `uninstall-agent.sh` does that — see
+  [arm-a-node.md#disarming-a-node](arm-a-node.md#disarming-a-node).
 
 Nothing is lost. Results stay on disk and the sweep resumes rather than
 restarting, and a `refresh` set by `health-check.sh --refresh` is held through the
 pause rather than consumed by a run that does nothing.
 
-`launch_job.sh --explain` still works while paused, and is the way to see what a
-sweep *would* do on a node before lifting one.
+`node-agent.sh --explain` still works while paused, and is the way to see what a
+cycle *would* do on a node before lifting one.
 
 ## Confirming the pause is why the cluster is quiet
 
@@ -82,7 +128,7 @@ character is used as written.
 
 **Cancelling alone is a stall, not a stop.** The sequencer's next cycle finds an
 idle node and submits the next benchmark, so a bare run buys roughly one
-monitoring cycle. `-p` is what makes it hold, and it writes `PAUSE_JOBS=yes` to
+agent cycle. `-p` is what makes it hold, and it writes `PAUSE_JOBS=yes` to
 `SETTINGS` *before* cancelling anything — the other order leaves a window for a
 cycle to resubmit into. A run without `-p` says so on the way out.
 

@@ -1,7 +1,7 @@
 # Get a report into a spreadsheet
 
 ```bash
-bash daily-report.sh -c -o reports/report-$(date '+%F').csv
+bash daily-report.sh -c -o ~/report-$(date '+%F').csv
 ```
 
 Use `-c` and split on the delimiter. That gives comma separated rows for the
@@ -15,6 +15,21 @@ To keep both in one file:
 ```bash
 bash daily-report.sh -c > report.csv 2>&1
 ```
+
+## Where the file goes is yours to say
+
+`-o` writes exactly where you point it and **creates nothing**. The directory
+has to exist already; if it does not, the run says so and stops without
+scanning, rather than building a fleet-wide report it cannot then write.
+
+There is no reports directory and no default. An earlier version of this made
+the parent with `mkdir -p`, which meant `-o reports/x.csv` silently produced a
+`reports/` under the deployment root — a directory the framework appeared to own,
+that nothing read, that got copied between deployments, and that had to be
+explained. A report is a thing you asked for once; where you keep it is not the
+framework's business.
+
+`overall_report.sh -o` behaves the same way.
 
 ## Do not import the aligned form
 
@@ -42,7 +57,7 @@ report's `median` is that rack's median rather than the fleet's — the `nodes`
 count in the first summary block is what says how many nodes it was taken over.
 
 ```bash
-bash daily-report.sh ink50-dh01-h20 -c -o reports/rack-h20.csv
+bash daily-report.sh ink50-dh01-h20 -c -o ~/rack-h20.csv
 ```
 
 What each column and summary block means is

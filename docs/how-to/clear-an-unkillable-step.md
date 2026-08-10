@@ -32,6 +32,7 @@ line points you here and the node stays exactly as Slurm left it.
 ## Confirm it before doing anything
 
 ```bash
+clush -w <node> 'ps -o pid,stat,etime,comm -p <pids>'
 pdsh -R ssh -w <node> 'ps -o pid,stat,etime,comm -p <pids>'
 squeue -j <jobid> -O JobID,TimeUsed,TimeLimit,EndTime
 ```
@@ -57,10 +58,15 @@ A reboot destroys it, and for an NVLink fault this is what the RMA rests on.
 These are health checks 10, 11 and 36 run by hand:
 
 ```bash
+clush -w <node> 'nvidia-smi nvlink -s;
+    nvidia-smi nvlink -e | grep BER | grep -v 15e-255;
+    nvidia-smi --format=csv --query-gpu gpu_bus_id,fabric.state,fabric.status;
+    sudo -n dmesg | grep -E "NVRM: knvlink|Xid" | tail -40' | tee /tmp/<node>-nvlink.txt
+
 pdsh -R ssh -w <node> 'nvidia-smi nvlink -s;
     nvidia-smi nvlink -e | grep BER | grep -v 15e-255;
     nvidia-smi --format=csv --query-gpu gpu_bus_id,fabric.state,fabric.status;
-    dmesg | grep -E "NVRM: knvlink|Xid" | tail -40' | tee /tmp/<node>-nvlink.txt
+    sudo -n dmesg | grep -E "NVRM: knvlink|Xid" | tail -40' | tee /tmp/<node>-nvlink.txt
 ```
 
 Fewer than 72 links up, or a `fabric.state` that is not `COMPLETED`, is the
@@ -103,6 +109,7 @@ When it is back, let the checks judge it before it takes work again — a node
 that comes back with NVLink still short should not be resumed:
 
 ```bash
+clush -w <node> '/home/cmods/bringup/actions/node_health.sh'
 pdsh -R ssh -w <node> '/home/cmods/bringup/actions/node_health.sh'
 ./health-check.sh --diff <node>
 scontrol update nodename=<node> state=RESUME
@@ -127,6 +134,7 @@ with no time limit is never enough on its own — those stay held, for you.
 Check what it would do without it doing anything:
 
 ```bash
+clush -w <node> '/home/cmods/bringup/actions/launch_job.sh --explain'
 pdsh -R ssh -w <node> '/home/cmods/bringup/actions/launch_job.sh --explain'
 ```
 

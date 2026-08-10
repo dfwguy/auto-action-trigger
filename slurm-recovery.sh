@@ -7,8 +7,13 @@
 #
 # Callers set before calling slurm_recover_node: RECOVER_ACCEPT (classes this
 # caller may clear, space separated -- launch_job.sh "machine", node_health.sh
-# after a clean run "machine health"), RECOVER_LOG, RECOVER_DRY_RUN, and
-# optionally recover_log(). Everything else comes from settings.sh.
+# after a clean run "machine health"), RECOVER_LOG, RECOVER_DRY_RUN,
+# SNAPSHOT_RESULTS (the results tree the node view is read from), and optionally
+# recover_log(). Everything else comes from settings.sh.
+#
+# Nothing here asks slurmctld anything: the state, the reason, the configured
+# counts and the jobs assigned to the node all come out of that view.
+# See docs/explanation/the-fleet-snapshot.md.
 
 ## Both callers already have somewhere their output goes; this library must not
 ## invent a third. No caller-supplied hook means stdout, for the test harness.
@@ -29,6 +34,13 @@ fi
 if ! declare -F canonicalize_reason >/dev/null 2>&1; then
     _recover_home="${SETTINGS_HOME:-${home:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}}"
     [[ -f "$_recover_home/reason-map.sh" ]] && source "$_recover_home/reason-map.sh"
+fi
+
+## The drain and the slurmd restart below are the two things here that need
+## root. See docs/explanation/running-unprivileged.md.
+if ! declare -F priv >/dev/null 2>&1; then
+    _recover_home="${SETTINGS_HOME:-${home:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}}"
+    [[ -f "$_recover_home/priv.sh" ]] && source "$_recover_home/priv.sh"
 fi
 
 ## sinfo reports "none", "(null)" or an empty string depending on release; all
@@ -150,10 +162,10 @@ recover_visible_cpus() {
 }
 
 ## What the config asks for. Slurm states it in the GRES reason itself, which is
-## better than any lookup; scontrol reports the configured values, never the
-## registered ones, so it is the fallback and the only source for CPUs.
+## better than any lookup; the node view carries the configured values as the
+## fallback, and is the only source for CPUs.
 recover_configured_gpus() {
-    local node="$1" reason="$2" raw n
+    local reason="$2" raw n
     ## Two spellings in the wild: `... lower than configured (4)` and
     ## `... reported lower than configured (0 < 4)`, reported first.
     if [[ "$reason" =~ \([0-9]+[[:space:]]*\<[[:space:]]*([0-9]+)[[:space:]]*\) ]]; then
@@ -162,22 +174,17 @@ recover_configured_gpus() {
     if [[ "$reason" =~ configured[[:space:]]*\(([0-9]+)\) ]]; then
         printf '%s' "${BASH_REMATCH[1]}"; return 0
     fi
-    command -v scontrol >/dev/null 2>&1 || return 1
     ## Typed GRES is `gpu:gb200:4`, untyped `gpu:4`; the count is the last field
     ## once the `(S:0-3)` topology suffix is off, and that suffix has its own colon.
-    raw=$(scontrol show node "$node" 2>/dev/null | grep -o 'Gres=[^ ]*' | head -1)
-    raw="${raw#Gres=}"; raw="${raw%%(*}"
+    raw="${RECOVER_GRES:-}"; raw="${raw%%(*}"
     n="${raw##*:}"; n="${n%%[!0-9]*}"
     [[ -n "$n" ]] || return 1
     printf '%s' "$n"
 }
 
 recover_configured_cpus() {
-    local node="$1" n
-    command -v scontrol >/dev/null 2>&1 || return 1
-    n=$(scontrol show node "$node" 2>/dev/null | grep -o 'CPUTot=[0-9]*' | head -1)
-    n="${n#CPUTot=}"
-    [[ -n "$n" ]] || return 1
+    local n="${RECOVER_CPUTOT:-}"
+    [[ "$n" =~ ^[0-9]+$ ]] || return 1
     printf '%s' "$n"
 }
 
@@ -194,7 +201,7 @@ recover_counts_ready() {
     case "$kind" in
         gpu) want=$(recover_configured_gpus "$node" "$reason")
              have=$(recover_visible_gpus); rc=$? ;;
-        cpu) want=$(recover_configured_cpus "$node")
+        cpu) want=$(recover_configured_cpus)
              have=$(recover_visible_cpus); rc=$? ;;
     esac
 
@@ -329,8 +336,8 @@ recover_slurmd_restart() {
     fi
 
     recover_log "restarting slurmd on $node: $why"
-    systemctl reset-failed slurmd 2>/dev/null
-    systemctl restart slurmd 2>/dev/null
+    priv systemctl reset-failed slurmd 2>/dev/null
+    priv systemctl restart slurmd 2>/dev/null
     while ! systemctl is-active --quiet slurmd 2>/dev/null; do
         if [[ "$waited" -ge "${RECOVER_SLURMD_WAIT:-0}" ]]; then
             RECOVER_NOT_READY="slurmd is $(systemctl is-active slurmd 2>/dev/null) ${RECOVER_SLURMD_WAIT}s after a restart -- resuming would only put $node back into down*. 'journalctl -u slurmd -n 50' on the node"
@@ -441,12 +448,13 @@ recover_node_ready() {
         fi
     fi
 
-    if command -v squeue >/dev/null 2>&1; then
-        jobs=$(squeue -h -w "$node" -o '%i' 2>/dev/null | grep -c .)
-        if [[ "$jobs" -gt 0 ]]; then
-            RECOVER_NOT_READY="$jobs job(s) still assigned to $node"
-            return 1
-        fi
+    ## From the node view, not a query per drained node per cycle. The caller has
+    ## already refused to run at all without one, so an empty list here is Slurm
+    ## saying nothing is assigned rather than nobody having asked.
+    jobs=$(snapshot_jobs_here | grep -c .)
+    if [[ "$jobs" -gt 0 ]]; then
+        RECOVER_NOT_READY="$jobs job(s) still assigned to $node"
+        return 1
     fi
 
     ## Last, so a slurmd restart can never happen under a job or a live GPU
@@ -522,26 +530,21 @@ recover_unkillable_elapsed() {
 ## docs/explanation/drain-recovery.md#a-step-that-outlives-its-own-kill
 RECOVER_LIMIT_WHY=""
 recover_jobs_past_limit() {
-    local node="$1" now="$2" end epoch live=0
+    local node="$1" now="$2" epoch live=0 _id _state _user _name
     RECOVER_LIMIT_WHY=""
-    if ! command -v squeue >/dev/null 2>&1; then
-        RECOVER_LIMIT_WHY="no squeue here to ask whether its job is past its limit"
-        return 1
-    fi
-    while IFS= read -r end; do
-        [[ -n "$end" ]] || continue
-        case "${end,,}" in
-            n/a|unknown|unlimited|infinite)
-                RECOVER_LIMIT_WHY="a job on $node has no time limit -- taking a node out of service over an unlimited job is left to an operator"
-                return 1 ;;
-        esac
-        epoch=$(date -d "$end" +%s 2>/dev/null)
+    while IFS=$'\t' read -r _id _state _user epoch _name; do
+        [[ -n "$_id" ]] || continue
+        ## `none` is the view's word for a job with no limit to have exceeded.
+        if [[ "$epoch" == none ]]; then
+            RECOVER_LIMIT_WHY="a job on $node has no time limit -- taking a node out of service over an unlimited job is left to an operator"
+            return 1
+        fi
         if [[ ! "$epoch" =~ ^[0-9]+$ ]]; then
-            RECOVER_LIMIT_WHY="squeue gave an end time this cannot read ('$end')"
+            RECOVER_LIMIT_WHY="the node view gave an end time this cannot read ('$epoch')"
             return 1
         fi
         [[ "$epoch" -gt "$now" ]] && live=1
-    done < <(squeue -h -w "$node" -o '%e' 2>/dev/null)
+    done < <(snapshot_jobs_here)
     if [[ "$live" -eq 1 ]]; then
         RECOVER_LIMIT_WHY="a job on $node is still inside its own time limit"
         return 1
@@ -594,7 +597,7 @@ recover_down_unkillable() {
         return 0
     fi
 
-    out=$(scontrol update nodename="$node" state=DOWN reason="$text" 2>&1)
+    out=$(scontrol_update nodename="$node" state=DOWN reason="$text" 2>&1)
     if [[ -n "$out" ]]; then
         recover_log "DOWN FAILED $node: scontrol update state=DOWN -- $out"
         return 1
@@ -620,16 +623,21 @@ slurm_recover_node() {
         return 1
     fi
 
-    ## Reason last, so free text with spaces in it cannot shift a field.
-    line=$(sinfo -N -n "$node" -h -o '%T|%u|%H|%E' 2>/dev/null | head -1)
-    if [[ -z "$line" ]]; then
+    ## Every field comes off the node view the watchdog wrote. The `sinfo -N -n`
+    ## this replaced was one query per drained node per cycle, and a drained
+    ## fleet is the case where that is every node at once.
+    ## See docs/explanation/the-fleet-snapshot.md#what-a-node-reads.
+    if ! snapshot_load "${SNAPSHOT_RESULTS:-}" "$node"; then
         RECOVER_RESULT="unknown-node"
+        recover_log "recover skipped: $node -- ${SNAPSHOT_WHY:-no node view was loaded}. Nothing is resumed on a state nobody could read."
         return 1
     fi
-    state="${line%%|*}"; line="${line#*|}"
-    setter="${line%%|*}"; line="${line#*|}"
-    when="${line%%|*}"
-    reason="${line#*|}"
+    state="$SNAPSHOT_STATE"
+    setter="$SNAPSHOT_SETTER"
+    when="$SNAPSHOT_WHEN"
+    reason="$SNAPSHOT_REASON"
+    RECOVER_GRES="$SNAPSHOT_GRES"
+    RECOVER_CPUTOT="$SNAPSHOT_CPUTOT"
     [[ "$setter" == "none" ]] && setter=""
     recover_reason_empty "$reason" && reason=""
     base=$(recover_base_reason "$reason")
@@ -676,7 +684,7 @@ slurm_recover_node() {
         return 0
     fi
 
-    out=$(scontrol update nodename="$node" state=RESUME 2>&1)
+    out=$(scontrol_update nodename="$node" state=RESUME 2>&1)
     if [[ -n "$out" ]]; then
         ## scontrol is quiet on success, so any output is the failure --
         ## typically "Invalid user id". Not recorded as an attempt: it did not

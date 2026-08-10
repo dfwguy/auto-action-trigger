@@ -16,6 +16,7 @@ if [[ ! -f "$home/settings.sh" ]]; then
     exit 1
 fi
 source "$home/settings.sh"
+source "$home/priv.sh"
 
 ## Retry and drain policy, the two lists, and how the ordering between them is
 ## expressed: docs/explanation/sequencing.md#retry-and-drain-behaviour and
@@ -97,8 +98,8 @@ EXPLAIN=0
 FORCE=0
 FORCE_ALL=0
 TEST_LIST=""
-## Default on for a terminal, off otherwise: BCM's action output goes nowhere
-## anyone reads, and neither does pdsh's until you ask with -v.
+## Default on for a terminal, off otherwise: the agent's own output goes nowhere
+## anyone reads, and neither does clush's or pdsh's until you ask with -v.
 VERBOSE=0; [[ -t 1 ]] && VERBOSE=1
 usage() {
     cat <<USAGE
@@ -116,9 +117,10 @@ Usage: launch_job.sh [--explain] [--force] [--all] [--test JOB] [--verbose|--qui
 Decides about the node it runs on, and takes no node argument. To sweep a set
 of nodes, name them where they can be reached:
 
+  clush -w 'ink50-dh01-h02-[11,13-18]' '$home/actions/launch_job.sh -f -v'
   pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '$home/actions/launch_job.sh -f -v'
 
-With no arguments -- how BCM invokes it -- one job is submitted at a time, in
+With no arguments -- how the node agent invokes it -- one job is submitted at a time, in
 BENCHMARKS order, and no job re-runs inside its own hourly window.
 USAGE
 }
@@ -180,8 +182,8 @@ trace_writable() {
         TRACE_WRITABLE=1
         VERBOSE=1
         echo "WARNING: cannot write $tracelog as $(id -un) -- $(stat -c '%U owns it, mode %a' "$tracelog" 2>/dev/null || echo 'and it cannot be created')." >&2
-        echo "         Tracing to stdout only. Root's next cycle repairs it, or:" >&2
-        echo "           sudo chown -R $JOB_USER:$JOB_USER $logs" >&2
+        echo "         Tracing to stdout only. Nothing repairs this on its own now" >&2
+        echo "         that no cycle runs as root:  sudo chown -R $JOB_USER:$JOB_USER $logs" >&2
     fi
     return "$TRACE_WRITABLE"
 }
@@ -192,7 +194,7 @@ trace() {
 }
 
 ## Keep the trace from growing without bound -- it gets a line or two per
-## monitoring cycle, forever.
+## agent cycle, forever.
 if [[ -f "$tracelog" ]] && [[ "$(stat -c %s "$tracelog" 2>/dev/null || echo 0)" -gt 1000000 ]]; then
     tail -2000 "$tracelog" > "$tracelog.tmp" && mv "$tracelog.tmp" "$tracelog"
 fi
@@ -200,9 +202,10 @@ fi
 ## ── Extra environment for the jobs ────────────────────────────────────────
 ##
 ## An allowlist rather than a blocklist: the submission is built as a string and
-## run through `su - $JOB_USER -c`, so a plausible typo like `NCCL_X=0;id` would
-## run as root on 200+ nodes. Commas are out because --export is itself
-## comma-separated. See docs/reference/settings.md#what-is-rejected.
+## handed to a shell, so a plausible typo like `NCCL_X=0;id` runs as whatever the
+## cycle is -- a SETTINGS file is not a place to notice that. Commas are out
+## because --export is itself comma-separated.
+## See docs/reference/settings.md#what-is-rejected.
 ## Two forms of the same allowlisted list: a comma-separated one for sbatch
 ## --export, and a space-separated one for the `NAME=VALUE ... bash launcher`
 ## prefix a host-launched job gets instead. See docs/explanation/sequencing.md#host-launched-jobs.
@@ -210,7 +213,7 @@ JOB_ENV_ARGS=""
 JOB_ENV_PAIRS=()
 JOB_ENV_NAMES=()
 ## Unquoted on purpose -- this is the list-in-a-string convention BENCHMARKS
-## and CONTAINERS already use, and word splitting is how it is read.
+## already uses, and word splitting is how it is read.
 # shellcheck disable=SC2086
 for _pair in $JOB_ENV; do
     if [[ ! "$_pair" =~ ^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_.:/+@%-]*$ ]]; then
@@ -225,7 +228,7 @@ unset _pair
 
 ## The site's paths, which a job running from Slurm's spool copy cannot work out
 ## for itself. Same allowlist as JOB_ENV, for the same reason -- the string is
-## run by `su - $JOB_USER -c`. Empty is left to the job to diagnose.
+## run by a shell. Empty is left to the job to diagnose.
 ## See docs/explanation/sequencing.md#what-a-submission-carries.
 ##
 ## SITE_EXPORT is the same list for the sbatch form: --export takes commas
@@ -253,40 +256,21 @@ else
         trace "MANUAL: --force -- hourly gate bypassed$([[ "$FORCE_ALL" -eq 1 ]] && printf ', --all -- passing jobs re-queued too')"
 fi
 
-## ── Hand the result path to $JOB_USER ─────────────────────────────────────
+## ── The result path ───────────────────────────────────────────────────────
 ##
-## Re-checked every cycle, not just on creation, so clearing results/ by hand is
-## safe and an already-broken tree repairs itself.
+## Nothing hands ownership over any more: the cycle is $JOB_USER's, so every
+## file under results/ is created by the account that has to write it. What is
+## left is the diagnosis for a tree the root cycles left behind.
 ## See docs/reference/layout.md#result-path-ownership.
 ensure_owned() {
     local d="$1"
     [[ -d "$d" ]] || mkdir -p "$d" 2>/dev/null || return 1
-    [[ "$(stat -c %U "$d" 2>/dev/null)" == "$JOB_USER" ]] && return 0
-    ## Only root can hand a directory over; anyone else gets a diagnosis.
-    if [[ "$EUID" -ne 0 ]]; then
-        trace "WARNING: $d is owned by $(stat -c %U "$d" 2>/dev/null), not $JOB_USER, and we are not root -- sbatch --output will fail"
-        return 0
-    fi
-    trace "chown $JOB_USER $d (was $(stat -c %U "$d" 2>/dev/null))"
-    chown "$JOB_USER:$JOB_USER" "$d" 2>/dev/null
-}
-
-## The same repair for the two files this script writes itself: a handed-over
-## directory is not enough, since root's cycle creates trigger.log and
-## quick-view.txt inside it root-owned at 644.
-ensure_file_owned() {
-    local f="$1"
-    [[ -e "$f" ]] || return 0
-    [[ "$(stat -c %U "$f" 2>/dev/null)" == "$JOB_USER" ]] && return 0
-    [[ "$EUID" -eq 0 ]] || return 0   # diagnosed by trace_writable, not here
-    trace "chown $JOB_USER $f (was $(stat -c %U "$f" 2>/dev/null))"
-    chown "$JOB_USER:$JOB_USER" "$f" 2>/dev/null
+    [[ -w "$d" ]] && return 0
+    trace "WARNING: $d is owned by $(stat -c %U "$d" 2>/dev/null) and not writable by $(id -un) -- sbatch --output will fail. sudo chown -R $JOB_USER:$JOB_USER $home/results"
 }
 
 ensure_owned "$home/results"
 ensure_owned "$logs"
-ensure_file_owned "$tracelog"
-ensure_file_owned "$quickview"
 
 ## ── Hosts that are not compute nodes ──────────────────────────────────────
 ##
@@ -295,12 +279,10 @@ ensure_file_owned "$quickview"
 ## See docs/explanation/sequencing.md#a-host-that-is-not-a-compute-node.
 if node_excluded "$HOSTNAME"; then
     node_mark_excluded "$logs" "EXCLUDE_NODES='$EXCLUDE_NODES' in ${SETTINGS_FILE:-<no settings file found>}"
-    ensure_file_owned "$logs/$NOT_COMPUTE_MARKER"
     trace "EXIT: EXCLUDE_NODES='$EXCLUDE_NODES' in ${SETTINGS_FILE:-<no settings file found>} matches $HOSTNAME -- this host is not a compute node, so no jobs are submitted here and the reports leave it out. Neither --test nor --force opens this."
     exit 0
 elif node_self_excluded; then
     node_mark_excluded "$logs" "self-detected: slurmctld is installed here and slurmd is not"
-    ensure_file_owned "$logs/$NOT_COMPUTE_MARKER"
     trace "EXIT: $HOSTNAME runs slurmctld and has no slurmd, so it is a head node and slurm will never schedule a job on it -- no jobs submitted, and the reports leave it out. Name it in EXCLUDE_NODES to say so deliberately; delete $logs/$NOT_COMPUTE_MARKER if this is wrong."
     exit 0
 fi
@@ -324,7 +306,7 @@ node_in_scope() {
 
 if ! node_in_scope; then
     ## --test names both a job and, by running here, a node, so it opens this;
-    ## --force does not. A forced sweep is normally issued over pdsh across a
+    ## --force does not. A forced sweep is normally issued fleet-wide across a
     ## whole rack, and that must not quietly test nodes the site excluded.
     ## See docs/reference/settings.md#restricting-which-nodes-run-jobs.
     if [[ -n "$TEST_LIST" ]]; then
@@ -332,7 +314,7 @@ if ! node_in_scope; then
     elif [[ "$EXPLAIN" -eq 1 ]]; then
         trace "NODE_FILTER='$NODE_FILTER' does not match $HOSTNAME -- explaining anyway; a real cycle would stop here"
     else
-        trace "EXIT: NODE_FILTER='$NODE_FILTER' in ${SETTINGS_FILE:-<no settings file found>} does not match $HOSTNAME -- no jobs submitted here.$([[ "$FORCE" -eq 1 ]] && printf ' --force does not override it: a forced sweep is usually a whole rack over pdsh, and this node is not in the set.') Health checks and reporting are unaffected."
+        trace "EXIT: NODE_FILTER='$NODE_FILTER' in ${SETTINGS_FILE:-<no settings file found>} does not match $HOSTNAME -- no jobs submitted here.$([[ "$FORCE" -eq 1 ]] && printf ' --force does not override it: a forced sweep is usually a whole rack at once, and this node is not in the set.') Health checks and reporting are unaffected."
         exit 0
     fi
 fi
@@ -342,14 +324,34 @@ fi
 source /etc/profile.d/modules.sh
 module load slurm
 
-## BCM's environment, not a login shell. Without the client tools every check
+## A systemd --user service, not a login shell. Without the client tools every check
 ## below reads as "node not in slurm" and the script exits looking healthy.
-for tool in sinfo squeue scontrol sbatch; do
+##
+## Two, not four. Nothing here asks slurmctld anything any more: `scontrol` is
+## wanted for `listjobs`, which talks to the local slurmstepds, and for the drain
+## write. What the controller says arrives on NFS.
+## See docs/explanation/the-fleet-snapshot.md.
+for tool in scontrol sbatch; do
     command -v "$tool" >/dev/null 2>&1 || {
         trace "EXIT: $tool not on PATH after 'module load slurm' (PATH=$PATH)"
         exit 0
     }
 done
+
+## ── What Slurm says, read rather than asked ───────────────────────────────
+##
+## Written by the watchdog on the head node once for the whole fleet. A view
+## that is missing or stale is not an empty queue and not an undrained node: it
+## is no answer, and every gate below fails towards not acting.
+## See docs/explanation/the-fleet-snapshot.md.
+if [[ ! -f "$home/slurm-snapshot.sh" ]]; then
+    trace "EXIT: $home/slurm-snapshot.sh is missing -- this node has no way to read what Slurm says, and asking the controller from here is what that file exists to stop. Stale deployment?"
+    exit 0
+fi
+source "$home/slurm-snapshot.sh"
+snapshot_log() { trace "$@"; }
+SNAPSHOT_OK=0
+snapshot_load "$home/results" "$HOSTNAME" && SNAPSHOT_OK=1
 
 ## The pass/fail rule, sourced here because the in-flight gate below needs it to
 ## tell a finished job from one still writing. See the header of verdict.sh.
@@ -374,17 +376,44 @@ inflight="$logs/.in-flight"
 inflight_write() {
     printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" > "$inflight" 2>/dev/null ||
         trace "WARNING: could not write $inflight -- the next cycle will not know this job is out, and may submit another on top of it"
-    ensure_file_owned "$inflight"
 }
 inflight_clear() { rm -f "$inflight" 2>/dev/null; }
+## `pending` is a real id here: a host-launched job's id comes back from the view
+## a cycle later, and until it does the marker still has to pin the node.
+## See docs/explanation/sequencing.md#getting-the-job-id-right.
 inflight_read() {
     [[ -f "$inflight" ]] || return 1
     IFS=$'\t' read -r IF_JOBID IF_JOB IF_RUN IF_TOTAL IF_EPOCH < "$inflight" || return 1
     ## A marker we cannot read is worse than none: it would pin the node forever.
-    [[ "$IF_JOBID" =~ ^[0-9]+$ && -n "$IF_JOB" && "$IF_EPOCH" =~ ^[0-9]+$ ]] && return 0
+    if [[ "$IF_JOBID" =~ ^([0-9]+|pending)$ && -n "$IF_JOB" && "$IF_EPOCH" =~ ^[0-9]+$ ]]; then
+        [[ "$IF_JOBID" == pending ]] && inflight_resolve
+        return 0
+    fi
     trace "WARNING: $inflight is unreadable ('$IF_JOBID $IF_JOB $IF_EPOCH') -- discarded, and the node is treated as idle"
     inflight_clear
     return 1
+}
+
+## Adopted only when the view carries exactly one job under this node's names:
+## more than one is ambiguous, and guessing would put the wrong id in the marker.
+## Reads the view directly rather than through queued_ours(), which is defined
+## further down than this runs.
+inflight_resolve() {
+    local ids="" id state name n
+    [[ "$SNAPSHOT_OK" -eq 1 ]] || return 0
+    while IFS=$'\t' read -r id state name _; do
+        [[ "$id" =~ ^[0-9]+$ ]] || continue
+        [[ "$name" == "$JOB_NAME_BENCH" || "$name" == "$JOB_NAME_BURNIN" ]] || continue
+        ids+="${ids:+ }$id"
+    done < <(snapshot_ours)
+    n=$(wc -w <<<"$ids")
+    if [[ "$n" -ne 1 ]]; then
+        [[ "$n" -gt 1 ]] && trace "NOTE: $IF_JOB run $IF_RUN was host-launched and $n jobs of ours are in the view ($ids) -- none adopted, because the wrong id in the marker pins this node to somebody else's job"
+        return 0
+    fi
+    IF_JOBID="$ids"
+    inflight_write "$IF_JOBID" "$IF_JOB" "$IF_RUN" "$IF_TOTAL" "$IF_EPOCH"
+    trace "$IF_JOB run $IF_RUN was host-launched and Slurm gave it job $IF_JOBID -- marker filled in"
 }
 
 ## Every job running here, ours and everyone else's, from the local slurmstepds
@@ -427,80 +456,40 @@ archive_result() {
     mv "$file" "$logs/${base}.${kind}$((n + 1)).txt"
 }
 
-## The reason Slurm gives a job it gave up launching. Defined rather than
-## inlined because an empty pattern matches every job, and the branch it guards
-## cancels. See docs/explanation/sequencing.md#jobs-the-scheduler-has-given-up-on.
-LAUNCH_FAILED_HELD='launch failed requeued held'
-
 ## ── Getting out of the way ────────────────────────────────────────────────
 ##
-## Somebody else queued for this node outranks a benchmark of ours already
-## running on it. Every check that stands between "a job is waiting" and a
-## scancel is in the library, which never cancels an id the controller has not
-## confirmed is ours. See docs/explanation/sequencing.md#getting-out-of-the-way.
-YIELD_TRACE=""
-yield_ready=0
-if setting_enabled "$GET_OUT_OF_THE_WAY"; then
-    if [[ -f "$home/get-out-of-the-way.sh" ]]; then
-        yield_log() { trace "$@"; }
-        ## SC2034: read by get-out-of-the-way.sh, sourced below, which
-        ## shellcheck cannot see from here. `export` would put them in every
-        ## job's environment. Repeated because it covers one assignment.
-        # shellcheck disable=SC2034
-        YIELD_OURS="$JOB_NAME_BENCH $JOB_NAME_BURNIN"
-        # shellcheck disable=SC2034
-        YIELD_USER="$JOB_USER"
-        YIELD_STAMP="$logs/.yield-check"
-        # shellcheck disable=SC2034
-        YIELD_DRY_RUN="$EXPLAIN"
-        source "$home/get-out-of-the-way.sh"
-        yield_ready=1
-    else
-        trace "WARNING: GET_OUT_OF_THE_WAY=$GET_OUT_OF_THE_WAY but $home/get-out-of-the-way.sh is missing -- this node will never give itself up. Stale deployment?"
-    fi
-fi
-
-## True only when our job was cancelled. Everything else leaves YIELD_TRACE for
-## the line the caller was going to write anyway: a node that decided to stay
-## has to say what it decided.
-yield_job() {
-    local rc=1
-    YIELD_TRACE=""
-    [[ "$yield_ready" -eq 1 ]] || return 1
-    yield_to_waiter "$1" "$HOSTNAME" && rc=0
-    ensure_file_owned "$YIELD_STAMP"
-    [[ "$rc" -eq 0 ]] && return 0
-    case "$YIELD_RESULT" in
-        no-waiter)      YIELD_TRACE="nobody else is queued for $HOSTNAME" ;;
-        would-yield)    YIELD_TRACE="--explain: nothing cancelled" ;;
-        polled-recently|disabled|no-job) ;;
-        *)              YIELD_TRACE="staying put: $YIELD_RESULT${YIELD_WAITER:+, with $YIELD_WAITER}" ;;
-    esac
-    return 1
+## Decided on the head node now, not here: finding a waiter meant a whole pending
+## queue per node per poll, and the watchdog already holds one for the fleet. All
+## a node does is report the cancel it woke up to.
+## See docs/explanation/sequencing.md#getting-out-of-the-way.
+yielded_note() {
+    local f="$logs/.yielded" when text
+    [[ -f "$f" ]] || return 1
+    IFS=$'\t' read -r when text < "$f" 2>/dev/null
+    rm -f "$f" 2>/dev/null
+    [[ -n "$text" ]] || return 1
+    printf '%s' "$text ($(( $(date +%s) - ${when:-0} ))s ago)"
 }
 
-## ── Node state, and only when something needs it ──────────────────────────
+## ── Node state, read off the shared tree ──────────────────────────────────
 ##
 ## The one thing a node cannot answer about itself: State and Reason live in
-## slurmctld. Fetched lazily and cached, so a healthy cycle never asks.
-## See docs/explanation/sequencing.md#what-the-node-can-answer-by-itself.
-## NODE_ASKED separates "not fetched yet" from "fetched and got nothing", so a
-## controller that timed out is not asked again on every call in the same run.
-NODE_INFO=""
-NODE_ASKED=0
+## slurmctld, and this node may not ask. Both come out of the view the watchdog
+## wrote. A view this cycle could not use answers "no", which every caller reads
+## as the controller not having said -- the same branch it took before.
+## See docs/explanation/the-fleet-snapshot.md#what-a-node-reads.
+## Set when this cycle cleared a drain of its own. The view still carries the
+## drain until the watchdog rewrites it, so nothing may read it as current.
+RESUMED_THIS_CYCLE=0
 state=""
 node_info() {
-    [[ "$NODE_ASKED" -eq 1 ]] && { [[ -n "$NODE_INFO" ]]; return; }
-    NODE_ASKED=1
-    NODE_INFO=$(scontrol show node "$HOSTNAME" 2>/dev/null)
-    [[ -n "$NODE_INFO" ]] || return 1
-    state=$(grep -oE 'State=[^ ]+' <<<"$NODE_INFO" | head -1 | cut -d= -f2)
+    [[ "$SNAPSHOT_OK" -eq 1 ]] || return 1
+    state="$SNAPSHOT_STATE"
     [[ -n "$state" ]]
 }
-## Reason is free text with spaces, and runs to the end of its line.
 node_reason() {
     node_info || return 1
-    grep -oE 'Reason=.*' <<<"$NODE_INFO" | head -1 | cut -d= -f2-
+    printf '%s' "$SNAPSHOT_REASON"
 }
 
 
@@ -544,14 +533,19 @@ recover_slurm_drains() {
         ## every job's environment. Repeated: it covers one assignment.
         # shellcheck disable=SC2034
         RECOVER_ACCEPT="machine"
+        # shellcheck disable=SC2034
         RECOVER_LOG="$logs/recover.log"
         # shellcheck disable=SC2034
         RECOVER_DRY_RUN="$EXPLAIN"
+        # shellcheck disable=SC2034
+        SNAPSHOT_RESULTS="$home/results"
         source "$home/slurm-recovery.sh"
         if slurm_recover_node "$HOSTNAME"; then
-            [[ "$EXPLAIN" -eq 1 ]] || { NODE_INFO=""; NODE_ASKED=0; node_info; }
-            ensure_file_owned "$RECOVER_LOG"
-            trace "state after recovery=$(printf '%s' "$state" | tr '\n' ',')"
+            ## The re-read that used to sit here asked the controller for the
+            ## state it had just changed. The view is a cycle behind now, so the
+            ## resume is recorded rather than confirmed.
+            [[ "$EXPLAIN" -eq 1 ]] || RESUMED_THIS_CYCLE=1
+            trace "resumed; the node view still says '$SNAPSHOT_STATE' until the watchdog rewrites it"
         fi
     else
         ## Named rather than skipped quietly: the tell for a deployment predating
@@ -574,16 +568,7 @@ if inflight_read; then
     if_running=0; job_running_locally "$IF_JOBID" && if_running=1
 
     if [[ "$if_running" -eq 1 && "$if_age" -lt $(( MAX_JOB_HOURS * 3600 )) ]]; then
-        if yield_job "$IF_JOBID"; then
-            ## The result file is left where it is: an interrupted run is
-            ## already INCOMPLETE, and the resubmission archives it as the
-            ## previous attempt like any other. See
-            ## docs/explanation/sequencing.md#getting-out-of-the-way.
-            inflight_clear
-            trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) cancelled after ${if_age}s to free $HOSTNAME; it is re-queued once the node is free again"
-            exit 0
-        fi
-        trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) running here for ${if_age}s -- ${YIELD_TRACE:-slurmctld not asked}"
+        trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) running here for ${if_age}s -- slurmctld not asked"
         exit 0
     elif [[ "$if_running" -eq 1 ]]; then
         ## Still going, but past the limit. The only branch that reads on: the
@@ -601,48 +586,33 @@ if inflight_read; then
         trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) submitted ${if_age}s ago, not running here yet -- waiting; slurmctld not asked"
         exit 0
     elif [[ "$EXPLAIN" -eq 1 ]]; then
-        trace "WOULD ASK squeue about job $IF_JOBID -- $IF_JOB run $IF_RUN is ${if_age}s old, past the ${INFLIGHT_GRACE_MINUTES}m grace"
+        trace "WOULD READ the node view for job $IF_JOBID -- $IF_JOB run $IF_RUN is ${if_age}s old, past the ${INFLIGHT_GRACE_MINUTES}m grace"
         inflight_clear
     else
-        ## The one place the controller is asked on a quiet node, and the only
-        ## thing that can tell "queued behind a long job" from "gone".
-        ## %r last: a Slurm reason is free text with spaces in it. stderr is
-        ## kept rather than discarded, because it carries the only thing that
-        ## tells "this job is gone" from "the controller did not answer", and
-        ## both print nothing on stdout.
-        ## See docs/explanation/sequencing.md#when-the-controller-does-not-answer.
-        if_queued=$(squeue -h -j "$IF_JOBID" -o '%T %r' 2>&1)
-        if_rc=$?
-        if [[ "$if_rc" -ne 0 || "$if_queued" == *"error:"* ]]; then
-            if [[ "$if_queued" == *"Invalid job id"* ]]; then
-                ## Slurm has forgotten the job entirely: it is gone, and the
-                ## branch below is the right one.
-                if_queued=""
-            else
-                recover_slurm_drains
-                trace "EXIT: 'squeue -j $IF_JOBID' would not answer, so it is not known whether $IF_JOB run $IF_RUN is still queued -- the marker is kept and nothing is archived or resubmitted: ${if_queued:-<no output>}"
-                exit 0
-            fi
+        ## Past the grace and not running here, so the marker is either a job
+        ## still queued or one that is gone -- and only the view can tell them
+        ## apart. A view this cycle could not use is the third answer, and it
+        ## keeps the marker rather than guessing either way.
+        ## See docs/explanation/the-fleet-snapshot.md#no-view-is-not-an-empty-queue.
+        if [[ "$SNAPSHOT_OK" -eq 0 ]]; then
+            recover_slurm_drains
+            trace "EXIT: $SNAPSHOT_WHY -- so it is not known whether $IF_JOB run $IF_RUN is still queued; the marker is kept and nothing is archived or resubmitted"
+            exit 0
         fi
-        if [[ -n "$if_queued" ]]; then
-            ## A job held after a failed launch reads as PENDING at priority 0
-            ## and never starts, so waiting on it waits forever. Ours by
-            ## construction -- the marker holds the id we submitted.
+        if snapshot_job "$IF_JOBID"; then
+            ## Still in the queue. A job held after a failed launch is cancelled
+            ## from the head node, so the wait here is finite either way.
             ## See docs/explanation/sequencing.md#jobs-the-scheduler-has-given-up-on.
-            if [[ -n "$LAUNCH_FAILED_HELD" && "$if_queued" == *"$LAUNCH_FAILED_HELD"* ]]; then
-                if_out=$(scancel "$IF_JOBID" 2>&1)
-                trace "CANCELLED $IF_JOBID -- $IF_JOB run $IF_RUN held after a failed launch ('$LAUNCH_FAILED_HELD') for ${if_age}s; the next cycle resubmits${if_out:+ -- $if_out}"
-                inflight_clear
-            else
-                recover_slurm_drains
-                trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) still queued after ${if_age}s -- left alone ($if_queued); 'scancel $IF_JOBID && rm $inflight' to give up on it"
-                exit 0
-            fi
+            recover_slurm_drains
+            trace "EXIT: $IF_JOB run $IF_RUN (job $IF_JOBID) still queued after ${if_age}s -- left alone ($SNAPSHOT_JOB_STATE${SNAPSHOT_JOB_REASON:+ $SNAPSHOT_JOB_REASON}); 'scancel $IF_JOBID && rm $inflight' to give up on it"
+            exit 0
         else
         ## Gone without finishing its result file: cancelled, killed, or the
         ## node was drained under it. Archived so the slot is free and the
         ## attempt is still on disk. See docs/explanation/sequencing.md#when-a-marker-goes-stale.
-            trace "$IF_JOB run $IF_RUN (job $IF_JOBID) is gone from the queue after ${if_age}s with no end marker -- archiving the partial result and moving on"
+            why=$(yielded_note) ||
+                why="gone from the queue with no end marker -- cancelled, killed, or the node was drained under it"
+            trace "$IF_JOB run $IF_RUN (job $IF_JOBID) after ${if_age}s: $why. Archiving the partial result and moving on"
             [[ -f "$if_file" ]] && archive_result "$if_file" fail
             inflight_clear
         fi
@@ -654,35 +624,17 @@ recover_slurm_drains
 
 ## ── Pause ─────────────────────────────────────────────────────────────────
 ##
-## A pause has to reach the queue too, or it is not a pause: pending jobs are
-## cancelled, a running one is left to finish, and only our two job names are
-## ever touched. `--explain` reads through it -- see
-## docs/reference/settings.md#pause-switches.
+## A pause has to reach the queue too, or it is not a pause -- but the cancelling
+## is the watchdog's now: it sees every node's pending jobs in the one queue it
+## already read, where this was two squeues per node per cycle.
+## See docs/explanation/the-fleet-snapshot.md#what-moved-to-the-head-node.
 if setting_enabled "$PAUSE_JOBS"; then
-    paused_queue=$( { squeue -h -n "$JOB_NAME_BENCH"  -o '%i %T %M' 2>/dev/null
-                      squeue -h -n "$JOB_NAME_BURNIN" -o '%i %T %M' 2>/dev/null
-                    } | grep -v '^$' )
-    pending_ids=$(awk '$2 == "PENDING" { print $1 }' <<<"$paused_queue" | tr '\n' ' ')
-    pending_ids="${pending_ids% }"
-
-    if [[ -n "$pending_ids" ]]; then
-        if [[ "$EXPLAIN" -eq 1 ]]; then
-            trace "WOULD CANCEL pending: $pending_ids"
-        elif ! command -v scancel >/dev/null 2>&1; then
-            trace "WARNING: PAUSE_JOBS=yes but scancel is not on PATH -- pending jobs left queued: $pending_ids"
-        else
-            out=$(scancel $pending_ids 2>&1)
-            trace "PAUSE_JOBS: cancelled pending $pending_ids${out:+ -- $out}"
-        fi
+    if [[ "$SNAPSHOT_OK" -eq 1 ]]; then
+        while IFS=$'\t' read -r paused_id paused_state paused_name _; do
+            [[ -n "$paused_id" ]] || continue
+            trace "PAUSE_JOBS: job $paused_id ($paused_name) is $paused_state -- pending ones are cancelled from the head node; 'scancel $paused_id' to stop a running one now"
+        done < <(snapshot_ours)
     fi
-
-    ## Its own names, not `state`: this loop is at the top level, and `$state`
-    ## is the node's, read above and relied on by the drain gate further down.
-    ## Reading through this block under --explain is what made that reachable.
-    while read -r paused_id paused_state paused_elapsed; do
-        [[ "$paused_state" == "RUNNING" ]] || continue
-        trace "PAUSE_JOBS: job $paused_id still RUNNING for $paused_elapsed -- left to finish; 'scancel $paused_id' to stop it now"
-    done <<<"$paused_queue"
 
     [[ "$FORCE" -eq 1 ]] &&
         trace "--force does not override PAUSE_JOBS: it is a site switch, not a timing gate. Set PAUSE_JOBS=no in ${SETTINGS_FILE:-SETTINGS} to sweep."
@@ -722,12 +674,19 @@ drain_node() {
         trace "drain skipped, the controller did not answer 'scontrol show node $HOSTNAME' -- not draining on an unknown state: $reason"
         return 0
     fi
+    ## The view is what the watchdog last wrote, so a resume this cycle issued is
+    ## not in it yet -- and skipping on that stale drain would lose the failure.
     case "$state" in
-        *DRAIN*|*DOWN*|*FAIL*|*MAINT*) trace "drain skipped, already $state: $reason"; return 0 ;;
+        *DRAIN*|*DOWN*|*FAIL*|*MAINT*)
+            if [[ "$RESUMED_THIS_CYCLE" -eq 1 ]]; then
+                trace "the node view still says $state, but this cycle resumed the node -- draining on the failure below rather than on a state it has already changed"
+            else
+                trace "drain skipped, already $state: $reason"; return 0
+            fi ;;
     esac
     trace "DRAIN: $reason"
     [[ "$EXPLAIN" -eq 1 ]] && return 0
-    scontrol update nodename="$HOSTNAME" state=DRAIN reason="$reason"
+    scontrol_update nodename="$HOSTNAME" state=DRAIN reason="$reason"
 }
 
 ## Clear only our own drain — the marker is what makes this safe.
@@ -737,7 +696,7 @@ resume_node() {
     [[ "$current" == *"$DRAIN_MARKER"* ]] || return 0
     trace "RESUME: clearing own drain ($current)"
     [[ "$EXPLAIN" -eq 1 ]] && return 0
-    scontrol update nodename="$HOSTNAME" state=RESUME
+    scontrol_update nodename="$HOSTNAME" state=RESUME
 }
 
 ## The job that outran MAX_JOB_HOURS in the in-flight gate above. Drained here
@@ -997,38 +956,28 @@ if [[ "${#failed_jobs_actionable[@]}" -gt 0 && \
     drain_node "${label}${failed_jobs_actionable[*]} FAIL${first_reason:+: $first_reason} ($DRAIN_MARKER)"
 fi
 
-## Every job of ours the controller is holding, in one call: this node's two
-## names gate the submission below, and the fleet-wide count of both prefixes
-## gates it against MAX_QUEUED_JOBS. Still one query, which is the number that
-## costs. See docs/explanation/sequencing.md#the-guard-before-a-submission.
+## Every job of ours the controller is holding: this node's two names gate the
+## submission below, and the fleet-wide count of both prefixes gates it against
+## MAX_QUEUED_JOBS. Both come out of the view -- the whole-queue dump this used
+## to be was one per node per cycle, which is the read that cost.
+## See docs/explanation/sequencing.md#the-guard-before-a-submission.
 ##
-## Sets QUEUED_OURS rather than printing it, and so must never be called as
-## $(queued_ours) -- a subshell would cache the answer in a child and ask again.
-## Same reason verdict() works the way it does.
-##
-## Returns 1 when the controller would not answer. A refused query prints
-## nothing, which is indistinguishable from an empty queue at exactly the moment
-## it matters -- and reading it as "nothing of ours is out" is what puts a second
-## job on a node that already has one.
-## See docs/explanation/sequencing.md#when-the-controller-does-not-answer.
+## Returns 1 when there is no usable view. No view is not an empty queue, and
+## reading it as "nothing of ours is out" is what puts a second job on a node
+## that already has one.
+## See docs/explanation/the-fleet-snapshot.md#no-view-is-not-an-empty-queue.
 QUEUED_OURS=""
 QUEUED_FLEET=0
-QUEUED_ASKED=0
-QUEUED_FAILED=""
 queued_ours() {
-    [[ "$QUEUED_ASKED" -eq 1 ]] && { [[ -z "$QUEUED_FAILED" ]]; return; }
-    QUEUED_ASKED=1
-    local queue rc
-    queue=$(squeue -h -o '%i %j' 2>&1)
-    rc=$?
-    if [[ "$rc" -ne 0 || "$queue" == *"error:"* ]]; then
-        QUEUED_FAILED="${queue:-<no output>}"
-        return 1
-    fi
-    QUEUED_OURS=$(awk -v b="$JOB_NAME_BENCH" -v u="$JOB_NAME_BURNIN" \
-                      '$2 == b || $2 == u { print $1 }' <<<"$queue" | sort -u)
-    QUEUED_FLEET=$(awk -v p="${JOB_NAME_BENCH%"$HOSTNAME"}" -v q="${JOB_NAME_BURNIN%"$HOSTNAME"}" \
-                       '$2 ~ "^(" p "|" q ")" { n++ } END { print n+0 }' <<<"$queue")
+    local id state name
+    [[ "$SNAPSHOT_OK" -eq 1 ]] || return 1
+    QUEUED_OURS=""
+    QUEUED_FLEET="$SNAPSHOT_FLEET"
+    while IFS=$'\t' read -r id state name _; do
+        [[ "$id" =~ ^[0-9]+$ ]] || continue
+        [[ "$name" == "$JOB_NAME_BENCH" || "$name" == "$JOB_NAME_BURNIN" ]] || continue
+        QUEUED_OURS+="${QUEUED_OURS:+$'\n'}$id"
+    done < <(snapshot_ours)
     return 0
 }
 
@@ -1125,7 +1074,7 @@ resume_node
 SUBMITTED_ID=""
 submit_one() {
     local jname="$1" job="$2" r="$3" totalRuns="$4"
-    local launch file submit out rc kind name pre_ids extra
+    local launch file submit out rc kind name
     SUBMITTED_ID=""
     launch=$(job_launcher "$job") || return 1
     file=$(result_file "$job" "$r" "$totalRuns")
@@ -1164,51 +1113,35 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
 --export=ALL,RESULT_FILE=$file$JOB_ENV_ARGS$SITE_EXPORT --output=$file $launch"
     fi
 
-    ## The guard above already asked what was queued under our names, and the
-    ## answer is cached -- this is the same question, not a second call.
-    pre_ids=""
-    [[ "$launch" == *.sh ]] && { queued_ours; pre_ids="$QUEUED_OURS"; }
-
     if [[ "$EXPLAIN" -eq 1 ]]; then
-        trace "WOULD SUBMIT $job run $r$([[ -f "$file" ]] && printf ' (existing %s result kept as .%s<N>.txt)' "$VERDICT_STATUS" "$kind"): $([[ "$EUID" -eq 0 ]] && printf 'su - %s -c ' "$JOB_USER")\"$submit\""
+        trace "WOULD SUBMIT $job run $r$([[ -f "$file" ]] && printf ' (existing %s result kept as .%s<N>.txt)' "$VERDICT_STATUS" "$kind"): \"$submit\""
         return 1
     fi
 
     archive_result "$file" "$kind"
 
+    ## The cycle is already $JOB_USER's, so there is nothing to drop to.
     ## stderr is merged and kept: every way this fails looks identical from
-    ## outside, and sbatch's own diagnosis is what tells them apart. Only how we
-    ## arrive at $JOB_USER differs. See docs/how-to/run-a-job-by-hand.md.
-    if [[ "$EUID" -eq 0 ]]; then
-        out=$(su - "$JOB_USER" -c "$submit" 2>&1); rc=$?
-    elif [[ "$(id -un)" == "$JOB_USER" ]]; then
-        out=$(bash -lc "$submit" 2>&1); rc=$?
-    else
-        trace "SUBMIT FAILED $job run $r: running as $(id -un), which is neither root nor $JOB_USER -- 'su - $JOB_USER' would ask for a password. Run as root or as $JOB_USER."
+    ## outside, and sbatch's own diagnosis is what tells them apart.
+    ## See docs/how-to/run-a-job-by-hand.md.
+    if [[ "$(id -un)" != "$JOB_USER" ]]; then
+        trace "SUBMIT FAILED $job run $r: running as $(id -un), and a job is submitted as $JOB_USER -- the result file, the container paths and every queue gate on this node belong to that account. The 'su - $JOB_USER -c' that root's cycles used went with the BCM triggers; run the agent, or this script, as $JOB_USER."
         return 1
     fi
+    out=$(bash -lc "$submit" 2>&1); rc=$?
 
     if [[ "$launch" == *.sh ]]; then
-        ## The id of what this launcher just submitted, by difference against
-        ## what was queued under the name a moment ago. `head -1` here picked
-        ## arbitrarily among everything sharing the name, which is how a stale
-        ## job's id ended up in the marker.
+        ## A host-launched job submits itself, so its id is Slurm's to hand back
+        ## and this node may not ask for it. The marker records `pending` and the
+        ## first view that carries a job under this name fills it in.
         ## See docs/explanation/sequencing.md#getting-the-job-id-right.
-        SUBMITTED_ID=$(comm -13 <(printf '%s' "${pre_ids:+$pre_ids$'\n'}") \
-                                <(squeue -h -n "$jname" -o '%i' 2>/dev/null | sort -u))
-        ## More than one is a launcher that submitted twice, or a leftover the
-        ## snapshot missed. The extras are ours by name and unwanted either way.
-        if [[ "$(grep -c . <<<"$SUBMITTED_ID")" -gt 1 ]]; then
-            trace "WARNING: $launch left $(grep -c . <<<"$SUBMITTED_ID") jobs named $jname ($(tr '\n' ' ' <<<"$SUBMITTED_ID")) -- keeping the first and cancelling the rest, which would otherwise run this benchmark more than once"
-            for extra in $(tail -n +2 <<<"$SUBMITTED_ID"); do scancel "$extra" 2>/dev/null; done
+        if [[ "$rc" -ne 0 ]]; then
+            trace "SUBMIT FAILED $job run $r: $launch exited $rc. Output: ${out:-<none>}"
+            return 1
         fi
-        SUBMITTED_ID=$(head -1 <<<"$SUBMITTED_ID")
-        if [[ -n "$SUBMITTED_ID" ]]; then
-            trace "submitted $job run $r (host-launched): job $SUBMITTED_ID${JOB_ENV_ARGS:+ (JOB_ENV:${JOB_ENV_ARGS//,/ })}"
-            return 0
-        fi
-        trace "SUBMIT FAILED $job run $r: $launch exited $rc with no job named $jname in the queue -- if it submitted under its own name, that job is invisible to this node's gates and has to be scancelled by hand. Output: ${out:-<none>}"
-        return 1
+        SUBMITTED_ID=pending
+        trace "submitted $job run $r (host-launched): $launch exited 0, and the id it was given is read back from the next node view${JOB_ENV_ARGS:+ (JOB_ENV:${JOB_ENV_ARGS//,/ })}"
+        return 0
     fi
 
     if [[ "$out" == *"Submitted batch job"* ]]; then
@@ -1253,8 +1186,8 @@ fi
 if [[ -n "$submit_target" && "$EXPLAIN" -eq 0 ]]; then
     if ! queued_ours; then
         ## The guard is the last thing between a lost marker and two jobs on one
-        ## node, so a query that failed is a stop, not a pass.
-        trace "EXIT: the queue could not be read, so it is not known whether a job of ours is already out -- $NEXT_JOB run $NEXT_RUN stays eligible rather than being submitted on a guess: $QUEUED_FAILED"
+        ## node, so no view is a stop, not a pass.
+        trace "EXIT: $SNAPSHOT_WHY -- so it is not known whether a job of ours is already out, and $NEXT_JOB run $NEXT_RUN stays eligible rather than being submitted on a guess"
         write_quickview
         exit 0
     fi
@@ -1298,7 +1231,7 @@ if [[ -n "$submit_target" ]]; then
         ## holding an unusable id is discarded next cycle, which leaves the node
         ## looking idle while the job is still out -- and it submits a second
         ## copy over the first. See docs/explanation/sequencing.md#getting-the-job-id-right.
-        if [[ "$SUBMITTED_ID" =~ ^[0-9]+$ ]]; then
+        if [[ "$SUBMITTED_ID" =~ ^([0-9]+|pending)$ ]]; then
             inflight_write "$SUBMITTED_ID" "$NEXT_JOB" "$NEXT_RUN" "$NEXT_TOTAL" "$(date +%s)"
             IN_FLIGHT_JOB="$NEXT_JOB"
         else

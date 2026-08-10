@@ -31,6 +31,18 @@ EOF
 ## `show node` answers the configured counts and must stay silent otherwise:
 ## scontrol is quiet on a successful update, and the library reads any output
 ## as the failure.
+## The drain and the slurmd restart go through `priv`, which is `sudo -n` for
+## anything that is not root. Recorded as well as forwarded, so a case can prove
+## the privileged path was taken rather than only that the stub ran.
+## See docs/explanation/running-unprivileged.md.
+cat > "$stub/sudo" <<'EOF'
+#!/bin/bash
+[[ "$1" == "-n" ]] && shift
+if [[ "$1" == "-l" ]]; then exit 0; fi
+printf '%s\n' "$*" >> "$STUB_DIR/sudo.calls"
+exec "$@"
+EOF
+
 cat > "$stub/scontrol" <<'EOF'
 #!/bin/bash
 printf '%s\n' "$*" >> "$STUB_DIR/scontrol.calls"
@@ -134,6 +146,7 @@ pass=0
 fail=0
 ok()  { printf '  ok   %s\n' "$*"; pass=$((pass + 1)); }
 bad() { printf '  FAIL %s\n' "$*"; fail=$((fail + 1)); }
+skip() { printf '  skip %s\n' "$*"; }
 
 ## One case: $1 name, $2 expected RECOVER_RESULT, rest VAR=value overrides.
 ## The per-case directory carries the assertions -- scontrol.calls exists only
@@ -178,7 +191,40 @@ run_case() {
         done
         eval "$setup"
 
+        ## The library reads the watchdog's node view now, not sinfo -- so the
+        ## STUB_* a case sets are written into one. STUB_SINFO_EMPTY is the case
+        ## where no view exists at all.
+        ## See docs/explanation/the-fleet-snapshot.md.
+        SNAPSHOT_RESULTS="$dir/results"
+        mkdir -p "$SNAPSHOT_RESULTS/testnode"
+        if [[ "$STUB_SINFO_EMPTY" != "1" ]]; then
+            {
+                printf 'stamp\t%s\n'  "$(date +%s)"
+                printf 'state\t%s\n'  "$STUB_STATE"
+                printf 'setter\t%s\n' "${STUB_SETTER:-none}"
+                printf 'when\t%s\n'   "$STUB_WHEN"
+                printf 'gres\tgpu:%s\n' "${STUB_CFG_GPUS:-8}"
+                printf 'cputot\t%s\n' "${STUB_CFG_CPUS:-72}"
+                printf 'fleet\t0\n'
+                ## Ends and ids are never both set by a case: a job that is only
+                ## counted needs no end time, and the unkillable gate is reached
+                ## past the GPU check, which the count never gets to.
+                i=0
+                for e in $STUB_JOB_ENDS; do
+                    i=$((i + 1))
+                    printf 'job\t%s\tRUNNING\tcmods\t%s\tsomebody\n' \
+                           "90$i" "$(date -d "$e" +%s 2>/dev/null || printf none)"
+                done
+                for j in $STUB_JOBS; do
+                    printf 'job\t%s\tRUNNING\tcmods\tnone\tsomebody\n' "$j"
+                done
+                printf 'reason\t%s\n' "$STUB_REASON"
+                printf 'end\t%s\n'    "$(date +%s)"
+            } > "$SNAPSHOT_RESULTS/testnode/.slurm-view"
+        fi
+
         recover_log() { printf '%s\n' "$*" >> "$dir/trace"; }
+        source "$home/slurm-snapshot.sh"
         source "$home/slurm-recovery.sh"
         slurm_recover_node "testnode" > "$dir/out" 2>&1
         printf '%s' "$RECOVER_RESULT" > "$dir/result"
@@ -730,6 +776,20 @@ run_case "unkillable, dry run" downed \
 downed_node && bad "  ... but --explain issued a scontrol update"
 grep -q "WOULD MARK DOWN" "$CASE_DIR/trace" ||
     bad "  ... and --explain did not say what it would have done"
+
+echo "== the resume goes through sudo =="
+
+## No cycle runs as root any more, so a resume that does not go through `priv`
+## is one Slurm refuses on a real node -- and refuses quietly, since scontrol
+## reports on stdout. docs/explanation/running-unprivileged.md#draining-without-root
+run_case "the privileged path" resumed STUB_REASON="Prolog error"
+if [[ "$EUID" -eq 0 ]]; then
+    skip "root runs it directly; there is nothing to drop from"
+elif grep -q 'scontrol update' "$CASE_DIR/sudo.calls" 2>/dev/null; then
+    ok "uid $EUID: the resume was issued through sudo"
+else
+    bad "uid $EUID: the resume did not go through sudo: $(cat "$CASE_DIR/sudo.calls" 2>/dev/null || echo '<sudo never called>')"
+fi
 
 echo "== switches and edges =="
 
