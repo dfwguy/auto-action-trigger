@@ -61,6 +61,20 @@ Narrow by node at the same time:
 bash status-check.sh -s -t allreduce ink50-dh01-h20
 ```
 
+## Straight from one roll-up into the other
+
+`health-check.sh` takes the same node lists these roll-ups print, so the health
+side of a benchmark failure is one command and not a loop:
+
+```bash
+bash health-check.sh "$(bash status-check.sh -s -t llm-pretrain | grep -A1 FAIL | tail -1)"
+```
+
+Quote it: the list is compressed, and unquoted the shell tries the brackets as a
+glob before the script sees them. One report covers the whole list, grouped by
+the set of checks each node failed — a loop would print one report per node and
+lose the grouping that says how many incidents there really are.
+
 ## From health state
 
 ```bash
@@ -94,6 +108,9 @@ what is broken.
 Take the list from either roll-up and use it directly:
 
 ```bash
+# why those nodes are unhealthy, grouped by the set of checks they failed
+bash health-check.sh 'ink50-dh01-h20-[03,17]'
+
 # re-run the health checks
 bash health-check.sh --refresh 'ink50-dh01-h20-[03,17]'
 

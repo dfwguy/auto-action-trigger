@@ -54,9 +54,11 @@ scan() {
     HEALTHCHECKS_DIR="$work/checks" logs_dir="$work/logs" valid_dir="$2" \
     bash -c '
         HEALTHCHECKS_DIR="$HEALTHCHECKS_DIR" logs_dir="$logs_dir" valid_dir="$valid_dir"
+        source "$4"
         source "$1"
-        health_scan "$2"
-        eval "$3"' _ "$home/health-scan.sh" "$1" "$3"
+        node_filter_set "$2"
+        health_scan
+        eval "$3"' _ "$home/health-scan.sh" "$1" "$3" "$home/report-format.sh"
 }
 
 ## ── The verdict, both ways round ──────────────────────────────────────────
@@ -117,7 +119,7 @@ render() {
         HEALTHCHECKS_DIR="$HEALTHCHECKS_DIR" logs_dir="$logs_dir" valid_dir="$valid_dir"
         source "$2"
         source "$1"
-        health_scan "*"
+        health_scan
         health_section "$3" "$4"' _ "$home/health-scan.sh" "$home/report-format.sh" "$@"
 }
 

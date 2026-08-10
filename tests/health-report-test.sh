@@ -81,6 +81,24 @@ OUT
 EOF
 chmod 755 "$work/bin/sinfo"
 
+## Enough of `scontrol show hostnames` for the node filter: comma lists and one
+## trailing [a-b] range. Everything else is unanswered, so compress() falls back
+## to the raw list exactly as it does on a host without scontrol.
+cat > "$work/bin/scontrol" <<'EOF'
+#!/bin/bash
+[[ "$1 $2" == "show hostnames" ]] || exit 1
+IFS=',' read -ra parts <<< "$3"
+for p in "${parts[@]}"; do
+    if [[ "$p" =~ ^(.*)\[([0-9]+)-([0-9]+)\]$ ]]; then
+        pre="${BASH_REMATCH[1]}"; a="${BASH_REMATCH[2]}"; b="${BASH_REMATCH[3]}"
+        for ((i = 10#$a; i <= 10#$b; i++)); do printf '%s%0*d\n' "$pre" "${#a}" "$i"; done
+    else
+        printf '%s\n' "$p"
+    fi
+done
+EOF
+chmod 755 "$work/bin/scontrol"
+
 run() { ( cd "$work" && PATH="$work/bin:$PATH" COLUMNS=100 bash health-check.sh "$@" 2>&1 ); }
 
 ## ── The default report ────────────────────────────────────────────────────
@@ -305,6 +323,43 @@ check "a glob matching nothing"      "Nothing under" "$(run --refresh 'zzz*')"
 missing=$(run --refresh node99)
 check "an unknown name queues nothing" "Nothing queued for node99" "$missing"
 check "and does not promise a cycle"   "if it is a typo, nothing will" "$missing"
+
+## ── The node filter ───────────────────────────────────────────────────────
+## Names, Slurm nodelists and globs in one argument list, over one report. The
+## loop it replaces printed one report per node, so a fleet-wide fix read as
+## one incident per node. See docs/reference/scripts.md#the-node-filter.
+
+check "two names are one report" \
+    "2 nodes — 1 failing, 1 passing, 0 never checked, 0 other drains" \
+    "$(run node01 node05)"
+check "a comma list is a nodelist" \
+    "2 nodes — 1 failing, 1 passing" "$(run node01,node05)"
+check "and so is a range" \
+    "2 nodes — 2 failing, 0 passing" "$(run 'node0[1-2]')"
+
+## Brackets are the nodelist spelling, so a glob has to carry a * or a ?.
+check "a glob still matches anywhere"  "2 nodes — 2 failing" "$(run 'node0[12]*')"
+check "a bare string is still a prefix" "8 nodes" "$(run node0)"
+
+## The per-check tally is built before the filter, so it has to be narrowed too
+## -- a header that disagrees with its body reads as a fleet-wide fault.
+check "the roll-up narrows with it" "    alpha                      1 node" \
+    "$(run --summary node02)"
+
+## An argument nothing answers to is a typo or a node that has never reported,
+## and dropping it silently makes both read as a clean node.
+missed=$(run node01 node99)
+check "a name nothing matched is named" "nothing matched: node99" "$missed"
+check "and the rest is still reported"  "1 node — 1 failing" "$missed"
+
+## The modes that take their own arguments take the filter after them.
+multi=$(run --diff node01 node02)
+check "--diff walks every named node"   "node01  (idle)" "$multi"
+check "and the second one too"          "node02  (drained: alpha)" "$multi"
+check "--explain takes the filter"      "node05" "$(run --explain node01 node05)"
+absent "and nothing else"               "node03" "$(run --explain node01 node05)"
+check "--individual takes it after the check" "beta — 2 nodes" \
+    "$(run --individual beta node01 node05)"
 
 echo
 if [[ "$fails" -eq 0 ]]; then

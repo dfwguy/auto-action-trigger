@@ -168,6 +168,42 @@ A check with no baseline entry can never pass and is counted separately rather
 than reported as a fleet-wide fault — the fix for those is a new baseline, not
 anything on the nodes.
 
+## Three spellings of a node list
+
+Every other tool in this workflow produces a *node list* — `status-check.sh -s`
+prints a compressed one per status, `sinfo -o %N` prints one, `nodeset -e`
+expands one. `health-check.sh` only ever took a glob, so a list had to be turned
+back into single names and fed through a loop:
+
+```bash
+for i in $(nodeset -e "$(bash status-check.sh -s | grep -A1 FAIL | tail -1)"); do
+    bash health-check.sh "$i"
+done
+```
+
+That prints one whole report per node — a header, a grouping, a footer, each
+describing one node — which is the opposite of what the report is for. Sixty
+nodes failing the same check are one incident and one fix, and the grouping is
+the only thing that can say so. A loop takes the grouping away.
+
+So the filter takes names, Slurm nodelists and globs in the same argument list,
+repeatable, and reports over their union. The list from any of the tools above
+composes directly, quoted or not, and the answer is still one report.
+
+**A bracket is a nodelist, not a glob.** `node[1-18]` and `node0[12]` are both
+valid in either language and mean different things in each, and the tie has to
+be broken somewhere. It is broken towards Slurm: a glob is anything carrying a
+`*` or a `?`, which every glob spelled out in these docs already does, while a
+bracket range is the form every other tool here *emits*. The cost is that
+`node0[12]` alone stopped being a two-node glob; the report names what matched
+nothing, and that note says which language the brackets were read in.
+
+Which is the other half of it. A filter that quietly drops an argument it cannot
+place turns a typo into a clean-looking report, and a node absent from both
+Slurm and `logs/` — never armed, never checked — reads exactly the same as a
+node with nothing wrong. Both get named. See
+[architecture.md#silence-is-the-enemy](architecture.md#silence-is-the-enemy).
+
 ## Slurm is asked three times
 
 Once for the whole fleet, never once per node. A per-node `sinfo` or `squeue` on

@@ -319,6 +319,8 @@ thing either writes.
 ```bash
 bash health-check.sh                      # every node
 bash health-check.sh ink50-dh01-h20       # one rack (bare prefix)
+bash health-check.sh ink50-dh01-h20-[03,17]     # a Slurm nodelist
+bash health-check.sh node001 node017 node022    # names, in one report
 bash health-check.sh --drained            # every drain, grouped by reason
 bash health-check.sh --summary            # the per-check roll-up, complete
 bash health-check.sh --by-state          # that roll-up, split by Slurm state
@@ -351,6 +353,31 @@ the last health run left behind.
 A missing or dangling `valid-config/default` is reported first, above the
 groups, because nothing can be compared without it — every node then reads as
 passing, and an empty report looks exactly like a healthy cluster.
+
+### The node filter
+
+Optional, repeatable, and the same in every mode — the argument after
+`--individual <check>` and the arguments to `--diff` and `--explain` are read
+exactly like the ones to the default report. Several arguments are one report
+over all of them. With none, every node Slurm knows about is reported.
+
+| Spelling | Example | Matches |
+|---|---|---|
+| Slurm nodelist | `dh01-h02-[11-14]`, `node001,node017` | exactly those nodes, expanded through `scontrol show hostnames` |
+| bare string | `dh01-rack01` | every node whose name starts with it — a rack prefix covers the rack |
+| glob | `dh01-rack0[12]*`, `*node05` | as written, anywhere in the name |
+
+A glob is anything carrying a `*` or a `?`. **Brackets alone are a nodelist**,
+so `node0[12]` is the node `node012` and not the two-node glob — add a `*` for
+the glob. Why that way round:
+[explanation/reading-the-whole-fleet.md#three-spellings-of-a-node-list](../explanation/reading-the-whole-fleet.md#three-spellings-of-a-node-list).
+
+An argument nothing matched is named in a `NOTE:` above the report rather than
+dropped, and the rest of the filter is still reported. A node that has never
+been armed and a typo are the same string here, and neither is a clean node.
+
+`--refresh` is the exception: it takes names and nodelists only, and refuses a
+glob — see `--explain` and `--refresh` below.
 
 ### `--drained`
 
@@ -479,6 +506,7 @@ values* the fleet has and which nodes share each one. It reads no Slurm state.
 ```bash
 bash health-check.sh --diff ink50-dh01-h01-11
 bash health-check.sh --diff --all ink50-dh01-h01-11
+bash health-check.sh --diff 'ink50-dh01-h01-[11-14]'   # one block per node
 ```
 
 Why one node failed: each check it fails, diffed against `valid-config/default`.
