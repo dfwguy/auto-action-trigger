@@ -36,6 +36,10 @@ Usage: install-agent.sh [--node|--head] [--quiet] [--help]
 Both install the same unit -- cycle.sh asks the same question again on every
 run, so these change what this run checks and prints, not what gets installed.
 Re-running is how a changed unit or interval is picked up.
+
+On the host that serves \$BRINGUP_HOME this refuses to arm unless
+fs.leases-enable is 0. ALLOW_NFS_DELEGATIONS=yes forces it past that and is a
+bad idea -- docs/explanation/the-fleet-snapshot.md
 USAGE
 }
 for arg in "$@"; do
@@ -105,6 +109,34 @@ for s in "$script" "$home/agent/node-agent.sh" "$home/agent/supervisor.sh"; do
     fi
 done
 command -v systemctl >/dev/null 2>&1 || fail "systemctl is not installed -- this host cannot run a timer"
+
+## ── The host that serves the tree must not grant delegations ──────────────
+##
+## Only where it is served from: a client has nothing to grant and a host with
+## no nfsd exports nothing. See docs/explanation/the-fleet-snapshot.md#the-server-must-not-hand-out-delegations.
+deleg_skip=""
+if [[ "$(stat -f -c %T "$home" 2>/dev/null)" == nfs* ]]; then
+    deleg_skip="$home is an NFS mount here, so this host reads the tree rather than serving it"
+elif [[ ! -r /proc/fs/nfsd/threads ]]; then
+    deleg_skip="nfsd is not running, so nothing is served from here"
+fi
+leases=""
+[[ -r /proc/sys/fs/leases-enable ]] && read -r leases < /proc/sys/fs/leases-enable
+if [[ -n "$deleg_skip" ]]; then
+    ok "NFSv4 delegations do not apply here: $deleg_skip"
+elif [[ -z "$leases" ]]; then
+    warn "could not read /proc/sys/fs/leases-enable -- whether this host grants NFSv4 delegations is unknown, and the stall that causes reads as a dead watchdog rather than as a filesystem. docs/explanation/the-fleet-snapshot.md#the-server-must-not-hand-out-delegations"
+elif [[ "$leases" == 0 ]]; then
+    ok "fs.leases-enable=0 -- this host grants no NFSv4 delegations"
+elif setting_enabled "$ALLOW_NFS_DELEGATIONS"; then
+    warn "ALLOW_NFS_DELEGATIONS=$ALLOW_NFS_DELEGATIONS overrode fs.leases-enable=$leases, and nothing here can soften what that means: every results/<node>/.slurm-view the watchdog rewrites must first be recalled from a node that may not answer, at about 30s each, so enough silent nodes stop the whole fleet. Set it back. docs/explanation/the-fleet-snapshot.md#the-server-must-not-hand-out-delegations"
+else
+    fail "fs.leases-enable=$leases on $HOSTNAME, which serves $home -- it would grant an NFSv4 delegation on every results/<node>/.slurm-view, and recalling those stops the watchdog writing any of them. Required, not tuning. Fix it and arm again:
+        echo 'fs.leases-enable = 0' | sudo tee /etc/sysctl.d/90-nfsd-no-delegations.conf
+        sudo sysctl --system
+    ALLOW_NFS_DELEGATIONS=yes forces the install past this. It is a bad idea and not a supported configuration -- it does not make the recalls cheaper, it only removes the one warning you would get before the fleet stops. docs/explanation/the-fleet-snapshot.md#the-server-must-not-hand-out-delegations"
+fi
+
 [[ "$rc" -eq 0 ]] || { say "refusing to arm while something is unusable" >&2; exit "$rc"; }
 
 ok "$HOSTNAME is $([[ "$ROLE" == "head" ]] && printf 'not a compute node' || printf 'a compute node') ($role_why) -- every host installs $unit.timer, and cycle.sh asks again on each run"

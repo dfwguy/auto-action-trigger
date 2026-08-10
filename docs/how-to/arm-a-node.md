@@ -9,7 +9,7 @@ watchdog has given up on, and for working out which of the two is happening.
 Why it is shaped this way is
 [explanation/the-agent-and-the-watchdog.md](../explanation/the-agent-and-the-watchdog.md).
 
-## Before anything: the site's three prerequisites
+## Before anything: the site's four prerequisites
 
 None of these are in the framework's gift, and each fails quietly:
 
@@ -33,6 +33,17 @@ None of these are in the framework's gift, and each fails quietly:
    ```bash
    sudo chown -R cmods:cmods /home/cmods/bringup/results /home/cmods/bringup/logs
    ```
+4. **`fs.leases-enable = 0` on whichever host exports the tree.** Only there;
+   a node that mounts it has no delegation to grant. `install-agent.sh` refuses
+   to arm the serving host until it is set, because the failure it prevents
+   arrives hours later and looks like a dead watchdog:
+
+   ```bash
+   cat /proc/sys/fs/leases-enable   ## want 0
+   ```
+
+   See
+   [explanation/the-fleet-snapshot.md#the-server-must-not-hand-out-delegations](../explanation/the-fleet-snapshot.md#the-server-must-not-hand-out-delegations).
 
 ## The first install
 

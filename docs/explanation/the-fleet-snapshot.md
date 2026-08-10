@@ -110,6 +110,65 @@ that does not carry one. A reader arriving mid-write sees a prefix, finds no
 sentinel, and treats it as no answer — which is a branch every caller already
 has. The next cycle finds a whole file.
 
+### The server must not hand out delegations
+
+Truncating in place has a second consequence, and it cost a fleet ten hours
+before anyone found it.
+
+Every node polls its own view read-only, every cycle, and never writes it. That
+is precisely the access pattern NFSv4 hands out a read *delegation* for: the
+server tells the client it may cache the file authoritatively, because nobody
+else is touching it. The client is wrong about that once a cycle. When the
+watchdog reopens the file to truncate it, the server must recall the delegation
+before the write may proceed — and a client that does not answer costs the full
+recall timeout, roughly thirty seconds, per file.
+
+That is invisible in every place you would look. The write is a handful of
+`printf` builtins into a file of about 150 bytes; the block device sits idle at
+single-digit utilisation with sub-millisecond latency; the process burns no CPU
+because it is parked in the kernel. The measurement that names it is two lines:
+
+```bash
+time bash -c 'printf x > results/<node>/.probe'        ## 0.002s
+time bash -c 'printf x >> results/<node>/.slurm-view'  ## 28.192s
+```
+
+Same directory, same disk, same second. The only difference is that two
+thousand nodes hold the second file open.
+
+The failure this produces is not a slow cycle, it is a dead one, and it feeds
+on itself. `snapshot_write` walks the fleet serially inside a unit with
+`TimeoutStartSec=900`, so the arithmetic is the number of *unresponsive* nodes
+times the recall timeout. Thirty-one silent nodes put the cycle just past the
+limit; systemd killed it before the first trace line, roughly every fifteen
+minutes, for ten hours. Nothing in `results/` said so — see
+[the-agent-and-the-watchdog.md#whose-clock-decides](the-agent-and-the-watchdog.md#whose-clock-decides)
+for why the heartbeat kept reporting a healthy watchdog throughout. And because
+a node that has gone quiet is exactly a node that will not answer a recall, the
+nodes the watchdog exists to re-arm are the ones stopping it from running.
+
+The fix is on the server and is one setting: `fs.leases-enable = 0`, which stops
+knfsd granting delegations at all. It is a required host setting, not a tuning
+knob — see [the root README](../../README.md#required-host-settings-the-nfs-server).
+
+What it costs is small and worth stating plainly. Leases are what the kernel
+builds delegations out of, so turning them off means clients revalidate on open
+instead of trusting a cached copy, which is more `GETATTR` traffic to `nfsd` and
+no change to ordinary attribute and data caching. For this fleet that is a good
+trade twice over: the files in question are small, and a delegation on a file
+the head node rewrites every cycle was never going to be held long enough to pay
+for itself. It is a global switch rather than an NFS one, so anything else on
+that host using `fcntl(F_SETLEASE)` — Samba oplocks, some backup and indexing
+tools — loses it too; on a head node that is usually nothing, but it is worth
+checking rather than assuming. NFSv3 has no delegations and is unaffected, as
+are byte-range locks, open state, and client lease renewal on v4. Existing
+delegations are not recalled by the change; they lapse.
+
+Writing to a temporary name and renaming would also avoid the recall, because a
+rename does not recall. That was weighed against the two thousand extra forks a
+cycle in the section above and lost on cost — a decision made before recall was
+understood, and worth revisiting rather than assuming still correct.
+
 ## What a node reads
 
 `snapshot_load` is called once per run and remembered; the answer cannot change
