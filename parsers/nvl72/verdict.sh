@@ -307,6 +307,19 @@ _v_nvb_missing_peer() {
     return 1
 }
 
+## v0.9 prints a bare `Waived:` with no test name, so the count and the first
+## line are all the detail there is; which tests they were is read off the order
+## in docs/explanation/judging-benchmarks.md#a-waived-test-is-a-test-that-did-not-run.
+_v_nvb_waived() {
+    local file="$1" count line
+    count=$(grep -c '^Waived:' "$file" 2>/dev/null)
+    [[ "$count" -eq 0 ]] && return 0
+    line=$(grep -nm1 '^Waived:' "$file" 2>/dev/null)
+    VERDICT_REASON="WAIVED -- nvbandwidth skipped tests it could not run"
+    VERDICT_DETAIL="$count waived, first at line ${line%%:*}"
+    return 1
+}
+
 ## Each test prints its own coefficient of variation after its matrix; any one
 ## over the bar fails the run.
 _v_nvb_unstable() {
@@ -328,11 +341,12 @@ _v_gate_nvbandwidth() {
     _v_require "$file" "per-test SUM lines" '^SUM ' || return 1
     _v_forbid  "$file" "run error"          "$VERDICT_RUN_ERRORS" || return 1
 
-    ## nvbandwidth's own words for a test it declined to run, matched narrowly
-    ## and case-sensitively. Deliberately not a bare `error` sweep -- a blanket
-    ## grep over a log full of test names is how the N/A false-fail got in.
+    ## Two different findings, and they were one rule until a healthy-looking
+    ## g21-17 run waived every peer test. See
+    ## docs/explanation/judging-benchmarks.md#a-waived-test-is-a-test-that-did-not-run.
+    _v_nvb_waived "$file" || return 1
     _v_forbid "$file" "test not supported on this platform" \
-        'Waived|not supported|Unsupported' || return 1
+        'not supported|Unsupported' || return 1
 
     ## Position before magnitude: a missing P2P route explains a low number,
     ## and reporting the number would send someone to look at performance.
