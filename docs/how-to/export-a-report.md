@@ -41,7 +41,11 @@ separator has nothing to guess.
 
 The aligned form is for reading on screen. The rule the report follows is that
 **TSV at a terminal** is column-aligned, and **anything else** — a pipe, a
-redirect, `-o`, or `-c` — is the raw separated rows.
+redirect, `-o`, or `-c` — is the raw separated rows. It is asked of each stream
+on its own, since the table is on stdout and the summary on stderr and the two
+never land in the same place: `daily-report.sh > out.tsv` writes raw rows to the
+file and prints the summary aligned, which is the pair you want. Send both to
+one destination (`&> out.tsv`, `2>&1 | less`) and both come back raw.
 
 When it is aligned, the node table and every summary block share one grid: no
 indentation, one set of column positions measured across every row of every
