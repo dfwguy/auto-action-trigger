@@ -9,7 +9,8 @@
 # check_fail_nodes per check, no_baseline_checks, and health_scan_notes.
 #
 # health_section prints the HEALTH block both reports show. It needs
-# report-format.sh sourced for compress, print_wrapped, plural and sort_list.
+# report-format.sh sourced for compress, print_wrapped, plural and sort_list --
+# and so does health_scan, which narrows to that library's node filter.
 
 # shellcheck disable=SC2154  # logs_dir and valid_dir belong to the sourcing
 # report, which is the only thing that knows where its tree is.
@@ -58,23 +59,21 @@ health_scan_checks() {
     fi
 }
 
-## $1 is an optional node glob. Dropping non-matching nodes here rather than at
-## each printing site is what keeps a report's node filter honest: the scan
+## The caller's node filter, from report-format.sh. Dropping non-matching nodes
+## here rather than at each printing site is what keeps it honest: the scan
 ## walks the whole of logs/ either way, because a per-check tally has to be
 ## built before it can be narrowed.
 health_scan_filter() {
-    local pat="$1" node chk n out
-    [[ -z "$pat" || "$pat" == '*' ]] && return 0
+    local node chk n out
+    [[ "${#NODE_PATTERNS[@]}" -eq 1 && "${NODE_PATTERNS[0]}" == '*' ]] && return 0
     for node in "${!health_fail_count[@]}"; do
-        # shellcheck disable=SC2053  # $pat is the caller's node glob
-        [[ "$node" == $pat ]] && continue
+        node_selected "$node" && continue
         unset "health_fail_count[$node]" "health_fail_list[$node]"
     done
     for chk in "${!check_fail_nodes[@]}"; do
         out=""
         for n in ${check_fail_nodes[$chk]//,/ }; do
-            # shellcheck disable=SC2053  # $pat is the caller's node glob
-            [[ "$n" == $pat ]] && out+="${out:+,}$n"
+            node_selected "$n" && out+="${out:+,}$n"
         done
         if [[ -n "$out" ]]; then
             check_fail_nodes["$chk"]="$out"
@@ -137,7 +136,7 @@ health_scan() {
             }' "$gatedf" "$basef" -
     )
     rm -f "$gatedf" "$basef"
-    health_scan_filter "$1"
+    health_scan_filter
 }
 
 # One check per line, largest first, node list under each. Reads `count|name|

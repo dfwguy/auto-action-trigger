@@ -45,6 +45,66 @@ count_list() {
     printf '%s' "$(( $(tr -cd ',' <<< "$1" | wc -c) + 1 ))"
 }
 
+# The node filter a report takes: names, Slurm nodelists and globs in one
+# argument list, expanded to plain patterns once so every mode matches names.
+# See docs/explanation/reading-the-whole-fleet.md#three-spellings-of-a-node-list.
+declare -a NODE_PATTERNS=('*') NODE_PATTERN_SRC=('*') NODE_PATTERN_HIT=(1)
+
+node_filter_add() {
+    NODE_PATTERNS+=("$1"); NODE_PATTERN_SRC+=("$2"); NODE_PATTERN_HIT+=(0)
+}
+
+node_filter_set() {
+    local arg name
+    NODE_PATTERNS=(); NODE_PATTERN_SRC=(); NODE_PATTERN_HIT=()
+    for arg in "$@"; do
+        [[ -z "$arg" ]] && continue
+        if [[ "$arg" == *[\*\?]* ]]; then
+            node_filter_add "$arg" "$arg"
+        elif [[ "$arg" == *[\[,]* ]]; then
+            ## A bracket or a comma is a nodelist, not a glob: a glob carries a
+            ## `*` or a `?`. Expanded here, so a missing node is named below.
+            while IFS= read -r name; do
+                [[ -n "$name" ]] && node_filter_add "$name" "$name"
+            done < <(scontrol show hostnames "$arg" 2>/dev/null || printf '%s\n' "$arg")
+        else
+            node_filter_add "${arg}*" "$arg"
+        fi
+    done
+    [[ "${#NODE_PATTERNS[@]}" -eq 0 ]] && node_filter_glob '*'
+    return 0
+}
+
+# One already-built glob, for a report whose own node walk is a path expansion
+# of the same string and so cannot read a nodelist differently from this.
+node_filter_glob() {
+    NODE_PATTERNS=("$1"); NODE_PATTERN_SRC=("$1"); NODE_PATTERN_HIT=(1)
+}
+
+node_selected() {
+    local node="$1" i
+    for ((i = 0; i < ${#NODE_PATTERNS[@]}; i++)); do
+        # shellcheck disable=SC2053  # NODE_PATTERNS holds the caller's globs
+        if [[ "$node" == ${NODE_PATTERNS[i]} ]]; then
+            NODE_PATTERN_HIT[i]=1
+            return 0
+        fi
+    done
+    return 1
+}
+
+# What the filter asked for and nothing answered. A typo and a node that has
+# never reported are the same string here, and both read as a clean report.
+node_filter_unmatched() {
+    local i out=""
+    for ((i = 0; i < ${#NODE_PATTERNS[@]}; i++)); do
+        [[ "${NODE_PATTERN_HIT[i]}" -eq 1 ]] && continue
+        [[ ",$out," == *",${NODE_PATTERN_SRC[i]},"* ]] && continue
+        out+="${out:+,}${NODE_PATTERN_SRC[i]}"
+    done
+    printf '%s' "$out"
+}
+
 # Break a comma-separated list into chunks no wider than $2, into WRAP_LINES.
 # Splits only at top-level commas: a break inside a [14,29,34] range yields two
 # lists neither scontrol nor a copy-paste will take.

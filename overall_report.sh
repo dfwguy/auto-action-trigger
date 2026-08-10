@@ -311,7 +311,8 @@ declare -A health_fail_count health_fail_list gated_check
 declare -a health_scan_notes
 have_baseline=0
 source "$home/health-scan.sh"
-health_scan "$pattern"
+node_filter_glob "$pattern"
+health_scan
 for line in "${health_scan_notes[@]}"; do note "$line"; done
 
 # A node with no logs/<node> at all has not been checked, which is not the same

@@ -1,16 +1,28 @@
 #!/bin/bash
 #
-# Usage: health-check.sh [--drained] [--summary [--by-state]] [pattern]
-#        health-check.sh --individual|-i <check> [pattern]
-#        health-check.sh --diff|-D [--all] <node|pattern>
-#        health-check.sh --explain [pattern]
+# Usage: health-check.sh [--drained] [--summary [--by-state]] [<nodes> ...]
+#        health-check.sh --individual|-i <check> [<nodes> ...]
+#        health-check.sh --diff|-D [--all] <nodes> ...
+#        health-check.sh --explain [<nodes> ...]
 #        health-check.sh --refresh <node|nodelist> [...]
 #
-#   pattern  optional node-name filter. A bare string matches every node whose
-#            name starts with it, so a rack prefix (dh01-rack01) covers the
-#            whole rack. Shell globs (dh01-rack0[12]*, *node05) are honored as
-#            written, so an explicit pattern can match anywhere in the name.
-#            With no pattern, every node Slurm knows about is reported.
+#   <nodes>  optional node filter, repeatable, and the same three spellings in
+#            every mode above. A Slurm nodelist (dh01-h02-[11-14], or a comma
+#            list) is expanded through `scontrol show hostnames` and matches
+#            exactly those nodes. A bare string matches every node whose name
+#            starts with it, so a rack prefix (dh01-rack01) covers the whole
+#            rack. A shell glob (dh01-rack0[12]*, *node05) is honored as
+#            written, so an explicit pattern can match anywhere in the name --
+#            and a glob is anything carrying a `*` or a `?`, brackets alone
+#            being a nodelist.
+#
+#            Several arguments are one report over all of them, so a list from
+#            another tool composes directly rather than through a loop that
+#            prints one report per node:
+#                bash health-check.sh $(nodeset -e @IDLE)
+#                bash health-check.sh "$(sinfo -h -t drain -o %N)"
+#            A name nothing matches is named rather than dropped. With no
+#            argument, every node Slurm knows about is reported.
 #
 #   --drained
 #            what is out of the queue rather than what is broken: every drained
@@ -40,13 +52,13 @@
 #            heartbeat has gone stale is reported as not cycling instead of
 #            being given a due time nothing will act on.
 #
-#   --individual|-i <check> [pattern]
+#   --individual|-i <check> [<nodes> ...]
 #            group nodes whose <check> log file is byte-for-byte identical,
 #            largest group first, with a compressed node list and the file
 #            content under each. Shows the actual values across the fleet.
 #            Reads no Slurm state.
 #
-#   --diff|-D [--all] <node|pattern>
+#   --diff|-D [--all] <nodes> ...
 #            why one node failed: each of its failing checks diffed against
 #            valid-config/default. Read the direction carefully -- `<` is the
 #            node and `>` is the baseline, and reading it backwards turns one
@@ -104,7 +116,7 @@ for arg in "$@"; do
         --diff|-D)       diff_mode=1 ;;
         --all|-a)        all=1 ;;
         --refresh|-r)    refresh=1 ;;
-        -h|--help)     sed -n '2,78p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        -h|--help)     sed -n '2,90p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         *)             args+=("$arg") ;;
     esac
 done
@@ -150,13 +162,20 @@ fi
 REPORT_FULL=$(( summary || drained || individual ))
 source "$home/report-format.sh"
 
-## Above the three modes below, all of which filter on it.
-pattern="${args[0]}"
-if [[ -z "$pattern" ]]; then
-    pattern='*'
-elif [[ "$pattern" != *[\*\?\[]* ]]; then
-    pattern="${pattern}*"
-fi
+# What the filter was asked for, for the messages that report matching nothing.
+filter_desc() { local d="${NODE_PATTERN_SRC[*]}"; printf '%s' "${d// /, }"; }
+
+# What the filter named and this report has nothing for. Leads the report: an
+# argument silently dropped reads exactly like a node with nothing to say.
+report_unmatched() {
+    local missed
+    missed=$(node_filter_unmatched)
+    [[ -z "$missed" ]] && return 0
+    print_wrapped "NOTE: nothing matched: " "$missed"
+    echo "      Nothing under Slurm or $logs_dir answers to those. Brackets are a"
+    echo "      Slurm nodelist here and not a glob -- for a glob, add a '*'."
+    echo
+}
 
 ## Writes the sentinel node_health.sh consumes, and stops: the report below
 ## reads Slurm, which does not yet know about the re-check just asked for.
@@ -223,6 +242,11 @@ if [[ "$refresh" -eq 1 ]]; then
     exit 0
 fi
 
+## Above every mode below, all of which filter through node_selected. Built
+## after the module load: a nodelist is expanded by scontrol.
+## See docs/reference/scripts.md#the-node-filter.
+node_filter_set "${args[@]}"
+
 ## Read from the stamp rather than from Slurm: with drains off a failing node
 ## carries no reason. See docs/explanation/health-cadence.md#the-stamp-file.
 if [[ "$explain" -eq 1 ]]; then
@@ -237,8 +261,7 @@ if [[ "$explain" -eq 1 ]]; then
     not_cycling=0
     for dir in "$logs_dir"/*/; do
         node=$(basename "$dir")
-        # shellcheck disable=SC2053  # $pattern is the caller's node glob
-        [[ "$node" == $pattern ]] || continue
+        node_selected "$node" || continue
         ((shown++))
         if [[ -f "$dir/.last-check" ]]; then
             IFS=$'\t' read -r epoch outcome < "$dir/.last-check"
@@ -275,10 +298,11 @@ if [[ "$explain" -eq 1 ]]; then
             "$node" "$(date -d "@$epoch" '+%F %T')" "$outcome" "$due"
     done
     if [[ "$shown" -eq 0 ]]; then
-        echo "No node under $logs_dir matches '${args[0]:-*}' — the checks have never run on any of them." >&2
+        echo "No node under $logs_dir matches '$(filter_desc)' — the checks have never run on any of them." >&2
         exit 1
     fi
     echo
+    report_unmatched
     echo "Why a run stopped:  tail results/<node>/health.log"
     [[ "$not_cycling" -gt 0 ]] &&
         echo "Not cycling:        $not_cycling of $shown node(s) have written no heartbeat in ${HEARTBEAT_STALE_MINUTES}m -- ./trigger-log.sh section 0"
@@ -303,14 +327,13 @@ if [[ "$individual" -eq 1 ]]; then
         echo "ERROR: --individual needs a check name -- e.g. bash health-check.sh --individual ib-firmware" >&2
         exit 2
     fi
-    node_pat="${args[1]:-*}"
-    [[ "$node_pat" != *[\*\?\[]* ]] && node_pat="${node_pat}*"
+    ## The check name is args[0]; everything after it is the node filter.
+    node_filter_set "${args[@]:1}"
     declare -A ind_nodes ind_path
     total_ind=0
     for dir in "$logs_dir"/*/; do
         node=$(basename "$dir")
-        # shellcheck disable=SC2053  # $node_pat is the caller's node glob
-        [[ "$node" == $node_pat ]] || continue
+        node_selected "$node" || continue
         f="$dir/$check"
         [[ -f "$f" ]] || continue
         hash=$(md5sum "$f" | cut -d' ' -f1)
@@ -328,7 +351,7 @@ if [[ "$individual" -eq 1 ]]; then
             echo "       For a check on that node:  bash health-check.sh -i <check> $check" >&2
             exit 2
         fi
-        echo "No logs/<node>/$check found for '${args[1]:-*}'" >&2
+        echo "No logs/<node>/$check found for '$(filter_desc)'" >&2
         exit 1
     fi
     printf '%s — %d %s\n\n' "$check" "$total_ind" "$(plural "$total_ind")"
@@ -345,6 +368,7 @@ if [[ "$individual" -eq 1 ]]; then
         cat "${ind_path[$hash]}"
         echo
     done
+    report_unmatched
     exit 0
 fi
 
@@ -402,7 +426,7 @@ fi
 declare -A health_fail_count health_fail_list health_node_state
 declare -a no_baseline_checks health_scan_notes
 source "$home/health-scan.sh"
-health_scan "$pattern"
+health_scan
 
 ## One node against the baseline, check by check. Driven by the logs rather than
 ## by the drain reason, so a node Slurm was never told about still diffs.
@@ -427,8 +451,7 @@ if [[ "$diff_mode" -eq 1 ]]; then
     shown=0
     for dir in "$logs_dir"/*/; do
         node=$(basename "$dir")
-        # shellcheck disable=SC2053  # $pattern is the caller's node glob
-        [[ "$node" == $pattern ]] || continue
+        node_selected "$node" || continue
         ((shown++))
 
         ## The drain, when there is one, is context rather than the input: it is
@@ -474,10 +497,11 @@ if [[ "$diff_mode" -eq 1 ]]; then
     done
 
     if [[ "$shown" -eq 0 ]]; then
-        echo "No node under $logs_dir matches '${args[0]:-*}' — nothing to diff." >&2
+        echo "No node under $logs_dir matches '$(filter_desc)' — nothing to diff." >&2
         echo "       A node absent from logs/ has never run node_health.sh." >&2
         exit 1
     fi
+    report_unmatched
     exit 0
 fi
 
@@ -491,9 +515,7 @@ while IFS='|' read -r node state reason; do
     [[ -n "${seen_node[$node]}" ]] && continue
     seen_node["$node"]=1
 
-    # shellcheck disable=SC2053  # $pattern is the caller's node glob; quoting
-    # it would only ever match a literal node named '*'.
-    [[ "$node" == $pattern ]] || continue
+    node_selected "$node" || continue
     [[ "$reason" == "none" ]] && reason=""
     ((total++))
 
@@ -553,9 +575,11 @@ while IFS='|' read -r node state reason; do
 done < <(sinfo -N -h -o '%N|%T|%E' 2>/dev/null)
 
 if [[ "$total" -eq 0 ]]; then
-    echo "No nodes match '${args[0]:-*}'" >&2
+    echo "No nodes match '$(filter_desc)'" >&2
     exit 1
 fi
+
+report_unmatched
 
 # --drained: `sinfo -R` grouped. One line per distinct reason rather than one
 # per node, because a rack powered off by CMDaemon is one event and reads as
