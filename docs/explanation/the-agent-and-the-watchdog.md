@@ -245,6 +245,38 @@ from a node that is healthy a second later — which produced a screen of `FAILE
 lines for a fleet that was fine. It now retries for a couple of seconds, and an
 answer it still cannot read is reported as unreadable rather than as broken.
 
+### Why the next elapse is not the question
+
+Patience was not enough, and could not have been. The signature the check failed
+on was "no realtime elapse *and* a monotonic elapse of `infinity`" — which is
+what the fault above looks like, and also what a **healthy** calendar timer looks
+like for the moment after it is restarted. A calendar timer has no monotonic
+schedule at all, so `NextElapseUSecMonotonic` is `infinity` by construction,
+for ever, on every node that is working perfectly; and `NextElapseUSecRealtime`
+is `0` until the manager gets round to computing it. Two values, one of them
+constant and the other a race. On a fleet-wide `pause-agents.sh --resume` this
+put a `FAILED` line and a non-zero exit against hundreds of nodes at once, every
+time, and every one of them was cycling a minute later — so the output taught its
+readers to ignore it, which is worse than not printing it.
+
+The distinguishing fact is not *when* the timer next fires but *which schedule
+it is carrying*, and systemd answers that directly:
+
+```bash
+systemctl --user show bringup-agent.timer -p TimersCalendar -p TimersMonotonic
+```
+
+A loaded calendar unit has a `TimersCalendar=` and no monotonic one; the fault is
+the exact reverse, a `TimersMonotonic=` with no calendar. Neither answer changes
+while the manager settles, so the check needs no timing luck to be right. It now
+reads: an elapse it can use passes, a monotonic-only timer fails, a calendar
+timer with no elapse yet is active-and-not-yet-computed, and anything else is
+systemd not answering. Four outcomes, one of them the fault.
+
+The rule this is an instance of is that a signature shared by the failure and the
+healthy case is not a check. It is a coin toss that costs a fleet's attention.
+`tests/arm-timer-test.sh` holds all four.
+
 ## What a cycle costs the share
 
 Everything the agent reads lives on one NFS export, and a fleet multiplies every

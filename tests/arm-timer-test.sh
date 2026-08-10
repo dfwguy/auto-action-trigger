@@ -1,0 +1,130 @@
+#!/bin/bash
+#
+# agent/install-agent.sh: the gate that says whether the timer is scheduled. It
+# runs on every node of every re-arm, so a signature that also matches a healthy
+# host costs one FAILED line and one non-zero exit per node, fleet-wide.
+# See docs/how-to/arm-a-node.md#armed-but-never-heartbeats.
+
+home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+stub="$work/bin"
+tree="$work/tree"
+mkdir -p "$stub" "$tree/agent/units" "$work/home"
+
+pass=0; fail=0
+ok()  { printf '  ok   %s\n' "$*"; pass=$((pass + 1)); }
+bad() { printf '  FAIL %s\n' "$*"; fail=$((fail + 1)); }
+
+## Answers `show -p <property>` out of STUB_SHOW, one `Property=value` per line,
+## and anything else the install asks for the way a working manager would.
+cat > "$stub/systemctl" <<'EOF'
+#!/bin/bash
+for ((i = 1; i <= $#; i++)); do
+    [[ "${!i}" == "-p" ]] || continue
+    j=$((i + 1)); want="${!j}"
+    while read -r line; do
+        [[ "$line" == "$want="* ]] && { printf '%s\n' "${line#*=}"; exit 0; }
+    done <<< "$STUB_SHOW"
+    exit 0
+done
+[[ "$1 $2" == "--user is-active" ]] && exit "${STUB_ACTIVE:-0}"
+exit 0
+EOF
+cat > "$stub/loginctl" <<'EOF'
+#!/bin/bash
+[[ "$*" == *Linger* ]] && echo yes
+exit 0
+EOF
+cat > "$stub/sudo" <<'EOF'
+#!/bin/bash
+exit 1
+EOF
+chmod 755 "$stub"/*
+
+cp "$home/settings.sh" "$home/priv.sh" "$tree/"
+cp "$home/agent/install-agent.sh" "$tree/agent/"
+cp "$home/agent/units/bringup-agent."* "$tree/agent/units/"
+for s in cycle.sh node-agent.sh supervisor.sh; do
+    printf '#!/bin/bash\n' > "$tree/agent/$s"
+    chmod 755 "$tree/agent/$s"
+done
+cat > "$tree/SETTINGS" <<EOF
+JOB_USER=$(id -un)
+BRINGUP_HOME=$tree
+AGENT_INTERVAL_MINUTES=2
+EXCLUDE_NODES="testhost"
+PRIV_SCONTROL=direct
+EOF
+
+## --node, so the head-node branches play no part; the timer gate is the same
+## either way. stderr and stdout together: FAILED goes to one and ok: the other.
+run_arm() {
+    ( export PATH="$stub:$PATH" HOME="$work/home" HOSTNAME=testhost \
+             AGENT_HOME="$tree" XDG_RUNTIME_DIR="$work" STUB_SHOW="$1"
+      "$tree/agent/install-agent.sh" --node 2>&1 )
+}
+timer_line() { grep -E 'timer is scheduled|timer is active|next elapse never' <<< "$1" | tail -1; }
+
+echo "== a calendar timer that has not computed its next elapse is not a fault =="
+
+## What a healthy node answers inside the second after `systemctl restart`: a
+## calendar timer's monotonic elapse is `infinity` by construction, and the
+## realtime one is 0 until the manager has worked it out. This pair was read as
+## the known-bad signature and failed 2000 nodes that were arming perfectly well.
+out=$(run_arm 'NextElapseUSecRealtime=0
+NextElapseUSecMonotonic=infinity
+TimersCalendar={ OnCalendar=*:0/2 ; next_elapse=n/a }
+TimersMonotonic=')
+line=$(timer_line "$out")
+case "$line" in
+    *"next elapse never"*) bad "a calendar timer mid-restart was called a fault: $line" ;;
+    *"is active"*)         ok  "reported as active and not yet computed: $line" ;;
+    *)                     bad "no verdict on the timer at all: ${line:-<nothing>}" ;;
+esac
+grep -q '^FAILED' <<< "$out" &&
+    bad "it still failed the install: $(grep '^FAILED' <<< "$out")" ||
+    ok "nothing failed, so the node does not come back as an error over the fan-out"
+
+echo "== the stale monotonic unit is still caught =="
+
+## The real fault: a manager holding a unit built on OnUnitActiveSec=. It fires
+## once per manager start and never again, and it says so by having a monotonic
+## timer and no calendar one -- which no amount of waiting changes.
+out=$(run_arm 'NextElapseUSecRealtime=0
+NextElapseUSecMonotonic=infinity
+TimersCalendar=
+TimersMonotonic={ OnUnitActiveSec=2min ; next_elapse=n/a }')
+line=$(timer_line "$out")
+case "$line" in
+    *"next elapse never"*) ok  "named as the monotonic unit it is: $line" ;;
+    *)                     bad "a timer that will never fire again passed: ${line:-<nothing>}" ;;
+esac
+
+echo "== a scheduled timer passes on the elapse alone =="
+
+out=$(run_arm 'NextElapseUSecRealtime=1799999999000000
+NextElapseUSecMonotonic=infinity
+TimersCalendar={ OnCalendar=*:0/2 ; next_elapse=n/a }
+TimersMonotonic=')
+line=$(timer_line "$out")
+case "$line" in
+    *"is scheduled"*) ok  "reported scheduled: $line" ;;
+    *)                bad "a timer with a next elapse was not called scheduled: ${line:-<nothing>}" ;;
+esac
+
+echo "== systemd saying nothing is not systemd saying no =="
+
+## An unreadable answer is the third outcome, and it prints what came back
+## rather than a verdict. See docs/how-to/arm-a-node.md#armed-but-never-heartbeats.
+out=$(run_arm '')
+line=$(timer_line "$out")
+case "$line" in
+    *"next elapse never"*) bad "an empty answer was read as broken: $line" ;;
+    *"is active"*)         ok  "reported as active with what show returned: $line" ;;
+    *)                     bad "no verdict on the timer at all: ${line:-<nothing>}" ;;
+esac
+
+printf '\n%d passed, %d failed\n' "$pass" "$fail"
+[[ "$fail" -eq 0 ]]

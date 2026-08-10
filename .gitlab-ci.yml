@@ -308,6 +308,15 @@ supervisor:
   script:
     - ./tests/supervisor-test.sh
 
+# Whether a node is really scheduled after being armed. The gate runs on every
+# node of every re-arm, so a signature that also matches a healthy host costs a
+# FAILED line and a non-zero exit per node, fleet-wide.
+arm-timer:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/arm-timer-test.sh
+
 # A refused sudo does not fail a health check, it changes its output -- which
 # reads as bad hardware. See docs/explanation/running-unprivileged.md.
 priv:
