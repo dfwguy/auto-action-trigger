@@ -286,10 +286,16 @@ if [[ "$summary" -ne 1 ]]; then
     trap 'rm -f "$running_file"; rm -rf "$scan_dir"' EXIT
     scan_fleet "${nodes[@]}" |
         awk -F"$SCAN_FS" -v dir="$scan_dir" '{ print > (dir "/" $2) }'
+    rule=$(printf '%*s' 60 '' | tr ' ' '*')
     for col in "${columns[@]}"; do
         ## A column nothing has a row for is skipped, not printed empty.
         [[ -s "$scan_dir/$col" ]] || continue
+        ## A banner per test: the grouping tool prints its own rules between
+        ## blocks, so without one the sections run together and the report
+        ## reads as the single list it used to be.
+        printf '%s\n%s\n%s\n' "$rule" "$col" "$rule"
         report_lines < "$scan_dir/$col" | sort | group
+        echo
     done
     exit 0
 fi

@@ -81,9 +81,20 @@ submitted and not yet judged.
 
 The report is ordered by test: the benchmark columns are walked in the order
 `BENCHMARKS` (then `BURNIN`) configures them, and each test's blocks are printed
-together, so one test's whole fleet reads as one section. That is the order the
-jobs run in and the order `-t` names them in, so narrowing with `-t` removes
-sections from the report rather than rearranging it.
+together under a banner, so one test's whole fleet reads as one section:
+
+```
+************************************************************
+allreduce-nonvlink
+************************************************************
+ink50-dh01-h20-[03,17]: allreduce-nonvlink: FAIL -- peak busbw below floor 93 GB/s
+```
+
+That is the order the jobs run in and the order `-t` names them in, so narrowing
+with `-t` removes sections from the report rather than rearranging it. The
+column stays on every line as well as in the banner: the grouping tool prints
+its own rules between blocks, and a line that carries its own column is still
+one grep away from being read on its own.
 
 `--sort-by-hostname` orders by node instead: every row sorted by node name, so
 one node's columns sit together and the tests are interleaved. It is the shape
