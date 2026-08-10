@@ -132,7 +132,10 @@ would take the whole fleet out over a missing `valid-config/`.
 Neither is a check, and a `.last-check` sitting in the baseline directory reads
 as a check name to every consumer that lists it —
 `health-check.sh` filters it as well, because a baseline taken before this
-change still has one.
+change still has one. The informational checks go the same way and for a
+related reason: nothing diffs them, so a copy in the baseline is an answer
+nobody asked for. See
+[node-inventory.md#it-is-not-a-baseline](node-inventory.md#it-is-not-a-baseline).
 
 ## Every cycle says what it decided
 
