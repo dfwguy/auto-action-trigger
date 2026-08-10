@@ -91,7 +91,7 @@ pieces fit together this way is
 ├── check_squeue.sh                # The queue in one table; -j adds node state and reservations
 ├── status-check.sh                # Live per-node benchmark status (all nodes)
 ├── daily-report.sh                # Per-node table: slurm state, status, performance metrics
-├── overall_report.sh              # Everything without a pass, with everything known about it
+├── overall_report.sh              # One grouped line per node; --details is everything without a pass
 ├── pause-agents.sh                # Stop every agent timer in the fleet, and start them again
 ├── trigger-debug.sh               # Walk the watchdog → sbatch chain and name the broken link
 ├── trigger-log.sh                 # Read what the chain wrote: trigger.log and health.log
@@ -238,6 +238,7 @@ The `test` stage runs the suites — `tests/verdict-test.sh`,
 `tests/node-queries-test.sh`,
 `tests/llmb-check-test.sh`, `tests/exclude-test.sh`, `tests/report-format-test.sh`,
 `tests/health-scan-test.sh`, `tests/health-report-test.sh`,
+`tests/brief-report-test.sh`,
 `tests/arm-timer-test.sh`, `tests/doc-links-test.sh` — as one job each, so a failure names the gate that broke without anyone opening
 a log.
 

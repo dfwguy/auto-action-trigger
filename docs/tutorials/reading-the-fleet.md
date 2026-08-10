@@ -5,10 +5,12 @@ order they contradict each other; run in the right order each one raises the
 question the next one answers.
 
 There is a fourth, `overall_report.sh`, which reads all three sources at once
-and prints only what has no pass. It is the one to reach for when the question
-is "what do I work on"; the three below are how you learn what its sections
-mean, so read them first. It has its own page in
-[reference/scripts.md](../reference/scripts.md#overall_reportsh--everything-without-a-pass).
+and gives each node one grouped line saying what it has outstanding — or `PASS`.
+It is the one to reach for when the question is "what do I work on", and
+`--details` expands it into the full exception list; the three below are how you
+learn what that expansion's sections mean, so read them first. It has its own
+page in
+[reference/scripts.md](../reference/scripts.md#overall_reportsh--the-fleet-in-one-line-per-node).
 
 By the end of this you will know which to reach for, why two of them can
 legitimately disagree about the same node, and — the part that matters most —
@@ -28,7 +30,7 @@ cd /home/cmods/bringup
 | `status-check.sh` | What state is every benchmark in? | `results/` + `squeue` |
 | `daily-report.sh` | What are the numbers? | `results/` + `sinfo` |
 | `health-check.sh` | What is wrong that is not a benchmark? | `logs/` against the baseline, plus `sinfo` for state |
-| `overall_report.sh` | What has no pass, and what do we know about it? | all three, plus each node's trace |
+| `overall_report.sh` | One line per node: what is outstanding, or `PASS`? | all three; `--details` adds each node's trace |
 
 Note the third column, because it is where all the surprises come from. They do
 not read the same inputs, so they can be simultaneously right and different.

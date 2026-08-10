@@ -197,18 +197,65 @@ separated rows. It is asked of each stream on its own, so `daily-report.sh >
 /dev/null` still prints the summary aligned. Getting it into a
 spreadsheet is [how-to/export-a-report.md](../how-to/export-a-report.md).
 
-## `overall_report.sh` — everything without a pass
+## `overall_report.sh` — the fleet in one line per node
 
 ```bash
 bash overall_report.sh                    # every node
 bash overall_report.sh ink50-dh01-h20     # one rack (bare prefix)
-bash overall_report.sh --full             # nothing elided
+bash overall_report.sh --details          # the long report, with every reason
+bash overall_report.sh --full             # that report, nothing elided
 bash overall_report.sh -o ~/today.txt
 ```
 
-The exception list. A node that passes appears nowhere in it, so a clean cluster
-produces three lines — the counts, the settings file that was read, and the
-sections saying they found nothing. Why it is inverted, and what that costs, is
+One line per node — `PASS`, or the names of what is not passing on it — grouped
+through `clubak`/`dshbak` so that every node saying the same thing is one entry
+under one compressed node list:
+
+```
+---------------
+ink50-dh01-h20-[03-07,11] (6)
+---------------
+ tests - allreduce hpl **** healthchecks - bios kernel-params
+---------------
+ink50-dh01-h20-19 (1)
+---------------
+ tests -  **** healthchecks - bios
+---------------
+ink50-dh01-h20-[01-02,08-10,12-18] (12)
+---------------
+ PASS
+```
+
+The size of a group is the size of the incident, which is the same argument
+`health-check.sh` makes for grouping by the *set* of failed checks. One line
+rather than two, so the grouping is over the whole verdict — a node failing
+`hpl` with clean checks and one failing `hpl` with a bad BIOS are two different
+faults and must not fold together.
+
+**Names, nothing else.** Not why a benchmark has no pass, and not how it failed:
+whether a column was rejected, never attempted or is mid-retry is a question for
+`--details`, and putting it on the line would split one group of sixty into six
+of ten. Both halves are always spelled out and empty when there is nothing under
+them, so every line has one shape; the report prints a legend above the groups
+so the line itself carries no words it does not need.
+
+| Half | Names |
+|---|---|
+| `tests - ` | every benchmark column with no passing result |
+| `healthchecks - ` | every check whose `logs/<node>/<check>` differs from `valid-config/default` |
+
+**A column that never ran reads the same as one that was rejected**, because
+neither is passing. So do the checks on a node with no `logs/<node>` at all, and
+the checks on *every* node when there is no `valid-config/default`: nothing was
+compared, so nothing passed, and every gated check is named. An empty half is
+what a pass looks like, and none of those three is a pass.
+
+### `--details` — everything without a pass
+
+The exception list, and what this script printed by default before the one-line
+report. A node that passes appears nowhere in it, so a clean cluster produces
+three lines — the counts, the settings file that was read, and the sections
+saying they found nothing. Why it is inverted, and what that costs, is
 [explanation/reading-the-whole-fleet.md](../explanation/reading-the-whole-fleet.md).
 
 Four sections:
@@ -259,8 +306,13 @@ outranks one that simply has a benchmark running on it. `--full` lifts every cap
 in the report.
 
 Slurm is asked three times for the whole fleet, never once per node, so this is
-safe to run while the timers are live. It submits nothing, drains nothing and
-resumes nothing; `-o` is the only thing it writes.
+safe to run while the timers are live: `sinfo` for state and drain reason,
+`squeue` for the queue, and `scontrol` to compress node lists and expand another
+user's job. The one-line default needs none of state, drain, queue text or the
+per-node traces, so it asks only `squeue` and skips the `trigger.log` and
+`recover.log` sweeps entirely — it is the cheaper report as well as the shorter
+one. Both submit nothing, drain nothing and resume nothing; `-o` is the only
+thing either writes.
 
 ## `health-check.sh` — cluster-wide health summary
 
