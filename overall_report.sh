@@ -1,14 +1,49 @@
 #!/bin/bash
 #
-# Usage: overall_report.sh [--full] [--no-cache] [-o file] [pattern]
+# Usage: overall_report.sh [--details [--full]] [--no-cache] [-o file] [pattern]
 #
-# Everything that is not working, with everything known about it, in one pass.
-# A node that passes is left out -- this report is the exception list, so an
-# empty one is the good outcome and says so in as many words.
+# One line per node -- PASS, or the names of what is not passing on it --
+# grouped so that every node saying the same thing is one entry with one node
+# list:
 #
-#   --full            print every group, every node block and every reason. The
-#                     default elides the tail of each so the report stays a
-#                     fixed size as the cluster grows.
+#   ---------------
+#   ink50-dh01-h20-[03-07,11] (6)
+#   ---------------
+#   tests - allreduce hpl **** healthchecks - bios kernel-params
+#   ---------------
+#   ink50-dh01-h20-19 (1)
+#   ---------------
+#   tests -  **** healthchecks - bios
+#   ---------------
+#   ink50-dh01-h20-[01-02,08-10,12-18] (12)
+#   ---------------
+#   PASS
+#
+# Names, nothing else. Not why a benchmark has no pass and not how it failed --
+# whether it was rejected, never attempted or is being retried is a question for
+# --details, and putting it here would split one group of sixty into six of ten.
+# Both halves are always spelled out, empty when there is nothing under them, so
+# every line has one shape; a node with nothing under either reads PASS.
+#
+# A node that passes is still on the report, so this covers the whole fleet
+# rather than only its exceptions, and the size of a group is the size of the
+# incident. One line rather than two, so the grouping is over the whole verdict:
+# a node failing hpl with clean checks and one failing hpl with a bad BIOS are
+# two faults and must not fold together.
+#
+# A column that never ran and a column that was rejected read the same, because
+# neither is passing. So do the checks on a node that has never been checked and
+# on any node at all when there is no valid-config/default to compare against:
+# nothing passed, so every gated check is named.
+#
+#   --details         the long report instead: per column, per check and per
+#                     node, carrying the reason for every verdict, the Slurm
+#                     state and drain, the check that failed a prolog, our job
+#                     in the queue, and the last line of each node's own trace.
+#   --full            with --details, print every group, every node block and
+#                     every reason; the default elides the tail of each so the
+#                     report stays a fixed size as the cluster grows. Implies
+#                     --details.
 #   --no-cache        judge every node from its files, ignoring
 #                     results/.result_cache.*. See
 #                     docs/explanation/verdicts-and-the-cache.md#the-verdict-cache.
@@ -21,7 +56,11 @@
 #                     rack, while a shell glob (dh01-rack0[12]*, *node05) is
 #                     honored as written.
 #
-# Four sections, in the order they are usually needed:
+# The grouping is clubak (ClusterShell) or dshbak (pdsh), the pair
+# status-check.sh already prints through. With neither installed the lines are
+# printed one per node and the report says so.
+#
+# --details has four sections, in the order they are usually needed:
 #
 #   BENCHMARKS  per column, the nodes with no passing result, grouped by the
 #               verdict and the reason for it, largest group first. A column
@@ -37,15 +76,16 @@
 #   WHAT TO RUN NEXT
 #               the commands that answer the questions this report raises.
 #
-# Slurm is asked three times for the whole fleet, never once per node: sinfo for
-# state and drain reason, squeue for the queue, and scontrol to compress node
-# lists and to expand another user's job.
+# Slurm is asked for the whole fleet, never once per node: squeue for the queue,
+# and with --details also sinfo for state and drain reason and scontrol to
+# compress node lists and expand another user's job. The default asks it once.
 #
 # Read-only apart from -o. It submits nothing, drains nothing, resumes nothing.
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
+source "$home/fanout.sh"
 results_dir="$home/results"
 logs_dir="$home/logs"
 # shellcheck disable=SC2034  # read by health-scan.sh, which nothing follows at lint time
@@ -53,16 +93,20 @@ valid_dir="$home/valid-config/default"
 jobs_dir="$JOBS_DIR"
 
 full=0
+details=0
 report_file=""
 args=()
 while (($#)); do
     case "$1" in
-        --full|-f)    full=1; shift ;;
-        --no-cache)   export SCAN_CACHE=0; shift ;;
+        ## Nothing in the one-line report elides, so --full only means
+        ## something with --details, and asking for it is asking for that.
+        --full|-f)     full=1; details=1; shift ;;
+        --details|-d)  details=1; shift ;;
+        --no-cache)    export SCAN_CACHE=0; shift ;;
         -o|--output)
             [[ -n "$2" ]] || { echo "ERROR: $1 needs a file to write" >&2; exit 1; }
             report_file="$2"; shift 2 ;;
-        -h|--help)    sed -n '2,44p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        -h|--help)    sed -n '2,83p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         -*)           echo "ERROR: unknown argument $1" >&2; exit 1 ;;
         *)            args+=("$1"); shift ;;
     esac
@@ -193,7 +237,11 @@ fi
 
 declare -A slurm_state slurm_setter slurm_when slurm_reason
 slurm_default="unknown"
-if command -v sinfo >/dev/null 2>&1; then
+if [[ "$details" -eq 0 ]]; then
+    ## The one-line report prints no state, no drain and no trace, so the whole
+    ## of this section is work the default would throw away.
+    slurm_default="not read"
+elif command -v sinfo >/dev/null 2>&1; then
     while IFS='|' read -r n state setter when reason; do
         [[ -z "$n" || -n "${slurm_state[$n]}" ]] && continue
         slurm_state["$n"]="$state"
@@ -238,7 +286,7 @@ if command -v squeue >/dev/null 2>&1; then
         esac
     done < <(squeue -h -o '%i|%T|%j|%u|%r|%M|%N' 2>/dev/null)
 else
-    note "squeue is not on PATH even after 'module load slurm' -- a running job cannot be told from a dead one, so both read INCOMPLETE, and nothing below says what is queued."
+    note "squeue is not on PATH even after 'module load slurm' -- a running job cannot be told from a dead one, so both read INCOMPLETE, and no line below says what is queued."
 fi
 
 # Which nodes have one of our batches executing now, so a mid-run partial file
@@ -259,7 +307,7 @@ if [[ ! -f "$home/health-scan.sh" ]]; then
 fi
 ## Declared here as well as in the library: nothing follows a `source` at lint
 ## time, so these would read as undefined at every use below.
-declare -A health_fail_count health_fail_list
+declare -A health_fail_count health_fail_list gated_check
 declare -a health_scan_notes
 have_baseline=0
 source "$home/health-scan.sh"
@@ -282,7 +330,7 @@ fi
 ## See docs/explanation/reading-the-whole-fleet.md#a-prolog-drain-does-not-say-why.
 
 declare -A trace_exit trace_exit_when prolog_why prolog_when trace_held trace_skipped
-if compgen -G "$results_dir/*/trigger.log" >/dev/null 2>&1; then
+if [[ "$details" -eq 1 ]] && compgen -G "$results_dir/*/trigger.log" >/dev/null 2>&1; then
     while IFS='|' read -r node kind when text; do
         case "$kind" in
             exit)    trace_exit["$node"]="$text"; trace_exit_when["$node"]="$when" ;;
@@ -317,7 +365,7 @@ fi
 # Drains cleared per node inside the recovery window, and what the last one was
 # for. One awk over every recover.log; the format is in slurm-recovery.sh.
 declare -A drains_recent drain_last
-if compgen -G "$results_dir/*/recover.log" >/dev/null 2>&1; then
+if [[ "$details" -eq 1 ]] && compgen -G "$results_dir/*/recover.log" >/dev/null 2>&1; then
     while IFS='|' read -r node n last; do
         drains_recent["$node"]="$n"
         drain_last["$node"]="$last"
@@ -338,10 +386,12 @@ export SCAN_RESULTS_DIR="$results_dir"
 export SCAN_COLUMNS="${columns[*]}"
 export SCAN_RUNNING_FILE="$running_file"
 export SCAN_ARCHIVES=1
-export SCAN_METRICS=1
+## Only --details prints a [measured ..] range, and the flag is part of the
+## cache key -- off, the default shares status-check.sh's cache file.
+export SCAN_METRICS="$details"
 
 declare -A group_nodes group_metrics col_missing
-declare -A node_outstanding node_cells scanned
+declare -A node_outstanding node_cells node_not_passing scanned
 while IFS="$SCAN_FS" read -r node col status reason metric; do
     scanned["$node,$col"]=1
     [[ "$status" == "DONE" ]] && continue
@@ -355,6 +405,8 @@ while IFS="$SCAN_FS" read -r node col status reason metric; do
 
     node_outstanding["$node"]=1
     node_cells["$node"]+="${node_cells[$node]:+, }$col ($status)"
+    ## Column order, which is the order one worker emits a node's rows in.
+    node_not_passing["$node"]+="${node_not_passing[$node]:+ }$col"
 done < <(scan_fleet "${nodes[@]}")
 
 # A cell with no row means a scan worker died, not a node that passed. Named,
@@ -367,6 +419,7 @@ for node in "${nodes[@]}"; do
         group_nodes["$key"]+="${group_nodes[$key]:+,}$node"
         node_outstanding["$node"]=1
         node_cells["$node"]+="${node_cells[$node]:+, }$col (NO_SCAN)"
+        node_not_passing["$node"]+="${node_not_passing[$node]:+ }$col"
     done
 done
 
@@ -393,6 +446,7 @@ node_rank() {
 
 declare -a blocks ranked
 for node in "${!node_outstanding[@]}"; do
+    [[ "$details" -eq 1 ]] || break
     node_rank "$node"
     ranked+=("$NODE_RANK|$node")
 done
@@ -415,6 +469,87 @@ metric_range() {
          END { if (!n) exit
                if (lo == hi) printf "  [measured %s]", lo
                else          printf "  [measured %s..%s]", lo, hi }' <<< "$1"
+}
+
+## ── The one-line report ───────────────────────────────────────────────────
+## See docs/explanation/reading-the-whole-fleet.md#one-line-per-node.
+
+## Guarded because a missing clubak empties stdout while the pipeline still
+## exits 0 -- silently identical to "no nodes match".
+brief_group() { cat; }
+if [[ "$details" -eq 0 ]]; then
+    if bak_resolve; then
+        brief_group() { bak; }
+    else
+        note "neither clubak (ships with clush) nor dshbak (ships with pdsh) is on PATH -- printing one line per node instead of grouping the nodes that say the same thing. Install ClusterShell for the grouped form."
+    fi
+fi
+
+## Sets BRIEF_LINE rather than printing it: $(...) here is two forks per node,
+## and this runs over every node in the fleet rather than only the failing ones.
+## Worst status first, in the order status-check.sh ranks them.
+## Every gated check, for a node that has none of them passing.
+brief_all_checks=""
+if [[ ${#gated_check[@]} -gt 0 ]]; then
+    brief_all_checks=$(printf '%s\n' "${!gated_check[@]}" | sort | paste -sd' ' -)
+fi
+
+BRIEF_LINE=""
+brief_line() {
+    local node="$1"
+    local tests="${node_not_passing[$node]}" health
+
+    if [[ "$have_baseline" -ne 1 || -n "${never_checked[$node]}" ]]; then
+        ## Nothing was compared here, so nothing passed -- every gated check is
+        ## outstanding, by the rule that puts a column nobody ran on the line.
+        health="$brief_all_checks"
+    else
+        health="${health_fail_list[$node]//,/ }"
+    fi
+
+    if [[ -z "$tests" && -z "$health" ]]; then
+        BRIEF_LINE="PASS"
+    else
+        BRIEF_LINE="tests - $tests **** healthchecks - $health"
+    fi
+}
+
+emit_brief() {
+    local node line n_out=${#node_outstanding[@]}
+    printf 'OVERALL — %d %s, %d benchmark %s, %s\n' \
+        "${#nodes[@]}" "$(plural "${#nodes[@]}")" "${#columns[@]}" \
+        "$([[ ${#columns[@]} -eq 1 ]] && echo column || echo columns)" \
+        "$(date '+%F %T')"
+    printf '%s, settings from %s\n' "$home" "${SETTINGS_FILE:-<none found>}"
+    echo
+
+    setting_enabled "$PAUSE_JOBS" &&
+        note "PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE##*/} -- no benchmarks are being submitted, so no tests half below will change until it is set to no."
+    setting_enabled "$PAUSE_HEALTH_CHECKS" &&
+        note "PAUSE_HEALTH_CHECKS=$PAUSE_HEALTH_CHECKS in ${SETTINGS_FILE##*/} -- node_health.sh is not running anywhere, so the health half is a snapshot of whatever was true when the pause went on."
+    for line in "${notes[@]}"; do print_wrapped "NOTE: " "$line"; done
+    [[ ${#notes[@]} -gt 0 ]] && echo
+
+    ## The legend, so the line itself does not have to carry the words. Nothing
+    ## below it is repeated per node, which is the point of putting it here.
+    printf 'One line per node, grouped: PASS, or what is not passing on it.\n'
+    printf '  tests - <benchmark columns with no passing result>\n'
+    printf '  healthchecks - <checks whose logs/<node> differs from valid-config/default>\n'
+    printf 'Why any of them: bash overall_report.sh --details\n\n'
+
+    for node in "${nodes[@]}"; do
+        brief_line "$node"
+        printf '%s: %s\n' "$node" "$BRIEF_LINE"
+    done | brief_group
+    echo
+
+    printf '%d of %d %s %s a benchmark column outstanding.\n' \
+        "$n_out" "${#nodes[@]}" "$(plural "${#nodes[@]}")" \
+        "$([[ "$n_out" -eq 1 ]] && echo has || echo have)"
+    printf '  bash overall_report.sh --details    the reason behind every name above\n'
+    printf '  bash status-check.sh -t <benchmark> one column, every node, pass included\n'
+    printf '  bash health-check.sh --diff <node>  the health diff behind a check name above\n'
+    printf '  bash trigger-log.sh                 why nothing is being submitted\n'
 }
 
 emit_report() {
@@ -567,9 +702,12 @@ node_block() {
     echo
 }
 
+emit=emit_brief
+[[ "$details" -eq 1 ]] && emit=emit_report
+
 if [[ -n "$report_file" ]]; then
-    emit_report | tee "$report_file"
+    "$emit" | tee "$report_file"
     printf '\nWritten to: %s\n' "$report_file"
 else
-    emit_report
+    "$emit"
 fi

@@ -69,7 +69,7 @@ bash health-check.sh --summary
 
 One line per failing check with every node under it, nothing elided, so the list
 under a check name is the list to act on. It is the same block
-`overall_report.sh` prints under HEALTH.
+`overall_report.sh --details` prints under HEALTH.
 
 The never-checked list at the foot is the one to reach for first at a new site —
 those are nodes with no `logs/<node>`, meaning the checks have never run there:

@@ -106,7 +106,7 @@ Understanding-oriented. Why it is like this, and what it cost to find out.
 | [containers.md](explanation/containers.md) | Why images are local, the caching layers, the two-pass source build |
 | [llmb.md](explanation/llmb.md) | The two LLM jobs, why `llm-pretrain` is host-launched, running below characterised scale |
 | [platform-sets.md](explanation/platform-sets.md) | Why `JOBS`, `HEALTHCHECKS` and `PARSERS` are three variables |
-| [reading-the-whole-fleet.md](explanation/reading-the-whole-fleet.md) | Why `overall_report.sh` is an exception list, and where the reason for a failed prolog is kept |
+| [reading-the-whole-fleet.md](explanation/reading-the-whole-fleet.md) | Why `overall_report.sh` is one grouped line per node, why `--details` is an exception list, and where the reason for a failed prolog is kept |
 | [node-inventory.md](explanation/node-inventory.md) | Why unique-per-node facts cannot be health checks, what rides the check runner and what a node cannot answer |
 
 ## Adding to this

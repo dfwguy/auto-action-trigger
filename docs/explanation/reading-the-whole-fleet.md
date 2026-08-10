@@ -3,10 +3,49 @@
 `overall_report.sh` answers one question — *what is not working, and what do we
 already know about it* — and it is the only report in this tree that crosses the
 three sources of truth: the benchmark results under `results/`, the health check
-output under `logs/`, and Slurm. This page is why it is shaped the way it is.
+output under `logs/`, and Slurm. It answers it twice, at two altitudes: one
+grouped line per node by default, and the full exception list under `--details`.
+This page is why both are shaped the way they are.
 What it prints and which flags it takes is
 [reference/scripts.md](../reference/scripts.md); running it against a specific
 problem is [how-to/diagnose-a-failed-node.md](../how-to/diagnose-a-failed-node.md).
+
+## One line per node
+
+The default report gives each node exactly one line — `PASS`, or the names of
+what is not passing on it — and pipes the fleet through `clubak`, so nodes that
+say the same thing collapse into one entry under one node list. Everything below
+this section describes `--details`, which is what that default was before, and
+which is still where every *reason* lives.
+
+The line answers one question, and the discipline is in what it refuses to also
+answer.
+
+**Names, not verdicts.** Not why a column has no pass, not whether it was
+rejected or never attempted or is mid-retry, not how far below a floor it came
+in. Every one of those is per-node text, and every one of them fragments the
+grouping that is the whole point: sixty nodes below the same bandwidth floor are
+one line as names and sixty lines as reasons. They are questions you ask *after*
+the grouping has told you which node to ask about, and `--details` is where they
+are. The line exists to tell you *that* something is not passing.
+
+**One line, not two.** A `tests` line and a `healthchecks` line group
+independently under `clubak`, and grouping them together is the value: sixty
+nodes failing `hpl` split between forty with clean checks and twenty with a bad
+BIOS are two incidents with two fixes, and two separate groupings report them as
+one `hpl` group plus one BIOS group and leave the reader to intersect them by
+hand. One line makes the *whole verdict* the grouping key, so a group is a set
+of nodes that can be fixed the same way.
+
+**Not passing is one category.** A column that never ran and a column the gate
+rejected read identically, because the question the line answers is not "how did
+this fail" but "is this passing". That has a consequence worth being deliberate
+about: **an empty half is exactly what a pass looks like**, so anything nothing
+ever *judged* has to put names on the line anyway or it silently becomes one. A
+node with no `logs/<node>` names every gated check, and so does every node on
+the fleet when `valid-config/default` does not resolve — nothing was compared,
+so nothing passed. `tests/brief-report-test.sh` exists mostly to hold those
+three cases; the assertions about formatting are the cheap half of it.
 
 ## It is an exception list
 

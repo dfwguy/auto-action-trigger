@@ -1,0 +1,166 @@
+#!/bin/bash
+#
+# Checks the one-line report overall_report.sh prints by default: one line per
+# node naming what is not passing on it, and the bare word PASS when nothing is.
+#
+# The failure this exists for is a node reading PASS for the wrong reason. An
+# empty half is exactly what a pass looks like, so anything nothing ever judged
+# has to put names on the line anyway or it disappears into that shape -- a
+# column with no result file, a node with no logs/<node>, and a head node with
+# no baseline to compare anything against. A line that says PASS is a line
+# nobody reads twice, so none of the three may reach one.
+#
+# The rest is that the line stays names. A status word on it splits one group of
+# sixty into six of ten, which is the ungrouped report with extra furniture.
+#
+# The real script is run against a stub tree, not a copy of its logic.
+# See docs/reference/scripts.md#overall_reportsh--the-fleet-in-one-line-per-node.
+
+home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+fails=0
+check() {
+    local label="$1" want="$2" got="$3"
+    if [[ "$got" == *"$want"* ]]; then
+        printf 'ok       %-46s %s\n' "$label" "$want"
+    else
+        printf 'FAILED   %-46s wanted [%s] in:\n%s\n' "$label" "$want" "$got"
+        fails=$((fails + 1))
+    fi
+}
+absent() {
+    local label="$1" unwanted="$2" got="$3"
+    if [[ "$got" != *"$unwanted"* ]]; then
+        printf 'ok       %-46s no %s\n' "$label" "$unwanted"
+    else
+        printf 'FAILED   %-46s did not want [%s] in:\n%s\n' "$label" "$unwanted" "$got"
+        fails=$((fails + 1))
+    fi
+}
+
+for f in settings.sh report-format.sh reason-map.sh health-scan.sh \
+         verdict-scan.sh fanout.sh overall_report.sh; do
+    cp "$home/$f" "$work/$f"
+done
+mkdir -p "$work"/{jobs/j,parsers/p,health-checks/c,valid-config/baseline,results,logs}
+
+cat > "$work/SETTINGS" <<EOF
+JOBS=j
+PARSERS=p
+HEALTHCHECKS=c
+BENCHMARKS="allreduce hpl"
+BURNIN=""
+RUN_BURNIN=no
+JOB_USER=$(id -un)
+EXCLUDE_NODES=""
+EOF
+touch "$work/jobs/j/allreduce.sbatch" "$work/jobs/j/hpl.sbatch"
+
+## The gate the fixtures are judged by. Deliberately trivial: this suite is
+## about how a verdict is rendered, not about how one is reached.
+cat > "$work/parsers/p/verdict.sh" <<'EOF'
+verdict_job_name() { local c="$1"; printf '%s' "${c%-run[0-9]*}"; }
+verdict() {
+    if [[ ! -f "$2" ]]; then VERDICT_STATUS=NOT_RUN; VERDICT_REASON="no result file"; return; fi
+    if grep -q PASS "$2"; then VERDICT_STATUS=DONE; VERDICT_REASON=""
+    else VERDICT_STATUS=FAIL; VERDICT_REASON="below the floor"; fi
+}
+EOF
+
+for c in 10-bios 20-kernel; do printf '#!/bin/bash\necho b\n' > "$work/health-checks/c/$c.sh"; done
+for c in bios kernel; do printf 'good\n' > "$work/valid-config/baseline/$c"; done
+ln -sfn baseline "$work/valid-config/default"
+
+## node01 passes everything; node02 and node03 fail the same column and the same
+## check, so they are one group; node04 has never run anything and has no
+## logs/<node> at all.
+for n in node01 node02 node03 node04; do
+    mkdir -p "$work/results/$n"
+    touch "$work/results/$n/.heartbeat"
+done
+for n in node01 node02 node03; do
+    mkdir -p "$work/logs/$n"
+    printf 'good\n' > "$work/logs/$n/bios"
+    printf 'good\n' > "$work/logs/$n/kernel"
+done
+for n in node01 node02 node03; do echo PASS > "$work/results/$n/allreduce.txt"; done
+echo PASS > "$work/results/node01/hpl.txt"
+echo NOPE > "$work/results/node02/hpl.txt"
+echo NOPE > "$work/results/node03/hpl.txt"
+printf 'bad\n' > "$work/logs/node02/bios"
+printf 'bad\n' > "$work/logs/node03/bios"
+
+cd "$work" || exit 1
+
+## Ungrouped: clubak is not installable in CI, and what this suite asserts is
+## the content of each line rather than how the grouping tool folds them. The
+## fallback is exercised by construction, and it is the same lines either way.
+out=$(bash overall_report.sh 2>&1)
+
+check "a clean node is one word about both halves" \
+      'node01: PASS' "$out"
+check "names only, both halves always spelled out" \
+      'node02: tests - hpl **** healthchecks - bios' "$out"
+check "a node that never ran is not passing either" \
+      'node04: tests - allreduce hpl' "$out"
+check "one line per node" "4" "$(grep -c '^node0' <<< "$out")"
+
+## The line is names. A status word on it splits one group of sixty into six of
+## ten, which is the ungrouped report with extra furniture.
+absent "no status word on the line" 'FAIL'    "$out"
+absent "no status word on the line" 'NOT_RUN' "$out"
+
+## The legend carries what the line does not, so it has to be there.
+check "the header explains the tests half"  'tests - <benchmark columns'   "$out"
+check "the header explains the checks half" 'healthchecks - <checks'       "$out"
+check "the header explains PASS"            'PASS, or what is not passing' "$out"
+
+## The default is the one-line report, so none of the long report's furniture
+## may appear in it -- and its four section headers are how you would tell.
+absent "no BENCHMARKS section by default"  '── BENCHMARKS'    "$out"
+absent "no NODES section by default"       '── NODES'         "$out"
+
+## Column order, not the order the workers happened to finish in, so the same
+## two failures are the same string on every node and fold into one group.
+mixed=$(cd "$work" && rm -f results/node02/allreduce.txt && bash overall_report.sh 2>&1)
+check "columns are named in column order" \
+      'node02: tests - allreduce hpl' "$mixed"
+echo PASS > "$work/results/node02/allreduce.txt"
+
+## A node nothing has ever compared has no passing check, so it carries the
+## same names a node failing all of them would. An empty half is what a pass
+## looks like, and neither of these is one.
+check "a never-checked node names every check" \
+      'node04: tests - allreduce hpl **** healthchecks - bios kernel' "$out"
+
+rm -f "$work/valid-config/default"
+nobase=$(cd "$work" && bash overall_report.sh 2>&1)
+check "no baseline names every check, on every node" \
+      'node01: tests -  **** healthchecks - bios kernel' "$nobase"
+absent "no baseline never reads as a pass" 'node01: PASS' "$nobase"
+ln -sfn baseline "$work/valid-config/default"
+
+## --details is the old report, unchanged, and --full still implies it.
+det=$(cd "$work" && bash overall_report.sh --details 2>&1)
+check "--details prints the long report"   '── BENCHMARKS'    "$det"
+check "--details prints the node blocks"   '── NODES'         "$det"
+absent "--details is not the one-line one" ' **** '           "$det"
+
+fullo=$(cd "$work" && bash overall_report.sh --full 2>&1)
+check "--full implies --details" '── NODES' "$fullo"
+
+## A pattern narrows the fleet here the same way it does everywhere else.
+one=$(cd "$work" && bash overall_report.sh node02 2>&1)
+check "a pattern narrows the report" 'node02: tests - hpl' "$one"
+absent "a pattern excludes the rest"  'node01:'                "$one"
+
+echo
+if [[ "$fails" -eq 0 ]]; then
+    echo "all checks passed"
+else
+    echo "$fails check(s) failed"
+fi
+[[ "$fails" -eq 0 ]]
