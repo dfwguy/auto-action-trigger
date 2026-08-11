@@ -200,7 +200,7 @@ snapshot_query() {
     ## docs/explanation/drain-recovery.md#a-count-drain-is-checked-against-the-hardware.
     SNAPSHOT_HW=$(sinfo -N -h -o '%N|%G|%c' 2>/dev/null)
 
-    SNAPSHOT_QUEUE=$(squeue -h -a -o '%i|%j|%u|%T|%Q|%V|%e|%N|%n|%Y|%r' 2>&1); rc=$?
+    SNAPSHOT_QUEUE=$(squeue -h -a -o '%i|%j|%u|%T|%Q|%V|%e|%N|%n|%Y|%D|%r' 2>&1); rc=$?
     if [[ "$rc" -ne 0 || "$SNAPSHOT_QUEUE" == *"error:"* ]]; then
         SNAPSHOT_WRITE_WHY="squeue would not list the queue, so no view is rewritten: ${SNAPSHOT_QUEUE:-<no output>}"
         SNAPSHOT_QUEUE=""
@@ -212,12 +212,12 @@ snapshot_query() {
 
 ## $1 the results tree, $2 the epoch to stamp, $3.. every node to write a view
 ## for. Returns 1 with SNAPSHOT_WRITE_WHY set when the controller did not answer.
-# shellcheck disable=SC2034  # subm/req/sched are placeholders holding the free
+# shellcheck disable=SC2034  # subm/req/sched/count place the free
                              # text reason in the last field; the counters below
                              # are read by the caller's summary line
 snapshot_write() {
     local results="$1" now="$2"; shift 2
-    local id name user state prio subm endt nodes req sched reason
+    local id name user state prio subm endt nodes req sched count reason
     local n node dir fleet=0 written=0
     local -A jobs_here=() ours_by_node=() gres=() cputot=()
     local -A state_of=() setter_of=() when_of=() reason_of=()
@@ -235,7 +235,7 @@ snapshot_write() {
     printf '%s\n' "$SNAPSHOT_QUEUE" > "$dir/queue.psv.$HOSTNAME.$$" 2>/dev/null &&
         mv -f "$dir/queue.psv.$HOSTNAME.$$" "$dir/queue.psv" 2>/dev/null
 
-    while IFS='|' read -r id name user state prio subm endt nodes req sched reason; do
+    while IFS='|' read -r id name user state prio subm endt nodes req sched count reason; do
         [[ "$id" =~ ^[0-9]+$ ]] || continue
         reason="${reason//[$'\t\n']/ }"
 

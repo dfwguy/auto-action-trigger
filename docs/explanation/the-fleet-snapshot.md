@@ -40,13 +40,21 @@ and `agent/supervisor.sh` is the only thing that sources its writer half.
 ```
 sinfo  -N -h -o '%N|%T|%u|%H|%E'
 sinfo  -N -h -o '%N|%G|%c'
-squeue -h -a -o '%i|%j|%u|%T|%Q|%V|%e|%N|%n|%Y|%r'
+squeue -h -a -o '%i|%j|%u|%T|%Q|%V|%e|%N|%n|%Y|%D|%r'
 ```
 
 Three calls, two commands. The split in `sinfo` is not fussiness: `%E` is a
 drain reason, which is free text with spaces in it, so it has to be the last
 field — and the GRES and CPU counts a count drain is judged against cannot go
 after it. The same rule puts `%r` last in the `squeue` format.
+
+`%D` is there for one reader. It is the number of nodes a pending job needs, and
+without it a node list says only which nodes a job named, never whether enough
+of them are in a state Slurm can schedule — which is the difference between a
+job that starts the moment a benchmark stops and one that was never going to
+start at all. The first `sinfo` call answers the other half, and both are read
+together in
+[sequencing.md#a-waiter-that-cannot-run-is-not-a-waiter](sequencing.md#a-waiter-that-cannot-run-is-not-a-waiter).
 
 `-o` and not `-O`. `--Format` pads every field to a default width and truncates
 what does not fit, which for `NodeList` on a large allocation means a silently
