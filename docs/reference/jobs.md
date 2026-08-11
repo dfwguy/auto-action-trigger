@@ -197,6 +197,44 @@ stranded.
 The GPU count is a literal `4` in both the `--gres` line and the preflight
 below. On a platform with a different count, change both together.
 
+## The step environment
+
+Not setting `--cpus-per-task` is necessary but not sufficient, because the job
+does not have to be the one that set it. Every job file therefore opens its body
+with:
+
+```bash
+unset SLURM_CPUS_PER_TASK SLURM_TRES_PER_TASK SRUN_CPUS_PER_TASK
+```
+
+Slurm carries cpus-per-task in two variables — the legacy `SLURM_CPUS_PER_TASK`
+and, since 23.11, `SLURM_TRES_PER_TASK=cpu=N`. When both are present in a step's
+environment and **disagree**, `srun` does not choose between them and does not
+warn; it exits `fatal` before the step starts:
+
+```
+srun: fatal: cpus-per-task set by two different environment variables
+             SLURM_CPUS_PER_TASK=1 != SLURM_TRES_PER_TASK=cpu=4
+```
+
+Either can arrive without the job asking. `launch_job.sh` submits with
+`--export=ALL`, so anything in the agent's environment is inherited; a site
+default such as `DefCpuPerGPU`, a partition or QOS `TRESPerTask`, or an
+`SBATCH_CPUS_PER_TASK` in the submitting shell sets the other side; and a node
+whose `srun` is a different major version from the controller that built the
+environment can disagree about which is authoritative. The job file cannot tell
+these apart and does not need to — it wants neither variable, which is the same
+thing "no `--cpus-per-task`" was always trying to say.
+
+The failure is worth recognising by sight because it does not look like itself.
+`srun` never runs, so the preflight `||` branch fires and the result file reads
+`preflight: the step did not receive the whole node` with **no** `preflight:
+<host> gpus=…` line above it — and `verdict.sh` gates dcgmi on a Pass row, so
+the report says `no dcgmi Pass row`, the same reason it gives for a node with no
+GPUs. A missing counts line, or the `fatal:` string in the result file, tells
+the two apart. See
+[explanation/judging-benchmarks.md](../explanation/judging-benchmarks.md).
+
 ## Queue priority
 
 Every job states its own `#SBATCH --nice`. Slurm subtracts it from the job's

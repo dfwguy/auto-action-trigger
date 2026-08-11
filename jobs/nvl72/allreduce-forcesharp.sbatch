@@ -30,6 +30,9 @@ totalRuns=1
 
 ## ------------- job info starts here ------------- ##
 
+## Steps want neither set: srun aborts when the two disagree. See docs/reference/jobs.md#the-step-environment.
+unset SLURM_CPUS_PER_TASK SLURM_TRES_PER_TASK SRUN_CPUS_PER_TASK
+
 ## Preflight -- what the STEP holds, which only a step can see. The wording of
 ## these lines is fixed; verdict.sh greps this file. See
 ## docs/reference/jobs.md#preflight.
