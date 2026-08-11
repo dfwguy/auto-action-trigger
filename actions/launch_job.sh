@@ -676,8 +676,10 @@ drain_node() {
     fi
     ## The view is what the watchdog last wrote, so a resume this cycle issued is
     ## not in it yet -- and skipping on that stale drain would lose the failure.
-    case "$state" in
-        *DRAIN*|*DOWN*|*FAIL*|*MAINT*)
+    ## Lowercased: the view carries `sinfo %T`, which is lower case, and these
+    ## patterns were written when node_info ran `scontrol show node`.
+    case "${state,,}" in
+        *drain*|*down*|*fail*|*maint*)
             if [[ "$RESUMED_THIS_CYCLE" -eq 1 ]]; then
                 trace "the node view still says $state, but this cycle resumed the node -- draining on the failure below rather than on a state it has already changed"
             else
@@ -1175,6 +1177,38 @@ fi
 if [[ "${#backoff_held[@]}" -gt 0 ]]; then
     held=$(printf '%s; ' "${backoff_held[@]}")
     trace "backing off: ${held%; }"
+fi
+
+## ── The node has to be able to take it ────────────────────────────────────
+##
+## Exactly `idle`, and the sinfo flag suffixes are why: a node that is drained,
+## reserved or not responding takes the job and holds it PENDING until somebody
+## clears the state, where it sits in every operator's squeue looking like work.
+## Costs nothing -- the state is in the view this cycle already read.
+## See docs/explanation/sequencing.md#submitting-only-to-an-idle-node.
+if [[ -n "$submit_target" ]] && setting_enabled "$SUBMIT_ONLY_WHEN_IDLE"; then
+    ## A view that did not load is not a state: the submit guard below stops on
+    ## the same fact with the better message, so this one stays quiet.
+    if node_info && [[ "${state,,}" != "idle" ]]; then
+        if [[ "$RESUMED_THIS_CYCLE" -eq 1 ]]; then
+            trace "the node view still says '$state', but this cycle resumed the node -- submitting on the state it has now rather than the one the watchdog last wrote"
+        else
+            idle_why="$HOSTNAME is '$state'"
+            idle_setter="$SNAPSHOT_SETTER"; [[ "$idle_setter" == none ]] && idle_setter=""
+            case "${SNAPSHOT_REASON,,}" in ''|none|'(null)') ;;
+                *) idle_why="$idle_why ('$SNAPSHOT_REASON'${idle_setter:+, set by $idle_setter})" ;;
+            esac
+            idle_msg="$idle_why -- Slurm would hold $NEXT_JOB run $NEXT_RUN PENDING rather than run it, so it stays eligible and is offered again next cycle. SUBMIT_ONLY_WHEN_IDLE=no in ${SETTINGS_FILE:-SETTINGS} to submit anyway."
+            [[ "$FORCE" -eq 1 ]] && idle_msg="$idle_msg --force does not override it: it is a site switch, not a timing gate."
+            if [[ "$EXPLAIN" -eq 1 ]]; then
+                trace "$idle_msg -- explaining anyway; a real cycle would stop here"
+            else
+                trace "EXIT: $idle_msg"
+                write_quickview
+                exit 0
+            fi
+        fi
+    fi
 fi
 
 ## Reaching here means no marker said a job was out. Asked once, immediately

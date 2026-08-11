@@ -441,6 +441,7 @@ Why the detection is that particular question, and not `sinfo -N -n`, is in
 | `RETRY_BACKOFF` | `yes` | Add an hour to that window for each failure a run already has on disk. `no` keeps the flat window |
 | `RETRY_BACKOFF_MAX_HOURS` | `12` | Ceiling on the widened window. Ignored, with a warning, if it is not a whole number of hours at or above `RETRY_INTERVAL_HOURS` |
 | `MAX_JOB_HOURS` | `7` | A benchmark `RUNNING` longer than this drains the node |
+| `SUBMIT_ONLY_WHEN_IDLE` | `yes` | Submit only to a node whose Slurm state is exactly `idle`. `no` submits regardless, and a job for a drained node sits `PENDING` until an operator clears it |
 | `DRAIN_WINDOW_MINUTES` | `15` | Only failures newer than this drain |
 | `INFLIGHT_GRACE_MINUTES` | `30` | How long a submitted job that never started is believed before the controller is asked about it |
 | `DRAIN_MARKER` | `auto-retry` | Written into every drain reason this framework issues; only drains carrying it are ever cleared automatically |

@@ -28,7 +28,7 @@ to the plain list, which most of the same tools still accept.
 across the selected tests:
 
 ```
-FAIL > INCOMPLETE > RETRY > NOT_RUN > RUNNING > DONE
+FAIL > INCOMPLETE > NOT_RUN > RERUNNING > RUNNING > DONE
 ```
 
 The lists are therefore disjoint and a node cannot be acted on twice. It also

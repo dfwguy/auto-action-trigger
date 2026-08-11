@@ -149,7 +149,7 @@ write_view() {
     [[ -n "$STUB_NO_VIEW" ]] && return 0
     {
         printf 'stamp\t%s\n'  "$(date +%s)"
-        printf 'state\tidle\n'
+        printf 'state\t%s\n' "${STUB_STATE:-idle}"
         printf 'setter\tnone\n'
         printf 'when\t\n'
         printf 'gres\tgpu:gb200:4\n'
@@ -178,7 +178,7 @@ run_case() {
         export PATH="$stub:$PATH" STUB_DIR="$CASE_DIR" HOME="$work"
         export HOSTNAME="$NODE" LAUNCH_JOB_HOME="$CASE_DIR"
         export STUB_LOCAL_JOBS="" STUB_QUEUE="" STUB_NO_VIEW=""
-        export STUB_SQUEUE_J=""
+        export STUB_SQUEUE_J="" STUB_STATE=""
         for kv in "$@"; do export "${kv?}"; done
         eval "$setup"
         write_view
@@ -277,6 +277,35 @@ run_case "slurm has forgotten the job" >/dev/null
 check "traced as gone"        'traced "gone from the queue"'
 check "resubmitted"           'submitted'
 check "marker holds the new id" 'grep -q "^90001" "$logs/.in-flight"'
+
+echo "== the node has to be able to take the job =="
+
+## Slurm accepts a job for a drained node and holds it PENDING until somebody
+## clears the drain, where it sits in everybody's squeue looking like work.
+## See docs/explanation/sequencing.md#submitting-only-to-an-idle-node.
+setup='STUB_STATE=drained'
+run_case "drained, so nothing is submitted" >/dev/null
+check "nothing submitted"    '! submitted'
+check "traced with the state" 'traced "would hold probe run 1 PENDING"'
+check "still eligible"        '! marker_kept'
+
+## The trap a prefix match falls into: sinfo appends flag characters, and `idle*`
+## is a node that has stopped answering.
+setup='STUB_STATE="idle*"'
+run_case "idle but not responding" >/dev/null
+check "nothing submitted" '! submitted'
+
+setup='STUB_STATE=allocated'
+run_case "somebody else has it" >/dev/null
+check "nothing submitted" '! submitted'
+
+setup='STUB_STATE=drained; printf "SUBMIT_ONLY_WHEN_IDLE=no\n" >> "$CASE_DIR/SETTINGS"'
+run_case "the gate is a site switch and can be turned off" >/dev/null
+check "submitted anyway" 'submitted'
+
+setup=''
+run_case "idle, so the job goes out" >/dev/null
+check "submitted" 'submitted'
 
 setup='marker 4000; STUB_NO_VIEW=1'
 run_case "there is no usable node view" >/dev/null
