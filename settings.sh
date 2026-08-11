@@ -112,6 +112,9 @@ fi
 : "${RETRY_BACKOFF:=yes}"
 : "${RETRY_BACKOFF_MAX_HOURS:=12}"
 : "${MAX_JOB_HOURS:=7}"
+## On by default: a job Slurm will not schedule sits PENDING in everybody's
+## squeue. See docs/explanation/sequencing.md#submitting-only-to-an-idle-node.
+: "${SUBMIT_ONLY_WHEN_IDLE:=yes}"
 ## Experimental, and off: it is the one setting that cancels a job of ours that
 ## is working. See docs/explanation/sequencing.md#getting-out-of-the-way.
 : "${GET_OUT_OF_THE_WAY:=no}"

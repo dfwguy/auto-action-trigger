@@ -252,6 +252,47 @@ is `PENDING` for anything from a second to hours after `sbatch` returns, so
 next cycle's `listjobs`, and a job that never appears is caught by the
 [stale branch](#when-a-marker-goes-stale) once its walltime and grace are up.
 
+## Submitting only to an idle node
+
+Slurm accepts a job for a node it has no intention of running it on. A drained
+node, one held in a reservation, one that has stopped answering — `sbatch`
+returns a job id for all of them, and the job sits `PENDING` until somebody
+clears the state. Nothing here is wrong about that: the in-flight gate believes
+a queued job and waits, the retry window never opens because there is no new
+result, and the node is correctly reported as needing an operator.
+
+What it costs is the queue. One drained node is one pending job that never
+moves; a rack taken out for maintenance is eighteen, and they are in every
+`squeue` anyone on the cluster runs, indistinguishable from work that is about
+to start. The fleet does not need them: the same node is offered the same job
+again next cycle, at no cost, for as long as it takes.
+
+So `SUBMIT_ONLY_WHEN_IDLE` — on by default — checks the node's state before
+`sbatch`, and the check is **exactly** `idle`. Not a prefix match, because
+`sinfo` appends flag characters to the state it prints (`*` not responding, `~`
+powered down, `@` pending reboot, `$` reserved for maintenance), and `idle*` is
+a node that has stopped answering — the one case where a submission is most
+certainly wasted. `mixed` and `allocated` are somebody else's job and are also
+not submitted to, which the [busy gate](#the-busy-gate) mostly catches first
+from the node's own slurmstepds; this catches the rest.
+
+The state comes off the node view the watchdog already wrote, so the gate costs
+nothing — no query, and one more read of a file this cycle has read anyway. It
+is a site switch and not a timing gate, so `--force` does not lift it; see
+[site switches are not timing gates](#site-switches-are-not-timing-gates).
+
+Two cases are deliberately not blocked. A view that did not load is not a state,
+so this gate says nothing and the [guard below](#the-guard-before-a-submission)
+stops the cycle on the same fact with a better message. And a node this cycle
+resumed reads as drained in a view written before the resume — submitting on the
+state the node has *now* is right there, and the trace says that is what
+happened.
+
+The window this leaves is the view's age: a node drained seconds ago still reads
+`idle` for up to one watchdog interval, and gets one pending job. That is the
+same trade as everywhere else here — see
+[the-fleet-snapshot.md#the-window-this-accepts](the-fleet-snapshot.md#the-window-this-accepts).
+
 ## The guard before a submission
 
 The marker says whether a job is out, and the marker is a file. A file can be
