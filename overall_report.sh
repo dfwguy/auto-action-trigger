@@ -406,8 +406,8 @@ if [[ "$details" -eq 1 ]] && compgen -G "$results_dir/*/recover.log" >/dev/null 
 fi
 
 ## ── Judge every cell ──────────────────────────────────────────────────────
-## Archives on, so a column between a rejected attempt and its retry reads
-## RETRY rather than "never attempted"; metrics on, so a FAIL can say how far
+## Archives on, so a column between a rejected attempt and its retry still reads
+## FAIL rather than "never attempted"; metrics on, so a FAIL can say how far
 ## off it was. See docs/explanation/verdicts-and-the-cache.md#how-a-report-is-produced.
 
 export SCAN_RESULTS_DIR="$results_dir"

@@ -106,6 +106,40 @@ Reach for either when you suspect the *cache* rather than the gate — a restore
 that reset mtimes, a clock that moved backwards. If a `--no-cache` run disagrees
 with a cached one, that is a bug worth reporting, not a cache worth clearing.
 
+## A column between two attempts
+
+`launch_job.sh` archives a result before it submits the next attempt, so for the
+whole time a job sits in the queue the column has no current file at all. Slurm
+creates `results/<node>/<col>.txt` at job *start* — `sbatch --output` points at
+it — so "no file" and "running" are different states, and the gap is real:
+minutes on an idle cluster, hours behind a busy queue or a drain.
+
+That gap used to report as `RETRY`, one status covering both kinds of archive.
+It read as a transient — something in progress, nothing to act on — and that is
+true of one of the two and false of the other. A column sitting in the gap
+because its last attempt was *rejected* is a failing column. Nothing about the
+node changed when `launch_job.sh` renamed the file; only the report did, and a
+node with a failure on disk dropped out of the `FAIL` list on the strength of a
+`mv`. The confusion it produced is the reason it is gone.
+
+So the archive that fills the gap decides the status, and there are two:
+
+| Archive | Status | Because |
+|---|---|---|
+| `<col>.fail<N>.txt` | `FAIL` | the attempt was rejected; the reason is that attempt's, plus *a re-run is queued* |
+| `<col>.prev<N>.txt` | `RERUNNING` | `launch_job.sh --all` archived a **passing** result and asked for it again |
+
+One case crosses over. A `.fail<N>.txt` that passes the gate *as it stands now*
+is not a failure — the floor was lowered, or the parser was fixed, between the
+rejection and the report. It reports `RERUNNING`, with the reason
+`prior attempt passes the current gate`, rather than a `FAIL` no file on disk
+supports.
+
+`NOT_RUN` keeps its one meaning throughout: no attempt has ever been made.
+Reports that pass `SCAN_ARCHIVES=0` — `daily-report.sh` and `next-run.sh` — do
+not look at archives at all and read the gap as `NOT_RUN`, which is the same
+answer for what they ask: not passing.
+
 ## Where `RUNNING` comes from
 
 `RUNNING` is not written by `verdict.sh`, which sees only the result file and

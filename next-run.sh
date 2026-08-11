@@ -196,7 +196,7 @@ tests_section() {
     export SCAN_RESULTS_DIR="$results_dir"
     export SCAN_COLUMNS="${columns[*]}"
     export SCAN_RUNNING_FILE=""
-    export SCAN_ARCHIVES=0   # RETRY and NOT_RUN are one answer here: not passing
+    export SCAN_ARCHIVES=0   # a re-queued column and NOT_RUN are one answer here
     export SCAN_METRICS=0
     while IFS="$SCAN_FS" read -r node col st _; do
         cell["$node/$col"]="$st"

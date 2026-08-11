@@ -30,7 +30,7 @@ goes with the directory.
 
 After a hardware change — a swapped GPU, a reseated cable, new firmware — where
 the results on disk describe a machine that no longer exists and would otherwise
-keep a node in `RETRY` against failures it has already grown out of.
+keep a node in `FAIL` against failures it has already grown out of.
 
 ## What it does not touch
 

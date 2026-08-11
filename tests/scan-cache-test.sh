@@ -159,10 +159,21 @@ fi
 
 ## An archive changes a cell without touching any file it was read from.
 cp "$F/allreduce__fell-to-socket.txt" "$tree/results/node03/nvbandwidth.fail1.txt"
-if grep -q '^node03: nvbandwidth: RETRY' <<<"$(run)"; then
-    ok "new archive re-judges its node" "node03 nvbandwidth now RETRY"
+if grep -q '^node03: nvbandwidth: FAIL' <<<"$(run)"; then
+    ok "new archive re-judges its node" "node03 nvbandwidth now FAIL"
 else
     bad "new archive re-judges its node" "the archive fallback was not reconsidered"
+fi
+
+## The other archive kind, and the reason the gap is not one status: a passing
+## result --all asked for again is nothing to act on.
+## See docs/explanation/verdicts-and-the-cache.md#a-column-between-two-attempts.
+rm "$tree/results/node03/nvbandwidth.fail1.txt"
+cp "$F/nvbandwidth__good.txt" "$tree/results/node03/nvbandwidth.prev1.txt"
+if grep -q '^node03: nvbandwidth: RERUNNING' <<<"$(run)"; then
+    ok ".prev archive reads as RERUNNING" "a re-queued pass is not a failure"
+else
+    bad ".prev archive reads as RERUNNING" "$(run | grep '^node03: nvbandwidth:')"
 fi
 
 if [[ "$(cached_run_count)" -gt 0 ]]; then

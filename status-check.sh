@@ -31,8 +31,8 @@
 #            answers "why".
 #
 #            Every node lands in exactly ONE list, under the worst status it
-#            holds across the selected tests (FAIL > INCOMPLETE > RETRY >
-#            NOT_RUN > RUNNING > DONE), so the lists are disjoint and a node
+#            holds across the selected tests (FAIL > INCOMPLETE > NOT_RUN >
+#            RERUNNING > RUNNING > DONE), so the lists are disjoint and a node
 #            cannot be acted on twice. DONE therefore means every selected test
 #            passes, not that some did.
 #
@@ -165,7 +165,7 @@ fi
 # is not reported as INCOMPLETE. See docs/reference/scripts.md.
 #
 # One squeue call for the cluster, not one per node. RUNNING only -- a queued
-# job has written no file, so its columns are NOT_RUN or RETRY anyway.
+# job has written no file, so its columns are judged from the archive it left.
 #
 # A file, not a variable: the scan runs in workers, and a large fleet's running
 # list should not go through exec once per worker.
@@ -224,14 +224,14 @@ fi
 export SCAN_RESULTS_DIR="$results_dir"
 export SCAN_COLUMNS="${columns[*]}"
 export SCAN_RUNNING_FILE="$running_file"
-export SCAN_ARCHIVES=1     # RETRY: this report distinguishes it from NOT_RUN
+export SCAN_ARCHIVES=1     # judge the archive a re-queued column left behind
 export SCAN_METRICS=0      # no numbers in this report, only statuses
 
 # Worst status a node holds decides its summary bucket, so the roll-up lists
-# stay disjoint. RUNNING sits above DONE (still working is not passed) and below
-# NOT_RUN (untouched columns are work outstanding either way).
+# stay disjoint. RERUNNING sits below NOT_RUN: a column re-queued off a pass is
+# not work anyone is waiting on, where one never attempted is.
 # See docs/reference/scripts.md.
-RANKS='FAIL 6 INCOMPLETE 5 RETRY 4 NOT_RUN 3 RUNNING 2 DONE 1'
+RANKS='FAIL 6 INCOMPLETE 5 NOT_RUN 4 RERUNNING 3 RUNNING 2 DONE 1'
 
 # Scan rows to report lines. The reason is on the line so the grouping collapses
 # nodes failing the same way; no attempt count, which would split one block into
@@ -337,7 +337,7 @@ bucket() {
 # Failures first: on an export the actionable list is the one being reached for.
 bucket FAIL       "ran and was rejected by the current gate"
 bucket INCOMPLETE "no end marker and no job on the node -- died before finishing"
-bucket RETRY      "last attempt rejected, resubmitted, nothing written yet"
 bucket NOT_RUN    "no attempt has ever been made"
+bucket RERUNNING  "a passing result was re-queued -- nothing written yet"
 bucket RUNNING    "a benchmark is executing now -- not yet judged"
 bucket DONE       "every selected test passes the current gate"

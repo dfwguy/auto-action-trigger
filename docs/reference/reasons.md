@@ -11,9 +11,9 @@ all.
 
 | Status | About the device? | Next step |
 |--------|-------------------|-----------|
-| `FAIL` | **Yes, usually** | Read `results/<node>/<job>.txt`. Find the `exit status:` line |
+| `FAIL` | **Yes, usually** | Read `results/<node>/<job>.txt`. Find the `exit status:` line. When the reason ends `a re-run is queued` there is no current file and the newest `.fail<N>.txt` is what was judged |
 | `INCOMPLETE` | **Yes** | The job died mid-run: crash, walltime, OOM, node reset. No end marker. Check `dmesg` and the Slurm accounting for the job |
-| `RETRY` | Not yet | An attempt was archived and a re-run is queued. The reason shown is why the *previous* attempt was rejected; look at `.fail<N>.txt` |
+| `RERUNNING` | No | A **passing** result was archived and asked for again. Nothing to act on; look at `.prev<N>.txt` for what it scored last time |
 | `NOT_RUN` | No | Never attempted. Read the trace — [trace-lines.md](trace-lines.md) |
 | `RUNNING` | No | In flight, nothing to judge yet |
 | `DONE` | No | The gate accepted it. Note this is not "the number is good", it is "the number cleared the floor" |

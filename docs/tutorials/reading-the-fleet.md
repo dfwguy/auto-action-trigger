@@ -57,10 +57,10 @@ Six statuses. Learn these two facts about them and the rest follows:
 - **`FAIL` covers two different things** — the job reported it could not run,
   *or* it ran and the gate rejected the output. Which one is in the result file,
   not here.
-- **`RETRY` is not `NOT_RUN`.** `RETRY` means the last attempt was archived and
-  another is queued; `NOT_RUN` means nothing has ever been attempted. They used
-  to be one status, and merging them reported a column with a history of
-  failures as one that had never been tried.
+- **A queued re-run does not change the verdict.** A column whose last attempt
+  was rejected keeps reading `FAIL` while the retry waits, off the archive on
+  disk — the reason ends `a re-run is queued`. Only `RERUNNING` means there is
+  nothing to act on: a *passing* result that `--all` asked for again.
 
 Now narrow it. The node pattern is a prefix unless you spell out a glob:
 
@@ -165,8 +165,8 @@ live state, and it is why that report needs `squeue` at all.
 
 `daily-report.sh` reads `sinfo`, not `squeue`. It knows the node's state but not
 what is executing on it, so it cannot tell a live partial file from a dead one
-and does not claim to. It also does not report `RETRY`, because it does not look
-at the archives.
+and does not claim to. It also does not report `RERUNNING`, because it does not
+look at the archives.
 
 **The general rule this teaches: when two views of this system disagree, check
 what each one read before assuming one is broken.** That is true of the reports,

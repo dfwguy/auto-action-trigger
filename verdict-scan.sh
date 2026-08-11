@@ -118,7 +118,7 @@ _scan_live_column() {
 ## workers share this stdout and only a single write under PIPE_BUF is atomic.
 ## See docs/explanation/verdicts-and-the-cache.md#how-a-report-is-produced.
 _scan_node() {
-    local node="$1" col job file status reason metric i
+    local node="$1" col job file judged status reason metric i
 
     _SCAN_LIVE=""
     [[ -n "${_SCAN_RUNNING[$node]:-}" ]] && _scan_live_column "$node"
@@ -127,6 +127,7 @@ _scan_node() {
         col="${_SCAN_COLS[i]}"
         job="${_SCAN_COL_JOB[i]}"
         file="$SCAN_RESULTS_DIR/$node/${col}.txt"
+        judged="$file"
 
         # Not $(verdict ...) -- a subshell would lose the reason. See verdict().
         verdict "$job" "$file"
@@ -134,26 +135,25 @@ _scan_node() {
         reason="$VERDICT_REASON"
 
         if [[ "$SCAN_ARCHIVES" == 1 && "$status" == "NOT_RUN" ]]; then
-            ## launch_job.sh archives a rejected result before submitting the
-            ## retry, so the column has no file at all in between. Judge the
-            ## newest archive and call it RETRY, leaving NOT_RUN one meaning:
-            ## never attempted.
+            ## A column between two attempts has no current file, and which
+            ## archive fills the gap is the whole verdict: .failN is a rejection
+            ## and reads as one, .prevN is a pass --all asked for again.
+            ## See docs/explanation/verdicts-and-the-cache.md#a-column-between-two-attempts.
             if _scan_last_archive "$node" "$col" fail; then
                 verdict "$job" "$_SCAN_ARCHIVE"
-                status=RETRY
+                judged="$_SCAN_ARCHIVE"
+                status=FAIL
+                reason="$VERDICT_REASON; a re-run is queued"
                 ## Not a contradiction: the gate has been loosened since the
-                ## archive was rejected. Say so rather than printing RETRY with
-                ## no reason.
+                ## archive was rejected, so there is no failure left to report.
                 if [[ "$VERDICT_STATUS" == "DONE" ]]; then
+                    status=RERUNNING
                     reason="prior attempt passes the current gate"
-                else
-                    reason="$VERDICT_REASON"
                 fi
-            ## Same gap from `launch_job.sh --all`, which archives a PASSING
-            ## result as <col>.prevN.txt -- no current file, no failures either.
             elif _scan_last_archive "$node" "$col" prev; then
                 verdict "$job" "$_SCAN_ARCHIVE"
-                status=RETRY
+                judged="$_SCAN_ARCHIVE"
+                status=RERUNNING
                 reason="re-queued by --all; previous result: $VERDICT_STATUS"
             fi
         fi
@@ -166,10 +166,11 @@ _scan_node() {
         fi
 
         ## DONE and FAIL only: an INCOMPLETE log still carries parseable rows,
-        ## and its largest message size is whichever one it reached.
+        ## and its largest message size is whichever one it reached. $judged and
+        ## not $file: a FAIL from the gap above has no current file to measure.
         metric=""
         if [[ "$SCAN_METRICS" == 1 && ( "$status" == "DONE" || "$status" == "FAIL" ) ]]; then
-            metric=$(extract_metric "$job" "$file")
+            metric=$(extract_metric "$job" "$judged")
         fi
 
         printf '%s%s%s%s%s%s%s%s%s\n' \

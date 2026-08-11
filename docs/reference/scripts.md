@@ -33,13 +33,14 @@ see [settings.md#hosts-that-are-not-compute-nodes](settings.md#hosts-that-are-no
 | `DONE` | the gate accepted the result |
 | `FAIL` | the job reported it could not run, or the gate rejected it |
 | `INCOMPLETE` | no end marker and no job on the node — it died before finishing (crash, walltime, OOM) |
-| `RETRY` | the last attempt was archived and a retry is queued; the reason shown is why that attempt was rejected — or, after `launch_job.sh --all` archived a passing result as `.prev<N>.txt`, that the re-run was asked for |
+| `RERUNNING` | a **passing** result was archived as `.prev<N>.txt` by `launch_job.sh --all` and the re-run is queued; also a rejected attempt that the current gate now accepts |
 | `NOT_RUN` | no attempt has ever been made |
 | `RUNNING` | a benchmark is executing on the node right now; nothing to judge until it writes its end marker |
 
-`RETRY` and `NOT_RUN` used to be one status, which reported a column whose
-attempt had just been archived as one that had never been attempted. A column
-with archives is a different thing from one with no history at all.
+A column whose last attempt was rejected reads `FAIL` for the whole time the
+retry is queued, off the `.fail<N>.txt` archive — the reason is that attempt's,
+with `a re-run is queued` appended. Why the gap is not a status of its own is
+[verdicts-and-the-cache.md#a-column-between-two-attempts](../explanation/verdicts-and-the-cache.md#a-column-between-two-attempts).
 
 The line carries no attempt count. It is per node, so two nodes in the same
 state would print different lines and the grouping would split one block into a
@@ -54,7 +55,7 @@ the job name (`-t allreduce` → every run) or a full column (`-t allreduce-run2
 active, rather than printing an empty report that reads like a clean cluster.
 
 `-s` replaces the per-column report with one compressed node list per status
-(FAIL / INCOMPLETE / RETRY / NOT_RUN / DONE), reasons dropped, for pasting into
+(FAIL / INCOMPLETE / NOT_RUN / RERUNNING / DONE), reasons dropped, for pasting into
 `scancel`, `clush -w` or `scontrol`:
 
 ```
@@ -65,7 +66,7 @@ ink50-dh01-h20-[03,17]
 ```
 
 Every node appears in exactly one list, under the worst status it holds across
-the selected tests (FAIL > INCOMPLETE > RETRY > NOT_RUN > DONE), so the lists
+the selected tests (FAIL > INCOMPLETE > NOT_RUN > RERUNNING > DONE), so the lists
 are disjoint and a node cannot be acted on twice. DONE there means *every*
 selected test passes, not that some did. The header names the tests the roll-up
 covers, because a `-t`-scoped list that does not say so is one paste away from

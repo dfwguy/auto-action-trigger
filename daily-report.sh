@@ -259,7 +259,7 @@ for job in "${job_order[@]}"; do
     mlabel_of["$job"]=$(metric_label "$job")
 done
 
-# No RUNNING and no RETRY here: this report reads sinfo, not squeue, so it
+# No RUNNING and no RERUNNING here: this report reads sinfo, not squeue, so it
 # cannot tell a live job from a dead one, and an archived column reads NOT_RUN.
 export SCAN_RESULTS_DIR="$results_dir"
 export SCAN_COLUMNS="${columns[*]}"
