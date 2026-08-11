@@ -204,6 +204,7 @@ bash overall_report.sh                    # every node
 bash overall_report.sh ink50-dh01-h20     # one rack (bare prefix)
 bash overall_report.sh --details          # the long report, with every reason
 bash overall_report.sh --full             # that report, nothing elided
+bash overall_report.sh --csv              # the exceptions, as columns
 bash overall_report.sh -o ~/today.txt
 ```
 
@@ -258,6 +259,34 @@ neither is passing. So do the checks on a node with no `logs/<node>` at all, and
 the checks on *every* node when there is no `valid-config/default`: nothing was
 compared, so nothing passed, and every gated check is named. A half with nothing
 under it prints `PASS`, and none of those three is a pass.
+
+### `--csv` — the same fields, as columns
+
+The four fields above with the prose taken out, one row per node, for pasting
+into a spreadsheet or a ticket:
+
+```
+node,heartbeat,slurm,tests,healthchecks
+ink50-dh01-h20-03,UP,MIXED,allreduce hpl,bios kernel-params
+ink50-dh01-h20-19,DOWN,DRAINED,PASS,bios
+```
+
+Commas separate the five columns and nothing quotes, because no field can hold
+one: the state is a single uppercased token and the two lists are
+space-separated names. A row is a node, in the order the report walks them —
+there is no `clubak` grouping, since a compressed node list is not a
+spreadsheet cell.
+
+**Only the nodes that need acting on.** A node that is `UP`, `IDLE` or
+`ALLOCATED`, and passing both halves, is left out — it is the whole reason the
+one-line report is grouped, and a CSV cannot fold sixty identical rows into
+one. Every other combination stays, including a `DOWN` node passing both
+halves: the heartbeat is the field saying whether the rest is current. When
+nothing is outstanding, the header prints alone and the count of nodes goes to
+stderr, so stdout stays paste-able and an empty report is still an answer.
+
+It does not combine with `--details`, which is a different report rather than a
+different format for this one.
 
 ### `--details` — everything without a pass
 
