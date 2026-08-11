@@ -128,11 +128,12 @@ that never got far enough to have a performance. See
 they failed, and `health-check.sh --diff <node>` diffs one node against the baseline for
 each check it fails. One node per group is enough — the rest failed the same way.
 
-Broad mapping from the 45 checks:
+Broad mapping from the 46 checks:
 
 | Checks | Component |
 |--------|-----------|
 | `bios`, `os`, `kernel-params`, `numa`, `numa-settings` | Node configuration, not hardware. Usually a provisioning drift |
+| `slurm-env` | A `SLURM_*`/`SBATCH_*`/`SRUN_*`/`SALLOC_*` variable exported on this node and not on the rest. The reason carries the three lines, so it names which of the agent environment, the login shell or `/etc/environment` differs — see [jobs.md#the-step-environment](jobs.md#the-step-environment) |
 | `cpu-specs`, `cpu-freq`, `memory` | CPU and DRAM inventory and governor state |
 | `nvidia-smi-ecc`, `nvlinks`, `nvlink-ber`, `nvidia-smi-p2p-*` | GPU and NVLink. `nvlink-ber` is a link-quality signal — a marginal link before it fails outright |
 | `ib-status`, `ib-down`, `ib-link`, `ib-pkey`, `ib-firmware` | The IB HCAs and fabric. `ib-firmware` and `ib-pkey` are fleet-consistency checks: they fail on the node that is *different*, which may be the correct one |
