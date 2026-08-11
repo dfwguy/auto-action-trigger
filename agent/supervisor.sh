@@ -469,7 +469,7 @@ if [[ -f "$home/get-out-of-the-way.sh" ]]; then
     # shellcheck disable=SC2034
     YIELD_DRY_RUN="$EXPLAIN"
     source "$home/get-out-of-the-way.sh"
-    yield_scan "$results" "$SNAPSHOT_QUEUE" "$now"
+    yield_scan "$results" "$SNAPSHOT_QUEUE" "$now" "$states"
     yielded="$YIELD_CANCELLED"
 elif setting_enabled "$GET_OUT_OF_THE_WAY"; then
     trace "WARNING: GET_OUT_OF_THE_WAY=$GET_OUT_OF_THE_WAY but $home/get-out-of-the-way.sh is missing -- no node will ever be given up. Stale deployment?"

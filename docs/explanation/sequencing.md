@@ -1068,6 +1068,7 @@ A pending job, not ours, that this node is part of the answer to:
 | pending at least `GET_OUT_OF_THE_WAY_AFTER_MINUTES` | `%V`, against the watchdog's clock | a job that may yet be satisfied somewhere else is not worth throwing a benchmark away for |
 | priority is not 0 | `%Q` | a held job is never going to start, so nothing is being kept off the cluster — see below |
 | wants this node | `ReqNodes` **or** `SchedNodes` | see below |
+| enough of the nodes it wants are ours to free | `%D`, against `sinfo`'s `%T` and the running half of the same queue | a job that still cannot start after the cancel got nothing for it — see below |
 
 **A waiter is told from one of ours by its name, never by its user.** The
 neighbouring work on a bring-up cluster is usually submitted by the same account
@@ -1116,6 +1117,52 @@ are three spellings of one state and Slurm's own definition of that state is the
 priority. Anything unparseable is read as a real waiter: an unexpected
 `squeue` build should make the feature no worse than it was, not silently stop
 it yielding at all.
+
+### A waiter that cannot run is not a waiter
+
+The held-job gap above is one instance of a larger one, and the larger one is
+the question this feature is actually asking: *would handing this node back let
+that job start?* A pending job names nodes; naming them does not mean it is one
+cancel away from running. If any part of what it needs is out of service, or is
+held by work this framework cannot end, the benchmark is thrown away and the
+job waits exactly as long as it was going to.
+
+So a waiter's whole node list — `ReqNodes` and `SchedNodes`, deduplicated,
+expanded — is counted against `%D`, the number of nodes it asked for, and a node
+counts only if it is one of:
+
+| State | Counts because |
+|---|---|
+| `idle` | free now |
+| `allocated`, `mixed`, **carrying nothing but jobs of ours** | free the moment this cancels, which is the whole transaction |
+
+Everything else does not count: `drained`, `draining`, `down`, `reserved`,
+`maint`, a state with the `*` of a node that is not answering, a node `sinfo`
+did not report at all, and — the one the states cannot answer on their own — a
+node running somebody else's job. `allocated` reads the same whether the job on
+the node is our `bringup-<node>` or a stranger's twelve-hour run, and only the
+first is ours to end. The running half of the queue this already holds says
+which, by the same name-and-user test the cancel side uses.
+
+Fewer usable nodes than `%D` and the job is not a waiter: it is traced with what
+was in the way and the scan moves on.
+
+Two readings are deliberately strict, because the cost of being wrong is a
+cancelled benchmark and the cost of being cautious is a benchmark that finishes:
+
+- **An unparseable or empty `%D` is read as "it needs every node it named."**
+  That is what a `-w` list usually means, and a job that names 18 nodes with one
+  of them drained is the case this exists for.
+- **A node a stranger holds is unusable even when it is minutes from finishing.**
+  Nothing here can tell "ends at 14:02" from "ends tomorrow" without asking the
+  controller more questions than the snapshot answers, and the safe reading is
+  the one that cancels less.
+
+The check is inert rather than guessed at when the caller passes no node states:
+the scan traces that it has none and every waiter reads as able to run, which is
+what it did before the states were passed in. See
+[the-fleet-snapshot.md#the-two-queries](the-fleet-snapshot.md#the-two-queries)
+for why `%D` is in the queue format at all.
 
 ### The four checks before a cancel
 

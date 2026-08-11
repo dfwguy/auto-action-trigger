@@ -4,7 +4,11 @@
 # the head node now rather than per node. The library under test is the real one,
 # sourced, and driven by one queue string in the shape snapshot_query hands it:
 #
-#   id|name|user|state|priority|submit|end|nodelist|reqnodes|schednodes|reason
+#   id|name|user|state|priority|submit|end|nodelist|reqnodes|schednodes|count|reason
+#
+# and one node-state string in the shape of the first sinfo call:
+#
+#   node|state|setter|when|reason
 #
 # See docs/explanation/sequencing.md#getting-out-of-the-way.
 #
@@ -81,10 +85,26 @@ MIN_AGO=$(date -d "@$(( NOW - 60 ))" '+%Y-%m-%dT%H:%M:%S')
 ENDS=$(date -d "@$(( NOW + 3600 ))" '+%Y-%m-%dT%H:%M:%S')
 
 ## Our benchmark, running on the node: ours by name, our user's, RUNNING, here.
-OURJOB="4242|bringup-$NODE|cmods|RUNNING|4294901759|$HOUR_AGO|$ENDS|$NODE|$NODE||None"
+OURJOB="4242|bringup-$NODE|cmods|RUNNING|4294901759|$HOUR_AGO|$ENDS|$NODE|$NODE|1|None"
 ## A foreign job pending for an hour on this node by name, at a priority that is
 ## not 0 -- 0 is held, and held is not waiting.
-WAITER="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|$NODE|Resources"
+WAITER="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|$NODE|1|Resources"
+
+## Every node any case names, all schedulable: a state that would stop the waiter
+## starting is the exception a case sets for itself.
+## docs/explanation/sequencing.md#a-waiter-that-cannot-run-is-not-a-waiter
+states_all() {
+    local n
+    for n in ink50-dh01-i01-{11..18} ink50-dh01-i01-{28..37} \
+             ink50-dh01-i01-99 ink50-dh01-i05-31; do
+        printf '%s|%s|none||\n' "$n" "${1:-idle}"
+    done
+    printf '%s|allocated|none||\n' "$NODE"
+}
+STATES=$(states_all)
+## The same fleet with one node of the rack out of service, which is what makes
+## an 18-node job that names it unable to start whatever this cancels.
+STATES_ONE_DRAINED=$(states_all | sed "s/^ink50-dh01-i01-14|idle|/ink50-dh01-i01-14|drained|/")
 
 ## One case: $1 name, $2 expected YIELD_RESULT, rest VAR=value overrides.
 ## STUB_QUEUE is the whole fleet queue; it defaults to one waiter and one job of
@@ -99,6 +119,7 @@ run_case() {
         export STUB_SCANCEL_OUT=""
         STUB_QUEUE="$WAITER
 $OURJOB"
+        STUB_STATES="$STATES"
 
         source "$home/settings.sh"
         GET_OUT_OF_THE_WAY=yes
@@ -118,7 +139,7 @@ $OURJOB"
         yield_log() { printf '%s\n' "$*" >> "$dir/trace"; }
         source "$home/slurm-snapshot.sh"
         source "$home/get-out-of-the-way.sh"
-        yield_scan "$dir/results" "$STUB_QUEUE" "$NOW" > "$dir/out" 2>&1
+        yield_scan "$dir/results" "$STUB_QUEUE" "$NOW" "$STUB_STATES" > "$dir/out" 2>&1
         printf '%s' "$YIELD_RESULT" > "$dir/result"
         printf '%s' "$YIELD_CANCELLED" > "$dir/count"
     )
@@ -145,7 +166,7 @@ breadcrumb || bad "  ... but the node was left nothing saying why its job went"
 
 ## Compressed, and the node is inside the range: proof the list is expanded.
 run_case "waiter is scheduled onto the node" scanned \
-    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A|||ink50-dh01-i01-[11-18]|Resources
+    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A|||ink50-dh01-i01-[11-18]|8|Resources
 $OURJOB"
 cancelled || bad "  ... but scancel was never called"
 
@@ -153,14 +174,14 @@ cancelled || bad "  ... but scancel was never called"
 ## runs as JOB_USER too, so only the job name tells it from one of ours, and
 ## SchedNodes reads `(null)` rather than empty.
 run_case "the real queue's waiter" scanned \
-    STUB_QUEUE="130938|microbenchmark_nccl_nccl_fp8|cmods|PENDING|4294901759|$HOUR_AGO|N/A||ink50-dh01-i01-[11-18,28-37]|(null)|Resources
-130939|bringup-ink50-dh01-i05-31|cmods|PENDING|4294901758|$HOUR_AGO|N/A||ink50-dh01-i05-31|(null)|Priority
+    STUB_QUEUE="130938|microbenchmark_nccl_nccl_fp8|cmods|PENDING|4294901759|$HOUR_AGO|N/A||ink50-dh01-i01-[11-18,28-37]|(null)|18|Resources
+130939|bringup-ink50-dh01-i05-31|cmods|PENDING|4294901758|$HOUR_AGO|N/A||ink50-dh01-i05-31|(null)|1|Priority
 $OURJOB"
 cancelled || bad "  ... but scancel was never called"
 
 run_case "only jobs of ours are queued" no-waiter \
-    STUB_QUEUE="130939|bringup-$NODE|cmods|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|(null)|Priority
-130937|burnin-$NODE|cmods|PENDING|4294901758|$HOUR_AGO|N/A||$NODE|(null)|Priority
+    STUB_QUEUE="130939|bringup-$NODE|cmods|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|(null)|1|Priority
+130937|burnin-$NODE|cmods|PENDING|4294901758|$HOUR_AGO|N/A||$NODE|(null)|1|Priority
 $OURJOB"
 nothing_killed || bad "  ... but something was cancelled"
 
@@ -173,25 +194,25 @@ run_case "nothing pending at all"  no-waiter STUB_QUEUE="$OURJOB"
 nothing_killed || bad "  ... but something was cancelled"
 
 run_case "waiter is a job of ours" no-waiter \
-    STUB_QUEUE="9001|bringup-othernode|cmods|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|$NODE|Priority
+    STUB_QUEUE="9001|bringup-othernode|cmods|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|$NODE|1|Priority
 $OURJOB"
 nothing_killed || bad "  ... but something was cancelled"
 
 run_case "waiter wants other nodes" scanned \
-    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A||ink50-dh01-i01-[11-12]|(null)|Resources
+    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A||ink50-dh01-i01-[11-12]|(null)|2|Resources
 $OURJOB"
 nothing_killed || bad "  ... but something was cancelled"
 
 ## Under GET_OUT_OF_THE_WAY_AFTER_MINUTES: a job that may yet be satisfied
 ## somewhere else is not worth throwing a benchmark away for.
 run_case "waiter queued 60s ago" no-waiter \
-    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$MIN_AGO|N/A||$NODE|$NODE|Resources
+    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$MIN_AGO|N/A||$NODE|$NODE|1|Resources
 $OURJOB"
 nothing_killed || bad "  ... but something was cancelled"
 
 run_case "waiter queued 60s ago, with the wait set to 0" scanned \
     GET_OUT_OF_THE_WAY_AFTER_MINUTES=0 \
-    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$MIN_AGO|N/A||$NODE|$NODE|Resources
+    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$MIN_AGO|N/A||$NODE|$NODE|1|Resources
 $OURJOB"
 cancelled || bad "  ... but scancel was never called"
 
@@ -199,58 +220,126 @@ cancelled || bad "  ... but scancel was never called"
 ## node by name, pending for hours -- and will never start.
 ## docs/explanation/sequencing.md#a-held-job-is-not-a-waiter
 run_case "waiter is held after a failed launch" no-waiter \
-    STUB_QUEUE="132492|microbenchmark_nccl_nccl_fp8|cmods|PENDING|0|$HOUR_AGO|N/A||ink50-dh01-i01-[11-18,28-37]|(null)|launch failed requeued held
+    STUB_QUEUE="132492|microbenchmark_nccl_nccl_fp8|cmods|PENDING|0|$HOUR_AGO|N/A||ink50-dh01-i01-[11-18,28-37]|(null)|18|launch failed requeued held
 $OURJOB"
 nothing_killed || bad "  ... but a benchmark was thrown away for a job that cannot start"
 
 run_case "waiter is held by an operator" no-waiter \
-    STUB_QUEUE="9001|train-70b|alice|PENDING|0|$HOUR_AGO|N/A||$NODE|$NODE|JobHeldUser
+    STUB_QUEUE="9001|train-70b|alice|PENDING|0|$HOUR_AGO|N/A||$NODE|$NODE|1|JobHeldUser
 $OURJOB"
 nothing_killed || bad "  ... but something was cancelled"
 
 ## One real waiter behind two held ones: the held lines must be skipped over
 ## rather than ending the scan.
 run_case "a real waiter behind two held ones" scanned \
-    STUB_QUEUE="9001|train-70b|alice|PENDING|0|$HOUR_AGO|N/A||$NODE|$NODE|JobHeldUser
-9002|inference|bob|PENDING|0|$HOUR_AGO|N/A||$NODE|$NODE|JobHeldUser
-9003|sweep|carol|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|$NODE|Resources
+    STUB_QUEUE="9001|train-70b|alice|PENDING|0|$HOUR_AGO|N/A||$NODE|$NODE|1|JobHeldUser
+9002|inference|bob|PENDING|0|$HOUR_AGO|N/A||$NODE|$NODE|1|JobHeldUser
+9003|sweep|carol|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|$NODE|1|Resources
 $OURJOB"
 cancelled || bad "  ... but scancel was never called"
 
 ## Fail open: a queue that does not give a number for priority leaves the
 ## feature exactly as it was before the field was asked for.
 run_case "priority field is empty" scanned \
-    STUB_QUEUE="9001|train-70b|alice|PENDING||$HOUR_AGO|N/A||$NODE|$NODE|Resources
+    STUB_QUEUE="9001|train-70b|alice|PENDING||$HOUR_AGO|N/A||$NODE|$NODE|1|Resources
 $OURJOB"
 cancelled || bad "  ... but scancel was never called"
+
+echo "== the waiter cannot run whatever this cancels =="
+
+## The 18-node rack job with one node of the rack drained: it satisfies every
+## other condition, and handing it back node 13 gives it 17 of the 18 it needs.
+## docs/explanation/sequencing.md#a-waiter-that-cannot-run-is-not-a-waiter
+run_case "a node the waiter needs is drained" no-waiter \
+    STUB_STATES="$STATES_ONE_DRAINED" \
+    STUB_QUEUE="130938|microbenchmark_nccl_nccl_fp8|cmods|PENDING|4294901759|$HOUR_AGO|N/A||ink50-dh01-i01-[11-18]|(null)|8|Resources
+$OURJOB"
+nothing_killed || bad "  ... but a benchmark was thrown away for a job that cannot start"
+grep -q 'not a waiter: job 130938' "$CASE_DIR/trace" 2>/dev/null ||
+    bad "  ... and nothing was written down about why it was not a waiter"
+
+## The same drained node, and the job asked for fewer nodes than it named: seven
+## usable is enough, so this one really is being kept off the cluster.
+run_case "the waiter named more nodes than it needs" scanned \
+    STUB_STATES="$STATES_ONE_DRAINED" \
+    STUB_QUEUE="130938|microbenchmark_nccl_nccl_fp8|cmods|PENDING|4294901759|$HOUR_AGO|N/A||ink50-dh01-i01-[11-18]|(null)|4|Resources
+$OURJOB"
+cancelled || bad "  ... but a job that could start was left waiting"
+
+## Not responding, so nothing is scheduled onto it whatever its state reads.
+run_case "a node the waiter needs is not answering" no-waiter \
+    STUB_STATES="$(states_all 'idle*')" \
+    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A||ink50-dh01-i01-[11-18]|(null)|8|Resources
+$OURJOB"
+nothing_killed || bad "  ... but a benchmark was thrown away for a job with a dead node in its list"
+
+## A node list naming something sinfo did not report is not a node this cluster
+## can schedule onto either.
+run_case "a node the waiter needs is not in sinfo" no-waiter \
+    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A||ink50-dh01-i02-01|(null)|1|Resources
+$OURJOB"
+nothing_killed || bad "  ... but something was cancelled for a node nothing knows about"
+
+## The gate the node states cannot answer on their own: node 14 reads
+## `allocated` like the one ours is on, and cancelling ours does not end the job
+## that has it. The waiter needs both, so it is not waiting for us.
+run_case "a node the waiter needs runs somebody else's job" no-waiter \
+    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A||ink50-dh01-i01-[13-14]|(null)|2|Resources
+5150|mnubergemm|dave|RUNNING|4294901759|$HOUR_AGO|$ENDS|ink50-dh01-i01-14|ink50-dh01-i01-14||1|None
+$OURJOB"
+nothing_killed || bad "  ... but a benchmark was thrown away for a job still stuck behind somebody else"
+
+## The same two nodes, and the only job on them is ours: that one this can free.
+run_case "both nodes the waiter needs are ours to free" scanned \
+    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A||ink50-dh01-i01-[13-14]|(null)|2|Resources
+5150|burnin-ink50-dh01-i01-14|cmods|RUNNING|4294901759|$HOUR_AGO|$ENDS|ink50-dh01-i01-14|ink50-dh01-i01-14||1|None
+$OURJOB"
+cancelled || bad "  ... but a job that only our own work was in front of was left waiting"
+
+## Without a count, a named list is read as the nodes the job needs -- the
+## strict reading, because the loose one cancels a benchmark for nothing.
+run_case "the count field is empty" no-waiter \
+    STUB_STATES="$STATES_ONE_DRAINED" \
+    STUB_QUEUE="130938|microbenchmark_nccl_nccl_fp8|cmods|PENDING|4294901759|$HOUR_AGO|N/A||ink50-dh01-i01-[11-18]|(null)||Resources
+$OURJOB"
+nothing_killed || bad "  ... but an unreadable count let a drained node through"
+
+## No states at all leaves the check inert rather than guessing: this is what the
+## scan did before it was given them, and it must stay no worse.
+run_case "no node states were passed in" scanned STUB_STATES=""
+cancelled || bad "  ... but a missing sinfo stopped the feature working at all"
 
 echo "== the running job is not confirmed ours =="
 
 ## Every one of these has a real waiter: the only thing standing between it and
-## a scancel is what the queue says about the job on the node.
-with_waiter() { printf '%s\n%s' "$WAITER" "$1"; }
+## a scancel is what the queue says about the job on the node. It asks for one
+## node out of two, the other being idle, so that a stranger's job on this one
+## leaves it able to start -- otherwise the check above answers these cases
+## first and none of them reaches the four.
+WAITER_PAIR="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A||ink50-dh01-i01-[12-13]|(null)|1|Resources"
+with_waiter() { printf '%s\n%s' "$WAITER_PAIR" "$1"; }
 
 run_case "another user owns it" scanned \
-    STUB_QUEUE="$(with_waiter "4242|bringup-$NODE|bob|RUNNING|4294901759|$HOUR_AGO|$ENDS|$NODE|$NODE||None")"
+    STUB_QUEUE="$(with_waiter "4242|bringup-$NODE|bob|RUNNING|4294901759|$HOUR_AGO|$ENDS|$NODE|$NODE||1|None")"
 nothing_killed || bad "  ... but somebody else's job was cancelled"
 
 run_case "not a bringup name" scanned \
-    STUB_QUEUE="$(with_waiter "4242|train-70b|cmods|RUNNING|4294901759|$HOUR_AGO|$ENDS|$NODE|$NODE||None")"
+    STUB_QUEUE="$(with_waiter "4242|train-70b|cmods|RUNNING|4294901759|$HOUR_AGO|$ENDS|$NODE|$NODE||1|None")"
 nothing_killed || bad "  ... but a foreign job was cancelled"
 
 run_case "ours, but pending rather than running" scanned \
-    STUB_QUEUE="$(with_waiter "4242|bringup-$NODE|cmods|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|$NODE|Resources")"
+    STUB_QUEUE="$(with_waiter "4242|bringup-$NODE|cmods|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|$NODE|1|Resources")"
 nothing_killed || bad "  ... but a job holding nothing was cancelled"
 
 run_case "ours, but running on another node" scanned \
-    STUB_QUEUE="$(with_waiter "4242|bringup-ink50-dh01-i01-14|cmods|RUNNING|4294901759|$HOUR_AGO|$ENDS|ink50-dh01-i01-14|ink50-dh01-i01-14||None")"
+    STUB_QUEUE="$(with_waiter "4242|bringup-ink50-dh01-i01-14|cmods|RUNNING|4294901759|$HOUR_AGO|$ENDS|ink50-dh01-i01-14|ink50-dh01-i01-14||1|None")"
 nothing_killed || bad "  ... but a job on another node was cancelled"
 
 ## A neighbouring node's benchmark, running on a node somebody wants: ours by
 ## prefix and by user, but it is not on the node being waited for.
 run_case "our job elsewhere while this node is wanted" scanned \
-    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|$NODE|Resources
-4242|bringup-ink50-dh01-i01-99|cmods|RUNNING|4294901759|$HOUR_AGO|$ENDS|ink50-dh01-i01-99|ink50-dh01-i01-99||None"
+    STUB_QUEUE="9001|train-70b|alice|PENDING|4294901759|$HOUR_AGO|N/A||$NODE|$NODE|1|Resources
+4242|bringup-ink50-dh01-i01-99|cmods|RUNNING|4294901759|$HOUR_AGO|$ENDS|ink50-dh01-i01-99|ink50-dh01-i01-99||1|None"
 nothing_killed || bad "  ... but a job on a node nobody is waiting for was cancelled"
 
 echo "== switches, polling and failures =="

@@ -36,7 +36,7 @@ awk '{ print $1 "|" $2 "|none||" $3 }' <<< "$STUB_SINFO"
 exit 0
 EOF
 
-## STUB_SQUEUE stays `<id> <state>` per line and is rendered into the eleven
+## STUB_SQUEUE stays `<id> <state>` per line and is rendered into the twelve
 ## fields snapshot_query reads. The name carries a node so the fleet count and
 ## the per-node view have something to key on.
 cat > "$stub/squeue" <<'EOF'
@@ -44,7 +44,7 @@ cat > "$stub/squeue" <<'EOF'
 [[ -n "$STUB_SQUEUE" ]] || exit 0
 awk -v n="${STUB_JOB_NODE:-n-long}" \
     '{ print $1 "|bringup-" n "|" ENVIRON["USER"] "|" $2 "|4294901759|2026-01-01T00:00:00|N/A|" \
-             ($2 == "RUNNING" ? n : "") "|" n "|" n "|None" }' <<< "$STUB_SQUEUE"
+             ($2 == "RUNNING" ? n : "") "|" n "|" n "|1|None" }' <<< "$STUB_SQUEUE"
 exit 0
 EOF
 
@@ -435,7 +435,7 @@ exit 0
 EOF
 chmod 755 "$stub/squeue"
 
-STUB_RAW_QUEUE="7001|bringup-n-held|$(id -un)|PENDING|0|2026-01-01T00:00:00|N/A||n-held|n-held|launch failed requeued held" \
+STUB_RAW_QUEUE="7001|bringup-n-held|$(id -un)|PENDING|0|2026-01-01T00:00:00|N/A||n-held|n-held|1|launch failed requeued held" \
     run_sup 'n-held idle'
 grep -q '7001' "$work/scancel.calls" 2>/dev/null &&
     ok "a job held after a failed launch is cancelled from here" ||
@@ -443,7 +443,7 @@ grep -q '7001' "$work/scancel.calls" 2>/dev/null &&
 
 ## Ours by prefix is the gate. A foreign job held the same way is somebody's.
 rm -rf "$results"; beat 60 n-held
-STUB_RAW_QUEUE="7002|train-70b|alice|PENDING|0|2026-01-01T00:00:00|N/A||n-held|n-held|launch failed requeued held" \
+STUB_RAW_QUEUE="7002|train-70b|alice|PENDING|0|2026-01-01T00:00:00|N/A||n-held|n-held|1|launch failed requeued held" \
     run_sup 'n-held idle'
 [[ -f "$work/scancel.calls" ]] &&
     bad "somebody else's held job was cancelled: $(cat "$work/scancel.calls")" ||
@@ -451,8 +451,8 @@ STUB_RAW_QUEUE="7002|train-70b|alice|PENDING|0|2026-01-01T00:00:00|N/A||n-held|n
 
 rm -rf "$results"; beat 60 n-pj
 sed -i 's/^PAUSE_ARMING=no$/PAUSE_ARMING=no\nPAUSE_JOBS=yes/' "$tree/SETTINGS"
-STUB_RAW_QUEUE="7003|bringup-n-pj|$(id -un)|PENDING|4294901759|2026-01-01T00:00:00|N/A||n-pj|n-pj|Resources
-7004|burnin-n-pj|$(id -un)|RUNNING|4294901759|2026-01-01T00:00:00|N/A|n-pj|n-pj||None" \
+STUB_RAW_QUEUE="7003|bringup-n-pj|$(id -un)|PENDING|4294901759|2026-01-01T00:00:00|N/A||n-pj|n-pj|1|Resources
+7004|burnin-n-pj|$(id -un)|RUNNING|4294901759|2026-01-01T00:00:00|N/A|n-pj|n-pj||1|None" \
     run_sup 'n-pj idle'
 grep -q '7003' "$work/scancel.calls" 2>/dev/null &&
     ok "PAUSE_JOBS cancels a pending job of ours" ||
@@ -468,7 +468,7 @@ cat > "$stub/squeue" <<'EOF'
 [[ -n "$STUB_SQUEUE" ]] || exit 0
 awk -v n="${STUB_JOB_NODE:-n-long}" \
     '{ print $1 "|bringup-" n "|" ENVIRON["USER"] "|" $2 "|4294901759|2026-01-01T00:00:00|N/A|" \
-             ($2 == "RUNNING" ? n : "") "|" n "|" n "|None" }' <<< "$STUB_SQUEUE"
+             ($2 == "RUNNING" ? n : "") "|" n "|" n "|1|None" }' <<< "$STUB_SQUEUE"
 exit 0
 EOF
 chmod 755 "$stub/squeue"
