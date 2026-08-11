@@ -226,6 +226,21 @@ environment can disagree about which is authoritative. The job file cannot tell
 these apart and does not need to — it wants neither variable, which is the same
 thing "no `--cpus-per-task`" was always trying to say.
 
+The `unset` protects the job; it does not find the node that is exporting one.
+That is the `slurm-env` health check, which reports the `SLURM_*`, `SBATCH_*`,
+`SRUN_*` and `SALLOC_*` variables set in three places — the agent's own
+environment, a clean login shell, and `/etc/environment` — and diffs them
+against the baseline like any other check, so the node that differs from the
+fleet is the node named in the drain reason. It reports the three apart because
+the fix is a different file in each case: the agent's is whatever
+`systemd --user` was started with, the login shell's is `/etc/profile.d/` or a
+dotfile, and `/etc/environment` is read by PAM and by no shell at all. `agent:`
+reads `not judged` when the check itself is running inside an allocation, where
+Slurm sets all of these legitimately. A site that exports `SLURM_CONF` from
+`/etc/profile.d/` will see it listed on every node; that is uniform, so it
+matches the baseline and drains nothing. See
+[reference/health-checks.md](health-checks.md).
+
 The failure is worth recognising by sight because it does not look like itself.
 `srun` never runs, so the preflight `||` branch fires and the result file reads
 `preflight: the step did not receive the whole node` with **no** `preflight:

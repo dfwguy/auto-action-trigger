@@ -68,6 +68,7 @@ node is next due. See
 | `imex-version` | IMEX binary version (GB series) |
 | `bmc-firmware` | BMC firmware revision, manufacturer and product |
 | `nodeinfo` | Per-node inventory — serials, UUIDs, MACs, addresses — **informational** |
+| `slurm-env` | `SLURM_*`, `SBATCH_*`, `SRUN_*`, `SALLOC_*` in the agent's environment, a login shell and `/etc/environment` — see [jobs.md#the-step-environment](jobs.md#the-step-environment) |
 
 ## The check file format
 
@@ -95,7 +96,7 @@ Three things are load-bearing:
   what the log file, the baseline file and the drain reason all use.
   Renumbering a check does not invalidate a baseline; renaming one does.
 - **Each check runs in its own `bash`**, not sourced. One check that exits or
-  sets a shell option cannot truncate the other 44.
+  sets a shell option cannot truncate the other 45.
 
 The metadata block is read from the first 10 lines and nowhere else —
 `check_meta` in `node_health.sh` narrows to that range before matching, so a
@@ -113,7 +114,7 @@ which produces the check's stdout with no banner, no log file and no diff.
 
 The cycle runs as `$JOB_USER`, so a check that needs privilege says `sudo -n`
 inline — these files are read and run on their own, and a helper on `PATH`
-would break that. Thirteen of the 45 do:
+would break that. Thirteen of the 46 do:
 
 | Command | Checks |
 |---|---|
