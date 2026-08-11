@@ -182,6 +182,42 @@ one=$(cd "$work" && bash overall_report.sh node02 2>&1)
 check "a pattern narrows the report" 'node02: UP **** MIXED **** tests - hpl' "$one"
 absent "a pattern excludes the rest"  'node01:'                "$one"
 
+## --csv is the same four fields as columns, for the nodes that are not fine.
+## A node that is UP, idle or allocated and passing both halves is off it: the
+## point of the format is that what is left is what has to be acted on.
+csv=$(cd "$work" && bash overall_report.sh --csv 2>&1)
+check "--csv names its columns"          'node,heartbeat,slurm,tests,healthchecks' "$csv"
+check "--csv is comma separated"         'node02,UP,MIXED,hpl,bios'                "$csv"
+check "--csv keeps a list space separated" 'node04,UP,UNKNOWN,allreduce hpl,bios kernel' "$csv"
+check "--csv keeps a drained node"       'node03,UP,DRAINED,hpl,bios'              "$csv"
+absent "--csv drops a passing idle node" 'node01'                                  "$csv"
+absent "--csv has no legend"             '****'                                    "$csv"
+absent "--csv has no notes"              'NOTE:'                                   "$csv"
+check "--csv prints only the exceptions" "4" "$(grep -c ',' <<< "$csv")"
+
+## ALLOCATED is a node doing work, not a node with something wrong with it, so
+## it is dropped on the same terms as IDLE.
+cat > "$work/bin/sinfo" <<'EOF'
+#!/bin/bash
+printf '%s\n' 'node01|allocated|none|Unknown|' 'node02|mixed|none|Unknown|' \
+               'node03|drained|root|2026-08-10T09:00:00|Prolog error'
+EOF
+alloc=$(cd "$work" && bash overall_report.sh --csv 2>&1)
+absent "--csv drops a passing allocated node" 'node01' "$alloc"
+check  "--csv keeps the rest"                 'node02,UP,MIXED'  "$alloc"
+
+## A node that is passing but not cycling stays on: everything after the first
+## field is the last thing written rather than what is true now.
+touch -d '2 hours ago' "$work/results/node01/.heartbeat"
+stale=$(cd "$work" && bash overall_report.sh --csv 2>&1)
+check "--csv keeps a DOWN node that passes" 'node01,DOWN,ALLOCATED,PASS,PASS' "$stale"
+touch "$work/results/node01/.heartbeat"
+
+## The two reports are different shapes of the same scan, and asking for both
+## is asking for neither.
+both=$(cd "$work" && bash overall_report.sh --csv --details 2>&1)
+check "--csv and --details refuse together" 'ERROR:' "$both"
+
 echo
 if [[ "$fails" -eq 0 ]]; then
     echo "all checks passed"

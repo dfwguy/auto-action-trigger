@@ -51,6 +51,11 @@
 #                     every reason; the default elides the tail of each so the
 #                     report stays a fixed size as the cluster grows. Implies
 #                     --details.
+#   --csv             one comma-separated line per node instead -- hostname,
+#                     UP/DOWN, Slurm state, tests, healthchecks -- with the
+#                     nodes that are UP, IDLE or ALLOCATED and passing both
+#                     halves left out. No grouping, no legend and no notes:
+#                     only the fields, in a form a spreadsheet takes.
 #   --no-cache        judge every node from its files, ignoring
 #                     results/.result_cache.*. See
 #                     docs/explanation/verdicts-and-the-cache.md#the-verdict-cache.
@@ -101,6 +106,7 @@ jobs_dir="$JOBS_DIR"
 
 full=0
 details=0
+csv=0
 report_file=""
 args=()
 while (($#)); do
@@ -109,15 +115,22 @@ while (($#)); do
         ## something with --details, and asking for it is asking for that.
         --full|-f)     full=1; details=1; shift ;;
         --details|-d)  details=1; shift ;;
+        --csv)         csv=1; shift ;;
         --no-cache)    export SCAN_CACHE=0; shift ;;
         -o|--output)
             [[ -n "$2" ]] || { echo "ERROR: $1 needs a file to write" >&2; exit 1; }
             report_file="$2"; shift 2 ;;
-        -h|--help)    sed -n '2,90p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        -h|--help)    sed -n '2,95p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         -*)           echo "ERROR: unknown argument $1" >&2; exit 1 ;;
         *)            args+=("$1"); shift ;;
     esac
 done
+
+if [[ "$csv" -eq 1 && "$details" -eq 1 ]]; then
+    echo "ERROR: --csv is the one-line report as fields; --details is the long one." >&2
+    echo "       Ask for one of them." >&2
+    exit 1
+fi
 
 if [[ ${#args[@]} -gt 1 ]]; then
     echo "ERROR: only one node pattern is accepted, got: ${args[*]}" >&2
@@ -492,7 +505,7 @@ metric_range() {
 ## Guarded because a missing clubak empties stdout while the pipeline still
 ## exits 0 -- silently identical to "no nodes match".
 brief_group() { cat; }
-if [[ "$details" -eq 0 ]]; then
+if [[ "$details" -eq 0 && "$csv" -eq 0 ]]; then
     if bak_resolve; then
         brief_group() { bak; }
     else
@@ -510,6 +523,7 @@ if [[ ${#gated_check[@]} -gt 0 ]]; then
 fi
 
 BRIEF_LINE=""
+BRIEF_REACH=""; BRIEF_STATE=""; BRIEF_TESTS=""; BRIEF_HEALTH=""
 brief_line() {
     local node="$1"
     local tests="${node_not_passing[$node]}" health reach=UP
@@ -525,7 +539,11 @@ brief_line() {
         health="${health_fail_list[$node]//,/ }"
     fi
 
-    BRIEF_LINE="$reach **** ${state^^} **** tests - ${tests:-PASS} **** healthchecks - ${health:-PASS}"
+    BRIEF_REACH="$reach"
+    BRIEF_STATE="${state^^}"
+    BRIEF_TESTS="${tests:-PASS}"
+    BRIEF_HEALTH="${health:-PASS}"
+    BRIEF_LINE="$BRIEF_REACH **** $BRIEF_STATE **** tests - $BRIEF_TESTS **** healthchecks - $BRIEF_HEALTH"
 }
 
 emit_brief() {
@@ -567,6 +585,30 @@ emit_brief() {
     printf '  bash status-check.sh -t <benchmark> one column, every node, pass included\n'
     printf '  bash health-check.sh --diff <node>  the health diff behind a check name above\n'
     printf '  bash trigger-log.sh                 why nothing is being submitted\n'
+}
+
+## ── The CSV report ────────────────────────────────────────────────────────
+## The same four fields, as columns rather than prose, and only for the nodes
+## that are not fully healthy. No field can hold a comma: the state is one
+## uppercased token and the two lists are space separated, which is why the
+## separator is a comma and nothing here quotes.
+emit_csv() {
+    local node rows=0
+    printf 'node,heartbeat,slurm,tests,healthchecks\n'
+    for node in "${nodes[@]}"; do
+        brief_line "$node"
+        ## Passing on every count, and reachable -- nothing to copy out.
+        [[ "$BRIEF_REACH" == UP && "$BRIEF_TESTS" == PASS && "$BRIEF_HEALTH" == PASS ]] &&
+            [[ "$BRIEF_STATE" == IDLE || "$BRIEF_STATE" == ALLOCATED ]] && continue
+        printf '%s,%s,%s,%s,%s\n' \
+            "$node" "$BRIEF_REACH" "$BRIEF_STATE" "$BRIEF_TESTS" "$BRIEF_HEALTH"
+        ((rows++))
+    done
+    ## stderr, so stdout stays paste-able: a header on its own is a result and
+    ## has to be told apart from a report that produced nothing.
+    [[ "$rows" -eq 0 ]] &&
+        echo "All ${#nodes[@]} node(s) are UP, IDLE or ALLOCATED and passing both halves -- no CSV rows." >&2
+    return 0
 }
 
 emit_report() {
@@ -721,6 +763,7 @@ node_block() {
 
 emit=emit_brief
 [[ "$details" -eq 1 ]] && emit=emit_report
+[[ "$csv" -eq 1 ]] && emit=emit_csv
 
 if [[ -n "$report_file" ]]; then
     "$emit" | tee "$report_file"
