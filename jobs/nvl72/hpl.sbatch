@@ -33,6 +33,9 @@ STEP_TIMELIMIT=1:50:00
 
 ## ------------- job info starts here ------------- ##
 
+## Steps want neither set: srun aborts when the two disagree. See docs/reference/jobs.md#the-step-environment.
+unset SLURM_CPUS_PER_TASK SLURM_TRES_PER_TASK SRUN_CPUS_PER_TASK
+
 ## Preflight -- what the STEP holds; the job's AllocTRES cannot answer that.
 ## Wording is load-bearing. See docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '

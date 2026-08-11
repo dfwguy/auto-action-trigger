@@ -32,6 +32,9 @@ STEP_TIMELIMIT=0:20:00
 
 ## ------------- job info starts here ------------- ##
 
+## Steps want neither set: srun aborts when the two disagree. See docs/reference/jobs.md#the-step-environment.
+unset SLURM_CPUS_PER_TASK SLURM_TRES_PER_TASK SRUN_CPUS_PER_TASK
+
 ## What the STEP holds, which only a step can answer. Wording is fixed: the
 ## parse block and verdict.sh grep it. See docs/reference/jobs.md#preflight.
 srun --ntasks=1 bash -c '
