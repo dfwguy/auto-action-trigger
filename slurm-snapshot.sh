@@ -160,9 +160,11 @@ SNAPSHOT_QUEUED_FLEET=0
 ## it only has to be one safe path component, and the fixed state field proves
 ## that this is one of the records requested below.
 snapshot_node_record() {
-    local line="$1" node state setter when reason
+    local line="$1" node state reason
     [[ "$line" =~ ^[^\|]*\|[^\|]*\|[^\|]*\|[^\|]*\| ]] || return 1
-    IFS='|' read -r node state setter when reason <<< "$line"
+    # The setter and timestamp establish the positions of the fields we need,
+    # but do not affect whether this is a node record.
+    IFS='|' read -r node state _ _ reason <<< "$line"
     [[ -n "$node" && "$node" != *[[:space:]]* && "$node" != */* &&
        "$node" != . && "$node" != .. ]] || return 1
     [[ "$state" =~ [[:alpha:]] ]] || return 1
