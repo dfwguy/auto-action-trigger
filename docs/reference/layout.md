@@ -66,7 +66,8 @@ pieces fit together this way is
 │       ├── fio.sbatch                 # Local NVMe / shared storage I/O
 │       ├── ethr.sbatch                # North-south management + storage NIC
 │       ├── nvloom.sbatch              # MNNVL fabric health (optional/exploratory)
-│       ├── mnubergemm.sbatch          # GPU burn-in (single node per the plan)
+│       ├── mnubergemm.sbatch          # GPU burn-in, steady load (single node per the plan)
+│       ├── mnubergemm-pulse.sbatch    # GPU burn-in, pulsed load; off unless named in BURNIN
 │       ├── llm-pretrain.sbatch        # Single-node LLM pre-training, 4-way DP; frozen llmb-run capture
 │       ├── llm-pretrain-solo.sbatch   # 4 independent 1-GPU pre-training copies; per-GPU step times
 │       ├── hpl.sbatch                 # HPL (Linpack), GB200 remediation-only GEMM

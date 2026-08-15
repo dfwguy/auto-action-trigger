@@ -67,6 +67,7 @@ export NCCL_NVLS_ENABLE=1
 export UCX_TLS=tcp
 
 
+## Both caps are set: the loop stops at the lower. See docs/explanation/burn-in-waveform.md#the-two-workload-caps.
 srun --time="$STEP_TIMELIMIT" \
   --mpi=pmix \
   --cpu-bind=none \
@@ -76,6 +77,7 @@ srun --time="$STEP_TIMELIMIT" \
     --workload GNC \
     --freq 500 \
     --duty 1.0 \
+    --max_workload 65536 \
     --MM_max_workload 65536 \
     --NET_sm_count=32 \
     --MM_M 0 \

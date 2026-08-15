@@ -27,7 +27,8 @@ this framework.
 | `fio` | Local NVMe / shared storage | Exhaustive | fio |
 | `ethr` | North-south management + storage NIC | Exhaustive | ethr |
 | `nvloom` | MNNVL fabric — optional / exploratory | Exhaustive | nvloom |
-| `mnubergemm` | Burn-in | Hybrid / Exhaustive | MNUberGEMM Burn-In |
+| `mnubergemm` | Burn-in — steady load | Hybrid / Exhaustive | MNUberGEMM Burn-In |
+| `mnubergemm-pulse` | Burn-in — pulsed load, off by default | Hybrid / Exhaustive | MNUberGEMM Burn-In |
 | `llm-pretrain` | Single-node LLM pre-training gate — frozen from an `llmb-run` capture | Hybrid / Exhaustive | Single-Node LLM Pre-Training |
 | `llm-pretrain-solo` | 4 independent 1-GPU pre-training copies; finds *which* GPU is slow | Hybrid / Exhaustive | — |
 | `hpl` `cublasmatmul` | Remediation-only single-node GEMM — run by hand | Remediation | HPL / cuBlasMatMul |
@@ -60,6 +61,7 @@ when a node misbehaves and nothing drained it:
 | `ethr` | north-south throughput and latency on the in-band management and storage NICs (ConnectX / BlueField). Deliberately not the same traffic as NCCL or perftest, which are east-west RDMA — these paths are otherwise never exercised |
 | `nvloom` | MNNVL fabric validation per node: bandwidth uniformity across CE and SM engines, outlier detection, thermal behaviour under sustained collective load. Incubation tool, not a required gate in any variant |
 | `mnubergemm` | GPU burn-in — sustained mixed GEMM load for hours, the 24–72 hour row of the plan |
+| `mnubergemm-pulse` | the same workload on a 720-second square wave — six minutes of load, six idle, synchronised across the allocation. Finds what a flat soak cannot: power-delivery response to a load step, and cooling response to the swing back. See [explanation/burn-in-waveform.md](../explanation/burn-in-waveform.md) |
 | `llm-pretrain` | end-to-end Llama 3.1 8B pre-training scoped to one tray, 4-way data parallel. The only job that exercises the whole stack together: framework, container, data pipeline, checkpointing and intra-node collectives |
 | `llm-pretrain-solo` | the same recipe at scale 1, run as four independent single-GPU copies. No collectives at all: every GPU does identical work, so an outlier step time names a slow device rather than a slow node |
 | `hpl`, `cublasmatmul` | single-node GEMM, for isolating one suspect node during remediation. GB300/B300 uses `cublasmatmul` (GB300 MOP 7.5.2); GB200 uses `hpl` |
@@ -245,7 +247,7 @@ priority, so **higher is later** and `0` is the front of the queue. Four tiers:
 | `0` | nothing in this tree | left free for a job queued by hand, which is what `sbatch` defaults to |
 | `1`-`4` | the `dcgmi-r*` gates, one per `-r` level | fast, and they decide whether the rest of the sweep is worth running at all |
 | `20` | every other benchmark | the sweep's own tier |
-| `100000` | `mnubergemm` | burn-in, always last |
+| `100000` | `mnubergemm`, `mnubergemm-pulse` | burn-in, always last |
 
 The gates start at `1` rather than `0` so that anything queued by hand goes in
 front of them: a bare `sbatch` with no `--nice` lands at `0`, and `0` is now
@@ -359,6 +361,7 @@ checked against how its neighbours were sized:
 | `hpl` | `1:50:00` | `2:00:00` | the plan gives no estimate for the remediation GEMM, so this is a bound rather than a doubling |
 | `cublasmatmul` | `0:20:00` | `0:30:00` | 2× its own `DURATION=600`, for the same reason |
 | `mnubergemm` | `6:30:00` | `6:41:00` | `--time_to_run 21420` (5:57) **plus half an hour**, not 2× — see below |
+| `mnubergemm-pulse` | `6:30:00` | `6:41:00` | the same ladder: the waveform changes what the run does, not how long it takes |
 
 `mnubergemm` is the one job that does not double, and the reason generalises to
 any workload that caps its own runtime for hours. A step limit at twice a

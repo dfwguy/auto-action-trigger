@@ -86,6 +86,10 @@ cases=(
   ## Caught by the SHIPPED floor, which was 0 -- check skipped -- until a healthy
   ## tray gave one. See docs/explanation/llmb.md#judging-the-four-step-times.
   "llm-pretrain-solo__slow-gpu|FAIL|per-GPU step times disagree -- spread above 0.02"
+  ## Synthetic; replace with captures once a node has run it. Absent banner is a
+  ## run that never entered dual mode -- docs/explanation/burn-in-waveform.md#the-banner-is-a-gate.
+  "mnubergemm-pulse__good|DONE|"
+  "mnubergemm-pulse__no-dual-banner|FAIL|no dual-mode banner"
   "example__good|DONE|"
   ## Non-zero `exit status:` line, paired with example__good at 0: between them
   ## they hold that line to a wording no gate reacts to. Reported as the run
