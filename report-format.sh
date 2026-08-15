@@ -1,11 +1,11 @@
 #!/bin/bash
 #
 # Shared presentation helpers for the fleet reports: node-list compression,
-# wrapping at range boundaries, elision and pluralisation. Sourced by
+# unwrapped copyable node lists, prose wrapping, elision and pluralisation. Sourced by
 # health-check.sh and overall_report.sh -- never executed.
 #
-# One copy, because the two drifting apart is how a wrapped node list stops
-# pasting into scontrol. See docs/reference/scripts.md.
+# One copy, because the two drifting apart is how a node list stops pasting
+# into scontrol. See docs/reference/scripts.md.
 #
 # Callers set REPORT_FULL=1 for their own --full; nothing elides while it is 1.
 
@@ -152,8 +152,11 @@ wrap_list() {
     return 0
 }
 
-# Print "<label><list>" wrapped, continuation lines indented to match. $3 caps
+# Print "<label><text>" wrapped, continuation lines indented to match. $3 caps
 # the line count for the informational sections; REPORT_FULL prints it all.
+# This is for prose and check names. Node lists use print_node_list below:
+# inserting a newline into one turns a copyable Slurm argument into several
+# shell commands.
 print_wrapped() {
     local label="$1" text="$2" max_lines="${3:-0}" cont first=1 chunk n=0
     [[ "$REPORT_FULL" -eq 1 ]] && max_lines=0
@@ -179,6 +182,14 @@ print_wrapped() {
             printf '%s%s\n' "$cont" "$chunk"
         fi
     done
+}
+
+# Print one compressed node list as one physical line. These lists are meant
+# to be copied into scontrol, clush, or health-check.sh --refresh, so terminal
+# width must never insert a newline into one. The terminal can scroll; a shell
+# cannot infer that an indented continuation belongs to the preceding argument.
+print_node_list() {
+    printf '%s%s\n' "$1" "$2"
 }
 
 # Elide a ","-separated list down to $2 entries plus a count.

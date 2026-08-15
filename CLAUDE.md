@@ -320,7 +320,7 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/llmb-check-test.sh     # llmb install discovery, if you touched llmb_check.py
 ./tests/exclude-test.sh        # the head-node gate, if you touched EXCLUDE_NODES or a results/*/ walk
 ./tests/health-cadence-test.sh # the gates in node_health.sh, if you touched the cadence or the baseline
-./tests/report-format-test.sh  # node-list wrapping, if you touched report-format.sh
+./tests/report-format-test.sh  # node-list formatting and prose wrapping, if you touched report-format.sh
 ./tests/brief-report-test.sh   # the one-line report, if you touched overall_report.sh
 ./tests/health-scan-test.sh    # the health verdict, if you touched health-scan.sh
 ./tests/health-report-test.sh  # the buckets and --drained, if you touched health-check.sh

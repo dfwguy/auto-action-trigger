@@ -163,5 +163,12 @@ got=$(print_wrapped "label  " "$long")
     ok "fast path takes a line that just fits" "80 columns exactly" ||
     bad "fast path takes a line that just fits" "wrapped when it should not"
 
+## Node lists are a machine interface as well as display. Unlike prose,
+## terminal width must not turn one copyable Slurm argument into several lines.
+got=$(print_node_list "nodes   " "$long")
+[[ "$got" == "nodes   $long" ]] &&
+    ok "print_node_list never wraps" "$got" ||
+    bad "print_node_list never wraps" "got [$got]"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

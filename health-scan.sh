@@ -149,7 +149,7 @@ health_section_rows() {
         fi
         ((shown++))
         printf '    %-24s %3d %s\n' "$name" "$count" "$(plural "$count")"
-        print_wrapped "      " "$(compress "$(sort_list "$list")")" 2
+        print_node_list "      " "$(compress "$(sort_list "$list")")"
     done
     [[ "$hidden" -gt 0 ]] &&
         printf '    ... %d more %s — rerun with %s\n' \
@@ -226,7 +226,7 @@ health_section() {
         n_never=$(count_list "$never")
         printf 'Never checked — %d %s with no logs/<node> at all:\n' \
             "$n_never" "$(plural "$n_never")"
-        print_wrapped "    " "$(compress "$never")" 2
+        print_node_list "    " "$(compress "$never")"
         echo
     fi
 }

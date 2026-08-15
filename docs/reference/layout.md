@@ -27,7 +27,7 @@ pieces fit together this way is
 ├── priv.sh                        # The one place a command needing root is run from a cycle that is not
 ├── fanout.sh                      # The one place a command is run on more than one node: clush, else pdsh
 ├── reason-map.sh                  # Slurm drain reason → check names (health-check.sh)
-├── report-format.sh               # Node-list compression, wrapping and elision (health-check.sh, overall_report.sh)
+├── report-format.sh               # Copyable node-list formatting, prose wrapping and elision (health-check.sh, overall_report.sh)
 ├── health-scan.sh                 # The health verdict from logs/ against the baseline (health-check.sh, overall_report.sh)
 ├── slurm-snapshot.sh              # The fleet's one look at Slurm: written by the watchdog, read by every node
 ├── slurm-recovery.sh              # Clears drains Slurm set itself, never an operator's (both actions)

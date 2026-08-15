@@ -364,7 +364,7 @@ if [[ "$individual" -eq 1 ]]; then
         nodes="${ind_nodes[$hash]%,}"
         count=$(count_list "$nodes")
         printf '%d %s\n' "$count" "$(plural "$count")"
-        print_wrapped "  " "$(compress "$nodes")"
+        print_node_list "  " "$(compress "$nodes")"
         cat "${ind_path[$hash]}"
         echo
     done
@@ -601,7 +601,7 @@ if [[ "$drained" -eq 1 ]]; then
         key="${entry#*|}"
         printf '  %-14s %-44s %4d %s\n' \
             "${key%%|*}" "${key#*|}" "$count" "$(plural "$count")"
-        print_wrapped "      " "$(compress "${drain_nodes[$key]%,}")"
+        print_node_list "      " "$(compress "${drain_nodes[$key]%,}")"
     done
     echo
     [[ "$stale" -gt 0 ]] &&
@@ -684,7 +684,7 @@ else
             "$n_checks" "$([[ "$n_checks" -eq 1 ]] && echo check || echo checks)" \
             "$count" "$(plural "$count")"
         print_wrapped "    checks  " "$(elide "${sig// /, }" "$max_checks")"
-        print_wrapped "    nodes   " "$(compress "${sig_nodes[$sig]%,}")"
+        print_node_list "    nodes   " "$(compress "${sig_nodes[$sig]%,}")"
         echo
     done
 
@@ -738,7 +738,7 @@ if [[ "$other" -gt 0 ]]; then
         fi
         ((shown++))
         printf '  %-14s %-40s %4d %s\n' "$state" "$reason" "$count" "$(plural "$count")"
-        print_wrapped "      " "$(compress "${reason_nodes[$key]%,}")" 3
+        print_node_list "      " "$(compress "${reason_nodes[$key]%,}")"
     done
     if [[ "$hidden" -gt 0 ]]; then
         printf '  ... %d more %s covering %d %s — rerun with --drained\n' \
