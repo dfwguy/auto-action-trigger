@@ -87,7 +87,7 @@ srun --time="$STEP_TIMELIMIT" \
     --NET_link_order scatter_sum \
     --NET_size 20480000 \
     --CE_type H \
-    --CE_size 20480000
+    --CE_size 1048576
 rc=$?
 
 ## ------------- parse info starts here ----------- ##

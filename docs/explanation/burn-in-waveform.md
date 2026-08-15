@@ -82,6 +82,13 @@ months while the global cap sat at its default of 16384, which is what actually
 bound. Both jobs now set both, which is also how every example in the tool's
 own README is written.
 
+`--CE_size` went the other way. It carried 20480000, character-identical to
+`--NET_size` two lines above it and an order of magnitude off every reference
+configuration — a paste, not a decision. Both jobs now state the tool's own
+default of 1048576 rather than an unexplained number, and state it explicitly
+rather than omitting the flag, because the default in the NGC image is not
+something this tree can see.
+
 ## Two jobs, not one
 
 The pulsed configuration is a separate `.sbatch` rather than a flag on the
