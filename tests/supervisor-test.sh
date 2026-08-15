@@ -30,6 +30,10 @@ for a in "$@"; do
     [[ "$a" == '%N|%G|%c' ]] &&
         { awk '{ print $1 "|gpu:gb200:4|72" }' <<< "$STUB_SINFO"; exit 0; }
 done
+## Real sinfo can split a free-text reason across physical lines.  Keep this
+## separate from the compact case input above so the hardware query still has
+## a normal node list to render.
+[[ -n "$STUB_SINFO_RAW" ]] && { printf '%s\n' "$STUB_SINFO_RAW"; exit 0; }
 ## The state call: node, state, who set the drain, when, and the free-text reason
 ## last. The cases care only about the first two.
 awk '{ print $1 "|" $2 "|none||" $3 }' <<< "$STUB_SINFO"
@@ -111,7 +115,8 @@ beat() {
 run_sup() {
     rm -f "$work/fanout.calls" "$work/scontrol.calls" "$work/scancel.calls"
     ( export PATH="$stub:$PATH" HOSTNAME=headnode AGENT_HOME="$tree" STUB_DIR="$work" \
-             STUB_SINFO="$1" STUB_SQUEUE="${STUB_SQUEUE:-}" STUB_ARM_FAIL="${STUB_ARM_FAIL:-}" \
+             STUB_SINFO="$1" STUB_SINFO_RAW="${STUB_SINFO_RAW:-}" \
+             STUB_SQUEUE="${STUB_SQUEUE:-}" STUB_ARM_FAIL="${STUB_ARM_FAIL:-}" \
              STUB_RAW_QUEUE="${STUB_RAW_QUEUE:-}" STUB_JOB_NODE="${STUB_JOB_NODE:-n-long}"
       "$tree/agent/supervisor.sh" "${2:---quiet}" >/dev/null 2>&1 )
 }
@@ -188,6 +193,27 @@ fi
 grep -q "returned nothing" <<<"$(last_line)" &&
     ok "and says so rather than reporting an empty fleet" ||
     bad "the empty answer was not explained: $(last_line)"
+
+echo "== multiline Slurm reasons stay reasons =="
+
+rm -rf "$results"
+beat 3600 n-reset
+STUB_SINFO_RAW=$'n-reset|drained|root|2026-08-12T13:53:00|Reset; rebooting to clear\n  Reset; rebooting to clear : Not responding'
+run_sup 'n-reset drained'
+unset STUB_SINFO_RAW
+[[ -f "$results/n-reset/.slurm-view" ]] &&
+    ok "the real node received its view" ||
+    bad "the real node lost its view to a multiline reason"
+grep -q $'^reason\tReset; rebooting to clear Reset; rebooting to clear : Not responding$' \
+    "$results/n-reset/.slurm-view" &&
+    ok "the continuation was kept with the drain reason" ||
+    bad "the drain reason was not reconstructed: $(cat "$results/n-reset/.slurm-view" 2>/dev/null)"
+if [[ -e "$results/  Reset; rebooting to clear" ||
+      -e "$results/  Reset; rebooting to clear : Not responding" ]]; then
+    bad "a reason continuation became a results directory"
+else
+    ok "a reason continuation cannot become a results directory"
+fi
 
 echo "== the arm rate limit =="
 
