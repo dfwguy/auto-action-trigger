@@ -153,6 +153,45 @@ SNAPSHOT_QUERIED=0
 SNAPSHOT_WRITTEN=0
 SNAPSHOT_QUEUED_FLEET=0
 
+## `%E` is free text.  Some Slurm versions render an embedded newline as an
+## indented physical continuation line, even with `-o`; that line must remain
+## part of the preceding reason, never become a node named after the reason.
+## A node name is deliberately not matched against a site hostname convention:
+## it only has to be one safe path component, and the fixed state field proves
+## that this is one of the records requested below.
+snapshot_node_record() {
+    local line="$1" node state reason
+    [[ "$line" =~ ^[^\|]*\|[^\|]*\|[^\|]*\|[^\|]*\| ]] || return 1
+    # The setter and timestamp establish the positions of the fields we need,
+    # but do not affect whether this is a node record.
+    IFS='|' read -r node state _ _ reason <<< "$line"
+    [[ -n "$node" && "$node" != *[[:space:]]* && "$node" != */* &&
+       "$node" != . && "$node" != .. ]] || return 1
+    [[ "$state" =~ [[:alpha:]] ]] || return 1
+    [[ "$state" =~ ^[[:alnum:]_+*~#%:@!?-]+$ ]] || return 1
+    return 0
+}
+
+snapshot_normalize_nodes() {
+    local line record="" continuation
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if snapshot_node_record "$line"; then
+            [[ -n "$record" ]] && printf '%s\n' "$record"
+            record="$line"
+        elif [[ -n "$record" ]]; then
+            ## Slurm indents continuations.  A reason is written to one line in
+            ## the view, so trim that indentation and join it with one space.
+            continuation="${line#"${line%%[![:space:]]*}"}"
+            continuation="${continuation%"${continuation##*[![:space:]]}"}"
+            [[ -n "$continuation" ]] && record+=" $continuation"
+        elif [[ -n "${line//[[:space:]]/}" ]]; then
+            ## stderr keeps this diagnostic out of the command substitution.
+            snapshot_log "WARNING: ignoring orphaned malformed sinfo output: $line" >&2
+        fi
+    done
+    [[ -n "$record" ]] && printf '%s\n' "$record"
+}
+
 ## `%e` is start plus the job's own limit, absolute, so nothing downstream parses
 ## a Slurm duration. An unlimited job reports N/A and keeps it: read as
 ## "expired", it would take a node out of service over a job that is fine.
@@ -189,7 +228,8 @@ snapshot_query() {
     SNAPSHOT_NODES=""; SNAPSHOT_QUEUE=""; SNAPSHOT_HW=""
     SNAPSHOT_QUERIED=0
 
-    SNAPSHOT_NODES=$(sinfo -N -h -o '%N|%T|%u|%H|%E' 2>/dev/null)
+    SNAPSHOT_NODES=$(sinfo -N -h -o '%N|%T|%u|%H|%E' 2>/dev/null |
+                     snapshot_normalize_nodes)
     if [[ -z "$SNAPSHOT_NODES" ]]; then
         SNAPSHOT_WRITE_WHY="'sinfo -N -h' returned nothing. A saturated controller answers this way too, so no view is rewritten and every node keeps the one it has until that ages out"
         return 1
