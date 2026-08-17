@@ -653,7 +653,7 @@ emit_report() {
             printf '    %-11s %3d %s  %s' "$status" "$count" "$(plural "$count")" "${reason:-<no reason recorded>}"
             [[ -n "${group_metrics[$key]}" ]] && printf '%s' "$(metric_range "${group_metrics[$key]}")"
             printf '\n'
-            print_wrapped "      " "$(compress "$(sort_list "$list")")" 3
+            print_node_list "      " "$(compress "$(sort_list "$list")")"
         done < <(
             for key in "${!group_nodes[@]}"; do
                 [[ "$key" == "$col|"* ]] || continue
