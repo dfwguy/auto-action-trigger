@@ -41,6 +41,9 @@ VERDICT_MAX_STEP_MS_LLM_SOLO=3510
 ## ── Burn-in ───────────────────────────────────────────────────────────────
 RUN_BURNIN=no
 BURNIN="mnubergemm"
+## Adds the pulsed waveform beside the steady one; half of each run is idle.
+## See docs/explanation/burn-in-waveform.md#two-jobs-not-one.
+#BURNIN="mnubergemm mnubergemm-pulse"
 
 ## ── Container images ──────────────────────────────────────────────────────
 ## Which images exist is decided by build_containers.sh, which takes them on the

@@ -136,6 +136,12 @@ are not is in
 | `RUN_BURNIN` | `no` | The switch |
 | `BURNIN` | `mnubergemm` | A second list, same format and same rules as `BENCHMARKS` |
 
+`mnubergemm-pulse` ships alongside `mnubergemm` and is **not** in the default
+list. It runs the same workload on a slow square wave, and is added by naming
+it: `BURNIN="mnubergemm mnubergemm-pulse"`. The two are not comparable run for
+run — half of each pulse run is idle. See
+[../explanation/burn-in-waveform.md#two-jobs-not-one](../explanation/burn-in-waveform.md#two-jobs-not-one).
+
 An empty `BURNIN` is a real answer meaning "no burn-in", so it is not
 backfilled. `RUN_BURNIN=yes` with an empty `BURNIN` is traced as a mistake.
 

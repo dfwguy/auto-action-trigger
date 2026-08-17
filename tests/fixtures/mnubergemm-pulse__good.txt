@@ -1,0 +1,9 @@
+preflight: ink50-dh01-h01-13 gpus=4 cores=144/144
+[info] mnubergemm version 26.03-v1.17
+[info] DUAL MODE: WORK: 144000 loops IDLE: 360000 ms
+[info] rank 0 workload GNC sm_count G:112 N:32
+[info] tuning complete: workload_length 65536
+[info] loop 0 high 2.250 ms low 0.250 ms
+[info] loop 1 high 2.251 ms low 0.249 ms
+exit status: 0
+PENDING

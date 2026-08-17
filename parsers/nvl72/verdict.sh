@@ -649,6 +649,18 @@ _v_gate_mnubergemm() {
     return 0
 }
 
+## The pulsed burn-in has the positive marker the steady one lacks: the tool
+## logs its computed waveform before any work. See
+## docs/explanation/burn-in-waveform.md#the-banner-is-a-gate.
+_v_gate_mnubergemm_pulse() {
+    local file="$1"
+    _v_require "$file" "dual-mode banner" 'DUAL MODE: WORK: [0-9]+ loops IDLE: [0-9]+ ms' || return 1
+    _v_forbid  "$file" "run error" "$VERDICT_RUN_ERRORS" || return 1
+    _v_forbid  "$file" "CUDA error, assertion or MPI abort" \
+        'cuda error|CUDA_ERROR|assertion|assert failed|MPI_Abort' || return 1
+    return 0
+}
+
 ## nvsm. The health summary proves both srun steps got far enough to report.
 ## The fail/error sweep is the loosest rule in this file and the one never
 ## checked against a captured healthy run -- narrow it to nvsm's own fault
@@ -748,6 +760,8 @@ _v_dispatch_gate() {
             _v_gate_llm_pretrain_solo "$file" ;;
         mnubergemm)
             _v_gate_mnubergemm "$file" ;;
+        mnubergemm-pulse)
+            _v_gate_mnubergemm_pulse "$file" ;;
         nvsm)
             _v_gate_nvsm "$file" ;;
         example)

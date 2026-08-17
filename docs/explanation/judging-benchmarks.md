@@ -300,6 +300,12 @@ used to live in each sbatch and have never been run against real output. When
 one of those jobs is first enabled at a site, capture its result file as a
 fixture before trusting the verdict.
 
+`mnubergemm-pulse` has fixtures, but they are **written, not captured** — they
+assert that the gate reacts to the dual-mode banner, which is a fact about the
+tool's source rather than about any run on this platform. Treat it as having no
+coverage until a node has produced one. See
+[burn-in-waveform.md#the-banner-is-a-gate](burn-in-waveform.md#the-banner-is-a-gate).
+
 `tests/health-runner-test.sh` is the equivalent for the health side: it runs the
 check loop out of `node_health.sh` against a synthetic check set and asserts
 which mismatches reach the drain reason.
