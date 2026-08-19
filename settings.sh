@@ -41,6 +41,8 @@ fi
 ## See docs/reference/settings.md#burn-in.
 : "${RUN_BURNIN:=no}"
 : "${BURNIN=mnubergemm}"
+## Shared campaign target, hours. See docs/reference/settings.md#burn-in.
+: "${BURNIN_HOURS:=24}"
 ## Image versions. See docs/reference/settings.md#image-versions.
 : "${HPC_BENCHMARKS_TAG:=26.02}"
 : "${NVBANDWIDTH_VERSION:=v0.9}"

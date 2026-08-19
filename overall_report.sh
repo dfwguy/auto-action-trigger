@@ -202,10 +202,12 @@ declare -a notes   # printed under the title, before anything is judged
 note() { notes+=("$1"); }
 
 ## ── Columns ───────────────────────────────────────────────────────────────
-## Burn-in columns only while the phase is on, or they read NOT_RUN forever.
+## BURNIN never expands into per-run columns here -- it is reported as one
+## accumulated-hours line instead. See docs/reference/settings.md#burn-in.
 
 active_benchmarks="$BENCHMARKS"
-setting_enabled "$RUN_BURNIN" && active_benchmarks="$BENCHMARKS $BURNIN"
+show_burnin=0
+setting_enabled "$RUN_BURNIN" && [[ -n "${BURNIN// /}" ]] && show_burnin=1
 
 declare -a columns
 for job in $active_benchmarks; do
@@ -228,7 +230,7 @@ for job in $active_benchmarks; do
     fi
 done
 
-if [[ ${#columns[@]} -eq 0 ]]; then
+if [[ ${#columns[@]} -eq 0 && "$show_burnin" -eq 0 ]]; then
     echo "No active benchmark has a job file under $jobs_dir" >&2
     exit 1
 fi
@@ -546,6 +548,19 @@ brief_line() {
     BRIEF_LINE="$BRIEF_REACH **** $BRIEF_STATE **** tests - $BRIEF_TESTS **** healthchecks - $BRIEF_HEALTH"
 }
 
+## One line per node: "<node>: <N>H/<BURNIN_HOURS>H". Not part of the
+## outstanding-cells grouping above -- a burn-in job mid-campaign is not a
+## failure, so it has no place among reasons a column is not passing.
+## See docs/explanation/burn-in-waveform.md.
+print_burnin_section() {
+    local node
+    echo "BURN-IN"
+    for node in "${nodes[@]}"; do
+        printf '%s: %s\n' "$node" "$(burnin_hours_cell "$node")"
+    done
+    echo
+}
+
 emit_brief() {
     local node line n_out=${#node_outstanding[@]}
     printf 'OVERALL — %d %s, %d benchmark %s, %s\n' \
@@ -577,6 +592,8 @@ emit_brief() {
         printf '%s: %s\n' "$node" "$BRIEF_LINE"
     done | brief_group
     echo
+
+    [[ "$show_burnin" -eq 1 ]] && print_burnin_section
 
     printf '%d of %d %s %s a benchmark column outstanding.\n' \
         "$n_out" "${#nodes[@]}" "$(plural "${#nodes[@]}")" \
@@ -692,6 +709,8 @@ emit_report() {
                 "$(( n_out - shown ))" "$(plural "$(( n_out - shown ))")"
         fi
     fi
+
+    [[ "$show_burnin" -eq 1 ]] && print_burnin_section
 
     ## ── WHAT TO RUN NEXT ──
     printf '── WHAT TO RUN NEXT ────────────────────────────────────────\n'

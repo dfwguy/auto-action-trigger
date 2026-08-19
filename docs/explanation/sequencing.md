@@ -612,20 +612,52 @@ file with no end marker is a job in progress rather than one that died. Nothing
 is archived, requeued or drained on until the marker clears. `quick-view.txt`
 shows those as `IN QUEUE`.
 
-What to expect once burn-in is on: `mnubergemm` is 12 runs of a ~6-hour step,
-submitted one job at a time, so a node is under burn-in for about three days —
-the plan's 24–72 hour row. Each run is its own job and its own result file, so
-an interrupted burn-in resumes at the run it reached rather than starting over.
-`status-check.sh` and `daily-report.sh` grow a column for each `BURNIN` job when
-the switch is on, and drop it again when it is off, so an unused list does not
-leave a permanent `NOT_RUN` column that reads like work outstanding. A burn-in
-failure drains with `burn-in` in the reason, because a node that ran for hours
-and then stopped is a different finding from one that failed a collective in
-fifteen minutes.
+A burn-in failure drains with `burn-in` in the reason, because a node that ran
+for hours and then stopped is a different finding from one that failed a
+collective in fifteen minutes.
 
 With `RUN_BURNIN=no` — the default — nothing burns in, and `BURNIN` jobs appear
 in `quick-view.txt` as `BURN-IN OFF` so a burn-in that never ran cannot be
 misread as one that passed.
+
+## Burn-in
+
+Each job in `BURNIN` still uses the generic `totalRuns=N` mechanism, but
+`totalRuns` is a per-job ceiling now, not the completion signal — `BURNIN_HOURS`
+is. Every cycle, the sequencer picks the eligible job (under its own `totalRuns`
+cap, not inside its retry window) with the **fewest passed runs so far**, ties
+broken by the job's position in the `BURNIN=` line in `SETTINGS` — never by
+name, or two jobs tied at zero passed would sort alphabetically instead of by
+list position. With one job in `BURNIN` this is exactly today's behaviour; with
+more than one, they alternate rather than one running to its own cap before the
+next is ever touched. This is derived fresh every cycle from each job's current
+passed count, not a persisted rotation pointer — the same reason nothing else in
+this tree keeps a verdict anywhere but the result file it came from. See
+[reference/settings.md#burn-in](../reference/settings.md#burn-in).
+
+Validated hours are `passed_runs × run_length`, summed across every job in
+`BURNIN`. A job's run length is read from its own `--time_to_run <N>` flag
+(`mnubergemm`'s own "run for exactly this long" argument) if it has one, else
+`STEP_TIMELIMIT`. `passed` means `DONE` — the gate in `verdict()` already
+requires a result file's last line to be exactly `PENDING` before a job can
+read `DONE` at all, so a truncated or crashed run cannot be credited hours it
+did not run. Scheduling for every job in `BURNIN` stops once the shared total
+reaches `BURNIN_HOURS`, whatever headroom any one job's own `totalRuns` still
+has — reported as `<N>H/<BURNIN_HOURS>H`, which never collapses to a plain
+`DONE` the way a benchmark column does, since the campaign target is additive
+information rather than a verdict. If every job in `BURNIN` reaches its own
+`totalRuns` cap before the shared total reaches `BURNIN_HOURS`, the target is
+permanently unreachable without raising a cap — `launch_job.sh` traces this
+distinctly rather than reading as the ordinary "nothing eligible" silence.
+
+`status-check.sh`, `overall_report.sh` and `daily-report.sh` no longer grow a
+column per run for a `BURNIN` job — that read as up to a dozen separate
+buckets for one job, which is what this section replaced. Each reports one
+accumulated-hours line instead, alongside the normal benchmark columns.
+`next-run.sh`'s burn-in row shows the earliest due time across any still-
+eligible `BURNIN` job without naming which one — naming it correctly would mean
+re-deriving the fairness pick above a second time in a different script purely
+for a preview, which is not worth the risk of the two copies drifting apart.
 
 ## Host-launched jobs
 

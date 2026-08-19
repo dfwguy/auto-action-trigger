@@ -94,16 +94,20 @@ something this tree can see.
 The pulsed configuration is a separate `.sbatch` rather than a flag on the
 existing one, for three reasons:
 
-- The steady job **is** the plan's burn-in row at `totalRuns=12`. Changing its
-  arguments changes what that row means, silently, in a job whose output has
-  never been captured.
+- The steady job **is** the plan's burn-in row, its `totalRuns=12` now a
+  per-job ceiling under the shared `BURNIN_HOURS` target rather than the row's
+  own definition. Changing its arguments still changes what that row means,
+  silently, in a job whose output has never been captured.
 - The two answer different questions and the results are not interchangeable.
   A node that survives thirty load steps has not been soaked, and a node that
   survives a six-hour soak has not been stepped.
 - At `--dual_duty 0.50` half of each run is idle, so a pulse run delivers about
-  half the load-hours of a steady one of the same walltime. `totalRuns=6` on
-  the pulse job is roughly three steady runs' worth of load; the two lists are
-  not comparable run for run.
+  half the load-hours of a steady one of the same walltime. The two are
+  comparable in wall-clock validated hours — both are credited by
+  `--time_to_run`, the argument that bounds a run's length, the same way — but
+  `totalRuns=6` on the pulse job is still roughly three steady runs' worth of
+  *load*, not hours; see
+  [../reference/settings.md#burn-in](../reference/settings.md#burn-in).
 
 Both queue at `--nice=100000` and neither runs unless `RUN_BURNIN` is on and
 the job is named in `BURNIN` — see

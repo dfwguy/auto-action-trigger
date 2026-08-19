@@ -67,6 +67,70 @@ metric_label() {
     esac
 }
 
+## ── Burn-in ────────────────────────────────────────────────────────────────
+## Trimmed copies of actions/launch_job.sh's job_launcher/job_total_runs/
+## job_run_seconds -- the report side of the same read-by-grep-never-source
+## rule (docs/explanation/sequencing.md#nothing-is-read-by-sourcing-it), kept
+## here rather than sourced from launch_job.sh because that file pulls in the
+## submission machinery this report side has no business running.
+
+_scan_job_launcher() {
+    local job="$1"
+    [[ -f "$JOBS_DIR/$job.sbatch" ]] && { printf '%s' "$JOBS_DIR/$job.sbatch"; return 0; }
+    [[ -f "$JOBS_DIR/$job.sh" ]] &&
+        grep -qE '^[[:space:]]*job_launch=host[[:space:]]*$' "$JOBS_DIR/$job.sh" && {
+            printf '%s' "$JOBS_DIR/$job.sh"; return 0; }
+    return 1
+}
+
+_scan_job_total_runs() {
+    local launch="$1" total=1
+    if grep -Fq "totalRuns" "$launch"; then
+        total=$(grep -F totalRuns "$launch" | head -1 | awk -F= '{print $2}' | tr -d '[:space:]')
+    fi
+    [[ "$total" =~ ^[0-9]+$ ]] && [[ "$total" -gt 0 ]] || total=1
+    printf '%s' "$total"
+}
+
+_scan_job_run_seconds() {
+    local launch="$1" secs h m s
+    if grep -Fq -- "--time_to_run" "$launch"; then
+        secs=$(grep -F -- "--time_to_run" "$launch" | head -1 | awk '{print $2}' | tr -d '[:space:]')
+        [[ "$secs" =~ ^[0-9]+$ ]] && { printf '%s' "$secs"; return; }
+    fi
+    IFS=: read -r h m s < <(grep -F "STEP_TIMELIMIT=" "$launch" | head -1 | awk -F= '{print $2}')
+    [[ "$h" =~ ^[0-9]+$ ]] || h=0
+    [[ "$m" =~ ^[0-9]+$ ]] || m=0
+    [[ "$s" =~ ^[0-9]+$ ]] || s=0
+    printf '%s' $(( 10#$h * 3600 + 10#$m * 60 + 10#$s ))
+}
+
+## "<N>H/<BURNIN_HOURS>H" for one node -- validated hours summed across every
+## job in BURNIN, never DONE on its own: the campaign target is additive
+## information, not a verdict. Bypasses the scan cache entirely (not called
+## through scan_fleet/_scan_node) -- correctly, since the value depends on
+## BURNIN_HOURS too, not just one result file and one gate.
+## See docs/explanation/burn-in-waveform.md.
+burnin_hours_cell() {
+    local node="$1" job launch total secs r file hours=0
+    for job in $BURNIN; do
+        launch=$(_scan_job_launcher "$job") || continue
+        total=$(_scan_job_total_runs "$launch")
+        secs=$(_scan_job_run_seconds "$launch")
+        for ((r = 1; r <= total; r++)); do
+            if [[ "$total" -eq 1 ]]; then
+                file="$SCAN_RESULTS_DIR/$node/$job.txt"
+            else
+                file="$SCAN_RESULTS_DIR/$node/$job-run${r}.txt"
+            fi
+            [[ -f "$file" ]] || continue
+            verdict "$job" "$file"
+            [[ "$VERDICT_STATUS" == "DONE" ]] && hours=$(( hours + secs / 3600 ))
+        done
+    done
+    printf '%sH/%sH' "$hours" "${BURNIN_HOURS:-0}"
+}
+
 ## ── Per-node scan ─────────────────────────────────────────────────────────
 
 # Newest <col>.<kind><N>.txt, into _SCAN_ARCHIVE. By numeric suffix, not mtime:

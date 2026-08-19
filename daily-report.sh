@@ -128,9 +128,11 @@ fi
 declare -a job_order
 declare -A job_total_runs
 
-# Burn-in columns only when the phase is enabled -- see status-check.sh.
+# BURNIN never expands into per-run columns here -- it is one accumulated-
+# hours column instead. See docs/reference/settings.md#burn-in.
 active_benchmarks="$BENCHMARKS"
-setting_enabled "$RUN_BURNIN" && active_benchmarks="$BENCHMARKS $BURNIN"
+show_burnin=0
+setting_enabled "$RUN_BURNIN" && [[ -n "${BURNIN// /}" ]] && show_burnin=1
 
 for job in $active_benchmarks; do
     ## See docs/explanation/sequencing.md#host-launched-jobs.
@@ -251,6 +253,10 @@ for job in "${job_order[@]}"; do
         done
     fi
 done
+if [[ "$show_burnin" -eq 1 ]]; then
+    header+=$'\t'"burnin_hours"
+    columns+=("burnin_hours")
+fi
 rows+=("$header")
 
 ## Once per job, not per node per job: the answer never varies by node.
@@ -301,6 +307,16 @@ while IFS="$SCAN_FS" read -r node col status _reason metric; do
         (( cell_count["$cell"]++ ))
     fi
 done < <(scan_fleet "${nodes[@]}")
+
+## Not through scan_fleet -- burnin_hours_cell sums across every BURNIN job
+## and every run of each, which is not one column's verdict, and the campaign
+## target it is judged against means it must not be cached either.
+## See docs/explanation/burn-in-waveform.md.
+if [[ "$show_burnin" -eq 1 ]]; then
+    for node in "${nodes[@]}"; do
+        cells["$node,burnin_hours"]=$(burnin_hours_cell "$node")
+    done
+fi
 
 for node in "${nodes[@]}"; do
     state="${slurm_state[$node]:-$slurm_default}"

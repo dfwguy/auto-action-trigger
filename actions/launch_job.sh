@@ -73,6 +73,24 @@ job_total_runs() {
     printf '%s' "$total"
 }
 
+## How long one passing run of a burn-in job is worth, in seconds. mnubergemm
+## is told its own run length on the command line, so that number is
+## authoritative; a job without one falls back to STEP_TIMELIMIT (H:MM:SS,
+## the only form used anywhere under jobs/ -- see docs/reference/jobs.md).
+## See docs/reference/settings.md#burn-in.
+job_run_seconds() {
+    local launch="$1" secs h m s
+    if grep -Fq -- "--time_to_run" "$launch"; then
+        secs=$(grep -F -- "--time_to_run" "$launch" | head -1 | awk '{print $2}' | tr -d '[:space:]')
+        [[ "$secs" =~ ^[0-9]+$ ]] && { printf '%s' "$secs"; return; }
+    fi
+    IFS=: read -r h m s < <(grep -F "STEP_TIMELIMIT=" "$launch" | head -1 | awk -F= '{print $2}')
+    [[ "$h" =~ ^[0-9]+$ ]] || h=0
+    [[ "$m" =~ ^[0-9]+$ ]] || m=0
+    [[ "$s" =~ ^[0-9]+$ ]] || s=0
+    printf '%s' $(( 10#$h * 3600 + 10#$m * 60 + 10#$s ))
+}
+
 ## Result file for run $2 of job $1. Single-run jobs use <job>.txt.
 result_file() {
     local job="$1" run="$2" total="$3"
@@ -735,6 +753,9 @@ declare -a pending_jobs=()
 declare -a failed_jobs=()
 declare -a surveyed_jobs=()
 declare -A fail_reasons=()
+## Per-job passed count from the most recent survey() call -- the fairness
+## ordering and the hour target both read this rather than re-deriving it.
+declare -A job_passed=()
 newest_result=0
 swept=1
 ## Survey one list. pending_jobs / failed_jobs / swept reset on each call;
@@ -751,6 +772,7 @@ survey() {
     pending_jobs=()
     failed_jobs=()
     surveyed_jobs=()
+    job_passed=()
     swept=1
 
 for job in $list; do
@@ -817,8 +839,64 @@ for job in $list; do
     [[ "$attempted" -eq 0 ]] && swept=0
     [[ "$failed" -eq 1 ]] && failed_jobs+=("$job")
     [[ "$passed" -lt "$totalRuns" ]] && pending_jobs+=("$job")
+    job_passed["$job"]=$passed
 done
     return 0
+}
+
+## BURNIN in fairness order: the job with the fewest passed runs first, ties
+## broken by BURNIN's own order -- never by name, or two jobs tied at zero
+## passed would sort alphabetically instead of by list position. A job at its
+## own totalRuns cap drops out. Derived fresh from job_passed (itself re-read
+## from disk every survey) rather than a persisted rotation pointer, same as
+## every other verdict in this tree. See docs/explanation/sequencing.md#burn-in.
+##
+## Defined here, ahead of the "nothing to do at all" exit below, rather than
+## beside next_eligible(): this script runs top to bottom as one process, not
+## sourced then dispatched, so a function has to exist before the first line
+## that can reach a call to it.
+burnin_order() {
+    local job launch total i=0
+    for job in $BURNIN; do
+        launch=$(job_launcher "$job") || { i=$((i + 1)); continue; }
+        total=$(job_total_runs "$launch")
+        [[ "${job_passed[$job]:-0}" -lt "$total" ]] &&
+            printf '%s %s %s\n' "${job_passed[$job]:-0}" "$i" "$job"
+        i=$((i + 1))
+    done | sort -k1,1n -k2,2n | awk '{print $3}' | tr '\n' ' '
+}
+
+## Whether the shared campaign target still has room. 0 is the deliberate
+## "no target" answer -- totalRuns per job is the only cap left. See
+## docs/reference/settings.md#burn-in.
+BURNIN_HOURS_WARNED=0
+burnin_hours_open() {
+    if [[ ! "$BURNIN_HOURS" =~ ^[0-9]+$ ]]; then
+        [[ "$BURNIN_HOURS_WARNED" -eq 0 ]] &&
+            trace "WARNING: BURNIN_HOURS='$BURNIN_HOURS' in ${SETTINGS_FILE:-<no settings file found>} is not a whole number -- burn-in scheduling proceeds as if uncapped (totalRuns per job still applies)."
+        BURNIN_HOURS_WARNED=1
+        return 0
+    fi
+    [[ "$BURNIN_HOURS" -eq 0 ]] && return 0
+    local total_hours
+    total_hours=$(burnin_hours_total)
+    if [[ "$total_hours" -ge "$BURNIN_HOURS" ]]; then
+        trace "burn-in: ${total_hours}H/${BURNIN_HOURS}H reached -- no further burn-in submitted"
+        return 1
+    fi
+    return 0
+}
+
+## Validated hours across every job in BURNIN, passed runs only -- a failed or
+## in-progress run contributes nothing. See docs/reference/settings.md#burn-in.
+burnin_hours_total() {
+    local job launch secs total_hours=0
+    for job in $BURNIN; do
+        launch=$(job_launcher "$job") || continue
+        secs=$(job_run_seconds "$launch")
+        total_hours=$(( total_hours + ${job_passed[$job]:-0} * secs / 3600 ))
+    done
+    printf '%s' "$total_hours"
 }
 
 in_list() {
@@ -859,11 +937,20 @@ write_quickview() {
                 echo "$job: QUEUED${reason:+  <- $reason}"
             fi
         done
+        ## Not burnin_hours_open() -- that traces when it closes the gate, and
+        ## this is display, called from several exit paths in one cycle; a
+        ## silent arithmetic check avoids retracing the same fact repeatedly.
+        local qv_hours_met=0
+        setting_enabled "$RUN_BURNIN" && [[ "$BURNIN_HOURS" =~ ^[0-9]+$ ]] &&
+            [[ "$BURNIN_HOURS" -gt 0 ]] && [[ "$(burnin_hours_total)" -ge "$BURNIN_HOURS" ]] &&
+            qv_hours_met=1
         for job in $BURNIN; do
             if ! setting_enabled "$RUN_BURNIN"; then
                 echo "$job: BURN-IN OFF  <- RUN_BURNIN=$RUN_BURNIN"
             elif [[ "$job" == "$IN_FLIGHT_JOB" ]]; then
                 echo "$job: IN FLIGHT"
+            elif [[ "$qv_hours_met" -eq 1 ]] && in_list "$job" "${burn_pending[@]}"; then
+                echo "$job: DONE (BURNIN_HOURS reached)"
             elif ! in_list "$job" "${burn_pending[@]}"; then
                 echo "$job: DONE"
             else
@@ -912,11 +999,20 @@ if [[ -z "$TEST_LIST" ]] && setting_enabled "$RUN_BURNIN"; then
     fi
 fi
 
-## Nothing to do at all -- everything that is meant to run has passed.
+## Nothing to do at all -- everything that is meant to run has passed. A
+## BURNIN job at its own totalRuns cap never enters burn_pending, so this is
+## also where "every job capped" shows up -- distinguished from a genuinely
+## clean sweep by whether BURNIN_HOURS is still open: the generic "passing"
+## trace below would otherwise read as fine when the target cannot be reached
+## without raising a cap. See docs/explanation/sequencing.md#burn-in.
 if [[ "${#bench_pending[@]}" -eq 0 && "${#burn_pending[@]}" -eq 0 ]]; then
     write_quickview
     resume_node
-    if setting_enabled "$RUN_BURNIN"; then
+    if setting_enabled "$RUN_BURNIN" && [[ -n "${BURNIN// /}" ]] &&
+       [[ "$BURNIN_HOURS" =~ ^[0-9]+$ ]] && [[ "$BURNIN_HOURS" -gt 0 ]] &&
+       [[ "$(burnin_hours_total)" -lt "$BURNIN_HOURS" ]]; then
+        trace "WARNING: every BURNIN job is at its own totalRuns cap but the accumulated total ($(burnin_hours_total)H) is below BURNIN_HOURS=${BURNIN_HOURS}H -- the target cannot be reached without raising a job's totalRuns."
+    elif setting_enabled "$RUN_BURNIN"; then
         trace "EXIT: every benchmark and every burn-in job passing"
     else
         trace "EXIT: every benchmark passing (burn-in not run: RUN_BURNIN=$RUN_BURNIN)"
@@ -1161,11 +1257,27 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
 }
 
 ## Benchmarks first, then burn-in -- and only ever one. BENCHMARKS order is the
-## run order now that nothing queues behind anything.
+## run order now that nothing queues behind anything. BURNIN runs in fairness
+## order (burnin_order) rather than list order, and stops the moment the
+## shared BURNIN_HOURS target is met, whatever headroom any one job's own
+## totalRuns still has. See docs/explanation/sequencing.md#burn-in.
+burnin_eligible=0
+if [[ -z "$TEST_LIST" ]] && setting_enabled "$RUN_BURNIN" && [[ -n "${BURNIN// /}" ]] &&
+   [[ "${#bench_pending[@]}" -eq 0 ]]; then
+    burnin_eligible=1
+fi
+## Computed once per cycle: burnin_hours_open() traces when it closes the
+## gate, and calling it twice would trace it twice for one decision.
+burnin_hours_still_open=1
+[[ "$burnin_eligible" -eq 1 ]] && { burnin_hours_open || burnin_hours_still_open=0; }
+
+## The every-job-at-its-own-cap warning lives at the "nothing to do at all"
+## exit above, not here: a BURNIN job at its cap never enters burn_pending, so
+## burnin_eligible (which requires bench_pending empty) and burn_pending empty
+## are the same condition, and that exit is reached first.
 if next_eligible "${TEST_LIST:-$BENCHMARKS}"; then
     submit_target=bench
-elif [[ -z "$TEST_LIST" ]] && setting_enabled "$RUN_BURNIN" && [[ -n "${BURNIN// /}" ]] &&
-     [[ "${#bench_pending[@]}" -eq 0 ]] && next_eligible "$BURNIN"; then
+elif [[ "$burnin_eligible" -eq 1 && "$burnin_hours_still_open" -eq 1 ]] && next_eligible "$(burnin_order)"; then
     submit_target=burnin
 else
     submit_target=""

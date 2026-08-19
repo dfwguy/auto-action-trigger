@@ -135,11 +135,20 @@ are not is in
 |---------|---------|---------|
 | `RUN_BURNIN` | `no` | The switch |
 | `BURNIN` | `mnubergemm` | A second list, same format and same rules as `BENCHMARKS` |
+| `BURNIN_HOURS` | `24` | Shared campaign target across every job in `BURNIN`, in validated hours. `0` disables the gate — `totalRuns` per job is the only cap left |
+
+`totalRuns` (the generic per-job run-count literal, see
+[add-a-benchmark.md](../how-to/add-a-benchmark.md)) is a per-job ceiling under
+`BURNIN`, not the completion signal — `BURNIN_HOURS` is. With more than one job
+in `BURNIN`, they alternate: each cycle picks the eligible job with the fewest
+passed runs so far, ties broken by `BURNIN`'s own order. See
+[explanation/sequencing.md#burn-in](../explanation/sequencing.md#burn-in).
 
 `mnubergemm-pulse` ships alongside `mnubergemm` and is **not** in the default
 list. It runs the same workload on a slow square wave, and is added by naming
-it: `BURNIN="mnubergemm mnubergemm-pulse"`. The two are not comparable run for
-run — half of each pulse run is idle. See
+it: `BURNIN="mnubergemm mnubergemm-pulse"`. The two are comparable in
+wall-clock validated hours now — both are credited by `--time_to_run` the same
+way — but not in delivered load: half of each pulse run is idle. See
 [../explanation/burn-in-waveform.md#two-jobs-not-one](../explanation/burn-in-waveform.md#two-jobs-not-one).
 
 An empty `BURNIN` is a real answer meaning "no burn-in", so it is not

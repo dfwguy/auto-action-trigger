@@ -44,6 +44,10 @@ BURNIN="mnubergemm"
 ## Adds the pulsed waveform beside the steady one; half of each run is idle.
 ## See docs/explanation/burn-in-waveform.md#two-jobs-not-one.
 #BURNIN="mnubergemm mnubergemm-pulse"
+## Shared across every job in BURNIN. 0 means "no target" -- totalRuns alone
+## still caps each job, but nothing stops scheduling on hours.
+## See docs/reference/settings.md#burn-in.
+BURNIN_HOURS=24
 
 ## ── Container images ──────────────────────────────────────────────────────
 ## Which images exist is decided by build_containers.sh, which takes them on the
