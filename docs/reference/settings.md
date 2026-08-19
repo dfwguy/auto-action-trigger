@@ -287,7 +287,14 @@ see [how-to/arm-a-node.md#disarming-a-node](../how-to/arm-a-node.md#disarming-a-
 It is scoped to the arming alone, and deliberately: the watchdog's other job is
 writing the node view every agent decides from, and a pause that stopped that
 would stop the whole fleet a snapshot age later.
-`--explain` is stopped by none of them. The reasoning for all of them is in
+`--explain` is stopped by none of them, and neither is the heartbeat: all five
+are read deep inside a cycle, after `results/<node>/.heartbeat` is already
+touched, so a node with any of them set to `yes` still reads fresh in
+`overall_report.sh`. A node reading DOWN is its *timer* that stopped, which
+none of these switches touch — that is `pause-agents.sh`, a different
+mechanism entirely. See
+[explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means](../explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means).
+The reasoning for all of them is in
 [explanation/sequencing.md#what-a-pause-is-for](../explanation/sequencing.md#what-a-pause-is-for);
 what to expect while paused is
 [how-to/pause-and-resume.md](../how-to/pause-and-resume.md).

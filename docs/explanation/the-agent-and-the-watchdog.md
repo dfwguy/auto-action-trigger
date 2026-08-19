@@ -43,12 +43,16 @@ the cycle did any work, and it deliberately cannot be read that way.
 The distinction matters because most cycles legitimately do nothing. A node that
 is paused, filtered out by `NODE_FILTER`, waiting out a health-check interval or
 busy with somebody's job is a node in perfect working order, and arming it again
-would achieve nothing. What the watchdog is looking for is the node whose *timer*
-has stopped — because the user manager was killed, because lingering was never
-enabled, because the machine was reimaged, because somebody ran
-`systemctl --user stop`. None of those write anything to any log; the only
-evidence is an absence, so the absence has to be of something written
-unconditionally.
+would achieve nothing. `PAUSE_JOBS` and the other `PAUSE_*` switches in
+[reference/settings.md#pause-switches](../reference/settings.md#pause-switches)
+are read well after the heartbeat touch, so none of them can produce a stale
+one — a paused node keeps writing `.heartbeat` on schedule. What the watchdog is
+looking for is the node whose *timer* has stopped — because the user manager was
+killed, because lingering was never enabled, because the machine was reimaged,
+because somebody ran `systemctl --user stop`, or because `pause-agents.sh` did
+that on purpose fleet-wide for a tarball drop. None of those write anything to
+any log; the only evidence is an absence, so the absence has to be of something
+written unconditionally.
 
 That is also why the heartbeat is written **above the flock**. A cycle wedged in
 a long rsync still has a working timer, and re-arming would not unwedge it. That
