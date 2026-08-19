@@ -39,7 +39,6 @@ fi
 : "${VERDICT_MAX_STEP_MS_LLM_SOLO=3510}"
 ## `=` not `:=`: an empty BURNIN means "no burn-in" and is a real answer.
 ## See docs/reference/settings.md#burn-in.
-: "${RUN_BURNIN:=no}"
 : "${BURNIN=mnubergemm}"
 ## Shared campaign target, hours. See docs/reference/settings.md#burn-in.
 : "${BURNIN_HOURS:=24}"
@@ -52,18 +51,20 @@ fi
 ## 0 disables the cadence. See docs/explanation/health-cadence.md.
 : "${HEALTH_INTERVAL_HOURS:=4}"
 : "${HEALTH_RETRY_INTERVAL_HOURS:=1}"
-## Pause and drain switches, all defaulting off so an empty or unreadable value
-## carries on rather than stopping the fleet or draining it. See
-## docs/reference/settings.md#pause-switches and docs/reference/settings.md#drains.
-: "${PAUSE_JOBS:=no}"
-: "${PAUSE_HEALTH_CHECKS:=no}"
-: "${PAUSE_CONTAINER_COPY:=no}"
-## Independent of PAUSE_JOBS: stopping the sweep and stopping drains being
-## cleared are different decisions. See docs/reference/settings.md#pause-switches.
-: "${PAUSE_RECOVERY:=no}"
+## Run and drain switches, all defaulting on (RUN_BURNIN is the one
+## exception, opt-in) so an empty or unreadable value carries on rather than
+## stopping the fleet or draining it. See docs/reference/settings.md#run-switches
+## and docs/reference/settings.md#drains.
+: "${RUN_JOBS:=yes}"
+: "${RUN_HEALTH_CHECKS:=yes}"
+: "${RUN_CONTAINER_COPY:=yes}"
+## Independent of RUN_JOBS: stopping the sweep and stopping drains being
+## cleared are different decisions. See docs/reference/settings.md#run-switches.
+: "${RUN_RECOVERY:=yes}"
 ## Stops the watchdog arming nodes; agents already running are left alone.
-## See docs/reference/settings.md#pause-switches.
-: "${PAUSE_ARMING:=no}"
+## See docs/reference/settings.md#run-switches.
+: "${RUN_ARMING:=yes}"
+: "${RUN_BURNIN:=no}"
 : "${DRAIN_AFTER_FAILED_HEALTH_CHECK:=no}"
 : "${DRAIN_AFTER_FAILED_BENCHMARK:=no}"
 ## Recovery of drains Slurm set itself. On by default, unlike the switches
@@ -204,6 +205,24 @@ setting_enabled() {
         yes|true|1|on) return 0 ;;
         *)             return 1 ;;
     esac
+}
+
+## The inverse, not `! setting_enabled`: a RUN_* switch has to fail toward
+## running when its value is a typo or empty, the same direction the PAUSE_*
+## switches these replaced already had -- so only a clear "no" disables.
+## See docs/reference/settings.md#run-switches.
+setting_disabled() {
+    case "${1,,}" in
+        no|false|0|off) return 0 ;;
+        *)              return 1 ;;
+    esac
+}
+
+## True if $SETTINGS_FILE still sets $1 as text -- a name nothing reads any
+## more sets no shell variable, so this is the only way to notice it is still
+## there. See docs/reference/settings.md#run-switches.
+old_setting_present() {
+    [[ -n "$SETTINGS_FILE" ]] && grep -qE "^[[:space:]]*$1[[:space:]]*=" "$SETTINGS_FILE"
 }
 
 ## ── Hosts that are not compute nodes ──────────────────────────────────────

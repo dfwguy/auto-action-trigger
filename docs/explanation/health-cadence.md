@@ -122,7 +122,7 @@ was not queued and gives both readings rather than predicting a cycle that may
 have nobody to run it.
 
 The sentinel is consumed at exactly one place in `node_health.sh`, below the
-`PAUSE_HEALTH_CHECKS` gate. A refresh queued during a pause is therefore still
+`RUN_HEALTH_CHECKS` gate. A refresh queued during a pause is therefore still
 waiting when the pause lifts, rather than being eaten by a cycle that then
 declined to run anything. See
 [pause-and-resume.md](../how-to/pause-and-resume.md).

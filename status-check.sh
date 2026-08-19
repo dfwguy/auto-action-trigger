@@ -281,9 +281,9 @@ print_burnin_lines() {
 
 # Paused means the report stops moving. On stderr so it survives -s being piped
 # and cannot land inside a node list pasted into scancel.
-if setting_enabled "$PAUSE_JOBS"; then
-    echo "NOTE: PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE##*/} -- no benchmarks are" >&2
-    echo "      being submitted, so nothing below will change until it is set to no." >&2
+if setting_disabled "$RUN_JOBS"; then
+    echo "NOTE: RUN_JOBS=$RUN_JOBS in ${SETTINGS_FILE##*/} -- no benchmarks are" >&2
+    echo "      being submitted, so nothing below will change until it is set to yes." >&2
 fi
 
 if [[ "$summary" -ne 1 ]]; then

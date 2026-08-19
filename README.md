@@ -332,10 +332,10 @@ scontrol update nodename=node001 state=RESUME
 Stop the whole framework for a maintenance window, without disarming it — in `SETTINGS`, effective fleet-wide on the next agent cycle:
 
 ```bash
-PAUSE_JOBS=yes             # no benchmarks submitted; queued ones cancelled
-PAUSE_HEALTH_CHECKS=yes    # no health checks run; Slurm untouched
-PAUSE_CONTAINER_COPY=yes   # no new rsync into NODE_CONTAINER_DIR
-PAUSE_ARMING=yes           # the watchdog arms no node; running agents carry on
+RUN_JOBS=no             # no benchmarks submitted; queued ones cancelled
+RUN_HEALTH_CHECKS=no    # no health checks run; Slurm untouched
+RUN_CONTAINER_COPY=no   # no new rsync into NODE_CONTAINER_DIR
+RUN_ARMING=no           # the watchdog arms no node; running agents carry on
 ```
 
 Nothing is lost — results stay, the sweep resumes where it stopped. One already-running benchmark per node is left to finish. To empty the queue now instead:

@@ -50,7 +50,7 @@ is refused with that reason rather than attempted.
 whether the node should be given work at all is asked the same way as on a
 normal cycle, and each one traces that `--force` did not override it:
 
-- **`PAUSE_JOBS=yes`** — nothing is submitted. Set it back to `no` to sweep.
+- **`RUN_JOBS=no`** — nothing is submitted. Set it back to `yes` to sweep.
 - **`NODE_FILTER` not matching this node** — nothing is submitted. `--test`
   opens it; `--force` does not.
 - **Another user's job on the node** — the node is left to them.
@@ -106,7 +106,7 @@ trace:
   columns, which this run has not surveyed; rewriting it would report every real
   column as `QUEUED`.
 - **Most gates that decide whether the node should get work at all still
-  apply** — `PAUSE_JOBS`, another user's job, and a job of ours already out.
+  apply** — `RUN_JOBS`, another user's job, and a job of ours already out.
   `--test` is a choice of *what* to submit, and those are about *whether* to.
   The exception is `NODE_FILTER`, which `--test` opens.
 
@@ -151,9 +151,9 @@ pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/node_hea
 | `--verbose`, `-v` | mirror the trace to stdout — the default on a tty, off under the agent and a fan-out |
 | `--quiet`, `-q` | never mirror it |
 
-`--force` opens the cadence gate and nothing else. `PAUSE_HEALTH_CHECKS`, the
+`--force` opens the cadence gate and nothing else. `RUN_HEALTH_CHECKS`, the
 not-a-compute-node gate and the baseline-is-this-node refusal all still apply,
-for the same reason `--force` does not open `PAUSE_JOBS` above: they are site
+for the same reason `--force` does not open `RUN_JOBS` above: they are site
 switches and safety gates, not timing.
 
 From the head node, and where you do not want to wait for a agent cycle to

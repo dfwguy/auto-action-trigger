@@ -39,7 +39,8 @@ VERDICT_MAX_STEP_MS_LLM_PRETRAIN=3480
 VERDICT_MAX_STEP_MS_LLM_SOLO=3510
 
 ## ── Burn-in ───────────────────────────────────────────────────────────────
-RUN_BURNIN=no
+## RUN_BURNIN is set in Run switches, below, next to the rest -- see
+## docs/reference/settings.md#run-switches.
 BURNIN="mnubergemm"
 ## Adds the pulsed waveform beside the steady one; half of each run is idle.
 ## See docs/explanation/burn-in-waveform.md#two-jobs-not-one.
@@ -67,12 +68,14 @@ NEMO_TAG=26.04.01
 HEALTH_INTERVAL_HOURS=4
 HEALTH_RETRY_INTERVAL_HOURS=1
 
-## ── Pause switches ────────────────────────────────────────────────────────
-PAUSE_JOBS=no
-PAUSE_HEALTH_CHECKS=no
-PAUSE_CONTAINER_COPY=no
-PAUSE_RECOVERY=no
-PAUSE_ARMING=no
+## ── Run switches ──────────────────────────────────────────────────────────
+RUN_JOBS=yes
+RUN_HEALTH_CHECKS=yes
+RUN_CONTAINER_COPY=yes
+RUN_RECOVERY=yes
+RUN_ARMING=yes
+## Opt-in, unlike the rest of this block. See docs/reference/settings.md#burn-in.
+RUN_BURNIN=no
 
 ## ── Drains ────────────────────────────────────────────────────────────────
 DRAIN_AFTER_FAILED_HEALTH_CHECK=no

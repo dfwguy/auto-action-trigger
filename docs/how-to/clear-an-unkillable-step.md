@@ -150,7 +150,7 @@ feeding the sweep into it before you work through them:
 sinfo -R | grep -i 'kill task failed'  # the full list, with timestamps
 ```
 
-`-p` writes `PAUSE_JOBS=yes` for the whole fleet and you lift it by hand — see
+`-p` writes `RUN_JOBS=no` for the whole fleet and you lift it by hand — see
 [pause-and-resume.md](pause-and-resume.md). Group the nodes by what they were
 running and by leaf switch before rebooting any of them; see
 [diagnose-a-failed-node.md](diagnose-a-failed-node.md).

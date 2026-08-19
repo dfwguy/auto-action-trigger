@@ -243,7 +243,7 @@ page.
 Three decisions were per-node queries whose data the watchdog already has in the
 queue it just read. All three are now one pass over it.
 
-**Pending jobs under `PAUSE_JOBS`.** Was two `squeue -n` per node per cycle, on
+**Pending jobs under `RUN_JOBS=no`.** Was two `squeue -n` per node per cycle, on
 every node, whether or not anything was paused. The watchdog cancels every
 PENDING job of ours fleet-wide in one `scancel` and leaves running ones to
 finish. The node still traces what it can see of its own jobs, so the pause is
@@ -268,7 +268,7 @@ The node learns why its job vanished from a breadcrumb the watchdog leaves at
 yield would read as "gone from the queue with no end marker", which is the same
 line a crash produces.
 
-`PAUSE_ARMING` is now scoped to the arming rather than ending the cycle. It has
+`RUN_ARMING` is now scoped to the arming rather than ending the cycle. It has
 to be: the view is what the whole fleet decides from, and a paused watchdog that
 stopped writing it would stop every agent a snapshot age later.
 

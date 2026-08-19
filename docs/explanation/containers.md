@@ -103,7 +103,7 @@ is left in the unit's cgroup the moment `ExecStart` returns.
 
 So the copy got whatever was left of the cycle that started it, which is not a
 duration anything chose. A cycle that runs the 45 health checks takes seconds; a
-cycle with the health cadence closed and `PAUSE_JOBS` set exits every gate at
+cycle with the health cadence closed and `RUN_JOBS=no` set exits every gate at
 once and takes well under one. The same fleet showed both: nodes that filled
 completely during their first cycles, and nodes stuck at exactly one image
 because every cycle since had given the copy milliseconds. `--partial` meant

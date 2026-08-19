@@ -129,7 +129,7 @@ Every decision, including the ones that changed nothing, is written to
 why, in the same place everything else does.
 
 `launch_job.sh --explain` classifies and reports without resuming anything, and
-reads through `PAUSE_RECOVERY`:
+reads through `RUN_RECOVERY`:
 
 ```bash
 clush -w ink50-dh01-h03-16 '/home/cmods/bringup/actions/launch_job.sh --explain'

@@ -323,7 +323,7 @@ resumes the sweep where it stopped.
 **The watchdog will arm it straight back** as soon as its heartbeat goes stale
 and it is idle or drained. To take a node out of the framework rather than
 restart it, use `EXCLUDE_NODES` or `NODE_FILTER` in `SETTINGS`, or
-`PAUSE_ARMING=yes` to stop the watchdog arming anything at all. See
+`RUN_ARMING=no` to stop the watchdog arming anything at all. See
 [pause-and-resume.md](pause-and-resume.md).
 
 **Removing the framework entirely starts at the head node**, for the same

@@ -25,7 +25,7 @@
 # a stop it matters -- an unconfirmed node may still be reading the tree -- and
 # --status is what settles that, because it reads heartbeats rather than replies.
 #
-# This is a stop, not a pause: PAUSE_JOBS and the rest live in SETTINGS on the
+# This is a stop, not a pause: RUN_JOBS and the rest live in SETTINGS on the
 # share, which is unreachable exactly when the share is the problem. Nothing
 # re-enables these timers until --resume or install-agent.sh runs.
 #

@@ -43,8 +43,8 @@ the cycle did any work, and it deliberately cannot be read that way.
 The distinction matters because most cycles legitimately do nothing. A node that
 is paused, filtered out by `NODE_FILTER`, waiting out a health-check interval or
 busy with somebody's job is a node in perfect working order, and arming it again
-would achieve nothing. `PAUSE_JOBS` and the other `PAUSE_*` switches in
-[reference/settings.md#pause-switches](../reference/settings.md#pause-switches)
+would achieve nothing. `RUN_JOBS` and the other `RUN_*` switches in
+[reference/settings.md#run-switches](../reference/settings.md#run-switches)
 are read well after the heartbeat touch, so none of them can produce a stale
 one — a paused node keeps writing `.heartbeat` on schedule. What the watchdog is
 looking for is the node whose *timer* has stopped — because the user manager was
@@ -150,7 +150,7 @@ cost a query per node per cycle:
 
 - the node views themselves, one small file per node
 - `MAX_JOB_HOURS`, which the node's own cycle cannot reach past the busy gate
-- pending jobs under `PAUSE_JOBS`, and jobs the scheduler gave up launching
+- pending jobs under `RUN_JOBS=no`, and jobs the scheduler gave up launching
 - [giving a node back](sequencing.md#getting-out-of-the-way) to somebody queued for it
 
 All of it is in [the-fleet-snapshot.md](the-fleet-snapshot.md). The consequence
@@ -305,7 +305,7 @@ Two things follow for anyone adding to a cycle:
 `AGENT_INTERVAL_MINUTES` is the lever when a fleet is large enough that the
 steady rate is the problem. Nothing in the cadence gates is a cycle count —
 every one of them is a time gate — so raising it costs responsiveness and
-nothing else. The other lever is `PAUSE_CONTAINER_COPY`, because the one thing
+nothing else. The other lever is `RUN_CONTAINER_COPY`, because the one thing
 in a cycle that moves gigabytes rather than kilobytes is the image rsync.
 
 ## Only one watchdog

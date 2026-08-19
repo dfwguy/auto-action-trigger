@@ -217,6 +217,14 @@ if [[ -f "$tracelog" ]] && [[ "$(stat -c %s "$tracelog" 2>/dev/null || echo 0)" 
     tail -2000 "$tracelog" > "$tracelog.tmp" && mv "$tracelog.tmp" "$tracelog"
 fi
 
+## RUN_JOBS/RUN_RECOVERY replaced PAUSE_JOBS/PAUSE_RECOVERY; a site still
+## setting the old name is silently no longer read. See
+## docs/reference/settings.md#run-switches.
+old_setting_present PAUSE_JOBS &&
+    trace "WARNING: SETTINGS still sets PAUSE_JOBS -- this key was renamed to RUN_JOBS (RUN_JOBS=no is the equivalent). PAUSE_JOBS is no longer read. Update SETTINGS."
+old_setting_present PAUSE_RECOVERY &&
+    trace "WARNING: SETTINGS still sets PAUSE_RECOVERY -- this key was renamed to RUN_RECOVERY (RUN_RECOVERY=no is the equivalent). PAUSE_RECOVERY is no longer read. Update SETTINGS."
+
 ## ── Extra environment for the jobs ────────────────────────────────────────
 ##
 ## An allowlist rather than a blocklist: the submission is built as a string and
@@ -514,12 +522,12 @@ node_reason() {
 ## ── Drains Slurm set itself ───────────────────────────────────────────────
 ##
 ## Only the `machine` class -- every other drain belongs to whoever set it.
-## Above the PAUSE_JOBS gate and governed by PAUSE_RECOVERY instead: putting a
+## Above the RUN_JOBS gate and governed by RUN_RECOVERY instead: putting a
 ## node back is not putting work on it. The state is re-read rather than
-## assumed. See docs/reference/settings.md#pause-switches.
-## --explain reads through this the same way it reads through PAUSE_JOBS: a
+## assumed. See docs/reference/settings.md#run-switches.
+## --explain reads through this the same way it reads through RUN_JOBS: a
 ## dry-run recovery issues no scontrol, restarts no slurmd and records no
-## attempt, so the pause has nothing to protect it from.
+## attempt, so RUN_RECOVERY=no has nothing to protect it from.
 ## Called from inside the in-flight gate as well as after it; a node stuck
 ## behind its own undelivered job would otherwise never reach it. See
 ## docs/explanation/sequencing.md#a-queued-job-must-not-outrank-a-drain.
@@ -529,11 +537,11 @@ recover_slurm_drains() {
     [[ "$recovery_ran" -eq 1 ]] && return 0
     recovery_ran=1
 
-    if setting_enabled "$PAUSE_RECOVERY"; then
+    if setting_disabled "$RUN_RECOVERY"; then
         if [[ "$EXPLAIN" -eq 1 ]]; then
-            trace "PAUSE_RECOVERY=$PAUSE_RECOVERY in ${SETTINGS_FILE:-<none>} -- explaining anyway; nothing below would be resumed while it is set"
+            trace "RUN_RECOVERY=$RUN_RECOVERY in ${SETTINGS_FILE:-<none>} -- explaining anyway; nothing below would be resumed while it is set"
         else
-            trace "recovery paused: PAUSE_RECOVERY=$PAUSE_RECOVERY in ${SETTINGS_FILE:-<none>} -- drains Slurm set itself are left exactly where they are"
+            trace "recovery paused: RUN_RECOVERY=$RUN_RECOVERY in ${SETTINGS_FILE:-<none>} -- drains Slurm set itself are left exactly where they are"
             recovery_paused=1
         fi
     fi
@@ -646,24 +654,24 @@ recover_slurm_drains
 ## is the watchdog's now: it sees every node's pending jobs in the one queue it
 ## already read, where this was two squeues per node per cycle.
 ## See docs/explanation/the-fleet-snapshot.md#what-moved-to-the-head-node.
-if setting_enabled "$PAUSE_JOBS"; then
+if setting_disabled "$RUN_JOBS"; then
     if [[ "$SNAPSHOT_OK" -eq 1 ]]; then
         while IFS=$'\t' read -r paused_id paused_state paused_name _; do
             [[ -n "$paused_id" ]] || continue
-            trace "PAUSE_JOBS: job $paused_id ($paused_name) is $paused_state -- pending ones are cancelled from the head node; 'scancel $paused_id' to stop a running one now"
+            trace "RUN_JOBS=no: job $paused_id ($paused_name) is $paused_state -- pending ones are cancelled from the head node; 'scancel $paused_id' to stop a running one now"
         done < <(snapshot_ours)
     fi
 
     [[ "$FORCE" -eq 1 ]] &&
-        trace "--force does not override PAUSE_JOBS: it is a site switch, not a timing gate. Set PAUSE_JOBS=no in ${SETTINGS_FILE:-SETTINGS} to sweep."
+        trace "--force does not override RUN_JOBS: it is a site switch, not a timing gate. Set RUN_JOBS=yes in ${SETTINGS_FILE:-SETTINGS} to sweep."
 
     ## --explain reads on: every write below it is already guarded, and the
     ## question it answers -- what would a sweep do here -- is one worth being
     ## able to ask precisely when the sweep is stopped.
     if [[ "$EXPLAIN" -eq 1 ]]; then
-        trace "PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE:-<no settings file found>} -- explaining anyway; nothing below would run while it is set"
+        trace "RUN_JOBS=$RUN_JOBS in ${SETTINGS_FILE:-<no settings file found>} -- explaining anyway; nothing below would run while it is set"
     else
-        trace "EXIT: PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE:-<no settings file found>} -- no submissions, no drains"
+        trace "EXIT: RUN_JOBS=$RUN_JOBS in ${SETTINGS_FILE:-<no settings file found>} -- no submissions, no drains"
         exit 0
     fi
 fi

@@ -220,8 +220,8 @@ tests_section() {
     done < <(find "$results_dir" -mindepth 2 -maxdepth 2 -name '*.txt' \
                   -printf "%P$ROW_FS%T@\n" 2>/dev/null)
 
-    if setting_enabled "$PAUSE_JOBS"; then
-        echo "NOTE: PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE##*/} -- nothing is being" >&2
+    if setting_disabled "$RUN_JOBS"; then
+        echo "NOTE: RUN_JOBS=$RUN_JOBS in ${SETTINGS_FILE##*/} -- nothing is being" >&2
         echo "      submitted, so the benchmark times below are when each node WOULD" >&2
         echo "      have fired, not when it will." >&2
     fi
@@ -308,8 +308,8 @@ health_section() {
     local node stamp epoch status interval due key
     : > "$tmp/health"
 
-    if setting_enabled "$PAUSE_HEALTH_CHECKS"; then
-        echo "NOTE: PAUSE_HEALTH_CHECKS=$PAUSE_HEALTH_CHECKS in ${SETTINGS_FILE##*/} -- no" >&2
+    if setting_disabled "$RUN_HEALTH_CHECKS"; then
+        echo "NOTE: RUN_HEALTH_CHECKS=$RUN_HEALTH_CHECKS in ${SETTINGS_FILE##*/} -- no" >&2
         echo "      checks run, so the times below are when each node WOULD have run." >&2
     fi
 

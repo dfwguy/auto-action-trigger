@@ -250,9 +250,9 @@ node_filter_set "${args[@]}"
 ## Read from the stamp rather than from Slurm: with drains off a failing node
 ## carries no reason. See docs/explanation/health-cadence.md#the-stamp-file.
 if [[ "$explain" -eq 1 ]]; then
-    if setting_enabled "$PAUSE_HEALTH_CHECKS"; then
-        echo "NOTE: PAUSE_HEALTH_CHECKS=$PAUSE_HEALTH_CHECKS in ${SETTINGS_FILE##*/} — no node re-checks,"
-        echo "      and the due times below are what will be acted on once it goes back to no."
+    if setting_disabled "$RUN_HEALTH_CHECKS"; then
+        echo "NOTE: RUN_HEALTH_CHECKS=$RUN_HEALTH_CHECKS in ${SETTINGS_FILE##*/} — no node re-checks,"
+        echo "      and the due times below are what will be acted on once it goes back to yes."
         echo
     fi
     printf '%-28s %-20s %-8s %s\n' NODE 'LAST RUN' OUTCOME 'NEXT DUE'
@@ -620,11 +620,11 @@ done
 
 # Paused means nothing re-runs, so this is a snapshot of whatever was true when
 # the pause went on. See docs/how-to/pause-and-resume.md.
-if setting_enabled "$PAUSE_HEALTH_CHECKS"; then
-    echo "NOTE: PAUSE_HEALTH_CHECKS=$PAUSE_HEALTH_CHECKS in ${SETTINGS_FILE##*/}"
+if setting_disabled "$RUN_HEALTH_CHECKS"; then
+    echo "NOTE: RUN_HEALTH_CHECKS=$RUN_HEALTH_CHECKS in ${SETTINGS_FILE##*/}"
     echo "      node_health.sh is not running on any node, so nothing below can change"
     echo "      and a --refresh request will not be picked up until this is set"
-    echo "      back to no."
+    echo "      back to yes."
     echo
 fi
 

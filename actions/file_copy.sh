@@ -37,10 +37,15 @@ if [[ -f "$tracelog" ]] && [[ "$(stat -c %s "$tracelog" 2>/dev/null || echo 0)" 
     tail -2000 "$tracelog" > "$tracelog.tmp" && mv "$tracelog.tmp" "$tracelog"
 fi
 
+## RUN_CONTAINER_COPY replaced PAUSE_CONTAINER_COPY. See
+## docs/reference/settings.md#run-switches.
+declare -F old_setting_present >/dev/null && old_setting_present PAUSE_CONTAINER_COPY &&
+    trace "WARNING: SETTINGS still sets PAUSE_CONTAINER_COPY -- this key was renamed to RUN_CONTAINER_COPY (RUN_CONTAINER_COPY=no is the equivalent). PAUSE_CONTAINER_COPY is no longer read. Update SETTINGS."
+
 ## Only new copies are stopped; a detached rsync finishes.
-## See docs/reference/settings.md#pause-switches.
-if declare -F setting_enabled >/dev/null && setting_enabled "${PAUSE_CONTAINER_COPY:-no}"; then
-    trace "EXIT: PAUSE_CONTAINER_COPY=$PAUSE_CONTAINER_COPY in ${SETTINGS_FILE:-<none>} -- no new copy started; one already running finishes"
+## See docs/reference/settings.md#run-switches.
+if declare -F setting_disabled >/dev/null && setting_disabled "${RUN_CONTAINER_COPY:-yes}"; then
+    trace "EXIT: RUN_CONTAINER_COPY=$RUN_CONTAINER_COPY in ${SETTINGS_FILE:-<none>} -- no new copy started; one already running finishes"
     exit 0
 fi
 

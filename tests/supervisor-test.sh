@@ -99,7 +99,7 @@ ARM_MAX_ATTEMPTS=3
 ARM_WINDOW_HOURS=24
 MAX_JOB_HOURS=7
 DRAIN_AFTER_FAILED_BENCHMARK=yes
-PAUSE_ARMING=no
+RUN_ARMING=yes
 PRIV_SCONTROL=direct
 EOF
 
@@ -353,15 +353,15 @@ run_sup 'n-stale idle'
     ok "SUPERVISOR_HOST pins it: a host that is not named arms nothing"
 sed -i '/^SUPERVISOR_HOST=somewhere-else/d' "$tree/SETTINGS"
 
-echo "== PAUSE_ARMING =="
+echo "== RUN_ARMING =="
 
 rm -rf "$results"
 beat 3600 n-stale
-sed -i 's/^PAUSE_ARMING=no/PAUSE_ARMING=yes/' "$tree/SETTINGS"
+sed -i 's/^RUN_ARMING=yes/RUN_ARMING=no/' "$tree/SETTINGS"
 run_sup 'n-stale idle'
-[[ -s "$work/fanout.calls" ]] && bad "PAUSE_ARMING=yes still armed a node" ||
-    ok "PAUSE_ARMING=yes arms nothing: $(last_line)"
-sed -i 's/^PAUSE_ARMING=yes/PAUSE_ARMING=no/' "$tree/SETTINGS"
+[[ -s "$work/fanout.calls" ]] && bad "RUN_ARMING=no still armed a node" ||
+    ok "RUN_ARMING=no arms nothing: $(last_line)"
+sed -i 's/^RUN_ARMING=no/RUN_ARMING=yes/' "$tree/SETTINGS"
 
 echo "== the job that outran MAX_JOB_HOURS =="
 
@@ -440,13 +440,13 @@ grep -q '^fleet	1' "$results/n-b/.slurm-view" &&
 ## A view is what the controller said, not an action taken on it, so it is
 ## written whatever else this cycle is or is not allowed to do.
 rm -rf "$results"; beat 3600 n-paused
-sed -i 's/^PAUSE_ARMING=no$/PAUSE_ARMING=yes/' "$tree/SETTINGS"
+sed -i 's/^RUN_ARMING=yes$/RUN_ARMING=no/' "$tree/SETTINGS"
 run_sup 'n-paused idle'
-armed n-paused && bad "PAUSE_ARMING armed a node" || ok "PAUSE_ARMING still arms nothing"
+armed n-paused && bad "RUN_ARMING=no armed a node" || ok "RUN_ARMING=no still arms nothing"
 [[ -f "$results/n-paused/.slurm-view" ]] &&
     ok "but the view is still written, so the fleet keeps deciding" ||
-    bad "PAUSE_ARMING stopped the views, which stops every agent"
-sed -i 's/^PAUSE_ARMING=yes$/PAUSE_ARMING=no/' "$tree/SETTINGS"
+    bad "RUN_ARMING=no stopped the views, which stops every agent"
+sed -i 's/^RUN_ARMING=no$/RUN_ARMING=yes/' "$tree/SETTINGS"
 
 echo "== the cancels that left the nodes =="
 
@@ -476,17 +476,17 @@ STUB_RAW_QUEUE="7002|train-70b|alice|PENDING|0|2026-01-01T00:00:00|N/A||n-held|n
     ok "a foreign held job is left alone"
 
 rm -rf "$results"; beat 60 n-pj
-sed -i 's/^PAUSE_ARMING=no$/PAUSE_ARMING=no\nPAUSE_JOBS=yes/' "$tree/SETTINGS"
+sed -i 's/^RUN_ARMING=yes$/RUN_ARMING=yes\nRUN_JOBS=no/' "$tree/SETTINGS"
 STUB_RAW_QUEUE="7003|bringup-n-pj|$(id -un)|PENDING|4294901759|2026-01-01T00:00:00|N/A||n-pj|n-pj|1|Resources
 7004|burnin-n-pj|$(id -un)|RUNNING|4294901759|2026-01-01T00:00:00|N/A|n-pj|n-pj||1|None" \
     run_sup 'n-pj idle'
 grep -q '7003' "$work/scancel.calls" 2>/dev/null &&
-    ok "PAUSE_JOBS cancels a pending job of ours" ||
-    bad "PAUSE_JOBS left a pending job queued: $(cat "$work/scancel.calls" 2>/dev/null)"
+    ok "RUN_JOBS=no cancels a pending job of ours" ||
+    bad "RUN_JOBS=no left a pending job queued: $(cat "$work/scancel.calls" 2>/dev/null)"
 grep -q '7004' "$work/scancel.calls" 2>/dev/null &&
-    bad "PAUSE_JOBS killed a running job -- it is meant to be left to finish" ||
+    bad "RUN_JOBS=no killed a running job -- it is meant to be left to finish" ||
     ok "and leaves the running one to finish"
-sed -i '/^PAUSE_JOBS=yes$/d' "$tree/SETTINGS"
+sed -i '/^RUN_JOBS=no$/d' "$tree/SETTINGS"
 
 ## Restored for the cases below, which drive the queue through STUB_SQUEUE.
 cat > "$stub/squeue" <<'EOF'

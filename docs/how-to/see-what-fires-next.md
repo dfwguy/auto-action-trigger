@@ -78,7 +78,7 @@ lets a rack that was armed together print as one line.
 
 ## When the times are hypothetical
 
-`PAUSE_JOBS=yes` and `PAUSE_HEALTH_CHECKS=yes` stop the work without stopping
+`RUN_JOBS=no` and `RUN_HEALTH_CHECKS=no` stop the work without stopping
 the clock, so the buckets become when each node *would* have fired. Both say so
 on stderr rather than in the report, so a paused fleet cannot be read as a
 running one — and so the note cannot land inside a node list being pasted

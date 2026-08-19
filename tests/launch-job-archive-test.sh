@@ -102,10 +102,10 @@ NODE_FILTER=""
 RUN_BURNIN=no
 BURNIN=""
 CONTAINERS=""
-PAUSE_JOBS=no
-PAUSE_HEALTH_CHECKS=no
-PAUSE_CONTAINER_COPY=no
-PAUSE_RECOVERY=yes
+RUN_JOBS=yes
+RUN_HEALTH_CHECKS=yes
+RUN_CONTAINER_COPY=yes
+RUN_RECOVERY=no
 DRAIN_AFTER_FAILED_BENCHMARK=no
 RECOVER_SLURM_DRAINS=no
 MAX_QUEUED_JOBS=0
@@ -232,6 +232,18 @@ fi
 grep -q 'FAIL' "$report_out" &&
     bad "  ... and it also reported FAIL for a result that passed before being re-queued" ||
     ok "  ... and it did not misreport the pass as a failure"
+
+echo "== a leftover PAUSE_JOBS is not silently ignored =="
+
+printf 'PAUSE_JOBS=yes\n' >> "$tree/SETTINGS"
+setup='result_pass first'
+run_launch "old name still in SETTINGS" --all >/dev/null
+if grep -q 'PAUSE_JOBS' "$logs/trigger.log"; then
+    ok "the rename is traced -- an operator would see it, not silence"
+else
+    bad "a leftover PAUSE_JOBS produced no trace at all"
+fi
+sed -i '/^PAUSE_JOBS=yes$/d' "$tree/SETTINGS"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

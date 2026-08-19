@@ -674,7 +674,7 @@ rather than reporting a re-check that will not happen. See
 | `trigger-debug.sh` | Walks the watchdog → `sbatch` chain and names the broken link. Read-only. `--ask-nodes` adds the per-node systemd and sudo checks |
 | `check_squeue.sh` | The queue in one aligned table, whole cluster; `-j <id>` adds node state and reservations |
 | `pause-agents.sh` | Stops the watchdog and every node timer, `--resume` puts them back through `install-agent.sh`, `--status` says what is running. Writes nothing to the share, which is what makes it usable when the share is the problem. See [how-to/update-the-deployment.md](../how-to/update-the-deployment.md) |
-| `kill-jobs.sh` | Cancels this framework's jobs; `-p` also sets `PAUSE_JOBS=yes`. See [how-to/pause-and-resume.md](../how-to/pause-and-resume.md) |
+| `kill-jobs.sh` | Cancels this framework's jobs; `-p` also sets `RUN_JOBS=no`. See [how-to/pause-and-resume.md](../how-to/pause-and-resume.md) |
 | `single-node-purge.sh <nodes>` | Removes `results/<node>` outright. See [how-to/reset-results.md](../how-to/reset-results.md) |
 | `dmesg-archive.sh <nodes>` | Saves each node's ring buffer under `dmesg-archive/`, and with `--clear --resume` breaks the drain-resume-drain loop a full dmesg causes. Will not clear a node the head node's syslog does not have. See [how-to/archive-and-clear-dmesg.md](../how-to/archive-and-clear-dmesg.md) |
 | `ib-visibility.sh <node>` | Compares the HCAs the host sees against the container's. See [how-to/diagnose-ib-visibility.md](../how-to/diagnose-ib-visibility.md) |

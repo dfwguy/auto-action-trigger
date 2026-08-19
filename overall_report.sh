@@ -570,10 +570,10 @@ emit_brief() {
     printf '%s, settings from %s\n' "$home" "${SETTINGS_FILE:-<none found>}"
     echo
 
-    setting_enabled "$PAUSE_JOBS" &&
-        note "PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE##*/} -- no benchmarks are being submitted, so no tests half below will change until it is set to no."
-    setting_enabled "$PAUSE_HEALTH_CHECKS" &&
-        note "PAUSE_HEALTH_CHECKS=$PAUSE_HEALTH_CHECKS in ${SETTINGS_FILE##*/} -- node_health.sh is not running anywhere, so the health half is a snapshot of whatever was true when the pause went on."
+    setting_disabled "$RUN_JOBS" &&
+        note "RUN_JOBS=$RUN_JOBS in ${SETTINGS_FILE##*/} -- no benchmarks are being submitted, so no tests half below will change until it is set to yes."
+    setting_disabled "$RUN_HEALTH_CHECKS" &&
+        note "RUN_HEALTH_CHECKS=$RUN_HEALTH_CHECKS in ${SETTINGS_FILE##*/} -- node_health.sh is not running anywhere, so the health half is a snapshot of whatever was true when the pause went on."
     for line in "${notes[@]}"; do print_wrapped "NOTE: " "$line"; done
     [[ ${#notes[@]} -gt 0 ]] && echo
 
@@ -637,10 +637,10 @@ emit_report() {
     printf '%s, settings from %s\n' "$home" "${SETTINGS_FILE:-<none found>}"
     echo
 
-    setting_enabled "$PAUSE_JOBS" &&
-        note "PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE##*/} -- no benchmarks are being submitted, so nothing under BENCHMARKS will change until it is set to no."
-    setting_enabled "$PAUSE_HEALTH_CHECKS" &&
-        note "PAUSE_HEALTH_CHECKS=$PAUSE_HEALTH_CHECKS in ${SETTINGS_FILE##*/} -- node_health.sh is not running anywhere, so HEALTH below is a snapshot of whatever was true when the pause went on."
+    setting_disabled "$RUN_JOBS" &&
+        note "RUN_JOBS=$RUN_JOBS in ${SETTINGS_FILE##*/} -- no benchmarks are being submitted, so nothing under BENCHMARKS will change until it is set to yes."
+    setting_disabled "$RUN_HEALTH_CHECKS" &&
+        note "RUN_HEALTH_CHECKS=$RUN_HEALTH_CHECKS in ${SETTINGS_FILE##*/} -- node_health.sh is not running anywhere, so HEALTH below is a snapshot of whatever was true when the pause went on."
 
     if [[ ${#notes[@]} -gt 0 ]]; then
         for line in "${notes[@]}"; do print_wrapped "NOTE: " "$line"; done

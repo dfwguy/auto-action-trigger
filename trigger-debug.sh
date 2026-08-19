@@ -63,19 +63,24 @@ if [[ -z "$SETTINGS_FILE" && ! -f "$home/settings.sh" ]]; then
 else
     note "settings from ${SETTINGS_FILE:-<neither SETTINGS nor SETTINGS.default found>}"
 
-    ## A pause produces exactly the symptom this script gets run over, so it is
-    ## reported ahead of the links -- but not counted as a problem, since it is
-    ## a choice someone made. See docs/reference/settings.md#pause-switches.
-    for spec in "PAUSE_JOBS:benchmarks:$PAUSE_JOBS" \
-                "PAUSE_HEALTH_CHECKS:health checks:$PAUSE_HEALTH_CHECKS" \
-                "PAUSE_CONTAINER_COPY:container copy:$PAUSE_CONTAINER_COPY" \
-                "PAUSE_RECOVERY:drain recoveries:$PAUSE_RECOVERY" \
-                "PAUSE_ARMING:node arming:$PAUSE_ARMING"; do
+    ## A switch turned off produces exactly the symptom this script gets run
+    ## over, so it is reported ahead of the links -- but not counted as a
+    ## problem, since it is a choice someone made. See
+    ## docs/reference/settings.md#run-switches.
+    for spec in "RUN_JOBS:benchmarks:$RUN_JOBS" \
+                "RUN_HEALTH_CHECKS:health checks:$RUN_HEALTH_CHECKS" \
+                "RUN_CONTAINER_COPY:container copy:$RUN_CONTAINER_COPY" \
+                "RUN_RECOVERY:drain recoveries:$RUN_RECOVERY" \
+                "RUN_ARMING:node arming:$RUN_ARMING"; do
         var="${spec%%:*}"; rest="${spec#*:}"; what="${rest%%:*}"; val="${rest#*:}"
-        if setting_enabled "$val"; then
+        if setting_disabled "$val"; then
             printf '  ** %s=%s -- %s are paused; this is why nothing is running\n' "$var" "$val" "$what"
             paused="$paused $var"
         fi
+    done
+    for old in PAUSE_JOBS PAUSE_HEALTH_CHECKS PAUSE_CONTAINER_COPY PAUSE_RECOVERY PAUSE_ARMING; do
+        old_setting_present "$old" &&
+            bad "SETTINGS still sets $old -- renamed to RUN_${old#PAUSE_} and no longer read"
     done
     ## A closed cap is the other deliberate answer to "nothing is running", and
     ## the only one that is fleet-wide. See docs/explanation/sequencing.md#the-fleet-wide-cap.
@@ -104,8 +109,8 @@ else
     if [[ ! -f "$home/slurm-recovery.sh" ]]; then
         bad "slurm-recovery.sh is missing from $home -- this tree predates it"
         note "  nodes drained by Slurm itself (prolog, rogue process, no reason) will never be resumed"
-    elif setting_enabled "$PAUSE_RECOVERY"; then
-        note "PAUSE_RECOVERY=$PAUSE_RECOVERY -- drains are left in place whatever RECOVER_SLURM_DRAINS says"
+    elif setting_disabled "$RUN_RECOVERY"; then
+        note "RUN_RECOVERY=$RUN_RECOVERY -- drains are left in place whatever RECOVER_SLURM_DRAINS says"
     elif setting_enabled "$RECOVER_SLURM_DRAINS"; then
         note "RECOVER_SLURM_DRAINS=$RECOVER_SLURM_DRAINS -> clears drains matching '$RECOVER_REASONS' set by [$RECOVER_SETTERS], max $RECOVER_MAX_ATTEMPTS per ${RECOVER_WINDOW_HOURS}h"
     else

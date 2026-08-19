@@ -106,6 +106,13 @@ if [[ -f "$tracelog" ]] && [[ "$(stat -c %s "$tracelog" 2>/dev/null || echo 0)" 
     tail -2000 "$tracelog" > "$tracelog.tmp" && mv "$tracelog.tmp" "$tracelog"
 fi
 
+## RUN_ARMING/RUN_JOBS replaced PAUSE_ARMING/PAUSE_JOBS. See
+## docs/reference/settings.md#run-switches.
+old_setting_present PAUSE_ARMING &&
+    trace "WARNING: SETTINGS still sets PAUSE_ARMING -- this key was renamed to RUN_ARMING (RUN_ARMING=no is the equivalent). PAUSE_ARMING is no longer read. Update SETTINGS."
+old_setting_present PAUSE_JOBS &&
+    trace "WARNING: SETTINGS still sets PAUSE_JOBS -- this key was renamed to RUN_JOBS (RUN_JOBS=no is the equivalent). PAUSE_JOBS is no longer read. Update SETTINGS."
+
 ## ── Only one watchdog ─────────────────────────────────────────────────────
 ##
 ## Every host runs the same unit and decides its own role, so two that read as
@@ -177,9 +184,9 @@ fi
 ## Scoped to the arming below rather than exiting, unlike every other pause: the
 ## snapshot this cycle writes is what the whole fleet decides from, and a paused
 ## watchdog that stops writing it stops every agent as well.
-## See docs/reference/settings.md#pause-switches.
+## See docs/reference/settings.md#run-switches.
 ARMING_PAUSED=0
-if setting_enabled "$PAUSE_ARMING" && [[ "$EXPLAIN" -eq 0 ]]; then
+if setting_disabled "$RUN_ARMING" && [[ "$EXPLAIN" -eq 0 ]]; then
     ARMING_PAUSED=1
 fi
 
@@ -325,7 +332,7 @@ fi
 
 armed_list=""
 if [[ "$ARMING_PAUSED" -eq 1 ]]; then
-    trace "PAUSE_ARMING=$PAUSE_ARMING in ${SETTINGS_FILE:-<none>} -- ${#arm[@]} node(s) left unarmed. Agents already running are untouched and keep cycling, and this cycle still wrote their views."
+    trace "RUN_ARMING=$RUN_ARMING in ${SETTINGS_FILE:-<none>} -- ${#arm[@]} node(s) left unarmed. Agents already running are untouched and keep cycling, and this cycle still wrote their views."
     arm=()
 fi
 if [[ "${#arm[@]}" -gt 0 ]]; then
@@ -424,17 +431,17 @@ cancel_ids() {
 }
 
 paused=0
-if setting_enabled "$PAUSE_JOBS"; then
+if setting_disabled "$RUN_JOBS"; then
     ## A pause has to reach the queue too, or it is not a pause: pending jobs go,
-    ## a running one is left to finish. See docs/reference/settings.md#pause-switches.
+    ## a running one is left to finish. See docs/reference/settings.md#run-switches.
     pend=$(awk -F'|' -v p="$SNAPSHOT_PREFIXES" \
         'BEGIN { n = split(p, a, " ") }
          $4 == "PENDING" { for (i = 1; i <= n; i++) if (index($2, a[i]) == 1) { print $1; break } }' \
         <<<"$SNAPSHOT_QUEUE" | tr '\n' ' ')
     paused=$(wc -w <<<"$pend")
-    cancel_ids "pending under PAUSE_JOBS=$PAUSE_JOBS" "${pend% }"
+    cancel_ids "pending under RUN_JOBS=$RUN_JOBS" "${pend% }"
     while IFS='|' read -r _id _name _rest; do
-        [[ -n "$_id" ]] && trace "PAUSE_JOBS: job $_id ($_name) still RUNNING -- left to finish; 'scancel $_id' to stop it now"
+        [[ -n "$_id" ]] && trace "RUN_JOBS=no: job $_id ($_name) still RUNNING -- left to finish; 'scancel $_id' to stop it now"
     done < <(awk -F'|' -v p="$SNAPSHOT_PREFIXES" \
         'BEGIN { n = split(p, a, " ") }
          $4 == "RUNNING" { for (i = 1; i <= n; i++) if (index($2, a[i]) == 1) { print $1 "|" $2; break } }' \
@@ -483,7 +490,7 @@ summary="checked $(wc -l <<<"$states") node(s): $fresh fresh, ${#arm[@]} armed, 
 [[ "$waiting" -gt 0 ]] && summary+=", $waiting waiting out the ${ARM_RETRY_MINUTES}m arm interval"
 [[ "$overrun" -gt 0 ]] && summary+=", $overrun past MAX_JOB_HOURS"
 [[ "$deferred" -gt 0 ]] && summary+=", $deferred held back by ARM_BATCH=$ARM_BATCH"
-[[ "$paused" -gt 0 ]] && summary+=", $paused pending cancelled by PAUSE_JOBS"
+[[ "$paused" -gt 0 ]] && summary+=", $paused pending cancelled by RUN_JOBS=no"
 [[ -n "${held// /}" ]] && summary+=", $(wc -w <<<"$held") cancelled after a failed launch"
 [[ "$yielded" -gt 0 ]] && summary+=", $yielded node(s) given up to a waiter"
 if [[ "${#limited[@]}" -gt 0 ]]; then

@@ -108,10 +108,10 @@ NODE_FILTER=""
 RUN_BURNIN=no
 BURNIN=""
 CONTAINERS=""
-PAUSE_JOBS=no
-PAUSE_HEALTH_CHECKS=no
-PAUSE_CONTAINER_COPY=no
-PAUSE_RECOVERY=yes
+RUN_JOBS=yes
+RUN_HEALTH_CHECKS=yes
+RUN_CONTAINER_COPY=yes
+RUN_RECOVERY=no
 DRAIN_AFTER_FAILED_BENCHMARK=no
 RECOVER_SLURM_DRAINS=no
 MAX_QUEUED_JOBS=0
@@ -219,7 +219,7 @@ run_case "started, no end marker, inside its window" >/dev/null
 check "marker kept"       'marker_kept'
 check "traced as waiting" 'traced "not running here yet -- waiting"'
 
-## PAUSE_RECOVERY is `yes` here, so its trace line is the proof the path is
+## RUN_RECOVERY is `no` here, so its trace line is the proof the path is
 ## reached at all. See docs/explanation/sequencing.md#a-queued-job-must-not-outrank-a-drain.
 setup='marker 40'
 run_case "queued, and recovery still gets a look" >/dev/null

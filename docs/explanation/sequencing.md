@@ -562,7 +562,7 @@ Three things it deliberately does not do:
   through everything else at full speed, and only the job that keeps failing
   slows down.
 - **It does not survive `--force`.** A backed-off window is a timing gate like
-  any other, so an operator can ignore it; `PAUSE_JOBS` and `MAX_QUEUED_JOBS`
+  any other, so an operator can ignore it; `RUN_JOBS` and `MAX_QUEUED_JOBS`
   are the site switches that `--force` does not open. See
   [site switches are not timing gates](#site-switches-are-not-timing-gates).
 
@@ -884,8 +884,8 @@ now; the framework's own `auto-retry` drain is cleared by the sweep when the
 benchmarks pass; an operator's drain belongs to the operator. All of that is in
 [drain-recovery.md](drain-recovery.md).
 
-The recovery runs **above** the `PAUSE_JOBS` gate and answers to
-`PAUSE_RECOVERY` instead. Under `--explain` it classifies and reports and issues
+The recovery runs **above** the `RUN_JOBS` gate and answers to
+`RUN_RECOVERY` instead. Under `--explain` it classifies and reports and issues
 nothing.
 
 ### Jobs the scheduler has given up on
@@ -959,7 +959,7 @@ Nothing is lost across a pause. Results stay on disk, the sweep resumes from
 where it stopped rather than restarting, and a `refresh` sentinel set by
 `health-check.sh --refresh` is held rather than consumed.
 
-`PAUSE_JOBS` also reaches work already in the queue, because gating submission
+`RUN_JOBS=no` also reaches work already in the queue, because gating submission
 alone would leave hours of already-queued benchmarks running:
 
 | | What happens |
@@ -968,41 +968,41 @@ alone would leave hours of already-queued benchmarks running:
 | Running job (ours) | Left to finish, with its job id traced. Killing it turns a part-written result into an `INCOMPLETE` that is indistinguishable from a crash. `scancel <id>` if you need the node back now. |
 | Anyone else's job | Untouched. Only jobs named `bringup-<node>` or `burnin-<node>` are ever cancelled. |
 
-`PAUSE_CONTAINER_COPY` likewise stops new copies and lets a detached `rsync`
+`RUN_CONTAINER_COPY=no` likewise stops new copies and lets a detached `rsync`
 from an earlier cycle finish — it holds no node and blocks no job.
 
-`PAUSE_RECOVERY` is independent of `PAUSE_JOBS`, and the two answer different
+`RUN_RECOVERY` is independent of `RUN_JOBS`, and the two answer different
 questions. Stopping the sweep is "put no more work on this cluster"; stopping
 the recovery is "leave every drain where it is". Those are separate decisions
 and usually made for separate reasons — during a bring-up you often want the
 drains cleared while nothing is being submitted, and during an investigation you
-want the opposite. So the recovery runs above the `PAUSE_JOBS` gate in
+want the opposite. So the recovery runs above the `RUN_JOBS` gate in
 `launch_job.sh`, governed only by its own switch: putting a node back is not
 putting work on it.
 
-`node_health.sh` honours `PAUSE_RECOVERY` too, though its own recovery is
-reachable only after a clean check run — so `PAUSE_HEALTH_CHECKS=yes` stops that
+`node_health.sh` honours `RUN_RECOVERY` too, though its own recovery is
+reachable only after a clean check run — so `RUN_HEALTH_CHECKS=no` stops that
 one as a side effect, for want of the evidence rather than for want of
 permission.
 
 ### `--explain` reads through a pause
 
-`launch_job.sh --explain` is stopped by **neither** `PAUSE_JOBS` nor
-`PAUSE_RECOVERY`. It writes nothing to Slurm and nothing to disk beyond its own
+`launch_job.sh --explain` is stopped by **neither** `RUN_JOBS` nor
+`RUN_RECOVERY`. It writes nothing to Slurm and nothing to disk beyond its own
 trace, and "what would this do on this node" is a question worth being able to
 ask *precisely* when the thing is stopped — while you are looking at a list of
 drained nodes deciding whether to lift the pause. It reports each pause it
 passes, then carries on:
 
 ```
-PAUSE_RECOVERY=yes in /home/cmods/bringup/SETTINGS -- explaining anyway; nothing below would be resumed while it is set
-PAUSE_JOBS=yes in /home/cmods/bringup/SETTINGS -- explaining anyway; nothing below would run while it is set
+RUN_RECOVERY=no in /home/cmods/bringup/SETTINGS -- explaining anyway; nothing below would be resumed while it is set
+RUN_JOBS=no in /home/cmods/bringup/SETTINGS -- explaining anyway; nothing below would run while it is set
 WOULD RECOVER ink50-dh01-h03-16: drained 'Prolog error' (machine, set by slurm) -- attempt 1/3 in 24h
 ```
 
 Under `--explain` the recovery runs with `RECOVER_DRY_RUN=1`, which issues no
 `scontrol`, restarts no `slurmd`, and records no attempt against
-`RECOVER_MAX_ATTEMPTS` — so `PAUSE_RECOVERY` has nothing to protect it from.
+`RECOVER_MAX_ATTEMPTS` — so `RUN_RECOVERY` has nothing to protect it from.
 
 `--force` is refused instead, and that asymmetry is the point: `--force` would
 touch the cluster, `--explain` cannot.
@@ -1285,7 +1285,7 @@ that plus `GET_OUT_OF_THE_WAY_AFTER_MINUTES`.
 
 ## Site switches are not timing gates
 
-`--force` opens the hourly retry gate and nothing else. `PAUSE_JOBS`,
+`--force` opens the hourly retry gate and nothing else. `RUN_JOBS`,
 `NODE_FILTER` and `MAX_QUEUED_JOBS` are all statements about what the cluster
 should be given, not about when a job is next due, so a forced sweep is asked
 the same questions a normal cycle is and each one traces that `--force` did not

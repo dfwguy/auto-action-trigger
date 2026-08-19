@@ -131,9 +131,12 @@ are not is in
 
 ## Burn-in
 
+`RUN_BURNIN`, the switch, lives in
+[Run switches](#run-switches) below, next to the rest — it is the one
+opt-in (default `no`) among a block that otherwise defaults to running.
+
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `RUN_BURNIN` | `no` | The switch |
 | `BURNIN` | `mnubergemm` | A second list, same format and same rules as `BENCHMARKS` |
 | `BURNIN_HOURS` | `24` | Shared campaign target across every job in `BURNIN`, in validated hours. `0` disables the gate — `totalRuns` per job is the only cap left |
 
@@ -278,27 +281,40 @@ refusal rather than a silent fall back — a site that chose `clush` and is
 quietly getting `pdsh` has a preference nobody honoured. See
 [explanation/architecture.md#reaching-nodes-is-clush-or-pdsh](../explanation/architecture.md#reaching-nodes-is-clush-or-pdsh).
 
-## Pause switches
+## Run switches
 
-| Setting | Default | Stops |
+| Setting | Default | Set to `no`, stops |
 |---------|---------|-------|
-| `PAUSE_JOBS` | `no` | `launch_job.sh`: submit nothing, drain nothing |
-| `PAUSE_HEALTH_CHECKS` | `no` | `node_health.sh`: run no checks, touch Slurm in neither direction |
-| `PAUSE_CONTAINER_COPY` | `no` | `file_copy.sh`: start no new rsync into `NODE_CONTAINER_DIR` |
-| `PAUSE_RECOVERY` | `no` | `launch_job.sh` and `node_health.sh`: clear no drains Slurm set itself |
-| `PAUSE_ARMING` | `no` | `supervisor.sh`: arm no node. Agents already running carry on cycling, and their node views are still written |
+| `RUN_JOBS` | `yes` | `launch_job.sh`: submit nothing, drain nothing |
+| `RUN_HEALTH_CHECKS` | `yes` | `node_health.sh`: run no checks, touch Slurm in neither direction |
+| `RUN_CONTAINER_COPY` | `yes` | `file_copy.sh`: start no new rsync into `NODE_CONTAINER_DIR` |
+| `RUN_RECOVERY` | `yes` | `launch_job.sh` and `node_health.sh`: clear no drains Slurm set itself |
+| `RUN_ARMING` | `yes` | `supervisor.sh`: arm no node. Agents already running carry on cycling, and their node views are still written |
+| `RUN_BURNIN` | `no` | The odd one out: default is *off*, and `yes` is what starts burn-in rather than what stops something already running. See [Burn-in](#burn-in) |
 
-`PAUSE_RECOVERY` is **independent of `PAUSE_JOBS`**. `PAUSE_JOBS` also cancels
+Renamed from `PAUSE_*` — the five above used to default `no` (meaning: running)
+and this flipped both the name and the polarity, so `RUN_JOBS=yes` reads the
+same as the old `PAUSE_JOBS=no` did. A site with an old name still in
+`SETTINGS` gets a `WARNING:` in the trace naming the equivalent, every cycle,
+until it's updated — nothing silently stops being read.
+
+A malformed value for any of these fails toward the switch staying **on**
+(`setting_disabled()`, not `! setting_enabled()`, is what reads them) — the
+same direction a typo in the old `PAUSE_*` value failed toward, so a mistake
+costs nothing rather than halting the fleet.
+
+`RUN_RECOVERY` is **independent of `RUN_JOBS`**. `RUN_JOBS=no` also cancels
 this framework's pending jobs and leaves its running one to finish.
-`PAUSE_ARMING` is the odd one out: it stops the watchdog restarting a node that
-has *stopped*, and does nothing to a node that is running — to stop one of those
-see [how-to/arm-a-node.md#disarming-a-node](../how-to/arm-a-node.md#disarming-a-node).
+`RUN_ARMING` is the odd one out among the first five: it stops the watchdog
+restarting a node that has *stopped*, and does nothing to a node that is
+running — to stop one of those see
+[how-to/arm-a-node.md#disarming-a-node](../how-to/arm-a-node.md#disarming-a-node).
 It is scoped to the arming alone, and deliberately: the watchdog's other job is
-writing the node view every agent decides from, and a pause that stopped that
+writing the node view every agent decides from, and a switch that stopped that
 would stop the whole fleet a snapshot age later.
 `--explain` is stopped by none of them, and neither is the heartbeat: all five
 are read deep inside a cycle, after `results/<node>/.heartbeat` is already
-touched, so a node with any of them set to `yes` still reads fresh in
+touched, so a node with any of them set to `no` still reads fresh in
 `overall_report.sh`. A node reading DOWN is its *timer* that stopped, which
 none of these switches touch — that is `pause-agents.sh`, a different
 mechanism entirely. See
