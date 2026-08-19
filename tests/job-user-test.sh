@@ -181,6 +181,11 @@ GET_OUT_OF_THE_WAY=no
 JOB_USER=$user
 BRINGUP_HOME=/home/\$JOB_USER/bringup
 CONTAINER_DIR=\$BRINGUP_HOME/containers
+## /opt/containers, the real default, is not this sandbox's to create -- same
+## as a site that has not yet handed JOB_USER write access to it. Unlike
+## BRINGUP_HOME above, file_copy.sh actually mkdir's this one, so it has to
+## resolve to a real writable path rather than the symbolic account home.
+NODE_CONTAINER_DIR=$tree/node-containers
 LLMB_INSTALL=
 EOF
     printf '%s\n' "$tree"
@@ -276,6 +281,14 @@ for var in BRINGUP_HOME CONTAINER_DIR; do
         bad "$var is not in the --export list -- the job files cannot resolve it"
     fi
 done
+
+## NODE_CONTAINER_DIR does not live under /home/$USER_B/bringup like the two
+## above, so it gets its own check rather than joining that loop's pattern.
+if grep -q "NODE_CONTAINER_DIR=$tree_b/node-containers" "$out_b"; then
+    ok "NODE_CONTAINER_DIR reaches the job on --export"
+else
+    bad "NODE_CONTAINER_DIR is not in the --export list -- a bare sbatch cannot resolve it"
+fi
 
 ##############################################################################
 echo "== the images can live outside either home =="

@@ -165,6 +165,9 @@ CONTAINER_DIR=$BRINGUP_HOME/containers
 CONTAINER_DIR_HEAD=$CONTAINER_DIR
 CONTAINER_STAGE_DIR=$BRINGUP_HOME/container-src
 CONTAINER_STAGE_DIR_HEAD=$CONTAINER_STAGE_DIR
+## Where file_copy.sh caches images on each node. /opt survives a reboot, so
+## the cache does not refill over NFS every time a tray comes back.
+NODE_CONTAINER_DIR=/opt/containers
 LLMB_INSTALL=/home/$JOB_USER/llmb
 LLMB_REF=v26.06.01
 

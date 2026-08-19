@@ -238,11 +238,11 @@ cache — is
 
 ```bash
 srun --nodes=1 --nodelist=<node> --exclusive --gpus-per-node=4 \
-     --container-image=/tmp/containers/<file>.sqsh \
+     --container-image=${NODE_CONTAINER_DIR:-/opt/containers}/<file>.sqsh \
      <binary> --help
 ```
 
-If that resolves and runs, the job will too. If `/tmp/containers/` is empty on
+If that resolves and runs, the job will too. If `NODE_CONTAINER_DIR` is empty on
 the node, the rsync has not run yet — `actions/file_copy.sh` runs on every agent
 cycle, or run it by hand.
 

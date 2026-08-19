@@ -108,7 +108,7 @@ cp "$LLMB_INSTALL"/images/nvidia+nemo+*.sqsh "$CONTAINER_DIR"/
 ```
 
 Nothing else has to change. `actions/file_copy.sh` rsyncs `$CONTAINER_DIR/*.sqsh`
-into `/tmp/containers` on each node, and the frozen job resolves node-local
+into `NODE_CONTAINER_DIR` (`/opt/containers` by default) on each node, and the frozen job resolves node-local
 first with the shared copy as fallback, exactly as every other job does —
 [explanation/containers.md#how-the-caching-works](../explanation/containers.md#how-the-caching-works).
 

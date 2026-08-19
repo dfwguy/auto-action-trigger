@@ -61,12 +61,12 @@ nemo_image() {
 }
 
 shared=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}
-CONT=$(nemo_image /tmp/containers)
+CONT=$(nemo_image "${NODE_CONTAINER_DIR:-/opt/containers}")
 [[ -n "$CONT" ]] || CONT=$(nemo_image "$shared")
 
 ## An empty glob would reach srun as --container-image= and fail as something else.
 [[ -n "$CONT" && -f "$CONT" ]] || {
-    echo "no nvidia+nemo image for $(uname -m) in /tmp/containers or $shared"
+    echo "no nvidia+nemo image for $(uname -m) in ${NODE_CONTAINER_DIR:-/opt/containers} or $shared"
     echo "build it with the right -a, or copy it out of the llmb install --"
     echo "see docs/how-to/build-containers.md#nemo"
     echo "exit status: 1"

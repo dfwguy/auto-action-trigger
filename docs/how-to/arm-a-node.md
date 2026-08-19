@@ -159,6 +159,7 @@ the node in its summary line rather than sshing at it for ever. What
 | `Unit file … is masked` | a zero-length unit, left by two hosts racing on a shared `$HOME` before the temp file was made unique. Re-run `install-agent.sh`, which replaces an empty unit and unmasks it |
 | armed, but `agent.log` says `scontrol is not on PATH` | the unit is not reaching whatever puts the Slurm tools on `PATH`. Both units run `/bin/bash -lc` for this; a unit installed before that ran the script directly, so re-run `install-agent.sh`. See [run-slurm-commands-remotely.md](run-slurm-commands-remotely.md) |
 | `WARNING: sudo would refuse: …` | armed, and the health checks will not run. The sudoers drop-in is missing |
+| `WARNING: cannot create $NODE_CONTAINER_DIR as cmods` | armed, and jobs still run, off `CONTAINER_DIR` over NFS instead of the node-local cache. `/opt` is root-owned on a stock image; `mkdir -p $NODE_CONTAINER_DIR && chown cmods $NODE_CONTAINER_DIR` as root on the node, once |
 | nothing at all | the node is not idle or drained, so the watchdog never considered it. `sinfo -n <node>` |
 
 The last row is the one that surprises people. Only `idle` and `drained` nodes

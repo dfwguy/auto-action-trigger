@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Warm the node-local container cache /tmp/containers/ from the shared copy.
+# Warm the node-local container cache (NODE_CONTAINER_DIR) from the shared copy.
 # See docs/explanation/containers.md#how-the-caching-works.
 #
 # Everything in CONTAINER_DIR, with no opinion about which images matter -- what
@@ -15,12 +15,12 @@
 ## Located from this file, like the other two steps.
 ## See docs/reference/layout.md#runtime-paths.
 home="${FILE_COPY_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-dst=/tmp/containers
 
-## Read for PAUSE_CONTAINER_COPY and CONTAINER_DIR, but a missing settings.sh is
-## not fatal here as it is in the other two steps: it costs a cache warm.
+## Read for the PAUSE/CONTAINER settings, but a missing settings.sh is not
+## fatal here as it is in the other two steps: it costs a cache warm.
 [[ -f "$home/settings.sh" ]] && source "$home/settings.sh"
 src="${CONTAINER_DIR:-$home/containers}"
+dst="${NODE_CONTAINER_DIR:-/opt/containers}"
 
 ## Beside health.log and trigger.log rather than in agent.log, which belongs to
 ## the agent: the detached copy below outlives the cycle that started it and

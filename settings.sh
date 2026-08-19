@@ -169,6 +169,8 @@ fi
 : "${CONTAINER_DIR_HEAD:=$CONTAINER_DIR}"
 : "${CONTAINER_STAGE_DIR:=$BRINGUP_HOME/container-src}"
 : "${CONTAINER_STAGE_DIR_HEAD:=$CONTAINER_STAGE_DIR}"
+## Node-local cache file_copy.sh rsyncs CONTAINER_DIR into. See docs/explanation/containers.md#one-share-two-mount-points.
+: "${NODE_CONTAINER_DIR:=/opt/containers}"
 ## `=` not `:=`: empty means no llmb install.
 ## See docs/explanation/llmb.md#where-the-install-lives.
 : "${LLMB_INSTALL=/home/$JOB_USER/llmb}"

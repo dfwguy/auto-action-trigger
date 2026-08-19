@@ -8,7 +8,7 @@ cycle.
 ```bash
 PAUSE_JOBS=yes             # no benchmarks submitted; queued ones cancelled
 PAUSE_HEALTH_CHECKS=yes    # no health checks run; Slurm untouched
-PAUSE_CONTAINER_COPY=yes   # no new rsync into /tmp/containers
+PAUSE_CONTAINER_COPY=yes   # no new rsync into NODE_CONTAINER_DIR
 PAUSE_RECOVERY=yes         # no drain Slurm set itself is cleared
 PAUSE_ARMING=yes           # the watchdog arms no node; running agents carry on
 ```

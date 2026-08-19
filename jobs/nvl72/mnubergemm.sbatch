@@ -45,10 +45,10 @@ srun --ntasks=1 bash -c '
 
 
 ## NVIDIA-internal image; version and -arch suffix must match the nodes under
-## test. See docs/how-to/build-containers.md#mnubergemm. /tmp/containers is the node-local
+## test. See docs/how-to/build-containers.md#mnubergemm. NODE_CONTAINER_DIR is the node-local
 ## copy rsync'd by actions/file_copy.sh.
 IMG=mnubergemm-26.03-v1.17-arm.sqsh
-CONT=/tmp/containers/$IMG
+CONT=${NODE_CONTAINER_DIR:-/opt/containers}/$IMG
 [[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}/$IMG
 
 # Important for manual/hand-rolled container launches

@@ -208,7 +208,7 @@ per cycle saying so would bury the ones that matter.
 | `EXIT: cannot open /tmp/.file_copy.lock … Fix: sudo rm -f …` | A lock left by the root cycles. `/tmp` is sticky, so it can be neither written nor removed by this account — run the command in the line. See [explanation/containers.md#a-lock-left-by-the-old-chain](../explanation/containers.md#a-lock-left-by-the-old-chain) |
 | `EXIT: rsync is not installed here` | Jobs read the image over the share instead, which works and is slower |
 | `copying: <n> of <n> image(s) here, from <dir>` | A copy just started, detached. The next line comes when it finishes, which may be several cycles later |
-| `copied: <n> of <n> image(s) now in /tmp/containers` | Done. `<n> of <n>` is the fact that matters — a job starts off local disk only when the count is complete |
+| `copied: <n> of <n> image(s) now in <dir>` | Done. `<dir>` is `NODE_CONTAINER_DIR`; `<n> of <n>` is the fact that matters — a job starts off local disk only when the count is complete |
 | `COPY FAILED (rsync exit <n>): <what rsync said>` | With the counts, so a partial copy is distinguishable from none |
 | `neither systemd-run nor setsid is available -- copying inline` | The copy holds the cycle rather than running as its own unit |
 

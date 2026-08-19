@@ -275,7 +275,7 @@ quietly getting `pdsh` has a preference nobody honoured. See
 |---------|---------|-------|
 | `PAUSE_JOBS` | `no` | `launch_job.sh`: submit nothing, drain nothing |
 | `PAUSE_HEALTH_CHECKS` | `no` | `node_health.sh`: run no checks, touch Slurm in neither direction |
-| `PAUSE_CONTAINER_COPY` | `no` | `file_copy.sh`: start no new rsync into `/tmp/containers` |
+| `PAUSE_CONTAINER_COPY` | `no` | `file_copy.sh`: start no new rsync into `NODE_CONTAINER_DIR` |
 | `PAUSE_RECOVERY` | `no` | `launch_job.sh` and `node_health.sh`: clear no drains Slurm set itself |
 | `PAUSE_ARMING` | `no` | `supervisor.sh`: arm no node. Agents already running carry on cycling, and their node views are still written |
 
@@ -595,6 +595,7 @@ deployed one. See
 | `CONTAINER_DIR_HEAD` | `$CONTAINER_DIR` | The same directory as the head node mounts it |
 | `CONTAINER_STAGE_DIR` | `$BRINGUP_HOME/container-src` | Source staging for `-S`/`-F`/`-B`, as the compute nodes mount it |
 | `CONTAINER_STAGE_DIR_HEAD` | `$CONTAINER_STAGE_DIR` | The same, as the head node mounts it |
+| `NODE_CONTAINER_DIR` | `/opt/containers` | Node-local cache `file_copy.sh` rsyncs `CONTAINER_DIR` into. `/opt` survives a reboot; change this one line to move it |
 
 Separate from `BRINGUP_HOME` because the images are tens of gigabytes and a
 site's bulk share is usually not the filesystem `/home` is on. Set only the two

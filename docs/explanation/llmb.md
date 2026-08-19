@@ -369,7 +369,7 @@ stopped testing. See
 [architecture.md#silence-is-the-enemy](architecture.md#silence-is-the-enemy).
 
 The refusals in `llm-pretrain.sbatch`, in order: the step did not receive the
-whole node, no `nvidia+nemo` image in `/tmp/containers` or `$CONTAINER_DIR`, no
+whole node, no `nvidia+nemo` image in `$NODE_CONTAINER_DIR` or `$CONTAINER_DIR`, no
 `run_script.py` under `$LLMB_INSTALL`, and no pre-staged `$HF_HOME`. The middle
 two are the halves of the install that the frozen job still needs —
 [The frozen recipe](#the-frozen-recipe).

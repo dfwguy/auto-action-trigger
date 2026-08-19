@@ -84,15 +84,15 @@ else
 fi
 
 ## Image path and arch resolved HERE, on the node, then read back on the head
-## node: /tmp is node-local, so testing it on the head node picks a path that is
-## real where it was looked for and absent where it runs. Same fallback the jobs
-## use -- see docs/explanation/containers.md#how-the-caching-works.
+## node: NODE_CONTAINER_DIR is node-local, so testing it on the head node picks
+## a path that is real where it was looked for and absent where it runs. Same
+## fallback the jobs use -- see docs/explanation/containers.md#how-the-caching-works.
 img=nvidia+hpc-benchmarks+26.02-$(uname -m | sed "s/aarch64/arm/;s/x86_64/x86/").sqsh
-if [[ -f /tmp/containers/$img ]]; then
-    echo "CONTAINER=/tmp/containers/$img"
+if [[ -f '"$NODE_CONTAINER_DIR"'/$img ]]; then
+    echo "CONTAINER='"$NODE_CONTAINER_DIR"'/$img"
 else
     echo "CONTAINER='"$CONTAINER_DIR"'/$img"
-    echo "## node-local /tmp/containers/$img is absent -- file_copy.sh has not"
+    echo "## node-local '"$NODE_CONTAINER_DIR"'/$img is absent -- file_copy.sh has not"
     echo "##   reached this node. Falling back to the NFS copy, which is the same"
     echo "##   image; the job would do the same. Slower first start, nothing more."
 fi

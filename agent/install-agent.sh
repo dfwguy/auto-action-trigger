@@ -323,6 +323,20 @@ else
     ok "wrote $beat_dir/.heartbeat -- the watchdog can see this host is alive"
 fi
 
+## Not a fail: a node that cannot warm this cache still runs every job, off the
+## shared path, at the cost of an NFS read per start instead of a local one --
+## unlike the heartbeat above, nothing about arming depends on it. /opt is
+## root-owned on a stock image, so this is the check that says so once instead
+## of file_copy.sh tracing "cannot create" quietly, every cycle, forever.
+## See docs/explanation/containers.md#one-share-two-mount-points.
+if [[ "$ROLE" != "head" ]] && ! node_excluded "$HOSTNAME"; then
+    if mkdir -p "$NODE_CONTAINER_DIR" 2>/dev/null; then
+        ok "$NODE_CONTAINER_DIR is writable -- the container cache can warm"
+    else
+        warn "cannot create $NODE_CONTAINER_DIR as $me -- $(stat -c '%U owns %n' "$(dirname "$NODE_CONTAINER_DIR")" 2>/dev/null || echo 'the parent directory does not exist either'). Jobs still run, off CONTAINER_DIR over NFS. Fix: as root, on this node, 'mkdir -p $NODE_CONTAINER_DIR && chown $me $NODE_CONTAINER_DIR' -- or set NODE_CONTAINER_DIR to somewhere $me already owns."
+    fi
+fi
+
 ## The three states partition the fleet, so a caller can tally them: a host says
 ## ARMED, or it says why it did not, and never both.
 if [[ "$QUIET" -eq 1 ]]; then

@@ -148,7 +148,7 @@ location and `BRINGUP_HOME` disagree.
 | `$BRINGUP_HOME/results/<node>/unkillable.stamp` | First-seen epoch and pid set of GPU processes that survived their step's kill. Tab separated; a changed pid set restarts the clock. See [explanation/drain-recovery.md#a-step-that-outlives-its-own-kill](../explanation/drain-recovery.md#a-step-that-outlives-its-own-kill) |
 | `$BRINGUP_HOME/results/<node>/.not-a-compute-node` | Present when the host has decided it can never run a job. Holds the reason; every script that walks `results/*/` skips the directory. See [settings.md#hosts-that-are-not-compute-nodes](settings.md#hosts-that-are-not-compute-nodes) |
 | `$CONTAINER_DIR` | Container images built by `build_containers.sh`. Defaults under the tree, but need not be there — see [explanation/containers.md#one-share-two-mount-points](../explanation/containers.md#one-share-two-mount-points) |
-| `/tmp/containers/` (on each node) | Node-local cache of the above, rsync'd by `file_copy.sh` |
+| `$NODE_CONTAINER_DIR` (on each node, `/opt/containers` default) | Node-local cache of the above, rsync'd by `file_copy.sh` |
 
 ## Result-path ownership
 

@@ -58,7 +58,7 @@ tray's GPU count there. See
 [reference/llmb-run.md#configuration](../reference/llmb-run.md#configuration).
 
 The image is copied into `containers/` as well, so `actions/file_copy.sh` rsyncs
-it to `/tmp/containers/` on each node like every other image. Without that step
+it to `NODE_CONTAINER_DIR` (`/opt/containers` by default) on each node like every other image. Without that step
 every node streams the same multi-GB squashfs off one filer at the same moment.
 The NGC credentials are the ones `./build_containers.sh -L` already writes — see
 [build-containers.md#logging-in-to-ngc](build-containers.md#logging-in-to-ngc).
@@ -138,7 +138,7 @@ means widen it, not that the tray is bad. `0` skips the check. See
 
 Every refusal writes `FAIL` and its reason into the result file, so
 `results/<node>/llm-pretrain.txt` names it. In order: the step did not receive
-the whole node, no `nvidia+nemo` image in `/tmp/containers` or `$CONTAINER_DIR`,
+the whole node, no `nvidia+nemo` image in `$NODE_CONTAINER_DIR` or `$CONTAINER_DIR`,
 no `run_script.py` under `$LLMB_INSTALL`, and no pre-staged `$HF_HOME`.
 
 Anything absent from `$HF_HOME` at launch is a failed run, not a slow one.

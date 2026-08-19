@@ -191,8 +191,8 @@ detached and returns immediately; the copy carries on afterwards, and a `flock`
 stops the next cycle stacking a second one on top.
 
 ```bash
-clush -w "$N" 'ls -la /tmp/containers/ 2>/dev/null | head'
-pdsh -R ssh -w "$N" 'ls -la /tmp/containers/ 2>/dev/null | head'
+clush -w "$N" 'ls -la ${NODE_CONTAINER_DIR:-/opt/containers}/ 2>/dev/null | head'
+pdsh -R ssh -w "$N" 'ls -la ${NODE_CONTAINER_DIR:-/opt/containers}/ 2>/dev/null | head'
 ```
 
 Those `.sqsh` files got there without any cycle ever running long.

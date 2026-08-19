@@ -51,7 +51,7 @@ srun --ntasks=1 bash -c '
 ## over NFS; shared directory is the fallback. See
 ## docs/explanation/containers.md#why-local-images.
 IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
-CONT=/tmp/containers/$IMG
+CONT=${NODE_CONTAINER_DIR:-/opt/containers}/$IMG
 [[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}/$IMG
 ## Registry fallback by hand; note enroot's `#` separator.
 #CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
