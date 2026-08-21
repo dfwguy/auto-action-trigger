@@ -44,6 +44,13 @@ None of these are in the framework's gift, and each fails quietly:
 
    See
    [explanation/the-fleet-snapshot.md#the-server-must-not-hand-out-delegations](../explanation/the-fleet-snapshot.md#the-server-must-not-hand-out-delegations).
+5. **Lingering enabled for `$JOB_USER`, in a session started *after* it was
+   enabled.** `install-agent.sh` enables it for you if it is not already on,
+   but that only takes effect on the *next* login — not the ssh session
+   you are running the installer from right now. Enabling it and installing
+   in the same breath is the single most common first-install failure; see
+   [enable-lingering-before-installing.md](enable-lingering-before-installing.md)
+   before your first run on a fleet where it has never been turned on.
 
 ## The first install
 
@@ -152,8 +159,9 @@ the node in its summary line rather than sshing at it for ever. What
 |---|---|
 | `no output from clush` | nothing came back within `FANOUT_COMMAND_TIMEOUT`. Either ssh as `$JOB_USER` does not work from the head node, or the node answered and then blocked — a stale `$BRINGUP_HOME` mount is the usual reason, since `install-agent.sh` sources `settings.sh` off it as its first act. See [../explanation/architecture.md#a-fan-out-is-bounded](../explanation/architecture.md#a-fan-out-is-bounded) |
 | `FAILED: could not enable lingering` | polkit refuses, and there is no sudo rule for `loginctl`. `sudo loginctl enable-linger cmods` on the node |
+| `FAILED: no user bus reachable in this session, even though lingering is enabled for cmods now` | lingering was just turned on *in this run* — it takes effect on the next login, not this one. Log out and back in, then re-run `install-agent.sh`. See [enable-lingering-before-installing.md](enable-lingering-before-installing.md) |
 | `FAILED: … does not exist` | the node cannot see `$BRINGUP_HOME` — NFS not mounted, or mounted somewhere else |
-| `FAILED: systemctl --user enable --now …` | no user session bus. Almost always lingering that did not take; check it directly |
+| `FAILED: systemctl --user enable --now …` | no user session bus, from some cause other than the one above — install-agent.sh now stops before reaching this call when lingering was the cause. Check it directly |
 | `FAILED: bringup-agent.timer active, next elapse never` | the manager is still holding a monotonic unit — it has a `TimersMonotonic=` and no calendar one. See [Armed, but never heartbeats](#armed-but-never-heartbeats) |
 | `FAILED: cannot write …/.heartbeat` | `results/<node>` is not writable by `cmods`. `sudo chown -R cmods:cmods /home/cmods/bringup/results` |
 | `Unit file … is masked` | a zero-length unit, left by two hosts racing on a shared `$HOME` before the temp file was made unique. Re-run `install-agent.sh`, which replaces an empty unit and unmasks it |
@@ -207,6 +215,13 @@ problem** — which is the common case, and there is one cause well ahead of the
 others.
 
 ### The user manager is not really lingering
+
+This is the delayed version of the failure
+[enable-lingering-before-installing.md](enable-lingering-before-installing.md)
+covers: there, `install-agent.sh` catches the missing bus and refuses to
+install anything; here, an older run got past that (or predates the check)
+and the node looks armed until its manager quietly dies with the session that
+started it.
 
 `systemd --user` timers only fire while that account's manager is running.
 Without effective lingering the manager starts when a session opens and stops

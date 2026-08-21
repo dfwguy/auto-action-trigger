@@ -178,6 +178,15 @@ else
     fail "could not enable lingering for $me -- the timer dies with the ssh session. docs/explanation/the-agent-and-the-watchdog.md#why-lingering"
 fi
 
+## The flag above takes effect next login, not this session -- checked here
+## rather than let a missing bus read as five unrelated failures below.
+## See docs/how-to/enable-lingering-before-installing.md.
+if [[ "$rc" -eq 0 && ! -S "$XDG_RUNTIME_DIR/bus" ]]; then
+    fail "no user bus reachable in this session, even though lingering is enabled for $me now -- it takes effect on your NEXT login, not this one. Log out and back in (or open a fresh ssh session as $me) and re-run install-agent.sh. docs/how-to/enable-lingering-before-installing.md"
+fi
+
+[[ "$rc" -eq 0 ]] || { say "refusing to install units without a session systemctl --user can reach" >&2; exit "$rc"; }
+
 ## ── The unit ──────────────────────────────────────────────────────────────
 ##
 ## Through a temp file named for this host and this run. A shared $HOME means

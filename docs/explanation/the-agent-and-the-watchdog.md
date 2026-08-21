@@ -351,6 +351,14 @@ directly first and then through `sudo`: whether an unprivileged user may linger
 themselves is a polkit policy that varies between distributions, and over ssh —
 with no seat — the permissive answer is not the common one.
 
+Enabling it is not the same moment as it taking effect: the flag is read at
+session start, so a session already open when `loginctl enable-linger` runs —
+including the one running `install-agent.sh` for the first time — gets no bus
+from it. `install-agent.sh` checks for that bus rather than trusting the flag,
+and refuses to go further if it is missing, since every `systemctl --user`
+call after it would fail for the same one reason. See
+[how-to/enable-lingering-before-installing.md](../how-to/enable-lingering-before-installing.md).
+
 The unit itself is **copied** into `~/.config/systemd/user/` rather than
 symlinked into the exported tree, so a tree being replaced mid-drop cannot leave
 a host with a half-written unit. That directory is usually on NFS as well, which
