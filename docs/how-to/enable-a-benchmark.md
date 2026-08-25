@@ -13,7 +13,7 @@ so a head node that has not run `./build_containers.sh -L` has no image for it
 and **it fails on every node**. The check:
 
 ```bash
-./build_containers.sh -l      # what is actually present
+./build_containers.sh -a arm -l      # what is actually present
 ```
 
 Everything else needs one of three things first:
@@ -56,7 +56,7 @@ BENCHMARKS="dcgmi-r1 dcgmi-r3 allreduce allreduce-forcesharp alltoall \
 ```
 
 ```bash
-./build_containers.sh hpc-benchmarks
+./build_containers.sh -a arm hpc-benchmarks
 ```
 
 **Everything that needs no image beyond `hpc-benchmarks` and no DGX.** Runs as

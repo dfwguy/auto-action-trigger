@@ -18,7 +18,7 @@ export HF_TOKEN=hf_...            # this run only; never written to a node
 the share instead of from local disk:
 
 ```bash
-./build_containers.sh nemo
+./build_containers.sh -a arm nemo
 ```
 
 Everything in that directory is cached on every node, so building it is the

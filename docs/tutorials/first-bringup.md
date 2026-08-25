@@ -54,8 +54,8 @@ The NCCL benchmarks run out of a container. Download the one public image, which
 needs no credentials:
 
 ```bash
-./build_containers.sh hpc-benchmarks
-./build_containers.sh -l
+./build_containers.sh -a arm hpc-benchmarks
+./build_containers.sh -a arm -l
 ```
 
 The second command should show `hpc-benchmarks` present. This takes a few

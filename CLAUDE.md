@@ -330,6 +330,7 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/agent-test.sh          # the heartbeat, the busy gate and the lock, if you touched node-agent.sh
 ./tests/supervisor-test.sh     # which nodes get armed, if you touched supervisor.sh
 ./tests/arm-timer-test.sh      # the timer-is-scheduled and lingering-bus gates, if you touched install-agent.sh
+./tests/build-containers-test.sh # -a required and the nvcr.io login gate, if you touched build_containers.sh
 ./tests/priv-test.sh           # the sudo layer, if you touched priv.sh or a check that needs root
 ./tests/fanout-test.sh         # clush before pdsh, if you touched fanout.sh
 ./tests/next-run-test.sh       # the buckets, if you touched next-run.sh or either cadence

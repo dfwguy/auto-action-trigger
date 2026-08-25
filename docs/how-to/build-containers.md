@@ -3,9 +3,9 @@
 Run on the headnode, once per CPU architecture in the cluster.
 
 ```bash
-./build_containers.sh -L       # log in to nvcr.io, once per machine
-./build_containers.sh hpc-benchmarks nvbandwidth mnubergemm   # these, whatever is missing
-./build_containers.sh -l       # what is present, what is not, and the login state
+./build_containers.sh -L                  # log in to nvcr.io, once per machine
+./build_containers.sh -a arm hpc-benchmarks nvbandwidth mnubergemm   # these, whatever is missing
+./build_containers.sh -a arm -l           # what is present, what is not, and the login state
 ```
 
 Downloading is the normal path and, by default, the only one. Everything the
@@ -21,7 +21,8 @@ source is a fallback that happens only when `-S` asks for it.
 -f            rebuild even if the .sqsh is already there
 -l            list images and whether they are present, build nothing
 -d DIR        write somewhere other than /home/cmods/bringup/containers
--a ARCH       build for arm or x86 rather than this machine
+-a ARCH       arm or x86 -- required for everything except -L and -h
+--no-login    build nvbandwidth or mnubergemm without checking nvcr.io login first
 -F            fetch pass only (headnode); compile nothing   (implies -S)
 -B            build pass only (compute node); fetch nothing (implies -S)
 ```
@@ -30,6 +31,14 @@ Options must come before image names — `getopts` stops at the first non-option
 argument. **Naming the images is required**: with none named and no `-A` the
 script prints the known list and exits, rather than guessing from a setting.
 See [explanation/containers.md#what-gets-built-is-what-you-ask-for](../explanation/containers.md#what-gets-built-is-what-you-ask-for).
+
+**`-a` is required**, for everything that touches an image — the headnode's
+own architecture is not assumed, because it is frequently wrong: this
+framework's headnode is commonly x86 while the trays it is building for are
+ARM. `-L` (writes one file, builds nothing) and `-h` are the only exceptions.
+`$ARCH` works the same as `-a` for a run where passing the flag every time is
+inconvenient. See
+[Building ARM images on an x86 headnode](#building-arm-images-on-an-x86-headnode).
 
 `CONTAINER_DIR` and `CONTAINER_STAGE_DIR` are `SETTINGS` keys, not just
 environment overrides, and each has a `_HEAD` pair for a share the head node
@@ -42,8 +51,8 @@ Environment: `ARCH` (same as `-a`), `WORKDIR`
 `ENROOT_TEMP_PATH`, `ENROOT_DATA_PATH`, `ENROOT_RUNTIME_PATH`.
 
 ```bash
-./build_containers.sh nvloom   # just this one
-./build_containers.sh -A       # every image the script knows about
+./build_containers.sh -a arm nvloom   # just this one
+./build_containers.sh -a arm -A       # every image the script knows about
 ```
 
 `-A` includes `nvloom`, which no registry publishes at all — so it implies `-S`
@@ -62,9 +71,13 @@ and compiles it, which is a much longer run than the downloads.
 ## Logging in to NGC
 
 `hpc-benchmarks` and the CUDA base images are public. `nvbandwidth` and
-`mnubergemm` live in private NGC org `0948245400141054`, and an import of either
-without credentials fails with a `401`/`403` that enroot reports as a plain
-import failure.
+`mnubergemm` live in private NGC org `0948245400141054`, and a request for
+either refuses before doing anything if `~/.config/enroot/.credentials` has no
+`nvcr.io` entry — one line naming the fix, rather than a network round trip
+that ends in a `401`/`403` enroot reports as a plain import failure. `--no-login`
+skips this check and attempts the import anyway, which still ends in that same
+`401`/`403` without real credentials; it exists for whatever reason a site
+keeps credentials somewhere this check does not look.
 
 enroot has no `login` subcommand. It reads a netrc-style file before every
 import and sends the matching entry as the registry's basic auth, so logging in
@@ -115,7 +128,9 @@ distributed to a compute node.
 
 ## Building ARM images on an x86 headnode
 
-Pass the target explicitly:
+`-a` (or `$ARCH`) is required, not just recommended — the script refuses to
+guess from `uname -m` on whatever machine is running it, since the headnode's
+own architecture is frequently not the trays':
 
 ```bash
 ./build_containers.sh -a arm            # or ARCH=arm ./build_containers.sh
@@ -123,11 +138,12 @@ Pass the target explicitly:
 
 Registry pulls cross-build for free and finish on the headnode. Source builds —
 `nvloom`, and `nvbandwidth`'s fallback — need two passes, because the only ARM
-machines are the compute nodes:
+machines are the compute nodes. `-a` is required on **both** passes, including
+the `-B` one run on the ARM node itself:
 
 ```bash
-./build_containers.sh -a arm -F nvloom      # headnode: fetch, compile nothing
-srun -N1 ./build_containers.sh -B nvloom    # ARM node: compile, produce the .sqsh
+./build_containers.sh -a arm -F nvloom         # headnode: fetch, compile nothing
+srun -N1 ./build_containers.sh -a arm -B nvloom  # ARM node: compile, produce the .sqsh
 ```
 
 Why it is split this way is
@@ -180,7 +196,7 @@ Scope 1 (basic health, ~10 min) is what runs by default; the Scope 2 burn-in
 ### mnubergemm
 
 NVIDIA-internal and not buildable from anything we have, but it is published in
-the same private NGC org as nvbandwidth, so `./build_containers.sh mnubergemm`
+the same private NGC org as nvbandwidth, so `./build_containers.sh -a arm mnubergemm`
 imports it like any other registry image. `-S` does not help here; there is no
 source to build.
 

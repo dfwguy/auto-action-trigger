@@ -213,7 +213,7 @@ tail -f /home/cmods/bringup/results/<tray>/agent.log
 
 ```bash
 ./build_containers.sh -L     # log in to nvcr.io — once per machine, needed for the private-org images
-./build_containers.sh hpc-benchmarks nvbandwidth mnubergemm
+./build_containers.sh -a arm hpc-benchmarks nvbandwidth mnubergemm
 ```
 
 Run on the headnode, once per CPU architecture in the cluster. Name the images you want — there is no setting for it, because everything in `CONTAINER_DIR` is cached on every node and one place should decide. `-A` adds `nvloom`, the one image no registry publishes. Add `nemo` when you enable the LLM jobs.
