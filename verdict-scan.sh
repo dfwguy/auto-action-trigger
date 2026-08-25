@@ -465,7 +465,10 @@ scan_fleet() {
                 }
             }
         ' "$tmp/dirty" "$tmp/running" "$tmp/sweep" "$tmp/fresh"
-    } > "$new" && mv -f "$new" "$cache"
+    } > "$new" &&
+        ## Group-writable regardless of the writer's umask. See
+        ## docs/explanation/verdicts-and-the-cache.md#a-shared-cache-file.
+        chmod 664 "$new" 2>/dev/null && mv -f "$new" "$cache"
 
     rm -rf "$tmp" "$new"
     return "$rc"

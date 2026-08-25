@@ -89,6 +89,16 @@ else
     bad "cache file is written under results/" "no cache file after two runs"
 fi
 
+## A shared results/ tree is written by whoever ran the report last, not one
+## account -- 664 keeps the next writer, in a different group member's
+## account, from hitting the unwritable check in scan_fleet().
+mode=$(stat -c '%a' "$tree/results/.result_cache.10" 2>/dev/null)
+if [[ "$mode" == "664" ]]; then
+    ok "cache file is group-writable" "mode $mode"
+else
+    bad "cache file is group-writable" "mode $mode, want 664"
+fi
+
 # ── The key covers the gate: the case this suite exists for ──────────────────
 
 ## Appended to whichever file settings.sh reads, not substituted: a site's
