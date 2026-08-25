@@ -123,11 +123,11 @@ recover note: the pre-job check that drained ink50-dh01-h20-35 failed on [dmesg]
 nothing it named is still running, so this is a resume rather than a hold.
 ```
 
-That line is the only head-node-readable record of why a prolog failed, so the
-report greps for it across `results/*/trigger.log` — one `grep` for the fleet,
-not one per node — and prints it under the drain reason it explains. The
-reasoning behind the note itself, and the pid-and-user matching that decides
-whether a rogue process is still there, is
+The report greps that line across `results/*/trigger.log` — one `grep` for the
+fleet, not one per node — and prints it under the drain reason it explains.
+If that live trace has rotated, its `recover.log` record retains the named
+check and is used as a fallback. The reasoning behind the note itself, and the
+pid-and-user matching that decides whether a rogue process is still there, is
 [drain-recovery.md](drain-recovery.md#a-rogue-process-drain-names-its-process).
 
 When there is no such note the report says so, and gives the fan-out line that reads

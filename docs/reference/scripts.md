@@ -335,8 +335,9 @@ ink50-dh01-h20-35
 `prolog` is the line the rest of this tree cannot give you: Slurm records only
 that the prolog failed, and the check that actually failed is named nowhere a
 head node can read it — except in the note `slurm-recovery.sh` leaves in the
-node's own trace. When that note is absent the line says so and prints the fan-out line
-that reads the node-local log directly. See
+node's own trace, or its retained `recover.log` record after the trace rotates.
+When neither has it, the line says so and prints the fan-out line that reads
+the node-local log directly. See
 [explanation/reading-the-whole-fleet.md](../explanation/reading-the-whole-fleet.md#a-prolog-drain-does-not-say-why).
 
 `NODES` is capped by default and ordered so that what survives the cap is what

@@ -390,18 +390,29 @@ if [[ "$details" -eq 1 ]] && compgen -G "$results_dir/*/trigger.log" >/dev/null 
             }')
 fi
 
-# Drains cleared per node inside the recovery window, and what the last one was
-# for. One awk over every recover.log; the format is in slurm-recovery.sh.
-declare -A drains_recent drain_last
+# Drains cleared per node inside the recovery window, what the last one was
+# for, and the last named pre-job failure.  trigger.log is the live trace, but
+# it rotates; field 7 in recover.log deliberately preserves the same cause.
+# One awk over every recover.log; the format is in slurm-recovery.sh.
+declare -A drains_recent drain_last recover_prolog_why
 if [[ "$details" -eq 1 ]] && compgen -G "$results_dir/*/recover.log" >/dev/null 2>&1; then
-    while IFS='|' read -r node n last; do
+    while IFS='|' read -r node n last cause; do
         drains_recent["$node"]="$n"
         drain_last["$node"]="$last"
+        [[ -n "$cause" ]] && recover_prolog_why["$node"]="$cause"
     done < <(
         awk -F'\t' -v cutoff="$(( $(date +%s) - ${RECOVER_WINDOW_HOURS:-24} * 3600 ))" '
             FNR == 1 { n = split(FILENAME, p, "/"); node = p[n - 1] }
-            $1 ~ /^[0-9]+$/ && $1 >= cutoff { c[node]++; last[node] = $3 " drain, " $4 ", " $6 }
-            END { for (x in c) print x "|" c[x] "|" last[x] }
+            $1 ~ /^[0-9]+$/ {
+                if ($1 >= cutoff) { c[node]++; last[node] = $3 " drain, " $4 ", " $6 }
+                ## Only a named failed pre-job check is useful here.  The
+                ## "unnamed:" value records why recovery could not identify
+                ## it and must not turn into a fictitious check name.
+                if (tolower($6) ~ /(prolog|epilog|rogue[[:space:]]?process)/ &&
+                    $7 != "" && $7 !~ /^unnamed:/)
+                    cause[node] = $7
+            }
+            END { for (x in c) print x "|" c[x] "|" last[x] "|" cause[x] }
         ' "$results_dir"/*/recover.log 2>/dev/null)
 fi
 
@@ -723,6 +734,9 @@ node_block() {
         if [[ -n "${prolog_why[$node]}" ]]; then
             printf '    prolog   the pre-job check failed on [%s], %s (results/%s/trigger.log)\n' \
                 "${prolog_why[$node]}" "${prolog_when[$node]}" "$node"
+        elif [[ -n "${recover_prolog_why[$node]}" ]]; then
+            printf '    prolog   the pre-job check failed on [%s] (results/%s/recover.log)\n' \
+                "${recover_prolog_why[$node]}" "$node"
         else
             printf '    prolog   nothing in results/%s/trigger.log names the check that failed.\n' "$node"
             if [[ -n "$RECOVER_PREJOB_LOGS" ]]; then

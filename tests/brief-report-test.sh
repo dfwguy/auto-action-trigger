@@ -169,10 +169,18 @@ absent "no baseline never reads as a pass" 'healthchecks - PASS' "$nobase"
 ln -sfn baseline "$work/valid-config/default"
 
 ## --details is the old report, unchanged, and --full still implies it.
+## The live trace can rotate before an operator asks for the report.  The
+## recovery record preserves the named pre-job check, so it is a useful and
+## safe fallback for a Prolog error rather than sending the operator to the
+## node-local BCM log again.
+printf '%s\tmoment\tmachine\tdrained\tslurm\tProlog error\tdmesg\n' "$(date +%s)" \
+    > results/node03/recover.log
 det=$(cd "$work" && bash overall_report.sh --details 2>&1)
 check "--details prints the long report"   '── BENCHMARKS'    "$det"
 check "--details prints the node blocks"   '── NODES'         "$det"
 absent "--details is not the one-line one" ' **** '           "$det"
+check "--details retains a prolog cause from recovery" \
+      'prolog   the pre-job check failed on [dmesg] (results/node03/recover.log)' "$det"
 
 fullo=$(cd "$work" && bash overall_report.sh --full 2>&1)
 check "--full implies --details" '── NODES' "$fullo"
