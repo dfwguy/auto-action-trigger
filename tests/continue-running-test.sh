@@ -122,7 +122,7 @@ run_cycle() {
 ## Single-slot result, backdated by $age_secs so CONTINUE_RUNNING_FREQUENCY's
 ## staleness check can be driven directly instead of sleeping.
 seed_result() {
-    local job="$1" verdict="$2" age_secs="${3:-0}" file="$logs/$1.txt"
+    local verdict="$2" age_secs="${3:-0}" file="$logs/$1.txt"
     printf 'ok\n%s\n' "$verdict" > "$file"
     [[ "$age_secs" -gt 0 ]] && touch -d "@$(( $(date +%s) - age_secs ))" "$file"
 }

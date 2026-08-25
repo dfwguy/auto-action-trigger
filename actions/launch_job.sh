@@ -1344,6 +1344,7 @@ elif [[ "$burnin_eligible" -eq 1 && "$burnin_hours_still_open" -eq 1 ]] && next_
 ## (RUN_JOBS=no, MAX_QUEUED_JOBS, kill-jobs.sh) covers a continuous re-run
 ## for free this way. See docs/explanation/sequencing.md#continuous-re-runs.
 elif [[ "$continue_running_eligible" -eq 1 ]] && continue_running_next; then
+    # shellcheck disable=SC2209  # the literal string "continue", not the shell keyword
     submit_target=continue
 else
     submit_target=""
