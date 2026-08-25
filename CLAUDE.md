@@ -316,6 +316,9 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/dmesg-archive-test.sh  # what dmesg-archive.sh refuses to clear, if you touched it
 ./tests/help-text-test.sh      # --help blocks, if you touched a header comment
 ./tests/scan-cache-test.sh     # the report cache, if you touched a gate or verdict-scan.sh
+./tests/launch-job-archive-test.sh # .prevN/.failN archiving, if you touched archive_result or submit_one
+./tests/burnin-hours-test.sh   # the round-robin, the BURNIN_HOURS gate and the report cell, if you touched burn-in scheduling or reporting
+./tests/continue-running-test.sh # the continuous re-run tier, if you touched CONTINUE_RUNNING_JOBS or its priority against BENCHMARKS/BURNIN
 ./tests/yield-test.sh          # the cancel gates, if you touched get-out-of-the-way.sh
 ./tests/llmb-check-test.sh     # llmb install discovery, if you touched llmb_check.py
 ./tests/exclude-test.sh        # the head-node gate, if you touched EXCLUDE_NODES or a results/*/ walk
@@ -327,7 +330,8 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/job-user-test.sh      # the two-account differential, if you touched JOB_USER, a path derived from it, or CONTAINER_DIR
 ./tests/agent-test.sh          # the heartbeat, the busy gate and the lock, if you touched node-agent.sh
 ./tests/supervisor-test.sh     # which nodes get armed, if you touched supervisor.sh
-./tests/arm-timer-test.sh      # the timer-is-scheduled gate, if you touched install-agent.sh
+./tests/arm-timer-test.sh      # the timer-is-scheduled and lingering-bus gates, if you touched install-agent.sh
+./tests/build-containers-test.sh # -a required and the nvcr.io login gate, if you touched build_containers.sh
 ./tests/priv-test.sh           # the sudo layer, if you touched priv.sh or a check that needs root
 ./tests/fanout-test.sh         # clush before pdsh, if you touched fanout.sh
 ./tests/next-run-test.sh       # the buckets, if you touched next-run.sh or either cadence

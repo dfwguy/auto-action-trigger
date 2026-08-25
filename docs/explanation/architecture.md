@@ -16,7 +16,7 @@ bringup-supervisor.timer           bringup-agent.timer  → agent/node-agent.sh
       stat:  heartbeat stale?           │   (reads .slurm-view; asks nothing)
       clush: install-agent.sh           │
                                         ├── file_copy.sh
-                                        │     Rsyncs containers/ to /tmp/containers/ so job
+                                        │     Rsyncs containers/ to NODE_CONTAINER_DIR so job
                                         │     start reads the image off local disk.
                                         │
                                         ├── node_health.sh

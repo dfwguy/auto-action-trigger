@@ -50,7 +50,7 @@ srun --ntasks=1 bash -c '
 ## Node-local copy first, NFS as the fallback. See
 ## docs/explanation/containers.md#why-local-images.
 IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
-CONT=/tmp/containers/$IMG
+CONT=${NODE_CONTAINER_DIR:-/opt/containers}/$IMG
 [[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}/$IMG
 ## Registry alternative -- every node pulls over the network on first use. The
 ## `#` is enroot's registry/path separator.

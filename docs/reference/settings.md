@@ -131,15 +131,27 @@ are not is in
 
 ## Burn-in
 
+`RUN_BURNIN`, the switch, lives in
+[Run switches](#run-switches) below, next to the rest — it is the one
+opt-in (default `no`) among a block that otherwise defaults to running.
+
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `RUN_BURNIN` | `no` | The switch |
 | `BURNIN` | `mnubergemm` | A second list, same format and same rules as `BENCHMARKS` |
+| `BURNIN_HOURS` | `24` | Shared campaign target across every job in `BURNIN`, in validated hours. `0` disables the gate — `totalRuns` per job is the only cap left |
+
+`totalRuns` (the generic per-job run-count literal, see
+[add-a-benchmark.md](../how-to/add-a-benchmark.md)) is a per-job ceiling under
+`BURNIN`, not the completion signal — `BURNIN_HOURS` is. With more than one job
+in `BURNIN`, they alternate: each cycle picks the eligible job with the fewest
+passed runs so far, ties broken by `BURNIN`'s own order. See
+[explanation/sequencing.md#burn-in](../explanation/sequencing.md#burn-in).
 
 `mnubergemm-pulse` ships alongside `mnubergemm` and is **not** in the default
 list. It runs the same workload on a slow square wave, and is added by naming
-it: `BURNIN="mnubergemm mnubergemm-pulse"`. The two are not comparable run for
-run — half of each pulse run is idle. See
+it: `BURNIN="mnubergemm mnubergemm-pulse"`. The two are comparable in
+wall-clock validated hours now — both are credited by `--time_to_run` the same
+way — but not in delivered load: half of each pulse run is idle. See
 [../explanation/burn-in-waveform.md#two-jobs-not-one](../explanation/burn-in-waveform.md#two-jobs-not-one).
 
 An empty `BURNIN` is a real answer meaning "no burn-in", so it is not
@@ -152,6 +164,27 @@ separation buys, and what to expect once the switch is on, is in
 
 The image has to be there **before** the switch is flipped: build `mnubergemm`
 when you build the rest, even though its job does not run by default.
+
+## Continuous re-runs
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `CONTINUE_RUNNING_JOBS` | `""` | A third list, lowest priority of the three. Empty means off, same as `BURNIN` |
+| `CONTINUE_RUNNING_FREQUENCY` | `6` | Hours between re-runs of a job here, once it is `DONE` |
+
+Every job in this list is one slot (`<job>.txt`), re-run on this flat cadence
+forever — `totalRuns` does not apply, unlike `BENCHMARKS` and `BURNIN`. It
+exists to watch a result stay consistent as the cluster changes, not to
+collect a fixed number of samples.
+
+`BENCHMARKS` and `BURNIN` both take priority: this tier is only ever
+considered once both have nothing pending. A job listed here that is *also*
+in `BENCHMARKS` or `BURNIN` gets its failures reclaimed by that higher-priority
+list for free — the same result file makes it visible to that list's own
+survey, so `CONTINUE_RUNNING_FREQUENCY` has no effect until that list is done
+with it again. A job listed **only** here has nothing to hand a failure back
+to, and is traced as a `WARNING` for exactly that reason. See
+[explanation/sequencing.md#continuous-re-runs](../explanation/sequencing.md#continuous-re-runs).
 
 ## Container images
 
@@ -269,25 +302,45 @@ refusal rather than a silent fall back — a site that chose `clush` and is
 quietly getting `pdsh` has a preference nobody honoured. See
 [explanation/architecture.md#reaching-nodes-is-clush-or-pdsh](../explanation/architecture.md#reaching-nodes-is-clush-or-pdsh).
 
-## Pause switches
+## Run switches
 
-| Setting | Default | Stops |
+| Setting | Default | Set to `no`, stops |
 |---------|---------|-------|
-| `PAUSE_JOBS` | `no` | `launch_job.sh`: submit nothing, drain nothing |
-| `PAUSE_HEALTH_CHECKS` | `no` | `node_health.sh`: run no checks, touch Slurm in neither direction |
-| `PAUSE_CONTAINER_COPY` | `no` | `file_copy.sh`: start no new rsync into `/tmp/containers` |
-| `PAUSE_RECOVERY` | `no` | `launch_job.sh` and `node_health.sh`: clear no drains Slurm set itself |
-| `PAUSE_ARMING` | `no` | `supervisor.sh`: arm no node. Agents already running carry on cycling, and their node views are still written |
+| `RUN_JOBS` | `yes` | `launch_job.sh`: submit nothing, drain nothing |
+| `RUN_HEALTH_CHECKS` | `yes` | `node_health.sh`: run no checks, touch Slurm in neither direction |
+| `RUN_CONTAINER_COPY` | `yes` | `file_copy.sh`: start no new rsync into `NODE_CONTAINER_DIR` |
+| `RUN_RECOVERY` | `yes` | `launch_job.sh` and `node_health.sh`: clear no drains Slurm set itself |
+| `RUN_ARMING` | `yes` | `supervisor.sh`: arm no node. Agents already running carry on cycling, and their node views are still written |
+| `RUN_BURNIN` | `no` | The odd one out: default is *off*, and `yes` is what starts burn-in rather than what stops something already running. See [Burn-in](#burn-in) |
 
-`PAUSE_RECOVERY` is **independent of `PAUSE_JOBS`**. `PAUSE_JOBS` also cancels
+Renamed from `PAUSE_*` — the five above used to default `no` (meaning: running)
+and this flipped both the name and the polarity, so `RUN_JOBS=yes` reads the
+same as the old `PAUSE_JOBS=no` did. A site with an old name still in
+`SETTINGS` gets a `WARNING:` in the trace naming the equivalent, every cycle,
+until it's updated — nothing silently stops being read.
+
+A malformed value for any of these fails toward the switch staying **on**
+(`setting_disabled()`, not `! setting_enabled()`, is what reads them) — the
+same direction a typo in the old `PAUSE_*` value failed toward, so a mistake
+costs nothing rather than halting the fleet.
+
+`RUN_RECOVERY` is **independent of `RUN_JOBS`**. `RUN_JOBS=no` also cancels
 this framework's pending jobs and leaves its running one to finish.
-`PAUSE_ARMING` is the odd one out: it stops the watchdog restarting a node that
-has *stopped*, and does nothing to a node that is running — to stop one of those
-see [how-to/arm-a-node.md#disarming-a-node](../how-to/arm-a-node.md#disarming-a-node).
+`RUN_ARMING` is the odd one out among the first five: it stops the watchdog
+restarting a node that has *stopped*, and does nothing to a node that is
+running — to stop one of those see
+[how-to/arm-a-node.md#disarming-a-node](../how-to/arm-a-node.md#disarming-a-node).
 It is scoped to the arming alone, and deliberately: the watchdog's other job is
-writing the node view every agent decides from, and a pause that stopped that
+writing the node view every agent decides from, and a switch that stopped that
 would stop the whole fleet a snapshot age later.
-`--explain` is stopped by none of them. The reasoning for all of them is in
+`--explain` is stopped by none of them, and neither is the heartbeat: all five
+are read deep inside a cycle, after `results/<node>/.heartbeat` is already
+touched, so a node with any of them set to `no` still reads fresh in
+`overall_report.sh`. A node reading DOWN is its *timer* that stopped, which
+none of these switches touch — that is `pause-agents.sh`, a different
+mechanism entirely. See
+[explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means](../explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means).
+The reasoning for all of them is in
 [explanation/sequencing.md#what-a-pause-is-for](../explanation/sequencing.md#what-a-pause-is-for);
 what to expect while paused is
 [how-to/pause-and-resume.md](../how-to/pause-and-resume.md).
@@ -595,6 +648,7 @@ deployed one. See
 | `CONTAINER_DIR_HEAD` | `$CONTAINER_DIR` | The same directory as the head node mounts it |
 | `CONTAINER_STAGE_DIR` | `$BRINGUP_HOME/container-src` | Source staging for `-S`/`-F`/`-B`, as the compute nodes mount it |
 | `CONTAINER_STAGE_DIR_HEAD` | `$CONTAINER_STAGE_DIR` | The same, as the head node mounts it |
+| `NODE_CONTAINER_DIR` | `/opt/containers` | Node-local cache `file_copy.sh` rsyncs `CONTAINER_DIR` into. `/opt` survives a reboot; change this one line to move it |
 
 Separate from `BRINGUP_HOME` because the images are tens of gigabytes and a
 site's bulk share is usually not the filesystem `/home` is on. Set only the two

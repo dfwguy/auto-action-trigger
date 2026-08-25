@@ -19,7 +19,7 @@
 #            an error: an empty queue is the state this script exists to reach.
 #
 #   -p, --pause
-#            also set PAUSE_JOBS=yes in SETTINGS, before cancelling anything.
+#            also set RUN_JOBS=no in SETTINGS, before cancelling anything.
 #            Without it the next agent cycle queues the work straight back
 #            and this was a stall rather than a stop.
 #
@@ -27,7 +27,7 @@
 #            is one file, NFS-exported to every node -- and the run says so.
 #            SETTINGS is created from SETTINGS.default if the site has none;
 #            SETTINGS.default itself is never edited, being the shipped copy a
-#            tarball drop overwrites. Lift the pause by hand with PAUSE_JOBS=no.
+#            tarball drop overwrites. Lift the pause by hand with RUN_JOBS=yes.
 #
 #   -n, --dry-run
 #            list what would be cancelled and stop: nothing is scancelled and
@@ -99,7 +99,7 @@ node_selected() {
 pause_failed=""
 if [[ "$pause" -eq 1 && "$dryrun" -eq 1 ]]; then
     if [[ -n "$home" ]]; then
-        echo "WOULD SET PAUSE_JOBS=yes in $home/SETTINGS$([[ -f "$home/SETTINGS" ]] || printf ', created from SETTINGS.default')"
+        echo "WOULD SET RUN_JOBS=no in $home/SETTINGS$([[ -f "$home/SETTINGS" ]] || printf ', created from SETTINGS.default')"
     else
         echo "WOULD NOT PAUSE: no SETTINGS or SETTINGS.default beside $self_dir${BRINGUP_HOME:+ or at $BRINGUP_HOME}"
     fi
@@ -116,18 +116,18 @@ elif [[ "$pause" -eq 1 ]]; then
             fi
         fi
         if [[ -z "$pause_failed" ]]; then
-            if grep -qE '^[[:space:]]*PAUSE_JOBS=' "$settings"; then
-                sed -i -E 's/^[[:space:]]*PAUSE_JOBS=.*/PAUSE_JOBS=yes/' "$settings"
+            if grep -qE '^[[:space:]]*RUN_JOBS=' "$settings"; then
+                sed -i -E 's/^[[:space:]]*RUN_JOBS=.*/RUN_JOBS=no/' "$settings"
             else
-                printf 'PAUSE_JOBS=yes\n' >> "$settings"
+                printf 'RUN_JOBS=no\n' >> "$settings"
             fi
             ## Read back rather than trusted: a sed that matched nothing exits 0.
-            if grep -qE '^PAUSE_JOBS=yes[[:space:]]*$' "$settings"; then
-                echo "PAUSE_JOBS=yes in $settings -- fleet-wide, on the next agent cycle."
+            if grep -qE '^RUN_JOBS=no[[:space:]]*$' "$settings"; then
+                echo "RUN_JOBS=no in $settings -- fleet-wide, on the next agent cycle."
                 [[ "${#patterns[@]}" -gt 0 ]] &&
                     echo "NOTE: the pause is not narrowed by the pattern; it stops the sweep on every node."
             else
-                pause_failed="$settings still does not read PAUSE_JOBS=yes"
+                pause_failed="$settings still does not read RUN_JOBS=no"
             fi
         fi
     fi

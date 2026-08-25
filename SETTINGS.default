@@ -39,11 +39,24 @@ VERDICT_MAX_STEP_MS_LLM_PRETRAIN=3480
 VERDICT_MAX_STEP_MS_LLM_SOLO=3510
 
 ## ── Burn-in ───────────────────────────────────────────────────────────────
-RUN_BURNIN=no
+## RUN_BURNIN is set in Run switches, below, next to the rest -- see
+## docs/reference/settings.md#run-switches.
 BURNIN="mnubergemm"
 ## Adds the pulsed waveform beside the steady one; half of each run is idle.
 ## See docs/explanation/burn-in-waveform.md#two-jobs-not-one.
 #BURNIN="mnubergemm mnubergemm-pulse"
+## Shared across every job in BURNIN. 0 means "no target" -- totalRuns alone
+## still caps each job, but nothing stops scheduling on hours.
+## See docs/reference/settings.md#burn-in.
+BURNIN_HOURS=24
+
+## ── Continuous re-runs ───────────────────────────────────────────────────
+## Empty means off, same as BURNIN. A job here is re-run on this cadence
+## alone once it is DONE -- BENCHMARKS/BURNIN reclaim it immediately on a
+## failure and this cadence has no effect until they are done with it again.
+## See docs/reference/settings.md#continuous-re-runs.
+CONTINUE_RUNNING_JOBS=""
+CONTINUE_RUNNING_FREQUENCY=6
 
 ## ── Container images ──────────────────────────────────────────────────────
 ## Which images exist is decided by build_containers.sh, which takes them on the
@@ -63,12 +76,14 @@ NEMO_TAG=26.04.01
 HEALTH_INTERVAL_HOURS=4
 HEALTH_RETRY_INTERVAL_HOURS=1
 
-## ── Pause switches ────────────────────────────────────────────────────────
-PAUSE_JOBS=no
-PAUSE_HEALTH_CHECKS=no
-PAUSE_CONTAINER_COPY=no
-PAUSE_RECOVERY=no
-PAUSE_ARMING=no
+## ── Run switches ──────────────────────────────────────────────────────────
+RUN_JOBS=yes
+RUN_HEALTH_CHECKS=yes
+RUN_CONTAINER_COPY=yes
+RUN_RECOVERY=yes
+RUN_ARMING=yes
+## Opt-in, unlike the rest of this block. See docs/reference/settings.md#burn-in.
+RUN_BURNIN=no
 
 ## ── Drains ────────────────────────────────────────────────────────────────
 DRAIN_AFTER_FAILED_HEALTH_CHECK=no
@@ -165,6 +180,9 @@ CONTAINER_DIR=$BRINGUP_HOME/containers
 CONTAINER_DIR_HEAD=$CONTAINER_DIR
 CONTAINER_STAGE_DIR=$BRINGUP_HOME/container-src
 CONTAINER_STAGE_DIR_HEAD=$CONTAINER_STAGE_DIR
+## Where file_copy.sh caches images on each node. /opt survives a reboot, so
+## the cache does not refill over NFS every time a tray comes back.
+NODE_CONTAINER_DIR=/opt/containers
 LLMB_INSTALL=/home/$JOB_USER/llmb
 LLMB_REF=v26.06.01
 

@@ -117,6 +117,13 @@ if [[ -f "$tracelog" ]] && [[ "$(stat -c %s "$tracelog" 2>/dev/null || echo 0)" 
     tail -2000 "$tracelog" > "$tracelog.tmp" && mv "$tracelog.tmp" "$tracelog"
 fi
 
+## RUN_HEALTH_CHECKS/RUN_RECOVERY replaced PAUSE_HEALTH_CHECKS/PAUSE_RECOVERY.
+## See docs/reference/settings.md#run-switches.
+old_setting_present PAUSE_HEALTH_CHECKS &&
+    trace "WARNING: SETTINGS still sets PAUSE_HEALTH_CHECKS -- this key was renamed to RUN_HEALTH_CHECKS (RUN_HEALTH_CHECKS=no is the equivalent). PAUSE_HEALTH_CHECKS is no longer read. Update SETTINGS."
+old_setting_present PAUSE_RECOVERY &&
+    trace "WARNING: SETTINGS still sets PAUSE_RECOVERY -- this key was renamed to RUN_RECOVERY (RUN_RECOVERY=no is the equivalent). PAUSE_RECOVERY is no longer read. Update SETTINGS."
+
 [[ "$FORCE" -eq 1 ]] && trace "MANUAL: --force -- cadence gate bypassed"
 
 source /etc/profile.d/modules.sh
@@ -128,9 +135,9 @@ module load slurm
 reason=""
 
 ## Deliberately before the `refresh` sentinel is consumed, so a queued re-check
-## survives the pause. See docs/reference/settings.md#pause-switches.
-if setting_enabled "$PAUSE_HEALTH_CHECKS"; then
-    trace "EXIT: PAUSE_HEALTH_CHECKS=${PAUSE_HEALTH_CHECKS} in ${SETTINGS_FILE:-<none>} -- no checks run, and a queued refresh is held rather than consumed"
+## survives the pause. See docs/reference/settings.md#run-switches.
+if setting_disabled "$RUN_HEALTH_CHECKS"; then
+    trace "EXIT: RUN_HEALTH_CHECKS=${RUN_HEALTH_CHECKS} in ${SETTINGS_FILE:-<none>} -- no checks run, and a queued refresh is held rather than consumed"
     exit 0
 fi
 
@@ -322,8 +329,8 @@ if command -v /cm/local/apps/slurm/current/bin/scontrol >/dev/null 2>&1; then
     ## reasons this script writes itself -- it is the only caller with that
     ## evidence -- plus `machine`. Everything else is left alone.
     ## See docs/explanation/drain-recovery.md.
-    if setting_enabled "$PAUSE_RECOVERY"; then
-      trace "PAUSE_RECOVERY=${PAUSE_RECOVERY} in ${SETTINGS_FILE:-<none>} -- ${node_name} passed every check but its drain is left where it is"
+    if setting_disabled "$RUN_RECOVERY"; then
+      trace "RUN_RECOVERY=${RUN_RECOVERY} in ${SETTINGS_FILE:-<none>} -- ${node_name} passed every check but its drain is left where it is"
     elif [[ -f "$home/slurm-recovery.sh" ]]; then
       recover_log() { trace "$@"; }
       ## SC2034: read by slurm-recovery.sh, sourced below, which shellcheck

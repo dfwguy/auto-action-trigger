@@ -60,8 +60,8 @@ HEALTH_INTERVAL_HOURS=${2:-4}
 HEALTH_RETRY_INTERVAL_HOURS=1
 AGENT_INTERVAL_MINUTES=2
 HEARTBEAT_STALE_MINUTES=10
-PAUSE_JOBS=${3:-no}
-PAUSE_HEALTH_CHECKS=no
+RUN_JOBS=${3:-yes}
+RUN_HEALTH_CHECKS=yes
 EOF
 }
 settings
@@ -169,12 +169,12 @@ settings
 
 # ── A paused fleet says so, and not in the report ─────────────────────────────
 
-settings yes 4 yes
+settings yes 4 no
 out=$(run --tests)
-grep -q 'PAUSE_JOBS' "$tmp/err" &&
-    ok "PAUSE_JOBS is named on stderr" "$(head -1 "$tmp/err")" ||
-    bad "PAUSE_JOBS is named on stderr" "nothing on stderr"
-grep -q 'PAUSE_JOBS' <<<"$out" &&
+grep -q 'RUN_JOBS' "$tmp/err" &&
+    ok "RUN_JOBS is named on stderr" "$(head -1 "$tmp/err")" ||
+    bad "RUN_JOBS is named on stderr" "nothing on stderr"
+grep -q 'RUN_JOBS' <<<"$out" &&
     bad "the note stays out of the node lists" "it is on stdout" ||
     ok "the note stays out of the node lists" "stdout is buckets only"
 settings

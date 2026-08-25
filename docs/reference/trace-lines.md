@@ -52,12 +52,12 @@ two per agent cycle, forever.
 
 | Line | When |
 |------|------|
-| `EXIT: PAUSE_JOBS=<value> in <settings file>` | Paused: nothing submitted, drained or archived. Drains Slurm set itself are cleared above this gate, under `PAUSE_RECOVERY` |
-| `PAUSE_JOBS=<value> ... -- explaining anyway` | `--explain` reads through the pause; it writes nothing either way |
-| `recovery paused: PAUSE_RECOVERY=<value>` | Drains left exactly where they are, whatever `RECOVER_SLURM_DRAINS` says |
-| `PAUSE_JOBS: cancelled pending <ids>` | Pending jobs of ours cleared, so a pause reaches the queue and not just submission |
-| `PAUSE_JOBS: job <id> still RUNNING for <t> -- left to finish` | A running job is not killed; the id is named so an operator can `scancel` it deliberately |
-| `--force does not override PAUSE_JOBS: it is a site switch, not a timing gate.` | Appended when a forced run hits the pause |
+| `EXIT: RUN_JOBS=<value> in <settings file>` | Paused: nothing submitted, drained or archived. Drains Slurm set itself are cleared above this gate, under `RUN_RECOVERY` |
+| `RUN_JOBS=<value> ... -- explaining anyway` | `--explain` reads through the pause; it writes nothing either way |
+| `recovery paused: RUN_RECOVERY=<value>` | Drains left exactly where they are, whatever `RECOVER_SLURM_DRAINS` says |
+| `RUN_JOBS=no: cancelled pending <ids>` | Pending jobs of ours cleared, so a pause reaches the queue and not just submission |
+| `RUN_JOBS=no: job <id> still RUNNING -- left to finish` | A running job is not killed; the id is named so an operator can `scancel` it deliberately |
+| `--force does not override RUN_JOBS: it is a site switch, not a timing gate.` | Appended when a forced run hits the pause |
 | `RECOVER …` / `state after recovery=<state>` | A drain Slurm set itself was cleared and the node state re-read — see [explanation/drain-recovery.md](../explanation/drain-recovery.md) |
 | `recover held: … compute processes still on the GPUs (pids …)` | A resume would put work on a node whose GPUs a previous job still holds. The same pids every cycle is a step that outlived its own kill — [how-to/clear-an-unkillable-step.md](../how-to/clear-an-unkillable-step.md) |
 | `… unchanged for <n>s of <n>s before this counts as a step that outlived its own kill` | Appended to the held line while the clock runs |
@@ -85,7 +85,7 @@ two per agent cycle, forever.
 | `EXIT: <path>/.slurm-view has no end marker …` | A torn read: the watchdog was rewriting the file as this cycle read it. Self-correcting on the next cycle |
 | `EXIT: … so it is not known whether a job of ours is already out, and <job> run <n> stays eligible …` | The submission guard had no usable view. Failing closed here is what stops a stale view turning into two jobs on one node |
 | `EXIT: $home/slurm-snapshot.sh is missing …` | This node has no way to read what Slurm says, and asking the controller from here is what that file exists to stop. A partial drop |
-| `PAUSE_JOBS: job <id> (<name>) is <state> -- pending ones are cancelled from the head node` | What this node can see of its own jobs while paused. The cancel itself is the watchdog's |
+| `RUN_JOBS=no: job <id> (<name>) is <state> -- pending ones are cancelled from the head node` | What this node can see of its own jobs while paused. The cancel itself is the watchdog's |
 | `<job> run <n> was host-launched and Slurm gave it job <id> -- marker filled in` | The id came back from the node view a cycle after the launcher ran — see [explanation/sequencing.md#getting-the-job-id-right](../explanation/sequencing.md#getting-the-job-id-right) |
 | `NOTE: <job> run <n> was host-launched and <n> jobs of ours are in the view … none adopted` | Ambiguous, so no id is taken: the wrong one in the marker pins this node to somebody else's job |
 | `EXIT: waiting on our own queue [(RUNNING for <t>, limit <n>h)] [<detail>]` | The normal busy cycle. The scheduler's reason for a job that is not cleanly schedulable is appended — this line reads identically whether the job starts in a minute or never, and the reason is the whole difference |
@@ -103,6 +103,7 @@ two per agent cycle, forever.
 | `EXIT: every benchmark and every burn-in job passing` | The node is done |
 | `EXIT: every benchmark passing (burn-in not run: RUN_BURNIN=<value>)` | The node is done as far as it is configured to go — which is not the same thing, and says which |
 | `WARNING: could not write <quick-view> as <user>` | The trace above is then the only current state |
+| `WARNING: CONTINUE_RUNNING_JOBS names <job>, which is not in BENCHMARKS or BURNIN -- its failures have nothing to hand back to, so they will not drain or back off, only retry every <n>h forever.` | An entry in [`CONTINUE_RUNNING_JOBS`](settings.md#continuous-re-runs) with no higher-priority list to reclaim its failures — see [explanation/sequencing.md#continuous-re-runs](../explanation/sequencing.md#continuous-re-runs) |
 
 ## Drain, resume and the gates before submitting
 
@@ -174,11 +175,11 @@ nothing — this host is the single point the fleet depends on.
 | `EXIT: <host> refreshed the watchdog claim <n>s ago … stands by` | Another host is arming the fleet. Two hosts reading as head is worth settling with `SUPERVISOR_HOST` |
 | `took the watchdog claim from <host>` | The previous watchdog stopped refreshing and this host took over past the lease |
 | `EXIT: SUPERVISOR_HOST=<host> … and this is <host>` | Pinned elsewhere by the site |
-| `PAUSE_ARMING=<value> in <settings file> -- <n> node(s) left unarmed` | No node is armed. Agents already running are untouched and keep cycling, and this cycle still wrote their views |
+| `RUN_ARMING=<value> in <settings file> -- <n> node(s) left unarmed` | No node is armed. Agents already running are untouched and keep cycling, and this cycle still wrote their views |
 | `snapshot: <n> of <n> node view(s) written, <n> job(s) of ours in the queue fleet-wide` | The fleet's one look at Slurm, landed. Every node decides from this — see [explanation/the-fleet-snapshot.md](../explanation/the-fleet-snapshot.md) |
 | `WARNING: no node survived EXCLUDE_NODES=… and NODE_FILTER=… -- no view was written` | Every agent will stop deciding once the view it has ages out |
-| `CANCELLED pending under PAUSE_JOBS=<value>: <ids>` | The pause reaching the queue, fleet-wide in one call |
-| `PAUSE_JOBS: job <id> (<name>) still RUNNING -- left to finish` | A pause stops new work; it does not kill work in progress |
+| `CANCELLED pending under RUN_JOBS=<value>: <ids>` | The pause reaching the queue, fleet-wide in one call |
+| `RUN_JOBS=no: job <id> (<name>) still RUNNING -- left to finish` | A pause stops new work; it does not kill work in progress |
 | `CANCELLED held after a failed launch ('launch failed requeued held'): <ids>` | Jobs the scheduler gave up launching, which sit at priority 0 and never start — see [explanation/sequencing.md#jobs-the-scheduler-has-given-up-on](../explanation/sequencing.md#jobs-the-scheduler-has-given-up-on) |
 | `YIELDED <node>: cancelled our job <id> (<name>) to get out of the way of job <id> (<name>, <user>) pending <n>m` | Somebody else is queued for the node and our running job was given up for them |
 | `not a waiter: job <id> (<name>, <user>) pending <n>m cannot start -- <u> of the <n> node(s) it needs are schedulable -- <node> (<state>)…` | A pending job whose nodes are drained, down, or held by somebody this cannot cancel. Yielding to it would give the nodes to nobody — see [explanation/sequencing.md#a-waiter-that-cannot-run-is-not-a-waiter](../explanation/sequencing.md#a-waiter-that-cannot-run-is-not-a-waiter) |
@@ -204,11 +205,11 @@ per cycle saying so would bury the ones that matter.
 |------|------|
 | `EXIT: no *.sqsh in <dir> -- nothing to copy yet` | The normal state until `build_containers.sh` has run |
 | `EXIT: <dir> does not exist here (CONTAINER_DIR from …)` | The share is not mounted on this node, or `CONTAINER_DIR` names somewhere that is not there |
-| `EXIT: PAUSE_CONTAINER_COPY=<value> in <settings file>` | No new copy; one already running finishes |
+| `EXIT: RUN_CONTAINER_COPY=<value> in <settings file>` | No new copy; one already running finishes |
 | `EXIT: cannot open /tmp/.file_copy.lock … Fix: sudo rm -f …` | A lock left by the root cycles. `/tmp` is sticky, so it can be neither written nor removed by this account — run the command in the line. See [explanation/containers.md#a-lock-left-by-the-old-chain](../explanation/containers.md#a-lock-left-by-the-old-chain) |
 | `EXIT: rsync is not installed here` | Jobs read the image over the share instead, which works and is slower |
 | `copying: <n> of <n> image(s) here, from <dir>` | A copy just started, detached. The next line comes when it finishes, which may be several cycles later |
-| `copied: <n> of <n> image(s) now in /tmp/containers` | Done. `<n> of <n>` is the fact that matters — a job starts off local disk only when the count is complete |
+| `copied: <n> of <n> image(s) now in <dir>` | Done. `<dir>` is `NODE_CONTAINER_DIR`; `<n> of <n>` is the fact that matters — a job starts off local disk only when the count is complete |
 | `COPY FAILED (rsync exit <n>): <what rsync said>` | With the counts, so a partial copy is distinguishable from none |
 | `neither systemd-run nor setsid is available -- copying inline` | The copy holds the cycle rather than running as its own unit |
 
@@ -225,7 +226,7 @@ conventions hold, and the same 1 MB / 2000-line trim. Why it is a separate file:
 | Line | When |
 |------|------|
 | `MANUAL: --force -- cadence gate bypassed` | A human ran it with `-f` |
-| `EXIT: PAUSE_HEALTH_CHECKS=<value> … a queued refresh is held rather than consumed` | Paused. The sentinel survives, so a re-check asked for during a maintenance window happens when it lifts — see [how-to/pause-and-resume.md](../how-to/pause-and-resume.md) |
+| `EXIT: RUN_HEALTH_CHECKS=<value> … a queued refresh is held rather than consumed` | Paused. The sentinel survives, so a re-check asked for during a maintenance window happens when it lifts — see [how-to/pause-and-resume.md](../how-to/pause-and-resume.md) |
 | `EXIT: the baseline … resolves to this node's own log directory` | The golden baseline points at the directory this run would overwrite. Fatal, and the one health line that means *stop and fix the tree* — see [explanation/health-cadence.md#the-golden-baseline](../explanation/health-cadence.md#the-golden-baseline) |
 | `EXIT: no health check set at <dir> …` | `HEALTHCHECKS` names a directory that is not there. Refused rather than run, because zero checks pass trivially |
 | `refresh requested by hand -- running the checks now` | The sentinel was set, and this cycle consumed it |
@@ -238,5 +239,5 @@ conventions hold, and the same 1 MB / 2000-line trim. Why it is a separate file:
 | `differs from <baseline>: <checks>` | The run found something. The check names are what a drain would carry |
 | `EXIT: <node> failed health checks, not draining (DRAIN_AFTER_FAILED_HEALTH_CHECK=no)` | Found something, drains off — the shipped configuration. The finding is in the line above and in `logs/<node>/` |
 | `DOWN: <node> -- <checks>` | The node was set `DOWN` with those check names as the reason |
-| `PAUSE_RECOVERY=<value> … passed every check but its drain is left where it is` | A clean run that was not allowed to clear the drain |
+| `RUN_RECOVERY=<value> … passed every check but its drain is left where it is` | A clean run that was not allowed to clear the drain |
 | `WARNING: scontrol not found; unable to update <node> in Slurm` | Drains are on and the client tools are missing |

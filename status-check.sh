@@ -86,10 +86,10 @@ elif [[ "$pattern" != *[\*\?\[]* ]]; then
     pattern="${pattern}*"
 fi
 
-# Burn-in columns appear only while RUN_BURNIN is on, or they read NOT_RUN
-# forever. See docs/reference/scripts.md.
+# BURNIN never expands into per-run columns here -- it is reported as one
+# accumulated-hours line instead, printed separately below.
+# See docs/reference/settings.md#burn-in.
 active_benchmarks="$BENCHMARKS"
-setting_enabled "$RUN_BURNIN" && active_benchmarks="$BENCHMARKS $BURNIN"
 
 declare -a columns  # each entry is "job" or "job-runN"
 
@@ -107,6 +107,20 @@ select_test() {
     done
     return 1
 }
+
+# Shown whenever burn-in is on and nothing about -t rules it out -- the
+# accumulated line is one job (mnubergemm) or several, so it is offered to
+# select_test once per BURNIN job rather than as a single fixed name.
+show_burnin=0
+if setting_enabled "$RUN_BURNIN" && [[ -n "${BURNIN// /}" ]]; then
+    if [[ ${#tests[@]} -eq 0 ]]; then
+        show_burnin=1
+    else
+        for job in $BURNIN; do
+            select_test "$job" "$job" && { show_burnin=1; break; }
+        done
+    fi
+fi
 
 for job in $active_benchmarks; do
     ## See docs/explanation/sequencing.md#host-launched-jobs.
@@ -128,7 +142,7 @@ for job in $active_benchmarks; do
     fi
 done
 
-if [[ ${#columns[@]} -eq 0 ]]; then
+if [[ ${#columns[@]} -eq 0 && "$show_burnin" -eq 0 ]]; then
     if [[ ${#tests[@]} -gt 0 ]]; then
         echo "No active benchmark matches: ${tests[*]}" >&2
         echo "Active benchmarks: $active_benchmarks" >&2
@@ -254,11 +268,22 @@ worst_per_node() {
         END { for (node in best) print node ofs best[node] }'
 }
 
+# One line per node: "<node>: burn-in: <N>H/<BURNIN_HOURS>H". Not through
+# scan_fleet/report_lines -- burnin_hours_cell sums across every BURNIN job
+# and every run of each, which is not one column's verdict. See
+# docs/explanation/burn-in-waveform.md.
+print_burnin_lines() {
+    local node
+    for node in "${nodes[@]}"; do
+        printf '%s: burn-in: %s\n' "$node" "$(burnin_hours_cell "$node")"
+    done
+}
+
 # Paused means the report stops moving. On stderr so it survives -s being piped
 # and cannot land inside a node list pasted into scancel.
-if setting_enabled "$PAUSE_JOBS"; then
-    echo "NOTE: PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE##*/} -- no benchmarks are" >&2
-    echo "      being submitted, so nothing below will change until it is set to no." >&2
+if setting_disabled "$RUN_JOBS"; then
+    echo "NOTE: RUN_JOBS=$RUN_JOBS in ${SETTINGS_FILE##*/} -- no benchmarks are" >&2
+    echo "      being submitted, so nothing below will change until it is set to yes." >&2
 fi
 
 if [[ "$summary" -ne 1 ]]; then
@@ -276,6 +301,7 @@ if [[ "$summary" -ne 1 ]]; then
 
     if [[ "$by_node" -eq 1 ]]; then
         scan_fleet "${nodes[@]}" | report_lines | sort | group
+        [[ "$show_burnin" -eq 1 ]] && print_burnin_lines | sort | group
         exit 0
     fi
 
@@ -297,6 +323,11 @@ if [[ "$summary" -ne 1 ]]; then
         report_lines < "$scan_dir/$col" | sort | group
         echo
     done
+    if [[ "$show_burnin" -eq 1 ]]; then
+        printf '%s\n%s\n%s\n' "$rule" "burn-in" "$rule"
+        print_burnin_lines | sort | group
+        echo
+    fi
     exit 0
 fi
 
@@ -341,3 +372,18 @@ bucket NOT_RUN    "no attempt has ever been made"
 bucket RERUNNING  "a passing result was re-queued -- nothing written yet"
 bucket RUNNING    "a benchmark is executing now -- not yet judged"
 bucket DONE       "every selected test passes the current gate"
+
+# Not a rank bucket: an hour fraction has no place in FAIL..DONE, and grouping
+# by identical fraction is still one compressed list per value, same as above.
+if [[ "$show_burnin" -eq 1 ]]; then
+    declare -A burnin_bucket_nodes
+    for node in "${nodes[@]}"; do
+        v=$(burnin_hours_cell "$node")
+        burnin_bucket_nodes["$v"]+="${burnin_bucket_nodes[$v]:+,}$node"
+    done
+    echo "BURN-IN"
+    echo
+    while IFS= read -r v; do
+        printf '%s\n%s\n\n' "$v" "$(compress "${burnin_bucket_nodes[$v]}")"
+    done < <(printf '%s\n' "${!burnin_bucket_nodes[@]}" | sort)
+fi

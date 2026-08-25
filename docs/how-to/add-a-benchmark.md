@@ -4,7 +4,10 @@
    `#SBATCH` header and preflight block are part of what you are copying — see
    [reference/jobs.md#the-allocation-header](../reference/jobs.md#the-allocation-header).
 
-2. Set `job_name=<name>` and optionally `totalRuns=N`.
+2. Set `job_name=<name>` and optionally `totalRuns=N`. For a job listed in
+   `BURNIN`, `totalRuns` is a per-job ceiling under the shared `BURNIN_HOURS`
+   target rather than the completion signal — see
+   [reference/settings.md#burn-in](../reference/settings.md#burn-in).
 
 3. Add your workload between the job and parse sections.
 

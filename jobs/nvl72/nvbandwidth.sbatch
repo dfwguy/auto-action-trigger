@@ -42,10 +42,10 @@ srun --ntasks=1 bash -c '
 }
 
 ## Needs an NGC login to build -- see docs/how-to/build-containers.md#nvbandwidth. The arch
-## split is the CPU's, not the GPU's; /tmp/containers is the node-local copy,
+## split is the CPU's, not the GPU's; NODE_CONTAINER_DIR is the node-local copy,
 ## the shared path the fallback. See docs/explanation/containers.md#how-the-caching-works.
 IMG=nvbandwidth-v0.9-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
-CONT=/tmp/containers/$IMG
+CONT=${NODE_CONTAINER_DIR:-/opt/containers}/$IMG
 [[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}/$IMG
 ## Registry alternative -- needs enroot credentials on every compute node:
 #case "$(uname -m)" in

@@ -156,13 +156,17 @@ retry_window() {
 }
 
 tests_section() {
-    local active job sbatch totalRuns r col node key file st due best bestcol
+    local active job sbatch totalRuns r col node key file st due best bestcol show_burnin
     local -a columns=()
     local -A cell=() mtime=() fails=()
     : > "$tmp/tests"
 
+    ## BURNIN never expands into per-run columns here -- see
+    ## docs/reference/settings.md#burn-in. show_burnin is a separate,
+    ## unnamed-job "burn-in due" row per node, appended below.
     active="$BENCHMARKS"
-    setting_enabled "$RUN_BURNIN" && active="$BENCHMARKS $BURNIN"
+    show_burnin=0
+    setting_enabled "$RUN_BURNIN" && [[ -n "${BURNIN// /}" ]] && show_burnin=1
 
     for job in $active; do
         ## See docs/explanation/sequencing.md#host-launched-jobs.
@@ -180,7 +184,7 @@ tests_section() {
             for ((r = 1; r <= totalRuns; r++)); do columns+=("${job}-run${r}"); done
         fi
     done
-    if [[ ${#columns[@]} -eq 0 ]]; then
+    if [[ ${#columns[@]} -eq 0 && "$show_burnin" -eq 0 ]]; then
         echo "NOTE: no active benchmark has a job file under $JOBS_DIR -- nothing can fire." >&2
         return
     fi
@@ -216,8 +220,8 @@ tests_section() {
     done < <(find "$results_dir" -mindepth 2 -maxdepth 2 -name '*.txt' \
                   -printf "%P$ROW_FS%T@\n" 2>/dev/null)
 
-    if setting_enabled "$PAUSE_JOBS"; then
-        echo "NOTE: PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE##*/} -- nothing is being" >&2
+    if setting_disabled "$RUN_JOBS"; then
+        echo "NOTE: RUN_JOBS=$RUN_JOBS in ${SETTINGS_FILE##*/} -- nothing is being" >&2
         echo "      submitted, so the benchmark times below are when each node WOULD" >&2
         echo "      have fired, not when it will." >&2
     fi
@@ -258,6 +262,41 @@ tests_section() {
             key=$(bucket_key "$best")
             row "$key" "$node" "$(bucket_when "$best") — $bestcol" >> "$tmp/tests"
         fi
+
+        ## Earliest due-time across any still-eligible BURNIN job -- not which
+        ## job the round-robin would actually pick next, which is a fairness
+        ## computation this deliberately does not re-derive a third time. See
+        ## actions/launch_job.sh's burnin_order() and
+        ## docs/explanation/sequencing.md#burn-in.
+        if [[ "$show_burnin" -eq 1 ]]; then
+            local bjob blaunch btotal br bfile bdue bbest=""
+            for bjob in $BURNIN; do
+                blaunch=$(_scan_job_launcher "$bjob") || continue
+                btotal=$(_scan_job_total_runs "$blaunch")
+                for ((br = 1; br <= btotal; br++)); do
+                    if [[ "$btotal" -eq 1 ]]; then
+                        bfile="$node/$bjob"
+                    else
+                        bfile="$node/$bjob-run${br}"
+                    fi
+                    verdict "$bjob" "$results_dir/$bfile.txt"
+                    [[ "$VERDICT_STATUS" == "DONE" ]] && continue
+                    if [[ -z "${mtime[$bfile]:-}" ]]; then
+                        bdue=0
+                    else
+                        retry_window "${fails[$bfile]:-0}"
+                        bdue=$(( mtime[$bfile] + RETRY_WINDOW - now ))
+                        [[ "$bdue" -lt 0 ]] && bdue=0
+                    fi
+                    [[ -z "$bbest" || "$bdue" -lt "$bbest" ]] && bbest="$bdue"
+                    break
+                done
+            done
+            if [[ -n "$bbest" ]]; then
+                key=$(bucket_key "$bbest")
+                row "$key" "$node" "$(bucket_when "$bbest") — burn-in ($(burnin_hours_cell "$node"))" >> "$tmp/tests"
+            fi
+        fi
     done
 
     print_buckets "TESTS — when each node next submits a benchmark" "$tmp/tests"
@@ -269,8 +308,8 @@ health_section() {
     local node stamp epoch status interval due key
     : > "$tmp/health"
 
-    if setting_enabled "$PAUSE_HEALTH_CHECKS"; then
-        echo "NOTE: PAUSE_HEALTH_CHECKS=$PAUSE_HEALTH_CHECKS in ${SETTINGS_FILE##*/} -- no" >&2
+    if setting_disabled "$RUN_HEALTH_CHECKS"; then
+        echo "NOTE: RUN_HEALTH_CHECKS=$RUN_HEALTH_CHECKS in ${SETTINGS_FILE##*/} -- no" >&2
         echo "      checks run, so the times below are when each node WOULD have run." >&2
     fi
 

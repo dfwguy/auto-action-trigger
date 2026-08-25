@@ -13,6 +13,12 @@ stub="$work/bin"
 tree="$work/tree"
 mkdir -p "$stub" "$tree/agent/units" "$work/home"
 
+## A real session has a socket here; this suite is about the timer gate, not
+## the lingering one, so a working bus is simulated by default. A socket
+## node, not a plain file: the install script's check is -S, matching what
+## systemctl --user itself looks for.
+python3 -c "import socket; socket.socket(socket.AF_UNIX).bind('$work/bus')"
+
 pass=0; fail=0
 ok()  { printf '  ok   %s\n' "$*"; pass=$((pass + 1)); }
 bad() { printf '  FAIL %s\n' "$*"; fail=$((fail + 1)); }
@@ -125,6 +131,28 @@ case "$line" in
     *"is active"*)         ok  "reported as active with what show returned: $line" ;;
     *)                     bad "no verdict on the timer at all: ${line:-<nothing>}" ;;
 esac
+
+echo "== lingering enabled does not mean this session can use it =="
+
+## loginctl reporting the flag as set is not the same fact as a bus this
+## session can reach -- a directory with no bus socket in it is what a
+## session that predates lingering taking effect looks like.
+mkdir -p "$work/no-bus"
+out=$(
+    export PATH="$stub:$PATH" HOME="$work/home" HOSTNAME=testhost \
+           AGENT_HOME="$tree" XDG_RUNTIME_DIR="$work/no-bus" STUB_SHOW=''
+    "$tree/agent/install-agent.sh" --node 2>&1
+)
+if grep -q 'no user bus reachable in this session' <<< "$out"; then
+    ok "named the real cause, not a unit-install failure"
+else
+    bad "the missing bus was not diagnosed: $out"
+fi
+if grep -q 'daemon-reload\|enable --now' <<< "$out"; then
+    bad "carried on into systemctl --user anyway: $out"
+else
+    ok "stopped before the systemctl --user calls that cannot work here"
+fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

@@ -235,8 +235,8 @@ report that cannot change looks exactly like a cluster that has settled**:
 | Banner | Means |
 |---|---|
 | `WARNING: No baseline` | `valid-config/default` does not resolve, so there is nothing to compare against and no failure can be reported. An empty report, on a cluster nobody has checked |
-| `PAUSE_HEALTH_CHECKS=yes` | Nothing re-runs; this is a snapshot of whenever the pause went on |
-| `PAUSE_JOBS=yes` (in `status-check.sh`) | No benchmarks are being submitted, so nothing below will change |
+| `RUN_HEALTH_CHECKS=no` | Nothing re-runs; this is a snapshot of whenever the pause went on |
+| `RUN_JOBS=no` (in `status-check.sh`) | No benchmarks are being submitted, so nothing below will change |
 
 Check for a fourth, which is not a banner but a line in the body:
 

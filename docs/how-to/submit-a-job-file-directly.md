@@ -102,7 +102,7 @@ the job takes the script's filename. `launch_job.sh` counts and cancels only
 else's job is on it — so an unnamed hand submission blocks the sweep on that
 node until it finishes, which is usually what you want. To have it counted as
 one of the sweep's own instead, add `-J bringup-$node`; be aware that the next
-cycle may then cancel it under `PAUSE_JOBS` or the in-flight gate.
+cycle may then cancel it under `RUN_JOBS=no` or the in-flight gate.
 
 **The result is judged like any other.** It lands at
 `results/<node>/<job>.txt`, so `status-check.sh` and `verdict.sh` will pick it

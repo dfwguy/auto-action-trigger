@@ -11,7 +11,7 @@ bringup-supervisor.timer           bringup-agent.timer  → agent/node-agent.sh
       stat:  heartbeat stale?           ├── any job on this node? → say so, stop
       clush: install-agent.sh           │
                                         ├── file_copy.sh
-                                        │     Rsyncs containers/ to /tmp/containers/ so
+                                        │     Rsyncs containers/ to NODE_CONTAINER_DIR so
                                         │     job start reads the image off local disk.
                                         │
                                         ├── node_health.sh
@@ -213,7 +213,7 @@ tail -f /home/cmods/bringup/results/<tray>/agent.log
 
 ```bash
 ./build_containers.sh -L     # log in to nvcr.io — once per machine, needed for the private-org images
-./build_containers.sh hpc-benchmarks nvbandwidth mnubergemm
+./build_containers.sh -a arm hpc-benchmarks nvbandwidth mnubergemm
 ```
 
 Run on the headnode, once per CPU architecture in the cluster. Name the images you want — there is no setting for it, because everything in `CONTAINER_DIR` is cached on every node and one place should decide. `-A` adds `nvloom`, the one image no registry publishes. Add `nemo` when you enable the LLM jobs.
@@ -332,10 +332,10 @@ scontrol update nodename=node001 state=RESUME
 Stop the whole framework for a maintenance window, without disarming it — in `SETTINGS`, effective fleet-wide on the next agent cycle:
 
 ```bash
-PAUSE_JOBS=yes             # no benchmarks submitted; queued ones cancelled
-PAUSE_HEALTH_CHECKS=yes    # no health checks run; Slurm untouched
-PAUSE_CONTAINER_COPY=yes   # no new rsync into /tmp/containers
-PAUSE_ARMING=yes           # the watchdog arms no node; running agents carry on
+RUN_JOBS=no             # no benchmarks submitted; queued ones cancelled
+RUN_HEALTH_CHECKS=no    # no health checks run; Slurm untouched
+RUN_CONTAINER_COPY=no   # no new rsync into NODE_CONTAINER_DIR
+RUN_ARMING=no           # the watchdog arms no node; running agents carry on
 ```
 
 Nothing is lost — results stay, the sweep resumes where it stopped. One already-running benchmark per node is left to finish. To empty the queue now instead:
@@ -411,7 +411,7 @@ scontrol update nodename=<nodes> state=RESUME
 | `results/`, `logs/`, `valid-config/` | The record of what this cluster did. Delete the tree when you want it gone; re-arming resumes from it |
 | Lingering for `cmods` | The site's setting for the account, not this framework's — turning it off would stop anything else that account runs |
 | The sudoers rules | The site deployed them, via the BCM software image. Removing them is that same path |
-| `/tmp/containers` on each tray | A node-local cache that costs a reboot to clear and nothing to leave |
+| `NODE_CONTAINER_DIR` on each tray (`/opt/containers` default) | A node-local cache. Deliberately persists across reboots so the fleet doesn't refill it over NFS on every power cycle — `rm -rf` it by hand if the disk is wanted back, or set `NODE_CONTAINER_DIR=/tmp/containers` for the old clears-itself behaviour |
 | Drains an operator set | Never touched, in either direction |
 
 `uninstall-agent.sh` stops and removes the timer and its unit and does nothing else. A node that is disarmed and then armed again picks the sweep up where it stopped. See [docs/how-to/arm-a-node.md#disarming-a-node](docs/how-to/arm-a-node.md#disarming-a-node).

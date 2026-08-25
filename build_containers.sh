@@ -6,12 +6,21 @@
 #
 #   ./build_containers.sh -L                 # write ~/.config/enroot/.credentials
 #   NGC_API_KEY=nvapi-... ./build_containers.sh -L    # same, unattended
-#   ./build_containers.sh hpc-benchmarks nvbandwidth   # these, whatever is missing
-#   ./build_containers.sh -A                 # every image this script knows about
-#   ./build_containers.sh -f nvloom          # rebuild even if the .sqsh exists
-#   ./build_containers.sh -l                 # list images, login state, status
+#   ./build_containers.sh -a arm hpc-benchmarks nvbandwidth   # these, whatever is missing
+#   ./build_containers.sh -a arm -A          # every image this script knows about
+#   ./build_containers.sh -a arm -f nvloom   # rebuild even if the .sqsh exists
+#   ./build_containers.sh -a arm -l          # list images, login state, status
 #   ./build_containers.sh -a arm -S -F       # headnode: fetch ARM sources
-#   srun -N1 ./build_containers.sh -B        # ARM node: compile what was fetched
+#   srun -N1 ./build_containers.sh -a arm -B  # ARM node: compile what was fetched
+#
+# -a (or $ARCH) is required for everything except -L and -h: this script has no
+# opinion of its own about which architecture you meant, and a headnode's own
+# `uname -m` is often not the trays'. arm or x86.
+# See docs/how-to/build-containers.md#building-arm-images-on-an-x86-headnode.
+#
+# --no-login builds nvbandwidth or mnubergemm without nvcr.io credentials
+# present -- the import will fail, but as a normal build failure rather than a
+# refusal to start. See docs/how-to/build-containers.md#logging-in-to-ngc.
 #
 # Downloading is the normal path and, by default, the only one; -S, -F and -B
 # are what allow a source build, which runs in two passes because only the
@@ -42,11 +51,12 @@ MODE=all
 ## See docs/explanation/containers.md#downloading-is-the-default-source-builds-are-opt-in.
 SOURCE_OK=0
 
-## Architecture suffix: a CPU split, not a GPU-generation one. -a/$ARCH
-## overrides this machine because the fetch pass never executes anything from
-## inside an image and so cross-builds freely.
+## Architecture suffix: a CPU split, not a GPU-generation one. No default from
+## this machine -- the fetch pass never executes anything from inside an image
+## and so cross-builds freely, which is exactly why guessing here is wrong more
+## often than it is right. -a/$ARCH is required; checked once flags are parsed.
 ## See docs/how-to/build-containers.md#building-arm-images-on-an-x86-headnode.
-arch=${ARCH:-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/')}
+arch=${ARCH:-}
 
 ## enroot's layer cache and scratch default under $HOME, which is NFS here.
 ## See docs/explanation/containers.md#how-the-caching-works.
@@ -89,7 +99,7 @@ usage() {
     awk 'NR > 2 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
     echo
     echo "Images:     $ALL_IMAGES"
-    echo "Arch:       arm x86 (default: this machine; \$ARCH also works)"
+    echo "Arch:       arm x86 -- required (\$ARCH also works), except with -L"
     echo "nvcr.io:    $(have_ngc_login && echo "logged in ($CREDS_FILE)" || echo "not logged in -- $0 -L")"
     exit "${1:-0}"
 }
@@ -525,6 +535,19 @@ build_mnubergemm() {
     return 1
 }
 
+## getopts has no long-option form, so --no-login is pulled out before it runs
+## rather than taught to it.
+NO_LOGIN=0
+args=()
+for a in "$@"; do
+    if [[ "$a" == "--no-login" ]]; then
+        NO_LOGIN=1
+    else
+        args+=("$a")
+    fi
+done
+set -- "${args[@]}"
+
 ALL=0
 while getopts ':fld:a:AFBSLh' opt; do
     case "$opt" in
@@ -554,13 +577,17 @@ if [[ "$MODE" == build ]]; then
     STAGE=$CONTAINER_STAGE_DIR
 fi
 
-[[ -n "$(enroot_arch "$arch")" ]] || die "unknown architecture: $arch (want arm or x86)"
-
-## Login writes one file and builds nothing, so it runs before the image list
-## and the enroot checks below.
+## Login writes one file and builds nothing -- the one thing here that needs
+## no opinion about architecture -- so it runs before -a is required.
 if [[ "$LOGIN" -eq 1 ]]; then
     ngc_login
     exit 0
+fi
+
+if [[ -z "$arch" ]]; then
+    die "-a is required: arm or x86 (\$ARCH also works). This machine's own architecture is not assumed -- see docs/how-to/build-containers.md#building-arm-images-on-an-x86-headnode."
+elif [[ -z "$(enroot_arch "$arch")" ]]; then
+    die "unknown architecture: $arch (want arm or x86)"
 fi
 
 ## The command line, or -A. There is deliberately no default: a settings key
@@ -619,6 +646,21 @@ if [[ "$LIST" -eq 1 ]]; then
     echo "nvcr.io: $(have_ngc_login && echo "logged in ($CREDS_FILE)" || echo "not logged in -- run '$0 -L'")"
     exit 0
 fi
+
+## Checked once, before anything runs, rather than per image as each import
+## fails: nvbandwidth and mnubergemm are the only images this org-gates, so a
+## request for neither never needs to know nvcr.io exists. --no-login is the
+## deliberate way past this, for whatever reason a site has one.
+for img in "${images[@]}"; do
+    case "$img" in
+        nvbandwidth|mnubergemm)
+            if [[ "$NO_LOGIN" -eq 0 ]] && ! have_ngc_login; then
+                die "not logged in to nvcr.io ($CREDS_FILE), and $img needs it. Run '$0 -L' first, or pass --no-login to try anyway (the import will still fail without real credentials). docs/how-to/build-containers.md#logging-in-to-ngc"
+            fi
+            break
+            ;;
+    esac
+done
 
 have enroot || die "enroot is not installed"
 mkdir -p "$DEST" "$WORKDIR" "$ENROOT_CACHE_PATH" "$ENROOT_TEMP_PATH" \

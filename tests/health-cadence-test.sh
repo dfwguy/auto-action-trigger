@@ -136,10 +136,10 @@ check "cadence off means never on its own" "the cadence is off" "$(trace_tail)"
 
 ## 7. The pause stops the run and holds the sentinel for after it.
 settings 'HEALTH_INTERVAL_HOURS=4
-PAUSE_HEALTH_CHECKS=yes'
+RUN_HEALTH_CHECKS=no'
 touch "$work/logs/$NODE/refresh"
 run --force >/dev/null
-check "pause stops the run" "PAUSE_HEALTH_CHECKS" "$(trace_tail)"
+check "pause stops the run" "RUN_HEALTH_CHECKS" "$(trace_tail)"
 if [[ -f "$work/logs/$NODE/refresh" ]]; then
     printf 'ok       %-46s\n' "pause holds the refresh sentinel"
 else

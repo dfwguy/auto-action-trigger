@@ -106,6 +106,26 @@ Reach for either when you suspect the *cache* rather than the gate — a restore
 that reset mtimes, a clock that moved backwards. If a `--no-cache` run disagrees
 with a cached one, that is a bug worth reporting, not a cache worth clearing.
 
+## A shared cache file
+
+`.result_cache.<mode>` lives under `results/`, which is not one account's
+directory — any operator with access can run `status-check.sh` or
+`daily-report.sh` under their own login, not just `$JOB_USER`. Whoever rebuilds
+the cache becomes its owner, because `scan_fleet()` replaces it by `mv` rather
+than editing it in place — the rename is what lets a reader see one whole cache
+or the other and never a half-written one.
+
+A plain `mv` leaves the new file at whatever mode the writer's `umask` gives a
+freshly created one, ordinarily `644` — owner read-write, everyone else
+read-only. The next operator to run a report, in a different account, then
+fails the write-preflight (`: >> "$cache"`) that opens the *existing* file
+directly, and falls back to judging the whole fleet from scratch every time,
+silently losing the speedup the cache exists for. `scan_fleet()` now `chmod
+664`s the replacement before the rename, so the file stays writable by the
+whole group regardless of whose account last rebuilt it or what their `umask`
+was. This assumes report-runners share a group on `results/` — true of every
+site so far, since arming and file ownership already assume one.
+
 ## A column between two attempts
 
 `launch_job.sh` archives a result before it submits the next attempt, so for the

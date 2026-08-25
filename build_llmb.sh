@@ -133,7 +133,7 @@ if [[ "$DO_IMAGE" -eq 1 ]]; then
         echo "NOTE: no $creds -- a gated NGC image will fail with a 401. ./build_containers.sh -L writes it."
 
     ## Staged into containers/ as well, so actions/file_copy.sh rsyncs it to
-    ## /tmp/containers on each node like every other image. Without that, every
+    ## NODE_CONTAINER_DIR on each node like every other image. Without that, every
     ## node streams the same multi-GB squashfs off one filer at once.
     ## See docs/how-to/enable-llm-pretrain.md#1-install-on-the-head-node.
     mkdir -p "$CONTAINER_DIR_HEAD" || die "cannot create $CONTAINER_DIR_HEAD"

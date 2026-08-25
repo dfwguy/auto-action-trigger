@@ -178,6 +178,15 @@ else
     fail "could not enable lingering for $me -- the timer dies with the ssh session. docs/explanation/the-agent-and-the-watchdog.md#why-lingering"
 fi
 
+## The flag above takes effect next login, not this session -- checked here
+## rather than let a missing bus read as five unrelated failures below.
+## See docs/how-to/enable-lingering-before-installing.md.
+if [[ "$rc" -eq 0 && ! -S "$XDG_RUNTIME_DIR/bus" ]]; then
+    fail "no user bus reachable in this session, even though lingering is enabled for $me now -- it takes effect on your NEXT login, not this one. Log out and back in (or open a fresh ssh session as $me) and re-run install-agent.sh. docs/how-to/enable-lingering-before-installing.md"
+fi
+
+[[ "$rc" -eq 0 ]] || { say "refusing to install units without a session systemctl --user can reach" >&2; exit "$rc"; }
+
 ## ── The unit ──────────────────────────────────────────────────────────────
 ##
 ## Through a temp file named for this host and this run. A shared $HOME means
@@ -321,6 +330,20 @@ elif ! touch "$beat_dir/.heartbeat" 2>/dev/null; then
     fail "cannot write $beat_dir/.heartbeat as $me -- $(stat -c '%U owns it' "$beat_dir" 2>/dev/null). docs/how-to/arm-a-node.md#armed-but-never-heartbeats"
 else
     ok "wrote $beat_dir/.heartbeat -- the watchdog can see this host is alive"
+fi
+
+## Not a fail: a node that cannot warm this cache still runs every job, off the
+## shared path, at the cost of an NFS read per start instead of a local one --
+## unlike the heartbeat above, nothing about arming depends on it. /opt is
+## root-owned on a stock image, so this is the check that says so once instead
+## of file_copy.sh tracing "cannot create" quietly, every cycle, forever.
+## See docs/explanation/containers.md#one-share-two-mount-points.
+if [[ "$ROLE" != "head" ]] && ! node_excluded "$HOSTNAME"; then
+    if mkdir -p "$NODE_CONTAINER_DIR" 2>/dev/null; then
+        ok "$NODE_CONTAINER_DIR is writable -- the container cache can warm"
+    else
+        warn "cannot create $NODE_CONTAINER_DIR as $me -- $(stat -c '%U owns %n' "$(dirname "$NODE_CONTAINER_DIR")" 2>/dev/null || echo 'the parent directory does not exist either'). Jobs still run, off CONTAINER_DIR over NFS. Fix: as root, on this node, 'mkdir -p $NODE_CONTAINER_DIR && chown $me $NODE_CONTAINER_DIR' -- or set NODE_CONTAINER_DIR to somewhere $me already owns."
+    fi
 fi
 
 ## The three states partition the fleet, so a caller can tally them: a host says

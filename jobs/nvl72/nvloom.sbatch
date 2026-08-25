@@ -44,7 +44,7 @@ srun --ntasks=1 bash -c '
 ## NOT ENABLED BY DEFAULT -- no published image, and not in BENCHMARKS.
 ## Building and enabling it: docs/how-to/build-containers.md#nvloom.
 IMG=nvloom-v2.0.0-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
-CONT=/tmp/containers/$IMG
+CONT=${NODE_CONTAINER_DIR:-/opt/containers}/$IMG
 [[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}/$IMG
 RACK_SAMPLES=5
 # shellcheck disable=SC2034  # read only by the commented-out scope 2 srun below

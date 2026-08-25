@@ -146,8 +146,8 @@ occasionally does not.
 Two checks worth the extra command:
 
 **Is the report current?** Both roll-ups print a banner on stderr when the thing
-that produces them is paused — `PAUSE_JOBS` for `status-check.sh`,
-`PAUSE_HEALTH_CHECKS` for `health-check.sh`. A paused report cannot change and
+that produces them is paused — `RUN_JOBS` for `status-check.sh`,
+`RUN_HEALTH_CHECKS` for `health-check.sh`. A paused report cannot change and
 looks exactly like a cluster that has settled. The banner is on stderr
 deliberately, so it survives `-s` being piped and cannot land inside a node list
 you are about to paste.

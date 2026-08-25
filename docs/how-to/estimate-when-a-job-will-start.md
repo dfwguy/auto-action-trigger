@@ -237,12 +237,12 @@ bash kill-jobs.sh -p <node-pattern>    # pause, then cancel
 
 **Cancelling alone buys about one agent cycle.** The sequencer fires every
 minute, finds an idle node, and submits the next benchmark. `-p` is what makes
-it hold, and it writes `PAUSE_JOBS=yes` before cancelling anything so there is
+it hold, and it writes `RUN_JOBS=no` before cancelling anything so there is
 no window for a cycle to resubmit into.
 
 Note that a pause is fleet-wide even when the node pattern is not — `SETTINGS`
 is one file read by every node. And nothing lifts a pause automatically; someone
-has to set `PAUSE_JOBS=no` when your window closes.
+has to set `RUN_JOBS=yes` when your window closes.
 
 Cancelling a benchmark costs the bringup a re-run, not a node: the partial
 result reads as `INCOMPLETE` and the sweep retries it after the pause. See

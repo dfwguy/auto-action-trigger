@@ -2,8 +2,9 @@
 
 `build_containers.sh` builds the container images the jobs need as local `.sqsh`
 files in `$CONTAINER_DIR`. `actions/file_copy.sh` rsyncs that
-directory to `/tmp/containers/` on each node, and every job prefers the
-node-local copy. **Nothing is pulled from a registry at job start.**
+directory to `$NODE_CONTAINER_DIR` (`/opt/containers` by default) on each node,
+and every job prefers the node-local copy. **Nothing is pulled from a registry
+at job start.**
 
 Running it is [how-to/build-containers.md](../how-to/build-containers.md); the
 image list is
@@ -28,7 +29,7 @@ fall back by hand if an image is missing. It sits directly under the two lines
 that pick the local copy:
 
 ```bash
-CONT=/tmp/containers/$IMG
+CONT=${NODE_CONTAINER_DIR:-/opt/containers}/$IMG
 [[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?...}/$IMG
 #CONT=docker://nvcr.io#nvidia/hpc-benchmarks:26.02
 ```
@@ -102,7 +103,7 @@ is left in the unit's cgroup the moment `ExecStart` returns.
 
 So the copy got whatever was left of the cycle that started it, which is not a
 duration anything chose. A cycle that runs the 45 health checks takes seconds; a
-cycle with the health cadence closed and `PAUSE_JOBS` set exits every gate at
+cycle with the health cadence closed and `RUN_JOBS=no` set exits every gate at
 once and takes well under one. The same fleet showed both: nodes that filled
 completely during their first cycles, and nodes stuck at exactly one image
 because every cycle since had given the copy milliseconds. `--partial` meant
@@ -138,7 +139,7 @@ Three layers, each avoiding a different transfer:
 |-------|------|--------------|--------|
 | Build cache | `/tmp/enroot-cache/$UID`, docker's layer store | `build_containers.sh` | Re-pulling layers on rebuild |
 | Shared copy | `CONTAINER_DIR` | `build_containers.sh` | Per-node registry pulls |
-| Node-local cache | `/tmp/containers/` | `actions/file_copy.sh` | Reading the image over NFS at every job start |
+| Node-local cache | `NODE_CONTAINER_DIR` (`/opt/containers` default) | `actions/file_copy.sh` | Reading the image over NFS at every job start |
 
 The last one is the one that matters at run time. A `.sqsh` is mounted, not
 copied, so a job pointed at the NFS path streams the image over NFS for the
@@ -147,17 +148,29 @@ slowest part of a sweep. Each job resolves its image as:
 
 ```bash
 IMG=nvidia+hpc-benchmarks+26.02-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
-CONT=/tmp/containers/$IMG
+CONT=${NODE_CONTAINER_DIR:-/opt/containers}/$IMG
 [[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?...}/$IMG
 ```
 
 so a node the rsync has not reached yet still runs, just off NFS.
 
-`CONTAINER_DIR` arrives on `sbatch --export`, because a batch script runs from
-Slurm's spool copy: it can neither read `SETTINGS` nor work out where the tree
-is from its own path. It is `:?` rather than a default so that a job submitted
-without it stops and says so, instead of falling back to a directory that a site
-which moved its images no longer has — see
+`NODE_CONTAINER_DIR` defaults to `/opt/containers` rather than `/tmp` on
+purpose: `/opt` survives a reboot, so a tray coming back does not have to refill
+gigabytes of image over NFS before its first job can start off local disk again.
+Moving it is one line in `SETTINGS`; a site with a bulk-storage mount for `/opt`
+already, or one that would rather keep the old `/tmp`-and-reboot-clears-it
+behaviour, sets it there instead. Whatever directory it names must exist and be
+writable by `$JOB_USER` — `/tmp` was world-writable for free, `/opt` on a stock
+image usually is not, and `file_copy.sh` traces `cannot create $dst` rather than
+guess at a fallback if it is not.
+
+`CONTAINER_DIR` and `NODE_CONTAINER_DIR` both arrive on `sbatch --export`,
+because a batch script runs from Slurm's spool copy: it can neither read
+`SETTINGS` nor work out where the tree is from its own path. `CONTAINER_DIR` is
+`:?` rather than a default so that a job submitted without it stops and says so,
+instead of falling back to a directory that a site which moved its images no
+longer has; `NODE_CONTAINER_DIR` is `:-/opt/containers` because that default is
+always a reasonable place to look, export or not. See
 [sequencing.md#what-a-submission-carries](sequencing.md#what-a-submission-carries).
 
 The build side keeps `ENROOT_CACHE_PATH` and `ENROOT_TEMP_PATH` on local disk
@@ -211,6 +224,10 @@ runtime test of which machine this is: every reader above is statically one or
 the other, and `-B` — the one pass of `build_containers.sh` that runs on a node
 rather than the head node — is told apart by the flag it was given, not guessed
 at. A wrong guess here would put the images somewhere plausible and useless.
+
+`NODE_CONTAINER_DIR` has no `_HEAD` pair: it names a path on the node's own
+local disk, not a shared mount, so there is no second machine's view of it to
+get wrong.
 
 ## What the container gets from the host
 

@@ -141,6 +141,22 @@ run_cycle "" 1
     ok "a cycle that could not read the queue still wrote it" ||
     bad "no heartbeat when the queue could not be read"
 
+## Issue #9: RUN_JOBS is read inside launch_job.sh, well below this script's
+## own heartbeat touch -- node-agent.sh never reads it at all. Pausing must not
+## read as the timer having stopped. See docs/reference/settings.md#run-switches.
+printf 'RUN_JOBS=no\n' >> "$tree/SETTINGS"
+rm -f "$beat"
+run_cycle ""
+if [[ -f "$beat" ]]; then
+    ok "RUN_JOBS=no still wrote the heartbeat"
+else
+    bad "RUN_JOBS=no stopped the heartbeat -- the watchdog would read this node as DOWN"
+fi
+steps_ran &&
+    ok "  ... and node-agent.sh still ran its steps -- RUN_JOBS is launch_job.sh's gate to read, not this script's" ||
+    bad "  ... but node-agent.sh itself stopped a step on RUN_JOBS, which is not its gate to read"
+sed -i '/^RUN_JOBS=no$/d' "$tree/SETTINGS"
+
 echo "== one cycle at a time =="
 
 if ! command -v flock >/dev/null 2>&1; then

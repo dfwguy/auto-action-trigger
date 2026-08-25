@@ -73,6 +73,24 @@ job_total_runs() {
     printf '%s' "$total"
 }
 
+## How long one passing run of a burn-in job is worth, in seconds. mnubergemm
+## is told its own run length on the command line, so that number is
+## authoritative; a job without one falls back to STEP_TIMELIMIT (H:MM:SS,
+## the only form used anywhere under jobs/ -- see docs/reference/jobs.md).
+## See docs/reference/settings.md#burn-in.
+job_run_seconds() {
+    local launch="$1" secs h m s
+    if grep -Fq -- "--time_to_run" "$launch"; then
+        secs=$(grep -F -- "--time_to_run" "$launch" | head -1 | awk '{print $2}' | tr -d '[:space:]')
+        [[ "$secs" =~ ^[0-9]+$ ]] && { printf '%s' "$secs"; return; }
+    fi
+    IFS=: read -r h m s < <(grep -F "STEP_TIMELIMIT=" "$launch" | head -1 | awk -F= '{print $2}')
+    [[ "$h" =~ ^[0-9]+$ ]] || h=0
+    [[ "$m" =~ ^[0-9]+$ ]] || m=0
+    [[ "$s" =~ ^[0-9]+$ ]] || s=0
+    printf '%s' $(( 10#$h * 3600 + 10#$m * 60 + 10#$s ))
+}
+
 ## Result file for run $2 of job $1. Single-run jobs use <job>.txt.
 result_file() {
     local job="$1" run="$2" total="$3"
@@ -199,6 +217,14 @@ if [[ -f "$tracelog" ]] && [[ "$(stat -c %s "$tracelog" 2>/dev/null || echo 0)" 
     tail -2000 "$tracelog" > "$tracelog.tmp" && mv "$tracelog.tmp" "$tracelog"
 fi
 
+## RUN_JOBS/RUN_RECOVERY replaced PAUSE_JOBS/PAUSE_RECOVERY; a site still
+## setting the old name is silently no longer read. See
+## docs/reference/settings.md#run-switches.
+old_setting_present PAUSE_JOBS &&
+    trace "WARNING: SETTINGS still sets PAUSE_JOBS -- this key was renamed to RUN_JOBS (RUN_JOBS=no is the equivalent). PAUSE_JOBS is no longer read. Update SETTINGS."
+old_setting_present PAUSE_RECOVERY &&
+    trace "WARNING: SETTINGS still sets PAUSE_RECOVERY -- this key was renamed to RUN_RECOVERY (RUN_RECOVERY=no is the equivalent). PAUSE_RECOVERY is no longer read. Update SETTINGS."
+
 ## ── Extra environment for the jobs ────────────────────────────────────────
 ##
 ## An allowlist rather than a blocklist: the submission is built as a string and
@@ -235,7 +261,7 @@ unset _pair
 ## where a command line takes spaces.
 SITE_ARGS=""
 SITE_EXPORT=""
-for _var in BRINGUP_HOME CONTAINER_DIR LLMB_INSTALL LLMB_BIN LLMB_HF LLMB_IMAGES; do
+for _var in BRINGUP_HOME CONTAINER_DIR NODE_CONTAINER_DIR LLMB_INSTALL LLMB_BIN LLMB_HF LLMB_IMAGES; do
     _value="${!_var:-}"
     [[ -n "$_value" ]] || continue
     if [[ "$_value" =~ ^[A-Za-z0-9_.:/+@%=-]+$ ]]; then
@@ -496,12 +522,12 @@ node_reason() {
 ## ── Drains Slurm set itself ───────────────────────────────────────────────
 ##
 ## Only the `machine` class -- every other drain belongs to whoever set it.
-## Above the PAUSE_JOBS gate and governed by PAUSE_RECOVERY instead: putting a
+## Above the RUN_JOBS gate and governed by RUN_RECOVERY instead: putting a
 ## node back is not putting work on it. The state is re-read rather than
-## assumed. See docs/reference/settings.md#pause-switches.
-## --explain reads through this the same way it reads through PAUSE_JOBS: a
+## assumed. See docs/reference/settings.md#run-switches.
+## --explain reads through this the same way it reads through RUN_JOBS: a
 ## dry-run recovery issues no scontrol, restarts no slurmd and records no
-## attempt, so the pause has nothing to protect it from.
+## attempt, so RUN_RECOVERY=no has nothing to protect it from.
 ## Called from inside the in-flight gate as well as after it; a node stuck
 ## behind its own undelivered job would otherwise never reach it. See
 ## docs/explanation/sequencing.md#a-queued-job-must-not-outrank-a-drain.
@@ -511,11 +537,11 @@ recover_slurm_drains() {
     [[ "$recovery_ran" -eq 1 ]] && return 0
     recovery_ran=1
 
-    if setting_enabled "$PAUSE_RECOVERY"; then
+    if setting_disabled "$RUN_RECOVERY"; then
         if [[ "$EXPLAIN" -eq 1 ]]; then
-            trace "PAUSE_RECOVERY=$PAUSE_RECOVERY in ${SETTINGS_FILE:-<none>} -- explaining anyway; nothing below would be resumed while it is set"
+            trace "RUN_RECOVERY=$RUN_RECOVERY in ${SETTINGS_FILE:-<none>} -- explaining anyway; nothing below would be resumed while it is set"
         else
-            trace "recovery paused: PAUSE_RECOVERY=$PAUSE_RECOVERY in ${SETTINGS_FILE:-<none>} -- drains Slurm set itself are left exactly where they are"
+            trace "recovery paused: RUN_RECOVERY=$RUN_RECOVERY in ${SETTINGS_FILE:-<none>} -- drains Slurm set itself are left exactly where they are"
             recovery_paused=1
         fi
     fi
@@ -628,24 +654,24 @@ recover_slurm_drains
 ## is the watchdog's now: it sees every node's pending jobs in the one queue it
 ## already read, where this was two squeues per node per cycle.
 ## See docs/explanation/the-fleet-snapshot.md#what-moved-to-the-head-node.
-if setting_enabled "$PAUSE_JOBS"; then
+if setting_disabled "$RUN_JOBS"; then
     if [[ "$SNAPSHOT_OK" -eq 1 ]]; then
         while IFS=$'\t' read -r paused_id paused_state paused_name _; do
             [[ -n "$paused_id" ]] || continue
-            trace "PAUSE_JOBS: job $paused_id ($paused_name) is $paused_state -- pending ones are cancelled from the head node; 'scancel $paused_id' to stop a running one now"
+            trace "RUN_JOBS=no: job $paused_id ($paused_name) is $paused_state -- pending ones are cancelled from the head node; 'scancel $paused_id' to stop a running one now"
         done < <(snapshot_ours)
     fi
 
     [[ "$FORCE" -eq 1 ]] &&
-        trace "--force does not override PAUSE_JOBS: it is a site switch, not a timing gate. Set PAUSE_JOBS=no in ${SETTINGS_FILE:-SETTINGS} to sweep."
+        trace "--force does not override RUN_JOBS: it is a site switch, not a timing gate. Set RUN_JOBS=yes in ${SETTINGS_FILE:-SETTINGS} to sweep."
 
     ## --explain reads on: every write below it is already guarded, and the
     ## question it answers -- what would a sweep do here -- is one worth being
     ## able to ask precisely when the sweep is stopped.
     if [[ "$EXPLAIN" -eq 1 ]]; then
-        trace "PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE:-<no settings file found>} -- explaining anyway; nothing below would run while it is set"
+        trace "RUN_JOBS=$RUN_JOBS in ${SETTINGS_FILE:-<no settings file found>} -- explaining anyway; nothing below would run while it is set"
     else
-        trace "EXIT: PAUSE_JOBS=$PAUSE_JOBS in ${SETTINGS_FILE:-<no settings file found>} -- no submissions, no drains"
+        trace "EXIT: RUN_JOBS=$RUN_JOBS in ${SETTINGS_FILE:-<no settings file found>} -- no submissions, no drains"
         exit 0
     fi
 fi
@@ -735,6 +761,9 @@ declare -a pending_jobs=()
 declare -a failed_jobs=()
 declare -a surveyed_jobs=()
 declare -A fail_reasons=()
+## Per-job passed count from the most recent survey() call -- the fairness
+## ordering and the hour target both read this rather than re-deriving it.
+declare -A job_passed=()
 newest_result=0
 swept=1
 ## Survey one list. pending_jobs / failed_jobs / swept reset on each call;
@@ -751,6 +780,7 @@ survey() {
     pending_jobs=()
     failed_jobs=()
     surveyed_jobs=()
+    job_passed=()
     swept=1
 
 for job in $list; do
@@ -817,8 +847,90 @@ for job in $list; do
     [[ "$attempted" -eq 0 ]] && swept=0
     [[ "$failed" -eq 1 ]] && failed_jobs+=("$job")
     [[ "$passed" -lt "$totalRuns" ]] && pending_jobs+=("$job")
+    job_passed["$job"]=$passed
 done
     return 0
+}
+
+## BURNIN in fairness order: the job with the fewest passed runs first, ties
+## broken by BURNIN's own order -- never by name, or two jobs tied at zero
+## passed would sort alphabetically instead of by list position. A job at its
+## own totalRuns cap drops out. Derived fresh from job_passed (itself re-read
+## from disk every survey) rather than a persisted rotation pointer, same as
+## every other verdict in this tree. See docs/explanation/sequencing.md#burn-in.
+##
+## Defined here, ahead of the "nothing to do at all" exit below, rather than
+## beside next_eligible(): this script runs top to bottom as one process, not
+## sourced then dispatched, so a function has to exist before the first line
+## that can reach a call to it.
+burnin_order() {
+    local job launch total i=0
+    for job in $BURNIN; do
+        launch=$(job_launcher "$job") || { i=$((i + 1)); continue; }
+        total=$(job_total_runs "$launch")
+        [[ "${job_passed[$job]:-0}" -lt "$total" ]] &&
+            printf '%s %s %s\n' "${job_passed[$job]:-0}" "$i" "$job"
+        i=$((i + 1))
+    done | sort -k1,1n -k2,2n | awk '{print $3}' | tr '\n' ' '
+}
+
+## Whether the shared campaign target still has room. 0 is the deliberate
+## "no target" answer -- totalRuns per job is the only cap left. See
+## docs/reference/settings.md#burn-in.
+BURNIN_HOURS_WARNED=0
+burnin_hours_open() {
+    if [[ ! "$BURNIN_HOURS" =~ ^[0-9]+$ ]]; then
+        [[ "$BURNIN_HOURS_WARNED" -eq 0 ]] &&
+            trace "WARNING: BURNIN_HOURS='$BURNIN_HOURS' in ${SETTINGS_FILE:-<no settings file found>} is not a whole number -- burn-in scheduling proceeds as if uncapped (totalRuns per job still applies)."
+        BURNIN_HOURS_WARNED=1
+        return 0
+    fi
+    [[ "$BURNIN_HOURS" -eq 0 ]] && return 0
+    local total_hours
+    total_hours=$(burnin_hours_total)
+    if [[ "$total_hours" -ge "$BURNIN_HOURS" ]]; then
+        trace "burn-in: ${total_hours}H/${BURNIN_HOURS}H reached -- no further burn-in submitted"
+        return 1
+    fi
+    return 0
+}
+
+## Validated hours across every job in BURNIN, passed runs only -- a failed or
+## in-progress run contributes nothing. See docs/reference/settings.md#burn-in.
+burnin_hours_total() {
+    local job launch secs total_hours=0
+    for job in $BURNIN; do
+        launch=$(job_launcher "$job") || continue
+        secs=$(job_run_seconds "$launch")
+        total_hours=$(( total_hours + ${job_passed[$job]:-0} * secs / 3600 ))
+    done
+    printf '%s' "$total_hours"
+}
+
+## Lowest priority of all three lists, and simpler than next_eligible() on
+## purpose: totalRuns does not apply here, so there is no run to loop over --
+## every job is slot 1 of 1, forever -- and no retry-window call, because a
+## job that just failed cannot still be waiting on this clock. The moment a
+## result fails, BENCHMARKS/BURNIN's own survey sees the same file and
+## reclaims the whole list; this is only ever reached once both are clear.
+## See docs/explanation/sequencing.md#continuous-re-runs.
+continue_running_next() {
+    local job launch file mtime now
+    now=$(date +%s)
+    for job in $CONTINUE_RUNNING_JOBS; do
+        launch=$(job_launcher "$job") || {
+            trace "skip $job: no $JOBS_DIR/$job.sbatch or $JOBS_DIR/$job.sh"
+            continue
+        }
+        file=$(result_file "$job" 1 1)
+        if [[ -f "$file" ]]; then
+            mtime=$(stat -c %Y "$file" 2>/dev/null || echo 0)
+            (( now - mtime < CONTINUE_RUNNING_FREQUENCY * 3600 )) && continue
+        fi
+        NEXT_JOB="$job"; NEXT_RUN=1; NEXT_TOTAL=1
+        return 0
+    done
+    return 1
 }
 
 in_list() {
@@ -859,11 +971,20 @@ write_quickview() {
                 echo "$job: QUEUED${reason:+  <- $reason}"
             fi
         done
+        ## Not burnin_hours_open() -- that traces when it closes the gate, and
+        ## this is display, called from several exit paths in one cycle; a
+        ## silent arithmetic check avoids retracing the same fact repeatedly.
+        local qv_hours_met=0
+        setting_enabled "$RUN_BURNIN" && [[ "$BURNIN_HOURS" =~ ^[0-9]+$ ]] &&
+            [[ "$BURNIN_HOURS" -gt 0 ]] && [[ "$(burnin_hours_total)" -ge "$BURNIN_HOURS" ]] &&
+            qv_hours_met=1
         for job in $BURNIN; do
             if ! setting_enabled "$RUN_BURNIN"; then
                 echo "$job: BURN-IN OFF  <- RUN_BURNIN=$RUN_BURNIN"
             elif [[ "$job" == "$IN_FLIGHT_JOB" ]]; then
                 echo "$job: IN FLIGHT"
+            elif [[ "$qv_hours_met" -eq 1 ]] && in_list "$job" "${burn_pending[@]}"; then
+                echo "$job: DONE (BURNIN_HOURS reached)"
             elif ! in_list "$job" "${burn_pending[@]}"; then
                 echo "$job: DONE"
             else
@@ -888,6 +1009,15 @@ write_quickview() {
 ## for one job submits one job. See
 ## docs/how-to/run-a-job-by-hand.md#running-a-job-that-is-not-in-the-list.
 survey "${TEST_LIST:-$BENCHMARKS}" "$bench_busy"
+
+## A CONTINUE_RUNNING_JOBS entry not also in BENCHMARKS or BURNIN has nothing
+## to hand a failure back to -- see continue_running_next().
+if [[ -z "$TEST_LIST" ]] && [[ -n "${CONTINUE_RUNNING_JOBS// /}" ]]; then
+    for job in $CONTINUE_RUNNING_JOBS; do
+        in_list "$job" $BENCHMARKS $BURNIN ||
+            trace "WARNING: CONTINUE_RUNNING_JOBS names $job, which is not in BENCHMARKS or BURNIN -- its failures have nothing to hand back to, so they will not drain or back off, only retry every ${CONTINUE_RUNNING_FREQUENCY}h forever."
+    done
+fi
 bench_pending=("${pending_jobs[@]}")
 bench_failed=("${failed_jobs[@]}")
 bench_swept=$swept
@@ -912,11 +1042,37 @@ if [[ -z "$TEST_LIST" ]] && setting_enabled "$RUN_BURNIN"; then
     fi
 fi
 
-## Nothing to do at all -- everything that is meant to run has passed.
-if [[ "${#bench_pending[@]}" -eq 0 && "${#burn_pending[@]}" -eq 0 ]]; then
+## Lowest priority of all three lists -- open only once neither of the other
+## two has anything pending, the same condition the exit below already
+## checks. No attempt to also account for BURNIN_HOURS being closed while
+## burn_pending is still non-empty (every BURNIN job at its own totalRuns
+## cap, target unmet): continuous re-runs simply wait for that to clear too,
+## a deliberately accepted rare edge case rather than a reason to touch
+## burn-in's already-settled gate. See docs/explanation/sequencing.md#continuous-re-runs.
+continue_running_eligible=0
+if [[ -z "$TEST_LIST" ]] && [[ -n "${CONTINUE_RUNNING_JOBS// /}" ]] &&
+   [[ "${#bench_pending[@]}" -eq 0 && "${#burn_pending[@]}" -eq 0 ]]; then
+    continue_running_eligible=1
+fi
+
+## Nothing to do at all -- everything that is meant to run has passed. A
+## BURNIN job at its own totalRuns cap never enters burn_pending, so this is
+## also where "every job capped" shows up -- distinguished from a genuinely
+## clean sweep by whether BURNIN_HOURS is still open: the generic "passing"
+## trace below would otherwise read as fine when the target cannot be reached
+## without raising a cap. See docs/explanation/sequencing.md#burn-in.
+##
+## A due continuous re-run keeps this from exiting the same way a BURNIN job
+## under its own cap already does above -- see continue_running_next().
+if [[ "${#bench_pending[@]}" -eq 0 && "${#burn_pending[@]}" -eq 0 ]] &&
+   { [[ "$continue_running_eligible" -eq 0 ]] || ! continue_running_next; }; then
     write_quickview
     resume_node
-    if setting_enabled "$RUN_BURNIN"; then
+    if setting_enabled "$RUN_BURNIN" && [[ -n "${BURNIN// /}" ]] &&
+       [[ "$BURNIN_HOURS" =~ ^[0-9]+$ ]] && [[ "$BURNIN_HOURS" -gt 0 ]] &&
+       [[ "$(burnin_hours_total)" -lt "$BURNIN_HOURS" ]]; then
+        trace "WARNING: every BURNIN job is at its own totalRuns cap but the accumulated total ($(burnin_hours_total)H) is below BURNIN_HOURS=${BURNIN_HOURS}H -- the target cannot be reached without raising a job's totalRuns."
+    elif setting_enabled "$RUN_BURNIN"; then
         trace "EXIT: every benchmark and every burn-in job passing"
     else
         trace "EXIT: every benchmark passing (burn-in not run: RUN_BURNIN=$RUN_BURNIN)"
@@ -1161,12 +1317,35 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
 }
 
 ## Benchmarks first, then burn-in -- and only ever one. BENCHMARKS order is the
-## run order now that nothing queues behind anything.
+## run order now that nothing queues behind anything. BURNIN runs in fairness
+## order (burnin_order) rather than list order, and stops the moment the
+## shared BURNIN_HOURS target is met, whatever headroom any one job's own
+## totalRuns still has. See docs/explanation/sequencing.md#burn-in.
+burnin_eligible=0
+if [[ -z "$TEST_LIST" ]] && setting_enabled "$RUN_BURNIN" && [[ -n "${BURNIN// /}" ]] &&
+   [[ "${#bench_pending[@]}" -eq 0 ]]; then
+    burnin_eligible=1
+fi
+## Computed once per cycle: burnin_hours_open() traces when it closes the
+## gate, and calling it twice would trace it twice for one decision.
+burnin_hours_still_open=1
+[[ "$burnin_eligible" -eq 1 ]] && { burnin_hours_open || burnin_hours_still_open=0; }
+
+## The every-job-at-its-own-cap warning lives at the "nothing to do at all"
+## exit above, not here: a BURNIN job at its cap never enters burn_pending, so
+## burnin_eligible (which requires bench_pending empty) and burn_pending empty
+## are the same condition, and that exit is reached first.
 if next_eligible "${TEST_LIST:-$BENCHMARKS}"; then
     submit_target=bench
-elif [[ -z "$TEST_LIST" ]] && setting_enabled "$RUN_BURNIN" && [[ -n "${BURNIN// /}" ]] &&
-     [[ "${#bench_pending[@]}" -eq 0 ]] && next_eligible "$BURNIN"; then
+elif [[ "$burnin_eligible" -eq 1 && "$burnin_hours_still_open" -eq 1 ]] && next_eligible "$(burnin_order)"; then
     submit_target=burnin
+## Reuses the bench Slurm job name (jname below defaults to it) rather than
+## naming a third one -- everything that already matches bringup-<node>
+## (RUN_JOBS=no, MAX_QUEUED_JOBS, kill-jobs.sh) covers a continuous re-run
+## for free this way. See docs/explanation/sequencing.md#continuous-re-runs.
+elif [[ "$continue_running_eligible" -eq 1 ]] && continue_running_next; then
+    # shellcheck disable=SC2209  # the literal string "continue", not the shell keyword
+    submit_target=continue
 else
     submit_target=""
 fi

@@ -562,7 +562,7 @@ Three things it deliberately does not do:
   through everything else at full speed, and only the job that keeps failing
   slows down.
 - **It does not survive `--force`.** A backed-off window is a timing gate like
-  any other, so an operator can ignore it; `PAUSE_JOBS` and `MAX_QUEUED_JOBS`
+  any other, so an operator can ignore it; `RUN_JOBS` and `MAX_QUEUED_JOBS`
   are the site switches that `--force` does not open. See
   [site switches are not timing gates](#site-switches-are-not-timing-gates).
 
@@ -612,20 +612,94 @@ file with no end marker is a job in progress rather than one that died. Nothing
 is archived, requeued or drained on until the marker clears. `quick-view.txt`
 shows those as `IN QUEUE`.
 
-What to expect once burn-in is on: `mnubergemm` is 12 runs of a ~6-hour step,
-submitted one job at a time, so a node is under burn-in for about three days —
-the plan's 24–72 hour row. Each run is its own job and its own result file, so
-an interrupted burn-in resumes at the run it reached rather than starting over.
-`status-check.sh` and `daily-report.sh` grow a column for each `BURNIN` job when
-the switch is on, and drop it again when it is off, so an unused list does not
-leave a permanent `NOT_RUN` column that reads like work outstanding. A burn-in
-failure drains with `burn-in` in the reason, because a node that ran for hours
-and then stopped is a different finding from one that failed a collective in
-fifteen minutes.
+A burn-in failure drains with `burn-in` in the reason, because a node that ran
+for hours and then stopped is a different finding from one that failed a
+collective in fifteen minutes.
 
 With `RUN_BURNIN=no` — the default — nothing burns in, and `BURNIN` jobs appear
 in `quick-view.txt` as `BURN-IN OFF` so a burn-in that never ran cannot be
 misread as one that passed.
+
+## Burn-in
+
+Each job in `BURNIN` still uses the generic `totalRuns=N` mechanism, but
+`totalRuns` is a per-job ceiling now, not the completion signal — `BURNIN_HOURS`
+is. Every cycle, the sequencer picks the eligible job (under its own `totalRuns`
+cap, not inside its retry window) with the **fewest passed runs so far**, ties
+broken by the job's position in the `BURNIN=` line in `SETTINGS` — never by
+name, or two jobs tied at zero passed would sort alphabetically instead of by
+list position. With one job in `BURNIN` this is exactly today's behaviour; with
+more than one, they alternate rather than one running to its own cap before the
+next is ever touched. This is derived fresh every cycle from each job's current
+passed count, not a persisted rotation pointer — the same reason nothing else in
+this tree keeps a verdict anywhere but the result file it came from. See
+[reference/settings.md#burn-in](../reference/settings.md#burn-in).
+
+Validated hours are `passed_runs × run_length`, summed across every job in
+`BURNIN`. A job's run length is read from its own `--time_to_run <N>` flag
+(`mnubergemm`'s own "run for exactly this long" argument) if it has one, else
+`STEP_TIMELIMIT`. `passed` means `DONE` — the gate in `verdict()` already
+requires a result file's last line to be exactly `PENDING` before a job can
+read `DONE` at all, so a truncated or crashed run cannot be credited hours it
+did not run. Scheduling for every job in `BURNIN` stops once the shared total
+reaches `BURNIN_HOURS`, whatever headroom any one job's own `totalRuns` still
+has — reported as `<N>H/<BURNIN_HOURS>H`, which never collapses to a plain
+`DONE` the way a benchmark column does, since the campaign target is additive
+information rather than a verdict. If every job in `BURNIN` reaches its own
+`totalRuns` cap before the shared total reaches `BURNIN_HOURS`, the target is
+permanently unreachable without raising a cap — `launch_job.sh` traces this
+distinctly rather than reading as the ordinary "nothing eligible" silence.
+
+`status-check.sh`, `overall_report.sh` and `daily-report.sh` no longer grow a
+column per run for a `BURNIN` job — that read as up to a dozen separate
+buckets for one job, which is what this section replaced. Each reports one
+accumulated-hours line instead, alongside the normal benchmark columns.
+`next-run.sh`'s burn-in row shows the earliest due time across any still-
+eligible `BURNIN` job without naming which one — naming it correctly would mean
+re-deriving the fairness pick above a second time in a different script purely
+for a preview, which is not worth the risk of the two copies drifting apart.
+
+## Continuous re-runs
+
+`CONTINUE_RUNNING_JOBS` is a third list, lowest priority of the three:
+considered only when both `BENCHMARKS` and `BURNIN` have nothing pending,
+same rule that already governs `BURNIN` against `BENCHMARKS`. It exists for a
+different question again — not *does this node work* or *does it keep
+working*, but *does the answer stay the same as the cluster changes around
+it* — so it trades the other two lists' notion of completion for a flat
+cadence: every job here is one slot (`<job>.txt`), re-run every
+`CONTINUE_RUNNING_FREQUENCY` hours once it is `DONE`, forever.  `totalRuns` is
+read by `job_launcher` like any other job but never consulted here — there is
+no run count to reach, only a clock, so `continue_running_next()` checks the
+result file's age directly rather than walking runs the way `next_eligible()`
+and `burnin_order()` do. Submissions from this tier carry the same
+`bringup-<node>` job name as `BENCHMARKS` — not a third name — so
+`RUN_JOBS=no`, `MAX_QUEUED_JOBS` and `kill-jobs.sh` all cover it without
+change.
+
+The interesting case is a job listed here that is *also* in `BENCHMARKS` or
+`BURNIN`, which is the intended pattern: while it keeps passing, only
+`CONTINUE_RUNNING_FREQUENCY` governs it, because a `DONE` result satisfies the
+higher list's own survey and that list has nothing left pending for it. The
+moment a re-run fails, nothing in this tier notices or reacts — the same
+result file that `continue_running_next()` was reading is now a failure in
+`BENCHMARKS`' or `BURNIN`'s own survey, and because those are strictly higher
+priority, `CONTINUE_RUNNING_JOBS` stops being considered *at all* until that
+list's pending set is empty again, not just for the one job. Normal
+`RETRY_INTERVAL_HOURS`, backoff and draining apply from there, exactly as they
+would for any other failure — `CONTINUE_RUNNING_FREQUENCY` has no say in a
+failing job. This needs no code of its own: it falls out of every tier reading
+the same one result file per job, and priority already being checked fresh
+every cycle.
+
+A job named in `CONTINUE_RUNNING_JOBS` but nowhere in `BENCHMARKS` or `BURNIN`
+has no higher-priority list to hand a failure to, so a failure there just sits
+until `CONTINUE_RUNNING_FREQUENCY` comes back around — no drain, no backoff,
+retried on the same flat cadence a passing run would have used. That is
+usually not what was intended, so `launch_job.sh` traces a `WARNING` naming
+the job once per cycle rather than let it be silently different from the
+paired pattern above. See
+[reference/settings.md#continuous-re-runs](../reference/settings.md#continuous-re-runs).
 
 ## Host-launched jobs
 
@@ -852,8 +926,8 @@ now; the framework's own `auto-retry` drain is cleared by the sweep when the
 benchmarks pass; an operator's drain belongs to the operator. All of that is in
 [drain-recovery.md](drain-recovery.md).
 
-The recovery runs **above** the `PAUSE_JOBS` gate and answers to
-`PAUSE_RECOVERY` instead. Under `--explain` it classifies and reports and issues
+The recovery runs **above** the `RUN_JOBS` gate and answers to
+`RUN_RECOVERY` instead. Under `--explain` it classifies and reports and issues
 nothing.
 
 ### Jobs the scheduler has given up on
@@ -927,7 +1001,7 @@ Nothing is lost across a pause. Results stay on disk, the sweep resumes from
 where it stopped rather than restarting, and a `refresh` sentinel set by
 `health-check.sh --refresh` is held rather than consumed.
 
-`PAUSE_JOBS` also reaches work already in the queue, because gating submission
+`RUN_JOBS=no` also reaches work already in the queue, because gating submission
 alone would leave hours of already-queued benchmarks running:
 
 | | What happens |
@@ -936,41 +1010,41 @@ alone would leave hours of already-queued benchmarks running:
 | Running job (ours) | Left to finish, with its job id traced. Killing it turns a part-written result into an `INCOMPLETE` that is indistinguishable from a crash. `scancel <id>` if you need the node back now. |
 | Anyone else's job | Untouched. Only jobs named `bringup-<node>` or `burnin-<node>` are ever cancelled. |
 
-`PAUSE_CONTAINER_COPY` likewise stops new copies and lets a detached `rsync`
+`RUN_CONTAINER_COPY=no` likewise stops new copies and lets a detached `rsync`
 from an earlier cycle finish — it holds no node and blocks no job.
 
-`PAUSE_RECOVERY` is independent of `PAUSE_JOBS`, and the two answer different
+`RUN_RECOVERY` is independent of `RUN_JOBS`, and the two answer different
 questions. Stopping the sweep is "put no more work on this cluster"; stopping
 the recovery is "leave every drain where it is". Those are separate decisions
 and usually made for separate reasons — during a bring-up you often want the
 drains cleared while nothing is being submitted, and during an investigation you
-want the opposite. So the recovery runs above the `PAUSE_JOBS` gate in
+want the opposite. So the recovery runs above the `RUN_JOBS` gate in
 `launch_job.sh`, governed only by its own switch: putting a node back is not
 putting work on it.
 
-`node_health.sh` honours `PAUSE_RECOVERY` too, though its own recovery is
-reachable only after a clean check run — so `PAUSE_HEALTH_CHECKS=yes` stops that
+`node_health.sh` honours `RUN_RECOVERY` too, though its own recovery is
+reachable only after a clean check run — so `RUN_HEALTH_CHECKS=no` stops that
 one as a side effect, for want of the evidence rather than for want of
 permission.
 
 ### `--explain` reads through a pause
 
-`launch_job.sh --explain` is stopped by **neither** `PAUSE_JOBS` nor
-`PAUSE_RECOVERY`. It writes nothing to Slurm and nothing to disk beyond its own
+`launch_job.sh --explain` is stopped by **neither** `RUN_JOBS` nor
+`RUN_RECOVERY`. It writes nothing to Slurm and nothing to disk beyond its own
 trace, and "what would this do on this node" is a question worth being able to
 ask *precisely* when the thing is stopped — while you are looking at a list of
 drained nodes deciding whether to lift the pause. It reports each pause it
 passes, then carries on:
 
 ```
-PAUSE_RECOVERY=yes in /home/cmods/bringup/SETTINGS -- explaining anyway; nothing below would be resumed while it is set
-PAUSE_JOBS=yes in /home/cmods/bringup/SETTINGS -- explaining anyway; nothing below would run while it is set
+RUN_RECOVERY=no in /home/cmods/bringup/SETTINGS -- explaining anyway; nothing below would be resumed while it is set
+RUN_JOBS=no in /home/cmods/bringup/SETTINGS -- explaining anyway; nothing below would run while it is set
 WOULD RECOVER ink50-dh01-h03-16: drained 'Prolog error' (machine, set by slurm) -- attempt 1/3 in 24h
 ```
 
 Under `--explain` the recovery runs with `RECOVER_DRY_RUN=1`, which issues no
 `scontrol`, restarts no `slurmd`, and records no attempt against
-`RECOVER_MAX_ATTEMPTS` — so `PAUSE_RECOVERY` has nothing to protect it from.
+`RECOVER_MAX_ATTEMPTS` — so `RUN_RECOVERY` has nothing to protect it from.
 
 `--force` is refused instead, and that asymmetry is the point: `--force` would
 touch the cluster, `--explain` cannot.
@@ -1253,7 +1327,7 @@ that plus `GET_OUT_OF_THE_WAY_AFTER_MINUTES`.
 
 ## Site switches are not timing gates
 
-`--force` opens the hourly retry gate and nothing else. `PAUSE_JOBS`,
+`--force` opens the hourly retry gate and nothing else. `RUN_JOBS`,
 `NODE_FILTER` and `MAX_QUEUED_JOBS` are all statements about what the cluster
 should be given, not about when a job is next due, so a forced sweep is asked
 the same questions a normal cycle is and each one traces that `--force` did not
