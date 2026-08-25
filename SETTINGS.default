@@ -50,6 +50,14 @@ BURNIN="mnubergemm"
 ## See docs/reference/settings.md#burn-in.
 BURNIN_HOURS=24
 
+## ── Continuous re-runs ───────────────────────────────────────────────────
+## Empty means off, same as BURNIN. A job here is re-run on this cadence
+## alone once it is DONE -- BENCHMARKS/BURNIN reclaim it immediately on a
+## failure and this cadence has no effect until they are done with it again.
+## See docs/reference/settings.md#continuous-re-runs.
+CONTINUE_RUNNING_JOBS=""
+CONTINUE_RUNNING_FREQUENCY=6
+
 ## ── Container images ──────────────────────────────────────────────────────
 ## Which images exist is decided by build_containers.sh, which takes them on the
 ## command line -- every .sqsh in CONTAINER_DIR is cached on every node.

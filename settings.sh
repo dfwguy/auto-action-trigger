@@ -42,6 +42,10 @@ fi
 : "${BURNIN=mnubergemm}"
 ## Shared campaign target, hours. See docs/reference/settings.md#burn-in.
 : "${BURNIN_HOURS:=24}"
+## `=` not `:=`: empty is a real "off" answer, same as BURNIN.
+## See docs/reference/settings.md#continuous-re-runs.
+: "${CONTINUE_RUNNING_JOBS=}"
+: "${CONTINUE_RUNNING_FREQUENCY:=6}"
 ## Image versions. See docs/reference/settings.md#image-versions.
 : "${HPC_BENCHMARKS_TAG:=26.02}"
 : "${NVBANDWIDTH_VERSION:=v0.9}"

@@ -318,6 +318,7 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/scan-cache-test.sh     # the report cache, if you touched a gate or verdict-scan.sh
 ./tests/launch-job-archive-test.sh # .prevN/.failN archiving, if you touched archive_result or submit_one
 ./tests/burnin-hours-test.sh   # the round-robin, the BURNIN_HOURS gate and the report cell, if you touched burn-in scheduling or reporting
+./tests/continue-running-test.sh # the continuous re-run tier, if you touched CONTINUE_RUNNING_JOBS or its priority against BENCHMARKS/BURNIN
 ./tests/yield-test.sh          # the cancel gates, if you touched get-out-of-the-way.sh
 ./tests/llmb-check-test.sh     # llmb install discovery, if you touched llmb_check.py
 ./tests/exclude-test.sh        # the head-node gate, if you touched EXCLUDE_NODES or a results/*/ walk

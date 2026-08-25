@@ -907,6 +907,32 @@ burnin_hours_total() {
     printf '%s' "$total_hours"
 }
 
+## Lowest priority of all three lists, and simpler than next_eligible() on
+## purpose: totalRuns does not apply here, so there is no run to loop over --
+## every job is slot 1 of 1, forever -- and no retry-window call, because a
+## job that just failed cannot still be waiting on this clock. The moment a
+## result fails, BENCHMARKS/BURNIN's own survey sees the same file and
+## reclaims the whole list; this is only ever reached once both are clear.
+## See docs/explanation/sequencing.md#continuous-re-runs.
+continue_running_next() {
+    local job launch file mtime now
+    now=$(date +%s)
+    for job in $CONTINUE_RUNNING_JOBS; do
+        launch=$(job_launcher "$job") || {
+            trace "skip $job: no $JOBS_DIR/$job.sbatch or $JOBS_DIR/$job.sh"
+            continue
+        }
+        file=$(result_file "$job" 1 1)
+        if [[ -f "$file" ]]; then
+            mtime=$(stat -c %Y "$file" 2>/dev/null || echo 0)
+            (( now - mtime < CONTINUE_RUNNING_FREQUENCY * 3600 )) && continue
+        fi
+        NEXT_JOB="$job"; NEXT_RUN=1; NEXT_TOTAL=1
+        return 0
+    done
+    return 1
+}
+
 in_list() {
     local job="$1"; shift
     local p
@@ -983,6 +1009,15 @@ write_quickview() {
 ## for one job submits one job. See
 ## docs/how-to/run-a-job-by-hand.md#running-a-job-that-is-not-in-the-list.
 survey "${TEST_LIST:-$BENCHMARKS}" "$bench_busy"
+
+## A CONTINUE_RUNNING_JOBS entry not also in BENCHMARKS or BURNIN has nothing
+## to hand a failure back to -- see continue_running_next().
+if [[ -z "$TEST_LIST" ]] && [[ -n "${CONTINUE_RUNNING_JOBS// /}" ]]; then
+    for job in $CONTINUE_RUNNING_JOBS; do
+        in_list "$job" $BENCHMARKS $BURNIN ||
+            trace "WARNING: CONTINUE_RUNNING_JOBS names $job, which is not in BENCHMARKS or BURNIN -- its failures have nothing to hand back to, so they will not drain or back off, only retry every ${CONTINUE_RUNNING_FREQUENCY}h forever."
+    done
+fi
 bench_pending=("${pending_jobs[@]}")
 bench_failed=("${failed_jobs[@]}")
 bench_swept=$swept
@@ -1007,13 +1042,30 @@ if [[ -z "$TEST_LIST" ]] && setting_enabled "$RUN_BURNIN"; then
     fi
 fi
 
+## Lowest priority of all three lists -- open only once neither of the other
+## two has anything pending, the same condition the exit below already
+## checks. No attempt to also account for BURNIN_HOURS being closed while
+## burn_pending is still non-empty (every BURNIN job at its own totalRuns
+## cap, target unmet): continuous re-runs simply wait for that to clear too,
+## a deliberately accepted rare edge case rather than a reason to touch
+## burn-in's already-settled gate. See docs/explanation/sequencing.md#continuous-re-runs.
+continue_running_eligible=0
+if [[ -z "$TEST_LIST" ]] && [[ -n "${CONTINUE_RUNNING_JOBS// /}" ]] &&
+   [[ "${#bench_pending[@]}" -eq 0 && "${#burn_pending[@]}" -eq 0 ]]; then
+    continue_running_eligible=1
+fi
+
 ## Nothing to do at all -- everything that is meant to run has passed. A
 ## BURNIN job at its own totalRuns cap never enters burn_pending, so this is
 ## also where "every job capped" shows up -- distinguished from a genuinely
 ## clean sweep by whether BURNIN_HOURS is still open: the generic "passing"
 ## trace below would otherwise read as fine when the target cannot be reached
 ## without raising a cap. See docs/explanation/sequencing.md#burn-in.
-if [[ "${#bench_pending[@]}" -eq 0 && "${#burn_pending[@]}" -eq 0 ]]; then
+##
+## A due continuous re-run keeps this from exiting the same way a BURNIN job
+## under its own cap already does above -- see continue_running_next().
+if [[ "${#bench_pending[@]}" -eq 0 && "${#burn_pending[@]}" -eq 0 ]] &&
+   { [[ "$continue_running_eligible" -eq 0 ]] || ! continue_running_next; }; then
     write_quickview
     resume_node
     if setting_enabled "$RUN_BURNIN" && [[ -n "${BURNIN// /}" ]] &&
@@ -1287,6 +1339,12 @@ if next_eligible "${TEST_LIST:-$BENCHMARKS}"; then
     submit_target=bench
 elif [[ "$burnin_eligible" -eq 1 && "$burnin_hours_still_open" -eq 1 ]] && next_eligible "$(burnin_order)"; then
     submit_target=burnin
+## Reuses the bench Slurm job name (jname below defaults to it) rather than
+## naming a third one -- everything that already matches bringup-<node>
+## (RUN_JOBS=no, MAX_QUEUED_JOBS, kill-jobs.sh) covers a continuous re-run
+## for free this way. See docs/explanation/sequencing.md#continuous-re-runs.
+elif [[ "$continue_running_eligible" -eq 1 ]] && continue_running_next; then
+    submit_target=continue
 else
     submit_target=""
 fi

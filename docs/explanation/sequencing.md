@@ -659,6 +659,48 @@ eligible `BURNIN` job without naming which one — naming it correctly would mea
 re-deriving the fairness pick above a second time in a different script purely
 for a preview, which is not worth the risk of the two copies drifting apart.
 
+## Continuous re-runs
+
+`CONTINUE_RUNNING_JOBS` is a third list, lowest priority of the three:
+considered only when both `BENCHMARKS` and `BURNIN` have nothing pending,
+same rule that already governs `BURNIN` against `BENCHMARKS`. It exists for a
+different question again — not *does this node work* or *does it keep
+working*, but *does the answer stay the same as the cluster changes around
+it* — so it trades the other two lists' notion of completion for a flat
+cadence: every job here is one slot (`<job>.txt`), re-run every
+`CONTINUE_RUNNING_FREQUENCY` hours once it is `DONE`, forever.  `totalRuns` is
+read by `job_launcher` like any other job but never consulted here — there is
+no run count to reach, only a clock, so `continue_running_next()` checks the
+result file's age directly rather than walking runs the way `next_eligible()`
+and `burnin_order()` do. Submissions from this tier carry the same
+`bringup-<node>` job name as `BENCHMARKS` — not a third name — so
+`RUN_JOBS=no`, `MAX_QUEUED_JOBS` and `kill-jobs.sh` all cover it without
+change.
+
+The interesting case is a job listed here that is *also* in `BENCHMARKS` or
+`BURNIN`, which is the intended pattern: while it keeps passing, only
+`CONTINUE_RUNNING_FREQUENCY` governs it, because a `DONE` result satisfies the
+higher list's own survey and that list has nothing left pending for it. The
+moment a re-run fails, nothing in this tier notices or reacts — the same
+result file that `continue_running_next()` was reading is now a failure in
+`BENCHMARKS`' or `BURNIN`'s own survey, and because those are strictly higher
+priority, `CONTINUE_RUNNING_JOBS` stops being considered *at all* until that
+list's pending set is empty again, not just for the one job. Normal
+`RETRY_INTERVAL_HOURS`, backoff and draining apply from there, exactly as they
+would for any other failure — `CONTINUE_RUNNING_FREQUENCY` has no say in a
+failing job. This needs no code of its own: it falls out of every tier reading
+the same one result file per job, and priority already being checked fresh
+every cycle.
+
+A job named in `CONTINUE_RUNNING_JOBS` but nowhere in `BENCHMARKS` or `BURNIN`
+has no higher-priority list to hand a failure to, so a failure there just sits
+until `CONTINUE_RUNNING_FREQUENCY` comes back around — no drain, no backoff,
+retried on the same flat cadence a passing run would have used. That is
+usually not what was intended, so `launch_job.sh` traces a `WARNING` naming
+the job once per cycle rather than let it be silently different from the
+paired pattern above. See
+[reference/settings.md#continuous-re-runs](../reference/settings.md#continuous-re-runs).
+
 ## Host-launched jobs
 
 Almost every job is a `.sbatch` the sequencer submits. A job whose tool does its

@@ -103,6 +103,7 @@ two per agent cycle, forever.
 | `EXIT: every benchmark and every burn-in job passing` | The node is done |
 | `EXIT: every benchmark passing (burn-in not run: RUN_BURNIN=<value>)` | The node is done as far as it is configured to go — which is not the same thing, and says which |
 | `WARNING: could not write <quick-view> as <user>` | The trace above is then the only current state |
+| `WARNING: CONTINUE_RUNNING_JOBS names <job>, which is not in BENCHMARKS or BURNIN -- its failures have nothing to hand back to, so they will not drain or back off, only retry every <n>h forever.` | An entry in [`CONTINUE_RUNNING_JOBS`](settings.md#continuous-re-runs) with no higher-priority list to reclaim its failures — see [explanation/sequencing.md#continuous-re-runs](../explanation/sequencing.md#continuous-re-runs) |
 
 ## Drain, resume and the gates before submitting
 

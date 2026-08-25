@@ -165,6 +165,27 @@ separation buys, and what to expect once the switch is on, is in
 The image has to be there **before** the switch is flipped: build `mnubergemm`
 when you build the rest, even though its job does not run by default.
 
+## Continuous re-runs
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `CONTINUE_RUNNING_JOBS` | `""` | A third list, lowest priority of the three. Empty means off, same as `BURNIN` |
+| `CONTINUE_RUNNING_FREQUENCY` | `6` | Hours between re-runs of a job here, once it is `DONE` |
+
+Every job in this list is one slot (`<job>.txt`), re-run on this flat cadence
+forever — `totalRuns` does not apply, unlike `BENCHMARKS` and `BURNIN`. It
+exists to watch a result stay consistent as the cluster changes, not to
+collect a fixed number of samples.
+
+`BENCHMARKS` and `BURNIN` both take priority: this tier is only ever
+considered once both have nothing pending. A job listed here that is *also*
+in `BENCHMARKS` or `BURNIN` gets its failures reclaimed by that higher-priority
+list for free — the same result file makes it visible to that list's own
+survey, so `CONTINUE_RUNNING_FREQUENCY` has no effect until that list is done
+with it again. A job listed **only** here has nothing to hand a failure back
+to, and is traced as a `WARNING` for exactly that reason. See
+[explanation/sequencing.md#continuous-re-runs](../explanation/sequencing.md#continuous-re-runs).
+
 ## Container images
 
 There is **no setting for which images to build**. `build_containers.sh` takes
