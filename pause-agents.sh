@@ -135,15 +135,18 @@ stop)
     fi
     ## First, and locally. Stopping the nodes while this is running puts them
     ## straight back, one heartbeat interval later.
+    echo "step 1/2: stopping the watchdog on $HOSTNAME"
     out=$(local_timer stop)
-    echo "stopped the watchdog on $HOSTNAME${out:+ -- $out}"
+    echo "step 1/2 complete: stopped the watchdog on $HOSTNAME${out:+ -- $out}"
     fanout_resolve || { echo "ERROR: $FANOUT_WHY -- the nodes cannot be reached." >&2; exit 1; }
-    echo "stopping ${#nodes[@]} node timer(s) over $FANOUT_CMD: $pretty"
+    echo "step 2/2: stopping ${#nodes[@]} node timer(s) over $FANOUT_CMD: $pretty"
+    echo "  waiting for the fleet; unreachable nodes may hold this step open for up to ${FANOUT_COMMAND_TIMEOUT}s"
     ## `&& echo STOPPED`, because a successful stop prints nothing and so does a
     ## node the fan-out never reached. Now that the fan-out gives up after
     ## FANOUT_COMMAND_TIMEOUT, those two have to be told apart.
     ## See docs/how-to/update-the-deployment.md#stragglers-are-the-watchdogs-job.
     stop_out=$(fanout "$joined" "$remote_env systemctl --user stop bringup-agent.timer && echo STOPPED")
+    echo "step 2/2 complete: the fleet stop pass returned; checking confirmations"
     if bak_resolve; then printf '%s\n' "$stop_out" | bak; else printf '%s\n' "$stop_out" | grep -v '^[^ ]*: *$'; fi
     quiet_nodes=()
     for n in "${nodes[@]}"; do
@@ -176,8 +179,10 @@ resume)
     ## reports per node when a host cannot be armed. --quiet, because a fleet
     ## saying the same thing should read as one line.
     ## See docs/how-to/arm-a-node.md#one-line-per-node.
-    echo "re-arming ${#nodes[@]} node(s) over $FANOUT_CMD: $pretty"
+    echo "step 1/2: re-arming ${#nodes[@]} node(s) over $FANOUT_CMD: $pretty"
+    echo "  waiting for the fleet; unreachable nodes may hold this step open for up to ${FANOUT_COMMAND_TIMEOUT}s"
     armed_out=$(fanout "$joined" "$remote_env $home/agent/install-agent.sh --quiet")
+    echo "step 1/2 complete: the fleet re-arm pass returned; checking confirmations"
     if bak_resolve; then printf '%s\n' "$armed_out" | bak; else printf '%s\n' "$armed_out"; fi
 
     ## A node that said nothing is the one the fan-out timed out on or could not
@@ -203,7 +208,8 @@ resume)
     [[ "$failed" -gt 0 || "${#quiet_nodes[@]}" -gt 0 ]] &&
         echo "  The watchdog re-arms whatever is still stale, ARM_BATCH per cycle. Leave them to it, or ./trigger-log.sh once it has had a cycle."
     ## Last, so it does not arm nodes while the pass above is still going.
+    echo "step 2/2: starting the watchdog on $HOSTNAME"
     out=$(local_timer start)
-    echo "started the watchdog on $HOSTNAME${out:+ -- $out}"
+    echo "step 2/2 complete: started the watchdog on $HOSTNAME${out:+ -- $out}"
     ;;
 esac
