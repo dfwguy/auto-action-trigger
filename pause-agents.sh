@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: pause-agents.sh [--resume] [--status] [-n] [node-pattern]
+# Usage: pause-agents.sh [--resume] [--status] [--sudo] [-n] [node-pattern]
 #
 # Stop every agent timer in the fleet, so the exported tree can be replaced
 # without cycles running out of it, and start them again afterwards. Run it on
@@ -15,6 +15,8 @@
 #               or an interval that changed in the drop.
 #   --status    what is running now: the watchdog here, and how many nodes have
 #               written a heartbeat recently. Reads NFS, asks no node.
+#   --sudo      re-run explicitly as the JOB_USER configured in SETTINGS.
+#               Without this switch, running as another user is refused.
 #   -n, --dry-run  print what would be stopped or started, and do neither.
 #   pattern     node filter, same rules as status-check.sh: a bare string
 #               matches by prefix, globs are honored as written.
@@ -38,17 +40,38 @@ source "$home/fanout.sh"
 
 mode=stop
 dry=0
+use_sudo=0
 pattern=""
+forward_args=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --resume)      mode=resume; shift ;;
-        --status)      mode=status; shift ;;
-        -n|--dry-run)  dry=1; shift ;;
-        -h|--help)     sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        --resume)      mode=resume; forward_args+=("$1"); shift ;;
+        --status)      mode=status; forward_args+=("$1"); shift ;;
+        --sudo)        use_sudo=1; shift ;;
+        -n|--dry-run)  dry=1; forward_args+=("$1"); shift ;;
+        -h|--help)     sed -n '2,34p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         -*)            echo "ERROR: unknown argument $1" >&2; exit 1 ;;
-        *)             pattern="$1"; shift ;;
+        *)             pattern="$1"; forward_args+=("$1"); shift ;;
     esac
 done
+
+me=$(id -un)
+if [[ "$me" != "$JOB_USER" ]]; then
+    if [[ "$use_sudo" -eq 1 ]]; then
+        command -v sudo >/dev/null 2>&1 || {
+            echo "ERROR: running as $me, but the agents run as $JOB_USER, and sudo is not installed." >&2
+            exit 1
+        }
+        echo "switching from $me to configured JOB_USER $JOB_USER through sudo"
+        exec sudo -iu "$JOB_USER" bash "$home/pause-agents.sh" "${forward_args[@]}"
+    fi
+    echo "ERROR: running as $me, but the agents run as JOB_USER=$JOB_USER." >&2
+    printf '       Re-run explicitly as that account: %q --sudo' "$home/pause-agents.sh" >&2
+    [[ "${#forward_args[@]}" -gt 0 ]] && printf ' %q' "${forward_args[@]}" >&2
+    printf '\n' >&2
+    exit 1
+fi
+
 [[ -z "$pattern" ]] && pattern='*'
 [[ "$pattern" != *[\*\?\[]* ]] && pattern="${pattern}*"
 
