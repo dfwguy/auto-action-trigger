@@ -35,6 +35,16 @@ rsync -av /tmp/auto-action-trigger-*/ /cluster/bringup/
 bash pause-agents.sh --resume     # re-arm the nodes, then start the watchdog
 ```
 
+Run these as the configured `JOB_USER`. The script refuses to inspect another
+user's systemd manager, which would make an uninstalled timer look stopped. To
+make the account change explicit, add `--sudo`; the script re-executes itself as
+`JOB_USER` before inspecting or changing anything:
+
+```bash
+bash pause-agents.sh --sudo
+bash pause-agents.sh --sudo --status
+```
+
 No `--delete`, so no `--exclude` list: the site's own data is not in the drop
 and cannot be overwritten by it. The whole procedure — where to unpack, why the
 excludes went with the flag, why not `cp -R`, and what to confirm before
