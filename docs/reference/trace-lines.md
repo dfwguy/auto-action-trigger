@@ -225,6 +225,11 @@ The counts come from globbing both directories rather than from rsync's own
 output: "rsync ran" and "the images are here" are different facts, and only the
 second lets a job start off local disk.
 
+`actions/file_copy.sh --explain` writes no trace. It prints the source and
+destination followed by rsync's itemized dry-run output, or `up to date` when
+there would be no changes. `agent/node-agent.sh --explain` includes that same
+preview when it reaches the copy step.
+
 ## The health trace
 
 `$HEALTH_LOG_DIR/<node>/health.log`, written by `actions/node_health.sh`. The same three

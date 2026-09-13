@@ -12,6 +12,12 @@
 # built yet" are the same silence from outside, which is the thing this tree is
 # written against. See docs/reference/trace-lines.md#the-container-copy-trace.
 
+# Usage: file_copy.sh [--explain] [--verbose|--quiet]
+#
+#   --explain, -n   dry run: itemize what rsync would copy, change nothing
+#   --verbose, -v   mirror the trace to stdout (default when stdout is a tty)
+#   --quiet,   -q   never mirror the trace to stdout
+
 ## Located from this file, like the other two steps.
 ## See docs/reference/layout.md#runtime-paths.
 home="${FILE_COPY_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -22,15 +28,44 @@ home="${FILE_COPY_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 src="${CONTAINER_DIR:-$home/containers}"
 dst="${NODE_CONTAINER_DIR:-/opt/containers}"
 
+EXPLAIN=0
+VERBOSE=0; [[ -t 1 ]] && VERBOSE=1
+usage() {
+    cat <<USAGE
+Usage: file_copy.sh [--explain] [--verbose|--quiet]
+
+  --explain, -n   dry run: itemize what rsync would copy, change nothing
+  --verbose, -v   mirror the trace to stdout (default when stdout is a tty)
+  --quiet,   -q   never mirror the trace to stdout
+
+Copies everything under CONTAINER_DIR into NODE_CONTAINER_DIR. With no
+arguments -- how the node agent normally invokes it -- the copy is detached and
+continues in its own transient service.
+USAGE
+}
+for arg in "$@"; do
+    case "$arg" in
+        --explain|-n|--dry-run) EXPLAIN=1 ;;
+        --verbose|-v)           VERBOSE=1 ;;
+        --quiet|-q)             VERBOSE=0 ;;
+        -h|--help)              usage; exit 0 ;;
+        *)  echo "ERROR: unrecognised argument '$arg' -- nothing was copied." >&2
+            usage >&2
+            exit 2 ;;
+    esac
+done
+
 ## Beside health.log and trigger.log rather than in agent.log, which belongs to
 ## the agent: the detached copy below outlives the cycle that started it and
 ## writes here after the agent has moved on.
 logs="$home/results/$HOSTNAME"
 tracelog="$logs/copy.log"
 trace() {
-    mkdir -p "$logs" 2>/dev/null
-    printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$tracelog" 2>/dev/null
-    [[ -t 1 ]] && printf '%s\n' "$*"
+    if [[ "$EXPLAIN" -eq 0 ]]; then
+        mkdir -p "$logs" 2>/dev/null
+        printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$tracelog" 2>/dev/null
+    fi
+    [[ "$EXPLAIN" -eq 1 || "$VERBOSE" -eq 1 ]] && printf '%s\n' "$*"
     return 0
 }
 ## RUN_CONTAINER_COPY replaced PAUSE_CONTAINER_COPY. See
@@ -46,7 +81,9 @@ if declare -F setting_disabled >/dev/null && setting_disabled "${RUN_CONTAINER_C
     ## two-minute fleet cycle does not append the same line to NFS every time.
     ## XDG_RUNTIME_DIR is node-local and normally cleared when the node reboots.
     disabled_log_marker="${XDG_RUNTIME_DIR:-/tmp}/.bringup-file-copy.disabled-state-logged"
-    if [[ ! -e "$disabled_log_marker" ]]; then
+    if [[ "$EXPLAIN" -eq 1 ]]; then
+        trace "EXIT: RUN_CONTAINER_COPY=$RUN_CONTAINER_COPY in ${SETTINGS_FILE:-<none>} -- no new copy started; one already running finishes"
+    elif [[ ! -e "$disabled_log_marker" ]]; then
         : > "$disabled_log_marker" 2>/dev/null || true
         trace "EXIT: RUN_CONTAINER_COPY=$RUN_CONTAINER_COPY in ${SETTINGS_FILE:-<none>} -- no new copy started; one already running finishes"
     fi
@@ -54,11 +91,11 @@ if declare -F setting_disabled >/dev/null && setting_disabled "${RUN_CONTAINER_C
 fi
 ## The setting is read on every cycle. When it is enabled again, forget the old
 ## log suppression state so a later disabled period gets one new trace line.
-rm -f "${XDG_RUNTIME_DIR:-/tmp}/.bringup-file-copy.disabled-state-logged" 2>/dev/null || true
+[[ "$EXPLAIN" -eq 1 ]] || rm -f "${XDG_RUNTIME_DIR:-/tmp}/.bringup-file-copy.disabled-state-logged" 2>/dev/null || true
 
 ## Rotation stays below the disabled fast path so a no-op cycle does not even
 ## stat the shared trace file.
-if [[ -f "$tracelog" ]] && [[ "$(stat -c %s "$tracelog" 2>/dev/null || echo 0)" -gt 1000000 ]]; then
+if [[ "$EXPLAIN" -eq 0 && -f "$tracelog" ]] && [[ "$(stat -c %s "$tracelog" 2>/dev/null || echo 0)" -gt 1000000 ]]; then
     tail -2000 "$tracelog" > "$tracelog.tmp" && mv "$tracelog.tmp" "$tracelog"
 fi
 
@@ -75,6 +112,26 @@ if ! compgen -G "$src/*.sqsh" >/dev/null 2>&1; then
 fi
 
 command -v rsync >/dev/null 2>&1 || { trace "EXIT: rsync is not installed here -- jobs will read the image over the share instead"; exit 0; }
+
+## Ask the same rsync invocation what it would change. This is above mkdir,
+## detachment and the copy lock: an explanation must not create even an empty
+## destination, start a transient unit or contend with a real copy. rsync's
+## itemized output includes files other than *.sqsh because the real service
+## copies the entire source directory once at least one image exists there.
+if [[ "$EXPLAIN" -eq 1 ]]; then
+    trace "--explain: $src/ -> $dst/"
+    out=$(rsync -a --partial --dry-run --itemize-changes "$src/" "$dst/" 2>&1); rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        trace "WOULD COPY FAILED (rsync exit $rc): ${out//$'\n'/ }"
+        exit "$rc"
+    elif [[ -n "$out" ]]; then
+        printf '%s\n' "$out"
+    else
+        trace "up to date: rsync would copy nothing"
+    fi
+    exit 0
+fi
+
 mkdir -p "$dst" 2>/dev/null || { trace "EXIT: cannot create $dst as $(id -un)"; exit 0; }
 
 ## ── The copy is its own unit, not a child of this one ─────────────────────

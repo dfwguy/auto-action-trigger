@@ -177,17 +177,7 @@ for step in file_copy node_health launch_job; do
         trace "NOTE: $script is missing -- skipped. Incomplete deployment?"
         continue
     fi
-    ## file_copy.sh takes no flags, and has nothing to say about a copy it did
-    ## not make, so --explain skips it rather than asking it to explain itself.
-    if [[ "$step" == "file_copy" ]]; then
-        if [[ "$EXPLAIN" -eq 1 ]]; then
-            ran+=" would-run:$step"
-            continue
-        fi
-        bash "$script"
-    else
-        bash "$script" "${step_args[@]}"
-    fi
+    bash "$script" "${step_args[@]}"
     rc=$?
     ran+=" $step"
     [[ "$rc" -ne 0 ]] && ran+="(exit $rc)"
