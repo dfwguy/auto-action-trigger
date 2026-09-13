@@ -345,6 +345,56 @@ if ! node_in_scope; then
     fi
 fi
 
+## A freshly rebooted BCM node can appear idle before the command daemon has
+## written its URL or NSS can resolve the job account. Submitting in that window
+## makes the site prolog fail and Slurm drain an otherwise healthy node. This is
+## BCM-specific and therefore opt-in; a site without BCM never runs the probes.
+## Each command is bounded because an NSS or systemd failure must not pin an
+## agent cycle. LAUNCH_JOB_BCM_CMD_URL is reserved for isolated test fixtures.
+## Decide the mode once, then keep the probes and their outcome separate from
+## that decision: disabled and paused do nothing, explain reports and continues,
+## and enforce reports and stops a real cycle.
+if ! setting_enabled "$REQUIRE_BCM_BOOTSTRAP_READY"; then
+    bootstrap_mode=disabled
+elif [[ "$EXPLAIN" -eq 1 ]]; then
+    bootstrap_mode=explain
+elif setting_disabled "$RUN_JOBS"; then
+    bootstrap_mode=paused
+else
+    bootstrap_mode=enforce
+fi
+
+case "$bootstrap_mode" in
+    disabled|paused) ;;
+    explain|enforce)
+        bootstrap_missing=()
+        bootstrap_cmd_url="${LAUNCH_JOB_BCM_CMD_URL:-/var/spool/cmd/my.cmd.url}"
+        bootstrap_timeout="$BCM_BOOTSTRAP_PROBE_TIMEOUT_SECS"
+        [[ "$bootstrap_timeout" =~ ^[1-9][0-9]*$ ]] || bootstrap_timeout=5
+        if ! command -v timeout >/dev/null 2>&1; then
+            bootstrap_missing+=("timeout command")
+        else
+            timeout --foreground "${bootstrap_timeout}s" id "$JOB_USER" >/dev/null 2>&1 ||
+                bootstrap_missing+=("identity:$JOB_USER")
+            timeout --foreground "${bootstrap_timeout}s" systemctl is-active --quiet cmd.service 2>/dev/null ||
+                bootstrap_missing+=("cmd.service")
+            timeout --foreground "${bootstrap_timeout}s" systemctl is-active --quiet slurmd.service 2>/dev/null ||
+                bootstrap_missing+=("slurmd.service")
+        fi
+        [[ -s "$bootstrap_cmd_url" ]] || bootstrap_missing+=("$bootstrap_cmd_url")
+        if [[ "${#bootstrap_missing[@]}" -gt 0 ]]; then
+            bootstrap_msg="node bootstrap is not ready (${bootstrap_missing[*]}) -- no job submitted; the next agent cycle retries without draining this node"
+            case "$bootstrap_mode" in
+                explain)
+                    trace "$bootstrap_msg -- explaining anyway; a real cycle would stop here" ;;
+                enforce)
+                    trace "EXIT: $bootstrap_msg"
+                    exit 0 ;;
+            esac
+        fi
+        ;;
+esac
+
 ## The module load is local and contacts nothing, so it happens before the
 ## in-flight gate below -- which needs `scontrol`, and nothing else.
 source /etc/profile.d/modules.sh

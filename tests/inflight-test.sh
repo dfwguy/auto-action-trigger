@@ -64,6 +64,21 @@ printf '%s\n' "$*" >> "$STUB_DIR/sinfo.calls"
 exit 0
 EOF
 
+cat > "$stub/systemctl" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "$STUB_DIR/systemctl.calls"
+[[ -n "$STUB_INACTIVE_SERVICE" && "$*" == *"$STUB_INACTIVE_SERVICE"* ]] && exit 3
+exit 0
+EOF
+
+cat > "$stub/timeout" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "$STUB_DIR/timeout.calls"
+[[ "$1" == "--foreground" ]] && shift
+shift
+exec "$@"
+EOF
+
 ## A submission reaches $JOB_USER as `su - $JOB_USER -c <cmd>` when the cycle is
 ## root's, and a login shell rebuilds PATH from the system profile -- which
 ## drops every stub above. Stubbing the privilege drop keeps the command in this
@@ -178,11 +193,14 @@ run_case() {
         export PATH="$stub:$PATH" STUB_DIR="$CASE_DIR" HOME="$work"
         export HOSTNAME="$NODE" LAUNCH_JOB_HOME="$CASE_DIR"
         export STUB_LOCAL_JOBS="" STUB_QUEUE="" STUB_NO_VIEW=""
-        export STUB_SQUEUE_J="" STUB_STATE=""
+        export STUB_SQUEUE_J="" STUB_STATE="" STUB_INACTIVE_SERVICE=""
+        export STUB_EXPLAIN=""
         for kv in "$@"; do export "${kv?}"; done
         eval "$setup"
         write_view
-        "$repo/actions/launch_job.sh" --quiet
+        launch_args=()
+        [[ -n "$STUB_EXPLAIN" ]] && launch_args+=(--explain)
+        "$repo/actions/launch_job.sh" "${launch_args[@]}" --quiet
     ) > "$CASE_DIR/out" 2>&1
 
     setup=""
@@ -202,6 +220,68 @@ submitted()   { [[ -f "$CASE_DIR/sbatch.calls" ]]; }
 check() { # $1 description, $2 command
     if eval "$2"; then ok "$1"; else bad "$1"; sed 's/^/       /' "$logs/trigger.log" 2>/dev/null; fi
 }
+
+echo "== the BCM bootstrap gate is opt-in and bounded =="
+
+run_case "the default does not probe BCM" >/dev/null
+check "default off: a job was submitted" 'submitted'
+check "default off: BCM's command service was not probed" \
+    '! grep -qF "is-active --quiet cmd.service" "$CASE_DIR/systemctl.calls" 2>/dev/null'
+
+run_case "opted in before the command URL exists" \
+    REQUIRE_BCM_BOOTSTRAP_READY=yes \
+    "LAUNCH_JOB_BCM_CMD_URL=$work/missing.cmd.url" >/dev/null
+check "opted in: a missing URL defers submission" '! submitted'
+check "opted in: the missing URL is named" 'traced "$work/missing.cmd.url"'
+
+printf 'https://bcm-command.example.invalid\n' > "$work/my.cmd.url"
+run_case "opted in after BCM is ready" \
+    REQUIRE_BCM_BOOTSTRAP_READY=yes \
+    BCM_BOOTSTRAP_PROBE_TIMEOUT_SECS=2 \
+    "LAUNCH_JOB_BCM_CMD_URL=$work/my.cmd.url" >/dev/null
+check "BCM ready: a job was submitted" 'submitted'
+check "BCM ready: command probes use the configured bound" \
+    '[[ "$(grep -cF -- "--foreground 2s" "$CASE_DIR/timeout.calls")" -eq 3 ]]'
+check "BCM ready: the command service was probed" \
+    'grep -qF "is-active --quiet cmd.service" "$CASE_DIR/systemctl.calls"'
+check "BCM ready: the Slurm service was probed" \
+    'grep -qF "is-active --quiet slurmd.service" "$CASE_DIR/systemctl.calls"'
+
+run_case "opted in while cmd.service is inactive" \
+    REQUIRE_BCM_BOOTSTRAP_READY=yes \
+    "LAUNCH_JOB_BCM_CMD_URL=$work/my.cmd.url" \
+    STUB_INACTIVE_SERVICE=cmd.service >/dev/null
+check "inactive service: submission is deferred" '! submitted'
+check "inactive service: cmd.service is named" 'traced "cmd.service"'
+
+run_case "explain while BCM is not ready" \
+    REQUIRE_BCM_BOOTSTRAP_READY=yes \
+    "LAUNCH_JOB_BCM_CMD_URL=$work/missing.cmd.url" \
+    STUB_EXPLAIN=1 >/dev/null
+check "explain: the BCM blocker is named" 'traced "node bootstrap is not ready"'
+check "explain: the real cycle's stop is named" \
+    'traced "explaining anyway; a real cycle would stop here"'
+check "explain: downstream gates are still evaluated" 'traced "WOULD SUBMIT"'
+check "explain: nothing was submitted" '! submitted'
+
+setup='printf "\nRUN_JOBS=no\n" >> "$CASE_DIR/SETTINGS"'
+run_case "paused while BCM is not ready" \
+    REQUIRE_BCM_BOOTSTRAP_READY=yes \
+    "LAUNCH_JOB_BCM_CMD_URL=$work/missing.cmd.url" >/dev/null
+check "paused: a real cycle does not probe BCM" \
+    '! grep -qF "is-active --quiet cmd.service" "$CASE_DIR/systemctl.calls" 2>/dev/null'
+check "paused: RUN_JOBS remains the stopping gate" 'traced "EXIT: RUN_JOBS=no"'
+
+setup='printf "\nRUN_JOBS=no\n" >> "$CASE_DIR/SETTINGS"'
+run_case "explain through a pause while BCM is not ready" \
+    REQUIRE_BCM_BOOTSTRAP_READY=yes \
+    "LAUNCH_JOB_BCM_CMD_URL=$work/missing.cmd.url" \
+    STUB_EXPLAIN=1 >/dev/null
+check "paused explain: BCM is still inspected" \
+    'grep -qF "is-active --quiet cmd.service" "$CASE_DIR/systemctl.calls"'
+check "paused explain: both blockers are named" \
+    'traced "node bootstrap is not ready" && traced "RUN_JOBS=no"'
+check "paused explain: downstream gates are still evaluated" 'traced "WOULD SUBMIT"'
 
 echo "== a job that has been submitted but has not started =="
 

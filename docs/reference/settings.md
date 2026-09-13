@@ -312,6 +312,7 @@ quietly getting `pdsh` has a preference nobody honoured. See
 | `RUN_RECOVERY` | `yes` | `launch_job.sh` and `node_health.sh`: clear no drains Slurm set itself |
 | `RUN_ARMING` | `yes` | `supervisor.sh`: arm no node. Agents already running carry on cycling, and their node views are still written |
 | `RUN_BURNIN` | `no` | The odd one out: default is *off*, and `yes` is what starts burn-in rather than what stops something already running. See [Burn-in](#burn-in) |
+| `REQUIRE_BCM_BOOTSTRAP_READY` | `no` | Opt in to requiring BCM's command URL and service, `slurmd`, and the job identity before `launch_job.sh` submits |
 
 Renamed from `PAUSE_*` — the five above used to default `no` (meaning: running)
 and this flipped both the name and the polarity, so `RUN_JOBS=yes` reads the
@@ -333,6 +334,14 @@ running — to stop one of those see
 It is scoped to the arming alone, and deliberately: the watchdog's other job is
 writing the node view every agent decides from, and a switch that stopped that
 would stop the whole fleet a snapshot age later.
+
+`REQUIRE_BCM_BOOTSTRAP_READY` is deliberately off by default. When enabled on
+a BCM-managed cluster, a node waits until `/var/spool/cmd/my.cmd.url` is
+non-empty, `cmd.service` and `slurmd.service` are active, and `JOB_USER` resolves.
+Each command probe is limited to `BCM_BOOTSTRAP_PROBE_TIMEOUT_SECS` (default
+`5`); a timeout is treated as not ready and the next agent cycle retries. A
+cluster that does not use BCM should leave the switch off.
+
 `--explain` is stopped by none of them, and neither is the heartbeat: all five
 are read deep inside a cycle, after `results/<node>/.heartbeat` is already
 touched, so a node with any of them set to `no` still reads fresh in
