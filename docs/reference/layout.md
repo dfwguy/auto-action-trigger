@@ -135,6 +135,8 @@ location and `BRINGUP_HOME` disagree.
 | `$BRINGUP_HOME/results/<node>/` | Per-node benchmark result files |
 | `$BRINGUP_HOME/results/<node>/.heartbeat` | Touched at the top of every agent cycle, before any gate. Empty; only its mtime is read. See [explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means](../explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means) |
 | `$BRINGUP_HOME/results/<node>/.slurm-view` | What Slurm says about this node and its jobs, written every watchdog cycle and read instead of querying the controller. Tab separated, key first, sealed with an `end` line — see [explanation/the-fleet-snapshot.md#what-is-on-disk](../explanation/the-fleet-snapshot.md#what-is-on-disk) |
+| `$BRINGUP_HOME/results/<node>/.submit-retry` | Last failed job submission and its node-local exponential retry clock; removed after a successful submission |
+| `$BRINGUP_HOME/results/.submit-circuit` | Watchdog-owned fleet hold opened by matching recent submission failures; carries its expiry and clears itself |
 | `$BRINGUP_HOME/results/<node>/.yielded` | Left by the watchdog when it cancelled this node's job for a waiter, so the next cycle can say why rather than reporting it as gone. Tab separated: epoch, text. Read once and removed — see [explanation/the-fleet-snapshot.md#what-moved-to-the-head-node](../explanation/the-fleet-snapshot.md#what-moved-to-the-head-node) |
 | `$BRINGUP_HOME/results/<node>/agent.log` | Per-cycle trace from `node-agent.sh`: the busy gate, the lock, which steps ran |
 | `$BRINGUP_HOME/results/<node>/arm.log` | One line per arming attempt by the watchdog, and what came back. Tab separated: epoch, output. The attempt history `ARM_MAX_ATTEMPTS` is counted from |

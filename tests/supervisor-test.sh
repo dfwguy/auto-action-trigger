@@ -495,6 +495,36 @@ exit 0
 EOF
 chmod 755 "$stub/squeue"
 
+echo "== widespread submission failures open one fleet circuit =="
+
+rm -rf "$results"
+for n in n-submit1 n-submit2 n-submit3; do
+    beat 60 "$n"
+    printf '%s\t%s\t1\tprobe\t1\t1\t1\t%s\n' "$(date +%s)" \
+        "$(( $(date +%s) + 120 ))" "sbatch: error: Socket timed out on send/recv operation" \
+        > "$results/$n/.submit-retry"
+done
+printf 'SUBMIT_CIRCUIT_FAILURES=3\n' >> "$tree/SETTINGS"
+run_sup 'n-submit1 idle
+n-submit2 idle
+n-submit3 idle'
+if [[ -f "$results/.submit-circuit" ]]; then
+    ok "three matching recent failures open the fleet circuit"
+else
+    bad "matching submission failures did not open the circuit: $(last_line)"
+fi
+grep -q 'OPEN submission circuit' "$results/supervisor.log" &&
+    ok "the circuit names its threshold and diagnostic" ||
+    bad "the circuit opening was not traced"
+IFS=$'\t' read -r _ circuit_until circuit_count circuit_diag < "$results/.submit-circuit"
+[[ "$circuit_until" -gt "$(date +%s)" && "$circuit_count" -eq 3 ]] &&
+    ok "the shared hold carries an expiry and matching count" ||
+    bad "the shared circuit marker is malformed: $(cat "$results/.submit-circuit" 2>/dev/null)"
+[[ "$circuit_diag" == *"Socket timed out"* ]] &&
+    ok "the shared hold retains Slurm's diagnosis" ||
+    bad "the circuit lost the diagnosis: $circuit_diag"
+sed -i '/^SUBMIT_CIRCUIT_FAILURES=3$/d' "$tree/SETTINGS"
+
 echo "== --explain touches nothing =="
 
 rm -rf "$results"

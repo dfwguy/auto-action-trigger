@@ -312,6 +312,67 @@ else
     trace "WARNING: $SNAPSHOT_WRITE_WHY"
 fi
 
+## ── Submission circuit breaker ───────────────────────────────────────────
+##
+## Every failed submitter leaves one small per-node record. When the same
+## diagnostic appears across enough nodes inside a short window, stop the fleet
+## for a bounded interval instead of making every agent rediscover the outage.
+## Slurm remains the atomic accepted-job limiter; this protects its RPC path.
+submit_circuit="$results/.submit-circuit"
+circuit_active=0; circuit_matches=0; circuit_diag=""
+circuit_threshold="$SUBMIT_CIRCUIT_FAILURES"
+circuit_window="$SUBMIT_CIRCUIT_WINDOW_MINUTES"
+circuit_hold="$SUBMIT_CIRCUIT_HOLD_MINUTES"
+[[ "$circuit_threshold" =~ ^[0-9]+$ ]] || circuit_threshold=10
+[[ "$circuit_window" =~ ^[1-9][0-9]*$ ]] || circuit_window=5
+[[ "$circuit_hold" =~ ^[1-9][0-9]*$ ]] || circuit_hold=10
+
+if [[ -f "$submit_circuit" ]]; then
+    IFS=$'\t' read -r _opened _until circuit_matches circuit_diag < "$submit_circuit" 2>/dev/null
+    if [[ "$_until" =~ ^[0-9]+$ && "$_until" -gt "$now" ]]; then
+        circuit_active=1
+    elif [[ "$EXPLAIN" -eq 0 ]]; then
+        rm -f "$submit_circuit" 2>/dev/null
+    fi
+fi
+
+if [[ "$circuit_active" -eq 0 && "$circuit_threshold" -gt 0 ]]; then
+    declare -A submit_failure_counts=()
+    for node in "${scope[@]}"; do
+        retry="$results/$node/.submit-retry"
+        [[ -f "$retry" ]] || continue
+        IFS=$'\t' read -r _ _ _ _ _ _ _ retry_diag < "$retry" 2>/dev/null
+        retry_epoch=$(stat -c %Y "$retry" 2>/dev/null || echo 0)
+        [[ "$retry_epoch" =~ ^[0-9]+$ &&
+           "$retry_epoch" -ge $(( now - circuit_window * 60 )) ]] || continue
+        retry_diag="${retry_diag:-<no output>}"
+        submit_failure_counts["$retry_diag"]=$(( ${submit_failure_counts["$retry_diag"]:-0} + 1 ))
+    done
+    for retry_diag in "${!submit_failure_counts[@]}"; do
+        matches="${submit_failure_counts[$retry_diag]}"
+        [[ "$matches" -gt "$circuit_matches" ]] || continue
+        circuit_matches="$matches"; circuit_diag="$retry_diag"
+    done
+    if [[ "$circuit_matches" -ge "$circuit_threshold" ]]; then
+        circuit_active=1
+        circuit_until=$(( now + circuit_hold * 60 ))
+        if [[ "$EXPLAIN" -eq 1 ]]; then
+            trace "WOULD OPEN submission circuit for ${circuit_hold}m: $circuit_matches matching failures in ${circuit_window}m -- $circuit_diag"
+        else
+            circuit_tmp="$submit_circuit.$$.tmp"
+            if printf '%s\t%s\t%s\t%s\n' "$now" "$circuit_until" \
+                "$circuit_matches" "$circuit_diag" > "$circuit_tmp" 2>/dev/null &&
+               mv -f "$circuit_tmp" "$submit_circuit" 2>/dev/null; then
+                trace "OPEN submission circuit for ${circuit_hold}m: $circuit_matches matching failures in ${circuit_window}m -- $circuit_diag"
+            else
+                circuit_active=0
+                rm -f "$circuit_tmp" 2>/dev/null
+                trace "WARNING: could not write $submit_circuit -- the fleet submission storm is not stopped"
+            fi
+        fi
+    fi
+fi
+
 ## ── Arm them ──────────────────────────────────────────────────────────────
 ##
 ## One fan-out across the whole list, not a loop of sshes: output arrives
@@ -492,6 +553,7 @@ summary="checked $(wc -l <<<"$states") node(s): $fresh fresh, ${#arm[@]} armed, 
 [[ "$deferred" -gt 0 ]] && summary+=", $deferred held back by ARM_BATCH=$ARM_BATCH"
 [[ "$paused" -gt 0 ]] && summary+=", $paused pending cancelled by RUN_JOBS=no"
 [[ -n "${held// /}" ]] && summary+=", $(wc -w <<<"$held") cancelled after a failed launch"
+[[ "$circuit_active" -eq 1 ]] && summary+=", submission circuit open after $circuit_matches matching failure(s)"
 [[ "$yielded" -gt 0 ]] && summary+=", $yielded node(s) given up to a waiter"
 if [[ "${#limited[@]}" -gt 0 ]]; then
     lim=$(IFS=,; printf '%s' "${limited[*]}")

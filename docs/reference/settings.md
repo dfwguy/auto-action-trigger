@@ -513,6 +513,11 @@ Why the detection is that particular question, and not `sinfo -N -n`, is in
 | `RETRY_INTERVAL_HOURS` | `1` | Hours before a job may run again, measured from that job's own result file |
 | `RETRY_BACKOFF` | `yes` | Add an hour to that window for each failure a run already has on disk. `no` keeps the flat window |
 | `RETRY_BACKOFF_MAX_HOURS` | `12` | Ceiling on the widened window. Ignored, with a warning, if it is not a whole number of hours at or above `RETRY_INTERVAL_HOURS` |
+| `SUBMIT_RETRY_BASE_MINUTES` | `2` | Initial upper bound for a failed submission's node-local retry; each node chooses a stable delay from the upper half so the fleet spreads out |
+| `SUBMIT_RETRY_MAX_MINUTES` | `30` | Ceiling for the exponentially increasing submission retry bound |
+| `SUBMIT_CIRCUIT_FAILURES` | `10` | Matching recent submission diagnostics needed for the watchdog to stop fleet-wide submissions temporarily; `0` disables the circuit breaker |
+| `SUBMIT_CIRCUIT_WINDOW_MINUTES` | `5` | How recent per-node submission failures must be to count toward the circuit threshold |
+| `SUBMIT_CIRCUIT_HOLD_MINUTES` | `10` | How long an opened fleet submission circuit prevents new `sbatch` calls |
 | `MAX_JOB_HOURS` | `7` | A benchmark `RUNNING` longer than this drains the node |
 | `SUBMIT_ONLY_WHEN_IDLE` | `yes` | Submit only to a node whose Slurm state is exactly `idle`. `no` submits regardless, and a job for a drained node sits `PENDING` until an operator clears it |
 | `DRAIN_WINDOW_MINUTES` | `15` | Only failures newer than this drain |
@@ -526,6 +531,11 @@ is missed entirely, and well below `RETRY_INTERVAL_HOURS`.
 stops retrying, never idles the node's other benchmarks, and does not decide
 whether the node drains. `--force` opens it. See
 [explanation/sequencing.md#backing-off-a-job-that-keeps-failing](../explanation/sequencing.md#backing-off-a-job-that-keeps-failing).
+
+The `SUBMIT_*` settings cover failures before a job exists and are therefore
+separate from workload retry. `--force` does not bypass them: a timeout may mean
+Slurm accepted the job but lost the reply, and retrying immediately can create a
+duplicate. See [when sbatch refuses a submission](../explanation/sequencing.md#when-sbatch-refuses-a-submission).
 
 `MAX_JOB_HOURS` has to clear the longest single run in `BENCHMARKS` **and**
 `BURNIN`, not the longest sweep. The binding constraint is `mnubergemm`, whose

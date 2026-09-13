@@ -123,6 +123,15 @@ fi
 ## editing anything. See docs/explanation/sequencing.md#backing-off-a-job-that-keeps-failing.
 : "${RETRY_BACKOFF:=yes}"
 : "${RETRY_BACKOFF_MAX_HOURS:=12}"
+## Submission failures are not workload failures: no result file exists to put
+## them behind the retry window above. Persist and spread their own retry, and
+## let the watchdog stop a fleet-wide storm when the same failure is widespread.
+## See docs/explanation/sequencing.md#when-sbatch-refuses-a-submission.
+: "${SUBMIT_RETRY_BASE_MINUTES:=2}"
+: "${SUBMIT_RETRY_MAX_MINUTES:=30}"
+: "${SUBMIT_CIRCUIT_FAILURES:=10}"
+: "${SUBMIT_CIRCUIT_WINDOW_MINUTES:=5}"
+: "${SUBMIT_CIRCUIT_HOLD_MINUTES:=10}"
 : "${MAX_JOB_HOURS:=7}"
 ## On by default: a job Slurm will not schedule sits PENDING in everybody's
 ## squeue. See docs/explanation/sequencing.md#submitting-only-to-an-idle-node.

@@ -1277,6 +1277,65 @@ resume_node
 ## One run of one job, and the id it was given is the whole point of the return:
 ## it is what the marker records and what the next cycle asks slurmstepd about.
 SUBMITTED_ID=""
+submit_retry="$logs/.submit-retry"
+submit_circuit="$home/results/.submit-circuit"
+
+## A failed sbatch has no result file, so the workload retry window cannot slow
+## it down. Keep a separate durable clock. The upper bound doubles per failure;
+## a stable per-node value chooses the actual delay from its upper half. The
+## timer adds its own sub-cycle spread, so a fleet does not return on one tick.
+SUBMIT_RETRY_EPOCH=0; SUBMIT_RETRY_NEXT=0; SUBMIT_RETRY_FAILS=0
+SUBMIT_RETRY_JOB=""; SUBMIT_RETRY_RUN=""; SUBMIT_RETRY_TOTAL=""
+SUBMIT_RETRY_RC=""; SUBMIT_RETRY_DIAG=""
+submit_retry_load() {
+    [[ -f "$submit_retry" ]] || return 1
+    # shellcheck disable=SC2034  # total and rc are retained for marker inspection/tests
+    IFS=$'\t' read -r SUBMIT_RETRY_EPOCH SUBMIT_RETRY_NEXT SUBMIT_RETRY_FAILS \
+        SUBMIT_RETRY_JOB SUBMIT_RETRY_RUN SUBMIT_RETRY_TOTAL SUBMIT_RETRY_RC \
+        SUBMIT_RETRY_DIAG < "$submit_retry" 2>/dev/null || return 1
+    if [[ "$SUBMIT_RETRY_EPOCH" =~ ^[0-9]+$ && "$SUBMIT_RETRY_NEXT" =~ ^[0-9]+$ &&
+          "$SUBMIT_RETRY_FAILS" =~ ^[1-9][0-9]*$ && -n "$SUBMIT_RETRY_JOB" ]]; then
+        return 0
+    fi
+    trace "WARNING: $submit_retry is unreadable -- discarded, so it cannot hold submissions forever"
+    rm -f "$submit_retry" 2>/dev/null
+    return 1
+}
+
+submit_retry_record() {
+    local job="$1" run="$2" total="$3" rc="$4" diag="$5"
+    local now base cap fails=1 upper lower span pick delay clean tmp i
+    now=$(date +%s)
+    base="$SUBMIT_RETRY_BASE_MINUTES"; cap="$SUBMIT_RETRY_MAX_MINUTES"
+    [[ "$base" =~ ^[1-9][0-9]*$ ]] || base=2
+    [[ "$cap" =~ ^[1-9][0-9]*$ && "$cap" -ge "$base" ]] || cap=30
+    if submit_retry_load && [[ "$SUBMIT_RETRY_JOB" == "$job" &&
+                               "$SUBMIT_RETRY_RUN" == "$run" ]]; then
+        fails=$(( SUBMIT_RETRY_FAILS + 1 ))
+    fi
+    upper="$base"
+    for ((i = 1; i < fails && upper < cap; i++)); do upper=$(( upper * 2 )); done
+    [[ "$upper" -gt "$cap" ]] && upper="$cap"
+    lower=$(( (upper + 1) / 2 )); span=$(( upper - lower + 1 ))
+    pick=$(printf '%s' "$HOSTNAME:$job:$run:$fails" | cksum | awk '{print $1}')
+    delay=$(( lower + pick % span ))
+    ## One physical TSV line: enough of Slurm's answer to group and diagnose,
+    ## without letting a multiline RPC error corrupt the marker format.
+    clean=$(tr '\t\r\n' '   ' <<<"$diag" | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//' | cut -c1-500)
+    tmp="$submit_retry.$$.tmp"
+    if printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$now" "$(( now + delay * 60 ))" "$fails" "$job" "$run" "$total" \
+        "$rc" "${clean:-<no output>}" > "$tmp" 2>/dev/null &&
+       mv -f "$tmp" "$submit_retry" 2>/dev/null; then
+        trace "submission retry: $job run $run failure $fails, waiting ${delay}m before another sbatch"
+    else
+        rm -f "$tmp" 2>/dev/null
+        trace "WARNING: could not write $submit_retry -- this submission failure may be retried next cycle"
+    fi
+}
+
+submit_retry_clear() { rm -f "$submit_retry" 2>/dev/null; }
+
 submit_one() {
     local jname="$1" job="$2" r="$3" totalRuns="$4"
     local launch file submit out rc kind name
@@ -1342,24 +1401,30 @@ mkdir -p $logs && sbatch -w $HOSTNAME -J $jname \
         ## See docs/explanation/sequencing.md#getting-the-job-id-right.
         if [[ "$rc" -ne 0 ]]; then
             trace "SUBMIT FAILED $job run $r: $launch exited $rc. Output: ${out:-<none>}"
+            submit_retry_record "$job" "$r" "$totalRuns" "$rc" "${out:-<none>}"
             return 1
         fi
         SUBMITTED_ID=pending
+        submit_retry_clear
         trace "submitted $job run $r (host-launched): $launch exited 0, and the id it was given is read back from the next node view${JOB_ENV_ARGS:+ (JOB_ENV:${JOB_ENV_ARGS//,/ })}"
         return 0
     fi
 
-    if [[ "$out" == *"Submitted batch job"* ]]; then
+    if [[ "$rc" -eq 0 && "$out" == *"Submitted batch job"* ]]; then
         ## Not a trailing-digit strip: with -M the line ends "on cluster <name>",
         ## and warnings can follow the success line.
         SUBMITTED_ID=$(grep -oE 'Submitted batch job [0-9]+' <<<"$out" | tail -1 | grep -oE '[0-9]+$')
         ## The environment goes in the trace, not just the job id: when a result
         ## is questioned weeks later, SETTINGS says whatever it says then, so
         ## what the run was given has to be written down now.
-        trace "submitted $job run $r: job $SUBMITTED_ID${JOB_ENV_ARGS:+ (JOB_ENV:${JOB_ENV_ARGS//,/ })}"
-        return 0
+        if [[ "$SUBMITTED_ID" =~ ^[0-9]+$ ]]; then
+            submit_retry_clear
+            trace "submitted $job run $r: job $SUBMITTED_ID${JOB_ENV_ARGS:+ (JOB_ENV:${JOB_ENV_ARGS//,/ })}"
+            return 0
+        fi
     fi
-    trace "SUBMIT FAILED $job run $r: ${out:-<no output>}"
+    trace "SUBMIT FAILED $job run $r: sbatch exited $rc: ${out:-<no output>}"
+    submit_retry_record "$job" "$r" "$totalRuns" "$rc" "${out:-<no output>}"
     return 1
 }
 
@@ -1403,6 +1468,40 @@ fi
 if [[ "${#backoff_held[@]}" -gt 0 ]]; then
     held=$(printf '%s; ' "${backoff_held[@]}")
     trace "backing off: ${held%; }"
+fi
+
+## Submission errors have their own retry state. A timeout is ambiguous: the
+## controller may have accepted the job before the client lost its reply. Never
+## try again until both the backoff elapsed and a later fleet snapshot has had a
+## chance to show that job to the duplicate guard below.
+if [[ -n "$submit_target" && "$EXPLAIN" -eq 0 ]] && submit_retry_load; then
+    submit_now=$(date +%s)
+    if [[ "$submit_now" -lt "$SUBMIT_RETRY_NEXT" ]]; then
+        trace "EXIT: submission backoff after $SUBMIT_RETRY_FAILS failure(s) of $SUBMIT_RETRY_JOB run $SUBMIT_RETRY_RUN -- $(( (SUBMIT_RETRY_NEXT - submit_now + 59) / 60 ))m left; last error: $SUBMIT_RETRY_DIAG"
+        write_quickview
+        exit 0
+    fi
+    retry_mtime=$(stat -c %Y "$submit_retry" 2>/dev/null || echo 0)
+    view_mtime=$(stat -c %Y "$logs/$SNAPSHOT_VIEW" 2>/dev/null || echo 0)
+    if [[ "$retry_mtime" -le 0 || "$view_mtime" -le "$retry_mtime" ]]; then
+        trace "EXIT: submission backoff elapsed, but the node view is not newer than the failed sbatch at $SUBMIT_RETRY_EPOCH -- waiting for the watchdog before an ambiguous submission is retried"
+        write_quickview
+        exit 0
+    fi
+fi
+
+## The watchdog writes this only after the same recent submission diagnostic
+## reaches the fleet threshold. One shared decision stops every live agent from
+## independently hammering an unhealthy controller.
+if [[ -n "$submit_target" && "$EXPLAIN" -eq 0 && -f "$submit_circuit" ]]; then
+    # shellcheck disable=SC2034  # open time is retained for marker inspection
+    IFS=$'\t' read -r circuit_open circuit_until circuit_count circuit_diag < "$submit_circuit" 2>/dev/null
+    submit_now=$(date +%s)
+    if [[ "$circuit_until" =~ ^[0-9]+$ && "$circuit_until" -gt "$submit_now" ]]; then
+        trace "EXIT: fleet submission circuit is open for $(( (circuit_until - submit_now + 59) / 60 ))m after $circuit_count matching failures -- $circuit_diag"
+        write_quickview
+        exit 0
+    fi
 fi
 
 ## ── The node has to be able to take it ────────────────────────────────────

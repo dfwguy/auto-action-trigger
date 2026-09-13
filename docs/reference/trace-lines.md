@@ -130,6 +130,10 @@ two per agent cycle, forever.
 | `WOULD SUBMIT <job> run <n>[ (existing <STATUS> result kept as .<fail\|prev><N>.txt)]: <command>` | `--explain` only |
 | `submitted <job> run <n>: Submitted batch job <id> [(JOB_ENV: …)]` | Work went out |
 | `SUBMIT FAILED <job> run <n>: <sbatch output>` | Work did not go out, and `sbatch` says why |
+| `submission retry: <job> run <n> failure <n>, waiting <n>m before another sbatch` | The durable submission-error clock was written; this is separate from workload retry |
+| `EXIT: submission backoff after <n> failure(s) …` | No `sbatch` this cycle; the node-local retry delay has not elapsed |
+| `EXIT: submission backoff elapsed, but the node view is not newer …` | The previous failure might have followed an accepted job, so a later controller view is required before retrying |
+| `EXIT: fleet submission circuit is open …` | Enough nodes reported the same recent submission error that the watchdog temporarily stopped fleet-wide retries |
 
 A new gate gets a line here and a line in the table above it. An `exit 0` with
 no explanation is a bug even when the behaviour is correct: most cycles
@@ -172,6 +176,7 @@ nothing — this host is the single point the fleet depends on.
 | `ARM FAILED <node>: <what it said>` | That node's half of the fan-out output. `arm.log` keeps the full text per attempt |
 | `EXIT: 'sinfo -N -h' returned nothing` | No answer is not an answer: a busy controller looks identical to an empty cluster, so nothing is armed — see [explanation/sequencing.md#when-the-controller-does-not-answer](../explanation/sequencing.md#when-the-controller-does-not-answer) |
 | `EXIT: <host> refreshed the watchdog claim <n>s ago … stands by` | Another host is arming the fleet. Two hosts reading as head is worth settling with `SUPERVISOR_HOST` |
+| `OPEN submission circuit for <n>m: <n> matching failures in <n>m -- <diagnostic>` | The watchdog observed a widespread submission failure and wrote the shared bounded hold |
 | `took the watchdog claim from <host>` | The previous watchdog stopped refreshing and this host took over past the lease |
 | `EXIT: SUPERVISOR_HOST=<host> … and this is <host>` | Pinned elsewhere by the site |
 | `RUN_ARMING=<value> in <settings file> -- <n> node(s) left unarmed` | No node is armed. Agents already running are untouched and keep cycling, and this cycle still wrote their views |
