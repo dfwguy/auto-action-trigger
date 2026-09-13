@@ -129,6 +129,8 @@ location and `BRINGUP_HOME` disagree.
 | `$HEALTH_LOG_DIR/<node>/refresh` | Present when a re-check has been asked for ahead of the cadence. Set by `health-check.sh --refresh`, consumed by the next cycle |
 | `$HEALTH_LOG_DIR/<node>/health.log` | Per-cycle decision trace from `node_health.sh` |
 | `$HEALTH_LOG_DIR/<node>/stderr.log` | Health runner and check stderr, redirected away from the systemd journal |
+| `$HEALTH_LOG_DIR/<node>/service.log` | Unexpected stdout/stderr from the timer's quiet node-agent cycle; normally empty |
+| `$HEALTH_LOG_DIR/_supervisor/service.log` | The same quiet-cycle catch-all for the app-server supervisor |
 | `$BRINGUP_HOME/valid-config/default/` | Symlink to the reference baseline node |
 | `$BRINGUP_HOME/results/<node>/` | Per-node benchmark result files |
 | `$BRINGUP_HOME/results/<node>/.heartbeat` | Touched at the top of every agent cycle, before any gate. Empty; only its mtime is read. See [explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means](../explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means) |

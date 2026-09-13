@@ -228,12 +228,12 @@ echo "== cycle.sh sends each host to the right script =="
 ## See docs/explanation/the-agent-and-the-watchdog.md#one-unit-for-both-roles.
 cp "$home/agent/cycle.sh" "$tree/agent/"
 printf '#!/bin/bash\necho SUPERVISOR\n' > "$tree/agent/supervisor.sh"
-printf '#!/bin/bash\necho NODE-AGENT\n' > "$tree/agent/node-agent.sh"
+printf '#!/bin/bash\nprintf "%%s|%%s\\n" "${SSH_AUTH_SOCK-unset}" "${GPG_AGENT_INFO-unset}" > "$AGENT_HOME/agent-env"\necho NODE-AGENT\n' > "$tree/agent/node-agent.sh"
 chmod 755 "$tree/agent"/*.sh
 
 dispatch() {
     ( export PATH="$stub:$PATH" HOSTNAME="${2:-testnode}" AGENT_HOME="$tree" STUB_UNITS="$1"
-      "$tree/agent/cycle.sh" --quiet 2>/dev/null )
+      "$tree/agent/cycle.sh" --verbose 2>/dev/null )
 }
 cat > "$stub/systemctl" <<'EOF'
 #!/bin/bash
@@ -253,6 +253,16 @@ chmod 755 "$stub/systemctl"
 [[ "$(dispatch '')" == "SUPERVISOR" ]] &&
     ok "a host with no slurmd at all runs the watchdog -- nothing can be scheduled to it" ||
     bad "a host with no slurmd was sent to the node agent: $(dispatch '')"
+
+( export PATH="$stub:$PATH" HOSTNAME="testnode" AGENT_HOME="$tree" STUB_UNITS="slurmd.service"
+  export SSH_AUTH_SOCK="/run/user/test/gnupg/S.gpg-agent.ssh" GPG_AGENT_INFO="interactive"
+  "$tree/agent/cycle.sh" --quiet )
+grep -q NODE-AGENT "$tree/logs/testnode/service.log" &&
+    ok "a quiet cycle keeps child output in the per-node service log" ||
+    bad "quiet output was not routed to logs/testnode/service.log"
+[[ "$(cat "$tree/agent-env")" == "unset|unset" ]] &&
+    ok "a quiet cycle does not inherit interactive agent sockets" ||
+    bad "quiet child inherited agent state: $(cat "$tree/agent-env")"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]
