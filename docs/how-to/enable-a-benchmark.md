@@ -5,15 +5,16 @@ catalog of what is available is [reference/jobs.md](../reference/jobs.md).
 
 ## Check the dependencies first
 
-Most of the default list has dependencies that are always available: the
-`dcgmi-r*` jobs use a host binary, and the NCCL jobs use the `hpc-benchmarks`
-image that `build_containers.sh` pulls from the public catalog. The exception is
-`nvbandwidth`, which is in the default list and comes from a private NGC org —
-so a head node that has not run `./build_containers.sh -L` has no image for it
-and **it fails on every node**. The check:
+The `dcgmi-r*` jobs use a host binary, and the NCCL jobs use the
+`hpc-benchmarks` image that `build_containers.sh` pulls from the public catalog.
+The default also includes `nvbandwidth`, which comes from a private NGC org,
+and the two LLM jobs, which require a prepared LLMB installation. A missing
+dependency makes its job fail on every node. Check both before enabling a
+sweep:
 
 ```bash
 ./build_containers.sh -a arm -l      # what is actually present
+./build_llmb.sh -l                   # resolve and validate the LLMB install
 ```
 
 Everything else needs one of three things first:
@@ -36,16 +37,17 @@ gated by `RUN_BURNIN`, off by default).
 
 ## Pick a list
 
-**Default — ships as written.** Assumes an NGC login for `nvbandwidth`:
+**Default — ships as written.** Assumes an NGC login for `nvbandwidth` and a
+prepared LLMB installation:
 
 ```bash
-BENCHMARKS="dcgmi-r1 dcgmi-r3 nvbandwidth allreduce allreduce-forcesharp \
-            alltoall allreduce-nonvlink alltoall-nonvlink"
+BENCHMARKS="dcgmi-r1 dcgmi-r3 dcgmi-r4 nvbandwidth allreduce \
+            allreduce-forcesharp alltoall allreduce-nonvlink \
+            alltoall-nonvlink llm-pretrain llm-pretrain-solo"
 ```
 
-Two DCGM levels rather than one: `-r 1` is software-only and nearly free, so it
-says a node is testable before the sweep spends hours finding out it is not, and
-`-r 3` is the deepest level that still fits a normal sweep.
+Three DCGM levels: `-r 1` is software-only and nearly free, `-r 3` is the deep
+normal-sweep gate, and `-r 4` adds sustained thermal and power stress.
 
 **No credentials needed.** Drop `nvbandwidth` from the list, and build only the
 one image the rest need:

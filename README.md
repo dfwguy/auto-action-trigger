@@ -271,8 +271,9 @@ Editing `SETTINGS.default` in place works until the next tarball drop replaces i
 The active list is `BENCHMARKS` in `SETTINGS`; which subset a site should run depends on its delivery methodology. See [docs/reference/jobs.md](docs/reference/jobs.md).
 
 ```bash
-BENCHMARKS="dcgmi-r1 dcgmi-r3 nvbandwidth allreduce allreduce-forcesharp \
-            alltoall allreduce-nonvlink alltoall-nonvlink"
+BENCHMARKS="dcgmi-r1 dcgmi-r3 dcgmi-r4 nvbandwidth allreduce \
+            allreduce-forcesharp alltoall allreduce-nonvlink \
+            alltoall-nonvlink llm-pretrain llm-pretrain-solo"
 ```
 
 ### 7. Decide whether to burn in

@@ -4,9 +4,9 @@ You submitted a job, it is `PENDING`, and `squeue` shows jobs named
 `bringup-<node>` or `burnin-<node>` sitting on the nodes you want. This is how
 to turn that into a number.
 
-The short version, for a site running the shipped `BENCHMARKS` list: **under an
-hour, and usually much less.** The long version is below, because the answer
-changes a lot if the site has burn-in on.
+The short version, for a site running the shipped `BENCHMARKS` list: **under 3
+hours 10 minutes, and usually much less.** The long version is below, because
+the answer changes a lot if the site has burn-in on.
 
 ## The one rule that decides everything
 
@@ -76,10 +76,11 @@ is the longest walltime in the site's list. From the job files:
 | `stream`, `memtester`, `stressapptest` | `4:10:00` |
 | `mnubergemm` (burn-in) | `6:41:00` |
 
-**The shipped `BENCHMARKS` list is `dcgmi-r1 dcgmi-r3 nvbandwidth allreduce
-allreduce-forcesharp alltoall allreduce-nonvlink alltoall-nonvlink`, whose
-longest job is `dcgmi-r3` at 50 minutes.** On a site running the default, no
-single benchmark can hold a node longer than that.
+**The shipped `BENCHMARKS` list is `dcgmi-r1 dcgmi-r3 dcgmi-r4 nvbandwidth
+allreduce allreduce-forcesharp alltoall allreduce-nonvlink alltoall-nonvlink
+llm-pretrain llm-pretrain-solo`, whose longest job is `dcgmi-r4` at 3 hours 10
+minutes.** On a site running the default, no single benchmark can hold a node
+longer than that.
 
 Check what the site actually runs rather than assuming the default:
 

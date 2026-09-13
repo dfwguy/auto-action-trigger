@@ -72,12 +72,14 @@ A name with no `jobs/$JOBS/<name>.sbatch` behind it is skipped with a line in
 the trace rather than failing.
 
 ```bash
-BENCHMARKS="dcgmi-r1 dcgmi-r3 nvbandwidth allreduce allreduce-forcesharp \
-            alltoall allreduce-nonvlink alltoall-nonvlink"
+BENCHMARKS="dcgmi-r1 dcgmi-r3 dcgmi-r4 nvbandwidth allreduce \
+            allreduce-forcesharp alltoall allreduce-nonvlink \
+            alltoall-nonvlink llm-pretrain llm-pretrain-solo"
 ```
 
 The default assumes an NGC login, because `nvbandwidth` is pulled from a private
-org. The catalog of what is available is
+org, and a prepared LLMB installation for the two LLM jobs. The catalog of what
+is available is
 [reference/jobs.md](jobs.md#the-job-catalog); choosing a list for a site is
 [how-to/enable-a-benchmark.md](../how-to/enable-a-benchmark.md).
 

@@ -24,7 +24,7 @@ fi
 : "${JOBS:=nvl72}"
 : "${HEALTHCHECKS:=nvl72}"
 : "${PARSERS:=nvl72}"
-: "${BENCHMARKS:=dcgmi-r1 dcgmi-r3 nvbandwidth allreduce allreduce-forcesharp alltoall allreduce-nonvlink alltoall-nonvlink}"
+: "${BENCHMARKS:=dcgmi-r1 dcgmi-r3 dcgmi-r4 nvbandwidth allreduce allreduce-forcesharp alltoall allreduce-nonvlink alltoall-nonvlink llm-pretrain llm-pretrain-solo}"
 ## NCCL bandwidth floors, GB/s. Every other gate stays in the parser.
 ## See docs/reference/settings.md#benchmark-pass-floors.
 : "${VERDICT_MIN_PEAK_BW_ALLREDUCE:=683}"
