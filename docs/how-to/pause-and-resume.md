@@ -24,6 +24,12 @@ from telling you what state the nodes came back in. Why each behaves as it does
 is in
 [explanation/sequencing.md#what-a-pause-is-for](../explanation/sequencing.md#what-a-pause-is-for).
 
+`RUN_CONTAINER_COPY=no` is not made permanent on the nodes. Each cycle rereads
+this setting. While it remains `no`, `file_copy.sh` creates a node-local marker
+only to avoid repeating the same disabled message in the shared `copy.log`.
+Changing the setting back to `yes` resumes copying on the next cycle and removes
+that marker; rebooting is not required.
+
 ## Replacing the tree
 
 Copying a new tree over `$BRINGUP_HOME` while two thousand agents cycle out of it
