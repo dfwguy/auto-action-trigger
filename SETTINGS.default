@@ -84,6 +84,9 @@ RUN_RECOVERY=yes
 RUN_ARMING=yes
 ## Opt-in, unlike the rest of this block. See docs/reference/settings.md#burn-in.
 RUN_BURNIN=no
+## Opt-in and BCM-specific. A non-BCM site must leave this off.
+REQUIRE_BCM_BOOTSTRAP_READY=no
+BCM_BOOTSTRAP_PROBE_TIMEOUT_SECS=5
 
 ## ── Drains ────────────────────────────────────────────────────────────────
 DRAIN_AFTER_FAILED_HEALTH_CHECK=no

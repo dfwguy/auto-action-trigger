@@ -121,6 +121,8 @@ two per agent cycle, forever.
 | `EXIT: node is <state> for a reason that is not ours -- '<reason>' does not carry 'auto-retry'.` | An operator's drain. Names the `scontrol … state=RESUME` that releases it |
 | `NOTE: JOB_ENV sets <name>, but <job>.sbatch exports its own` | The job file wins. Without the line, a `SETTINGS` entry that does nothing looks exactly like one that works |
 | `EXIT: <node> is '<state>'[ ('<reason>', set by <user>)] -- Slurm would hold <job> run <n> PENDING rather than run it…` | [`SUBMIT_ONLY_WHEN_IDLE`](../explanation/sequencing.md#submitting-only-to-an-idle-node), closed. Expected on a drained or reserved node, and not a fault |
+| `EXIT: node bootstrap is not ready (<items>) -- no job submitted…` | `REQUIRE_BCM_BOOTSTRAP_READY=yes`, and the job identity, BCM command URL, `cmd.service`, or `slurmd.service` is not ready after boot. The next cycle retries without creating an attempt or draining the node |
+| `node bootstrap is not ready (<items>) … -- explaining anyway; a real cycle would stop here` | The same gate under `--explain`. The blocker is reported, then downstream gates are evaluated without submitting or draining |
 | `the node view still says '<state>', but this cycle resumed the node -- submitting on the state it has now…` | The same gate, opened on a resume the view is too old to know about |
 | `EXIT: MAX_QUEUED_JOBS=<n> reached -- <n> of our jobs are queued or running fleet-wide, so <job> run <n> stays eligible…` | The [fleet-wide cap](../explanation/sequencing.md#the-fleet-wide-cap), closed. Expected on a large fleet, and not a fault |
 | `fleet cap open: <n> of <n> jobs of ours queued or running` | The cap, open. The count is what to watch when tuning it |

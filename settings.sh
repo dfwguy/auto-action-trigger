@@ -69,6 +69,10 @@ fi
 ## See docs/reference/settings.md#run-switches.
 : "${RUN_ARMING:=yes}"
 : "${RUN_BURNIN:=no}"
+## BCM-specific: wait for the command daemon, Slurm daemon and job identity
+## before submitting after a reboot. Off unless the site explicitly opts in.
+: "${REQUIRE_BCM_BOOTSTRAP_READY:=no}"
+: "${BCM_BOOTSTRAP_PROBE_TIMEOUT_SECS:=5}"
 : "${DRAIN_AFTER_FAILED_HEALTH_CHECK:=no}"
 : "${DRAIN_AFTER_FAILED_BENCHMARK:=no}"
 ## Recovery of drains Slurm set itself. On by default, unlike the switches
