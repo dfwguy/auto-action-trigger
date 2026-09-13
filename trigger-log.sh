@@ -4,7 +4,8 @@
 #
 # Answers "why is nothing running?" from the written record rather than from
 # the configuration: the heartbeat every node writes, and what the steps under
-# the agent wrote at results/<node>/trigger.log and health.log, summarized
+# the agent wrote at results/<node>/trigger.log and
+# $HEALTH_LOG_DIR/<node>/health.log, summarized
 # fleet-wide. Run this one FIRST; trigger-debug.sh is for when the traces turn
 # out to be stale.
 #
@@ -44,7 +45,7 @@ source "$home/settings.sh"      ## for BRINGUP_HOME, in the closing hint
 # shellcheck source=/dev/null
 [[ -f "$home/report-format.sh" ]] && source "$home/report-format.sh"  ## compress
 results_dir="$home/results"
-logs_dir="$home/logs"
+logs_dir="$HEALTH_LOG_DIR"
 
 window_hours=24
 stale_minutes=15
@@ -65,7 +66,7 @@ while [[ $# -gt 0 ]]; do
             tail_lines="$2"; shift 2 ;;
         --include-excluded) include_excluded=1; shift ;;
         -h|--help)
-            sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+            sed -n '2,38p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
         -*) echo "ERROR: unknown option $1" >&2; exit 1 ;;
         *)  args+=("$1"); shift ;;
     esac
@@ -480,7 +481,7 @@ declare -A health_reason_count health_reason_example
 health_missing=(); health_stale=(); health_fresh=0
 for node_dir in "${node_dirs[@]}"; do
     node=$(basename "$node_dir")
-    hlog="$node_dir/health.log"
+    hlog="$logs_dir/$node/health.log"
     if [[ ! -f "$hlog" ]]; then
         health_missing+=("$node")
         continue
@@ -499,7 +500,7 @@ for node_dir in "${node_dirs[@]}"; do
 done
 
 if [[ "${#health_missing[@]}" -gt 0 ]]; then
-    bad "${#health_missing[@]} node(s) have no results/<node>/health.log -- node_health.sh has not run since the cadence was deployed"
+    bad "${#health_missing[@]} node(s) have no $HEALTH_LOG_DIR/<node>/health.log -- node_health.sh has not run since the cadence was deployed"
     printf '     %s\n' "${health_missing[@]:0:10}"
     [[ "${#health_missing[@]}" -gt 10 ]] && note "   ... and $(( ${#health_missing[@]} - 10 )) more"
 fi

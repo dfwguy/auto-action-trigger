@@ -49,7 +49,8 @@ neither shows up in `sinfo`.
 
 The design answer is that every gate writes down why it stopped. Each node keeps
 a running trace per step — `results/<node>/agent.log` for the cycle itself,
-`results/<node>/trigger.log` for the sequencer and `results/<node>/health.log`
+`results/<node>/trigger.log` for the sequencer and
+`$HEALTH_LOG_DIR/<node>/health.log`
 for the health runner — one line per cycle recording
 what it did or why it stopped. Every line either can write is in
 [reference/trace-lines.md](../reference/trace-lines.md). `trigger-log.sh` reads

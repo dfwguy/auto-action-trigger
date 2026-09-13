@@ -99,7 +99,7 @@ home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
 source "$home/fanout.sh"
 results_dir="$home/results"
-logs_dir="$home/logs"
+logs_dir="$HEALTH_LOG_DIR"
 # shellcheck disable=SC2034  # read by health-scan.sh, which nothing follows at lint time
 valid_dir="$home/valid-config/default"
 jobs_dir="$JOBS_DIR"

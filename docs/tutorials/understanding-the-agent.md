@@ -67,7 +67,7 @@ ran. What each of them then *decided* is in its own trace:
 
 ```bash
 tail -3 "results/$N/trigger.log"    # the sequencer
-tail -3 "results/$N/health.log"     # the health runner
+tail -3 "$HEALTH_LOG_DIR/$N/health.log" # the health runner
 ```
 
 ```
@@ -255,7 +255,7 @@ output that would be diffed against a baseline captured with privilege. See
 The cycles in between are not silent either:
 
 ```bash
-tail -3 "results/$N/health.log"
+tail -3 "$HEALTH_LOG_DIR/$N/health.log"
 cat "logs/$N/.last-check"
 bash health-check.sh --explain "$N"
 ```

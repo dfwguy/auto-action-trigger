@@ -75,6 +75,7 @@ NEMO_TAG=26.04.01
 ## docs/explanation/health-cadence.md#choosing-the-two-intervals.
 HEALTH_INTERVAL_HOURS=4
 HEALTH_RETRY_INTERVAL_HOURS=1
+HEALTH_LOG_DIR=
 
 ## ── Run switches ──────────────────────────────────────────────────────────
 RUN_JOBS=yes

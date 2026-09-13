@@ -77,7 +77,7 @@ check() {
 }
 ## Three, not one: a run that reaches the end writes its finding and then the
 ## drain gate's line under it.
-trace_tail() { tail -3 "$work/results/$NODE/health.log" 2>/dev/null; }
+trace_tail() { tail -3 "$work/logs/$NODE/health.log" 2>/dev/null; }
 
 settings 'HEALTH_INTERVAL_HOURS=4
 HEALTH_RETRY_INTERVAL_HOURS=1'

@@ -76,6 +76,7 @@ fi
 reason=$(
     HEALTHCHECKS_DIR="$work/set" \
     node_health="$work/log" \
+    stderrlog="$work/stderr.log" \
     valid_health="$work/valid" \
     bash -c 'reason=""; source "'"$work"'/loop.sh" 2>/dev/null
              printf "%s" "$(echo "$reason" | tr "\n" " " | sed "s/  */ /g")"'

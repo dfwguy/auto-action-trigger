@@ -7,7 +7,7 @@
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
-logs="$home/logs"
+logs="$HEALTH_LOG_DIR"
 valid="$home/valid-config"
 
 node="$1"
@@ -36,7 +36,8 @@ rm -rf "${valid:?}/$node"
 cp -r "$logs/$node" "$valid/"
 
 # A copy, never a pointer -- docs/explanation/health-cadence.md#the-golden-baseline.
-rm -f "$valid/$node/refresh" "$valid/$node/.last-check"
+rm -f "$valid/$node/refresh" "$valid/$node/.last-check" \
+      "$valid/$node/health.log" "$valid/$node/stderr.log"
 
 # Every informational log, by the property and not by name -- nothing diffs one,
 # and the count below is the gated set. docs/explanation/node-inventory.md#it-is-not-a-baseline.

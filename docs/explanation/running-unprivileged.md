@@ -72,7 +72,8 @@ Two things about it are easy to get wrong:
 This is the failure this whole area is designed around, and it is not obvious.
 
 A health check that loses privilege does not fail. `sudo -n dmesg` with no rule
-prints an error to stderr — which `node_health.sh` deliberately discards, so
+prints an error to stderr — which `node_health.sh` keeps outside the baseline in
+`$HEALTH_LOG_DIR/<node>/stderr.log`, so
 that a tool's own complaint does not end up in the file being diffed — and
 produces empty stdout. The check therefore writes a *different* file from the
 one the baseline was captured from, the diff against `valid-config/default/`

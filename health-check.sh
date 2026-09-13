@@ -82,7 +82,7 @@
 # 60 node lines reads as 2280 incidents. Nodes are grouped by their exact set of
 # failing checks, so one group is one fix.
 #
-# The failures are read from logs/<node>/<check> against valid-config/default --
+# The failures are read from $HEALTH_LOG_DIR/<node>/<check> against valid-config/default --
 # the same comparison node_health.sh drains on -- so this is complete whether or
 # not DRAIN_AFTER_FAILED_HEALTH_CHECK is on. Slurm is asked for node state and
 # for drains this framework did not write, nothing else. No node is contacted
@@ -92,7 +92,7 @@
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
-logs_dir="$home/logs"
+logs_dir="$HEALTH_LOG_DIR"
 results_dir="$home/results"
 valid_dir="$home/valid-config/default"
 
@@ -303,7 +303,7 @@ if [[ "$explain" -eq 1 ]]; then
     fi
     echo
     report_unmatched
-    echo "Why a run stopped:  tail results/<node>/health.log"
+    echo "Why a run stopped:  tail $HEALTH_LOG_DIR/<node>/health.log"
     [[ "$not_cycling" -gt 0 ]] &&
         echo "Not cycling:        $not_cycling of $shown node(s) have written no heartbeat in ${HEARTBEAT_STALE_MINUTES}m -- ./trigger-log.sh section 0"
     exit 0
@@ -375,7 +375,7 @@ fi
 # Files node_health.sh writes into logs/<node>/ that are not checks.
 is_not_a_check() {
     case "$1" in
-        refresh|script-env|.last-check) return 0 ;;
+        refresh|script-env|.last-check|health.log|stderr.log) return 0 ;;
         *)                              return 1 ;;
     esac
 }
