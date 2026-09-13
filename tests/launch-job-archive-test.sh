@@ -44,6 +44,10 @@ EOF
 cat > "$stub/sbatch" <<'EOF'
 #!/bin/bash
 printf '%s\n' "$*" >> "$STUB_DIR/sbatch.calls"
+if [[ -f "$STUB_DIR/sbatch.fail" ]]; then
+    printf 'sbatch: error: Socket timed out on send/recv operation\n' >&2
+    exit 1
+fi
 printf 'Submitted batch job 90001\n'
 exit 0
 EOF
@@ -231,6 +235,47 @@ fi
 grep -q 'FAIL' "$report_out" &&
     bad "  ... and it also reported FAIL for a result that passed before being re-queued" ||
     ok "  ... and it did not misreport the pass as a failure"
+
+echo "== an sbatch error backs off without losing an accepted job =="
+
+setup='touch "$CASE_DIR/sbatch.fail"'
+run_launch "sbatch times out" --force >/dev/null
+check "the failure is traced" 'grep -q "SUBMIT FAILED probe run 1: sbatch exited 1:" "$logs/trigger.log" && grep -q "Socket timed out" "$logs/trigger.log"'
+check "a durable submission retry is recorded" '[[ -f "$logs/.submit-retry" ]]'
+check "a failed submission has no in-flight marker" '[[ ! -f "$logs/.in-flight" ]]'
+check "sbatch was called once" '[[ "$(wc -l < "$CASE_DIR/sbatch.calls")" -eq 1 ]]'
+
+rerun_launch --force
+check "the next cycle does not call sbatch again" '[[ "$(wc -l < "$CASE_DIR/sbatch.calls")" -eq 1 ]]'
+check "the backoff is traced with Slurm's error" 'grep -q "EXIT: submission backoff" "$logs/trigger.log" && grep -q "Socket timed out" "$logs/trigger.log"'
+
+## Even an elapsed clock cannot open the retry until a snapshot newer than the
+## ambiguous sbatch has allowed the ordinary duplicate guard to see it.
+IFS=$'\t' read -r _ _ retry_fails retry_job retry_run retry_total retry_rc retry_diag < "$logs/.submit-retry"
+printf '%s\t0\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(( $(date +%s) + 60 ))" \
+    "$retry_fails" "$retry_job" "$retry_run" "$retry_total" "$retry_rc" "$retry_diag" > "$logs/.submit-retry"
+touch -d '@2147483647' "$logs/.submit-retry"
+rerun_launch --force
+check "an old snapshot does not reopen an ambiguous submission" '[[ "$(wc -l < "$CASE_DIR/sbatch.calls")" -eq 1 ]]'
+check "the snapshot wait is traced" 'grep -q "node view is not newer than the failed sbatch" "$logs/trigger.log"'
+
+## A later watchdog view makes the retry safe; success clears retry state and
+## writes the usual in-flight marker.
+printf '%s\t0\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(( $(date +%s) - 60 ))" \
+    "$retry_fails" "$retry_job" "$retry_run" "$retry_total" "$retry_rc" "$retry_diag" > "$logs/.submit-retry"
+touch -d '@946684800' "$logs/.submit-retry"
+rm -f "$CASE_DIR/sbatch.fail"
+rerun_launch --force
+check "sbatch is retried after a fresh snapshot" '[[ "$(wc -l < "$CASE_DIR/sbatch.calls")" -eq 2 ]]'
+check "success clears submission retry state" '[[ ! -f "$logs/.submit-retry" ]]'
+check "success writes the accepted job id" 'grep -q "^90001" "$logs/.in-flight"'
+
+echo "== a fleet submission circuit stops node-local sbatch =="
+
+setup='printf "%s\\t%s\\t12\\tsbatch: error: controller unavailable\\n" "$(date +%s)" "$(( $(date +%s) + 600 ))" > "$CASE_DIR/results/.submit-circuit"'
+run_launch "fleet circuit is open" --force >/dev/null
+check "the open circuit prevents submission" '! submitted'
+check "the fleet hold is traced" 'grep -q "EXIT: fleet submission circuit is open" "$logs/trigger.log"'
 
 echo "== a leftover PAUSE_JOBS is not silently ignored =="
 

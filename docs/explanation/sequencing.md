@@ -378,6 +378,38 @@ wrong answers were the same problem: the queries that saturate the controller
 are the queries that then come back empty and get believed. Two queries a cycle
 for the whole fleet does not saturate anything.
 
+## When sbatch refuses a submission
+
+An `sbatch` failure is not a benchmark failure. There is no running job, no
+result file whose mtime can enforce `RETRY_INTERVAL_HOURS`, and no job id for the
+in-flight marker. Retrying on the next two-minute agent cycle would make every
+eligible node hammer the same unhealthy controller again.
+
+Each node therefore writes `results/<node>/.submit-retry` with the attempted
+job and run, failure count, exit status, bounded diagnostic, failure epoch and
+next eligible epoch. The retry upper bound starts at
+`SUBMIT_RETRY_BASE_MINUTES`, doubles after each failure and stops at
+`SUBMIT_RETRY_MAX_MINUTES`. A stable hash of node, job, run and attempt chooses a
+delay from the upper half of that bound; the timer's `RandomizedDelaySec` adds
+the sub-cycle spread. Successful submission removes the marker.
+
+A client timeout is ambiguous: Slurm can accept a job and lose the reply. An
+elapsed backoff is therefore not enough. The node also requires a usable fleet
+snapshot stamped after the failed attempt, then runs the ordinary queued-job
+guard. If the controller did accept it, the guard sees the job name and refuses
+to submit a duplicate. Missing, stale, or older views keep the retry closed.
+
+The watchdog also groups recent `.submit-retry` records by their diagnostic. If
+at least `SUBMIT_CIRCUIT_FAILURES` nodes report the same text within
+`SUBMIT_CIRCUIT_WINDOW_MINUTES`, it writes `results/.submit-circuit`. Every node
+honours that shared hold for `SUBMIT_CIRCUIT_HOLD_MINUTES`; `0` disables this
+fleet-wide layer. The hold is bounded and self-clearing, so a stopped watchdog
+cannot leave submissions disabled forever.
+
+This circuit limits refused RPCs, not accepted jobs. `MaxSubmitJobs` remains the
+atomic Slurm policy for pending plus running work, and should still be enabled
+as described in [configure Slurm submission limits](../how-to/configure-slurm-submission-limits.md).
+
 ## A host that is not a compute node
 
 The head node runs the framework and is not a target of it. But it is a host
