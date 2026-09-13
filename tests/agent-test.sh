@@ -189,13 +189,13 @@ rm -f "$beat"
   "$tree/agent/node-agent.sh" --explain >/dev/null 2>&1 )
 [[ -f "$beat" ]] && bad "--explain touched the heartbeat" ||
     ok "--explain wrote no heartbeat"
-if [[ -f "$tree/steps.ran" ]] && grep -q 'file_copy' "$tree/steps.ran"; then
-    bad "--explain ran the container copy, which has nothing to explain"
+if grep -q '^file_copy --explain --\(verbose\|quiet\)$' "$tree/steps.ran" 2>/dev/null; then
+    ok "--explain was passed to the container copy"
 else
-    ok "--explain did not run the container copy"
+    bad "--explain did not reach the container copy: $(cat "$tree/steps.ran" 2>/dev/null)"
 fi
 grep -q -- '--explain' "$tree/steps.ran" 2>/dev/null &&
-    ok "and handed the flag to the steps that do" ||
+    ok "and handed the flag to every step" ||
     bad "--explain was not passed down: $(cat "$tree/steps.ran" 2>/dev/null)"
 
 echo "== a host that is not a compute node =="

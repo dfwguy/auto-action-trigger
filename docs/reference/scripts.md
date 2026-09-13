@@ -670,6 +670,7 @@ rather than reporting a re-check that will not happen. See
 | `agent/supervisor.sh` | The head node's watchdog. Fired by `bringup-supervisor.timer`; `--explain` names what it would arm and drain, and does neither |
 | `agent/install-agent.sh` | Arms this host — lingering, the units, the timer. Idempotent; `--node`/`--head` override the role it works out for itself. See [how-to/arm-a-node.md](../how-to/arm-a-node.md) |
 | `agent/uninstall-agent.sh` | Stops and removes the timer and its unit. Leaves lingering and everything under `results/` alone |
+| `actions/file_copy.sh` | Warms this node's container cache. `--explain` itemizes the exact rsync changes without copying or writing state — see [explanation/containers.md#previewing-a-copy](../explanation/containers.md#previewing-a-copy) |
 | `actions/node_health.sh` | The health runner, second of the agent's three steps. Also runnable over `clush` or `pdsh` with `--explain`/`--force`/`--verbose` — see [how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand](../how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand) |
 | `next-run.sh` | The other half of `trigger-log.sh`: when each node next submits a benchmark (`--tests`) or runs its health checks (`--healthchecks`), bucketed into `soon` and one bucket per hour and grouped with `clubak`. Read-only. See [how-to/see-what-fires-next.md](../how-to/see-what-fires-next.md) |
 | `trigger-debug.sh` | Walks the watchdog → `sbatch` chain and names the broken link. Read-only. `--ask-nodes` adds the per-node systemd and sudo checks |

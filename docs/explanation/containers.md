@@ -229,6 +229,20 @@ at. A wrong guess here would put the images somewhere plausible and useless.
 local disk, not a shared mount, so there is no second machine's view of it to
 get wrong.
 
+## Previewing a copy
+
+Run the copy action in explain mode on a compute node to see the exact rsync
+changes without creating the destination, taking a lock, starting a transient
+service or writing a trace:
+
+```bash
+actions/file_copy.sh --explain
+```
+
+The itemized output covers everything under `CONTAINER_DIR`, not only `.sqsh`
+files, because that is what the real `rsync -a --partial` invocation copies.
+An empty itemized section followed by `up to date` means it would copy nothing.
+
 ## What the container gets from the host
 
 A containerised job does not inherit the node. Two things arrive only if
