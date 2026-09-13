@@ -12,3 +12,6 @@ logs/
 
 # Left behind by importing llmb_check.py, which the tests do.
 __pycache__/
+
+# Local direnv configuration.
+.envrc
