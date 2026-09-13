@@ -156,6 +156,23 @@ half ran depended on the uid running the suite, so it was green locally and red
 in CI for having proved a different thing. `tests/yield-test.sh` now asserts the
 same outcome whoever runs it, including root.
 
+## Shared output stays writable by the job group
+
+`results/` and `logs/` are shared operational state. An operator may run a
+health check manually, but the next timer cycle still runs as `$JOB_USER`.
+`node_health.sh` therefore uses umask `0002`, producing directories as `0775`
+and files as `0664` so another account in the same primary group can update
+them. Before a due run it also checks the node directory, stamp and existing
+check files; an ownership mismatch produces one named `EXIT:` instead of one
+shell error for every check.
+
+Existing state from a restrictive umask needs a one-time repair by the site:
+
+```bash
+chgrp -R <job-group> "$BRINGUP_HOME/results" "$BRINGUP_HOME/logs"
+chmod -R g+rwX "$BRINGUP_HOME/results" "$BRINGUP_HOME/logs"
+```
+
 ## What is still not the framework's to do
 
 The migration itself needs root, once, and is the site's:
