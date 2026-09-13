@@ -232,6 +232,30 @@ if [[ "$EXPLAIN" -eq 1 ]]; then
     exit 0
 fi
 
+## The PCIe checks otherwise invoke privileged lspci once per device. Capture
+## one immutable snapshot for the run and let each check select its records.
+## Standalone check execution retains its own fallback.
+pcie_lspci_snapshot=""
+cleanup_pcie_lspci_snapshot() {
+    [[ -n "$pcie_lspci_snapshot" ]] && rm -f -- "$pcie_lspci_snapshot"
+}
+trap cleanup_pcie_lspci_snapshot EXIT
+if [[ -f "$HEALTHCHECKS_DIR/20-pcie-lnk-stat.sh" ||
+      -f "$HEALTHCHECKS_DIR/21-pcie-acs.sh" ||
+      -f "$HEALTHCHECKS_DIR/22-pcie-mrrs.sh" ]]; then
+    pcie_lspci_snapshot=$(mktemp /tmp/bringup-pcie-lspci.XXXXXX)
+    # shellcheck disable=SC2024  # mktemp made the redirect target for this user;
+                                # only lspci needs privilege
+    if sudo -n lspci -vvv > "$pcie_lspci_snapshot" 2>/dev/null; then
+        export BRINGUP_PCIE_LSPCI_SNAPSHOT="$pcie_lspci_snapshot"
+    else
+        trace "WARNING: the shared privileged lspci snapshot failed -- PCIe checks will use their standalone fallback"
+        cleanup_pcie_lspci_snapshot
+        pcie_lspci_snapshot=""
+        unset BRINGUP_PCIE_LSPCI_SNAPSHOT
+    fi
+fi
+
 mkdir -p $node_health
 
 append_reason() {
