@@ -178,7 +178,6 @@ Other lines you may see, and what each means:
 | `EXIT: every benchmark passing` | The node is finished |
 | `EXIT: node is drain for a reason that is not ours` | Step 2's other half — an operator or Slurm drain |
 | `EXIT: <n> job(s) not ours on <node>` | Somebody else is using the node |
-| `EXIT: MAX_QUEUED_JOBS=<n> reached` | The fleet cap, deferring this node's turn |
 
 Every gate in the sequencer writes one of these before it stops. That is the
 whole diagnostic contract: most cycles legitimately have nothing to do, so

@@ -124,12 +124,9 @@ two per agent cycle, forever.
 | `EXIT: node bootstrap is not ready (<items>) -- no job submitted…` | `REQUIRE_BCM_BOOTSTRAP_READY=yes`, and the job identity, BCM command URL, `cmd.service`, or `slurmd.service` is not ready after boot. The next cycle retries without creating an attempt or draining the node |
 | `node bootstrap is not ready (<items>) … -- explaining anyway; a real cycle would stop here` | The same gate under `--explain`. The blocker is reported, then downstream gates are evaluated without submitting or draining |
 | `the node view still says '<state>', but this cycle resumed the node -- submitting on the state it has now…` | The same gate, opened on a resume the view is too old to know about |
-| `EXIT: MAX_QUEUED_JOBS=<n> reached -- <n> of our jobs are queued or running fleet-wide, so <job> run <n> stays eligible…` | The [fleet-wide cap](../explanation/sequencing.md#the-fleet-wide-cap), closed. Expected on a large fleet, and not a fault |
-| `fleet cap open: <n> of <n> jobs of ours queued or running` | The cap, open. The count is what to watch when tuning it |
-| `WARNING: MAX_QUEUED_JOBS='<value>' … is not a whole number -- ignored` | A typo in `SETTINGS`. The cycle runs uncapped rather than stopping the fleet |
 | `backing off: <job> run <n> after <n> failures: <n>h window, <n>m left[; …]` | `RETRY_BACKOFF` is on and a run has waited out more than the flat window. One line for both lists, once a cycle — see [explanation/sequencing.md#backing-off-a-job-that-keeps-failing](../explanation/sequencing.md#backing-off-a-job-that-keeps-failing) |
 | `nothing eligible to submit: everything is passing or inside its own retry window (<n>h[, plus an hour per failure to at most <n>h])` | Nothing to do this cycle. The bracketed half appears only when `RETRY_BACKOFF` is on |
-| `WARNING: RETRY_BACKOFF=<value> but RETRY_BACKOFF_MAX_HOURS='<value>' … is not a whole number of hours at or above RETRY_INTERVAL_HOURS` | A typo in `SETTINGS`. The flat window is kept rather than the fleet stopped, as with `MAX_QUEUED_JOBS` |
+| `WARNING: RETRY_BACKOFF=<value> but RETRY_BACKOFF_MAX_HOURS='<value>' … is not a whole number of hours at or above RETRY_INTERVAL_HOURS` | A typo in `SETTINGS`. The flat window is kept rather than stopping the fleet |
 | `WOULD SUBMIT <job> run <n>[ (existing <STATUS> result kept as .<fail\|prev><N>.txt)]: <command>` | `--explain` only |
 | `submitted <job> run <n>: Submitted batch job <id> [(JOB_ENV: …)]` | Work went out |
 | `SUBMIT FAILED <job> run <n>: <sbatch output>` | Work did not go out, and `sbatch` says why |
@@ -178,7 +175,7 @@ nothing — this host is the single point the fleet depends on.
 | `took the watchdog claim from <host>` | The previous watchdog stopped refreshing and this host took over past the lease |
 | `EXIT: SUPERVISOR_HOST=<host> … and this is <host>` | Pinned elsewhere by the site |
 | `RUN_ARMING=<value> in <settings file> -- <n> node(s) left unarmed` | No node is armed. Agents already running are untouched and keep cycling, and this cycle still wrote their views |
-| `snapshot: <n> of <n> node view(s) written, <n> job(s) of ours in the queue fleet-wide` | The fleet's one look at Slurm, landed. Every node decides from this — see [explanation/the-fleet-snapshot.md](../explanation/the-fleet-snapshot.md) |
+| `snapshot: <n> of <n> node view(s) written` | The fleet's one look at Slurm, landed. Every node decides from this — see [explanation/the-fleet-snapshot.md](../explanation/the-fleet-snapshot.md) |
 | `WARNING: no node survived EXCLUDE_NODES=… and NODE_FILTER=… -- no view was written` | Every agent will stop deciding once the view it has ages out |
 | `CANCELLED pending under RUN_JOBS=<value>: <ids>` | The pause reaching the queue, fleet-wide in one call |
 | `RUN_JOBS=no: job <id> (<name>) still RUNNING -- left to finish` | A pause stops new work; it does not kill work in progress |

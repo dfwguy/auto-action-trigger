@@ -334,8 +334,7 @@ Two hosts can still both act for one cycle if they claim in the same instant.
 That is bounded and cheap: arming is idempotent, and the loser stands by from
 the next cycle. A lock would be the alternative, and a lock on NFS that can be
 held by a host that reboots is a worse failure than a claim that is occasionally
-raced — the same trade the fleet-wide cap makes in
-[sequencing.md#the-fleet-wide-cap](sequencing.md#the-fleet-wide-cap).
+raced.
 
 ## Why lingering
 

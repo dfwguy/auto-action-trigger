@@ -267,8 +267,7 @@ across the fleet for `AGENT_INTERVAL_MINUTES`, on the head node for the other.
 Everything else here is read fresh on every cycle.
 
 A value that is not a whole number of minutes is warned about and replaced with
-the default rather than stopping the fleet, on the same principle as
-`MAX_QUEUED_JOBS`. Why these numbers and not others is
+the default rather than stopping the fleet. Why these numbers and not others is
 [explanation/the-agent-and-the-watchdog.md#choosing-the-three-numbers](../explanation/the-agent-and-the-watchdog.md#choosing-the-three-numbers).
 
 ## Privilege
@@ -504,7 +503,6 @@ Why the detection is that particular question, and not `sinfo -N -n`, is in
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `MAX_QUEUED_JOBS` | `500` | Ceiling on jobs this framework has queued or running across the whole fleet. `0` is no cap |
 | `RETRY_INTERVAL_HOURS` | `1` | Hours before a job may run again, measured from that job's own result file |
 | `RETRY_BACKOFF` | `yes` | Add an hour to that window for each failure a run already has on disk. `no` keeps the flat window |
 | `RETRY_BACKOFF_MAX_HOURS` | `12` | Ceiling on the widened window. Ignored, with a warning, if it is not a whole number of hours at or above `RETRY_INTERVAL_HOURS` |
@@ -540,8 +538,6 @@ rung lives in `SETTINGS`:
 | `#SBATCH -t` | `6:41:00` | Slurm kills the job, marker or not |
 | `MAX_JOB_HOURS` | `7` | the sequencer drains the node for timeout |
 
-What `MAX_QUEUED_JOBS` is protecting, and what a closed cap does to a sweep, is
-[explanation/sequencing.md#the-fleet-wide-cap](../explanation/sequencing.md#the-fleet-wide-cap).
 `INFLIGHT_GRACE_MINUTES` is the only setting that trades a chatty controller
 against an idle node; see
 [explanation/sequencing.md#when-a-marker-goes-stale](../explanation/sequencing.md#when-a-marker-goes-stale).

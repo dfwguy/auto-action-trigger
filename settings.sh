@@ -115,8 +115,6 @@ fi
 ## node_self_excluded as the only judge.
 ## See docs/reference/settings.md#hosts-that-are-not-compute-nodes.
 : "${EXCLUDE_NODES=}"
-## 0 is no cap. See docs/explanation/sequencing.md#the-fleet-wide-cap.
-: "${MAX_QUEUED_JOBS:=500}"
 : "${RETRY_INTERVAL_HOURS:=1}"
 ## On by default, and backfilled, so an existing site gets the ramp without
 ## editing anything. See docs/explanation/sequencing.md#backing-off-a-job-that-keeps-failing.

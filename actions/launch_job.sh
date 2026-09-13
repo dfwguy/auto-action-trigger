@@ -1165,8 +1165,7 @@ if [[ "${#failed_jobs_actionable[@]}" -gt 0 && \
 fi
 
 ## Every job of ours the controller is holding: this node's two names gate the
-## submission below, and the fleet-wide count of both prefixes gates it against
-## MAX_QUEUED_JOBS. Both come out of the view -- the whole-queue dump this used
+## submission below. They come out of the view -- the whole-queue dump this used
 ## to be was one per node per cycle, which is the read that cost.
 ## See docs/explanation/sequencing.md#the-guard-before-a-submission.
 ##
@@ -1175,12 +1174,10 @@ fi
 ## that already has one.
 ## See docs/explanation/the-fleet-snapshot.md#no-view-is-not-an-empty-queue.
 QUEUED_OURS=""
-QUEUED_FLEET=0
 queued_ours() {
     local id state name
     [[ "$SNAPSHOT_OK" -eq 1 ]] || return 1
     QUEUED_OURS=""
-    QUEUED_FLEET="$SNAPSHOT_FLEET"
     while IFS=$'\t' read -r id state name _; do
         [[ "$id" =~ ^[0-9]+$ ]] || continue
         [[ "$name" == "$JOB_NAME_BENCH" || "$name" == "$JOB_NAME_BURNIN" ]] || continue
@@ -1391,7 +1388,7 @@ elif [[ "$burnin_eligible" -eq 1 && "$burnin_hours_still_open" -eq 1 ]] && next_
     submit_target=burnin
 ## Reuses the bench Slurm job name (jname below defaults to it) rather than
 ## naming a third one -- everything that already matches bringup-<node>
-## (RUN_JOBS=no, MAX_QUEUED_JOBS, kill-jobs.sh) covers a continuous re-run
+## (RUN_JOBS=no and kill-jobs.sh) covers a continuous re-run
 ## for free this way. See docs/explanation/sequencing.md#continuous-re-runs.
 elif [[ "$continue_running_eligible" -eq 1 ]] && continue_running_next; then
     # shellcheck disable=SC2209  # the literal string "continue", not the shell keyword
@@ -1459,30 +1456,6 @@ if [[ -n "$submit_target" && "$EXPLAIN" -eq 0 ]]; then
         trace "EXIT: no marker, but $(grep -c . <<<"$QUEUED_OURS") job(s) of ours are already queued ($queued_list) -- not submitting $NEXT_JOB on top of one. Untracked, so it is left to finish; 'scancel $queued_list' to clear it."
         write_quickview
         exit 0
-    fi
-fi
-
-## The fleet-wide ceiling. The gate above bounds this node to one job; nothing
-## bounded every node holding one at once, which is what saturates slurmctld.
-## See docs/explanation/sequencing.md#the-fleet-wide-cap.
-if [[ -n "$submit_target" && -n "${MAX_QUEUED_JOBS// /}" && "$MAX_QUEUED_JOBS" != 0 ]]; then
-    if [[ ! "$MAX_QUEUED_JOBS" =~ ^[0-9]+$ ]]; then
-        trace "WARNING: MAX_QUEUED_JOBS='$MAX_QUEUED_JOBS' in ${SETTINGS_FILE:-<no settings file found>} is not a whole number -- ignored, and this cycle submits as if uncapped."
-    else
-        queued_ours
-        if [[ "$QUEUED_FLEET" -ge "$MAX_QUEUED_JOBS" ]]; then
-            cap_msg="MAX_QUEUED_JOBS=$MAX_QUEUED_JOBS reached -- $QUEUED_FLEET of our jobs are queued or running fleet-wide, so $NEXT_JOB run $NEXT_RUN stays eligible and is offered again next cycle."
-            [[ "$FORCE" -eq 1 ]] && cap_msg="$cap_msg --force does not override it: it is a site switch, not a timing gate."
-            if [[ "$EXPLAIN" -eq 1 ]]; then
-                trace "$cap_msg -- explaining anyway; a real cycle would stop here"
-            else
-                trace "EXIT: $cap_msg"
-                write_quickview
-                exit 0
-            fi
-        else
-            trace "fleet cap open: $QUEUED_FLEET of $MAX_QUEUED_JOBS jobs of ours queued or running"
-        fi
     fi
 fi
 

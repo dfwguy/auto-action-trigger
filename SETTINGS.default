@@ -114,8 +114,6 @@ RECOVER_UNKILLABLE_REASONS="Kill task failed|unkillable"
 RECOVER_UNKILLABLE_AFTER_SECS=3600
 
 ## ── Retry and drain policy ────────────────────────────────────────────────
-## 0 is no cap. See docs/settings.md#the-fleet-wide-cap.
-MAX_QUEUED_JOBS=500
 RETRY_INTERVAL_HOURS=1
 RETRY_BACKOFF=yes
 RETRY_BACKOFF_MAX_HOURS=12

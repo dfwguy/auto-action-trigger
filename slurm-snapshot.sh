@@ -36,7 +36,6 @@ SNAPSHOT_WHEN=""
 SNAPSHOT_REASON=""
 SNAPSHOT_GRES=""
 SNAPSHOT_CPUTOT=""
-SNAPSHOT_FLEET=0
 SNAPSHOT_JOBS=()
 SNAPSHOT_OURS=()
 SNAPSHOT_LOADED=0
@@ -75,7 +74,6 @@ snapshot_load() {
             when)   SNAPSHOT_WHEN="$rest" ;;
             gres)   SNAPSHOT_GRES="$rest" ;;
             cputot) SNAPSHOT_CPUTOT="$rest" ;;
-            fleet)  SNAPSHOT_FLEET="$rest" ;;
             reason) SNAPSHOT_REASON="$rest" ;;
             job)    IFS=$'\t' read -r id state user endt name <<<"$rest"
                     SNAPSHOT_JOBS+=("$id"$'\t'"$state"$'\t'"$user"$'\t'"$endt"$'\t'"$name") ;;
@@ -151,7 +149,6 @@ SNAPSHOT_QUEUE=""
 SNAPSHOT_HW=""
 SNAPSHOT_QUERIED=0
 SNAPSHOT_WRITTEN=0
-SNAPSHOT_QUEUED_FLEET=0
 
 ## `%E` is free text.  Some Slurm versions render an embedded newline as an
 ## indented physical continuation line, even with `-o`; that line must remain
@@ -258,7 +255,7 @@ snapshot_query() {
 snapshot_write() {
     local results="$1" now="$2"; shift 2
     local id name user state prio subm endt nodes req sched count reason
-    local n node dir fleet=0 written=0
+    local n node dir written=0
     local -A jobs_here=() ours_by_node=() gres=() cputot=()
     local -A state_of=() setter_of=() when_of=() reason_of=()
 
@@ -280,7 +277,6 @@ snapshot_write() {
         reason="${reason//[$'\t\n']/ }"
 
         if snapshot_name_is_ours "$name"; then
-            fleet=$((fleet + 1))
             ## Keyed on the name, which carries the node it was submitted for: a
             ## PENDING job has no node list at all, and that is precisely the case
             ## the submit guard exists for.
@@ -317,7 +313,6 @@ snapshot_write() {
             printf 'when\t%s\n'   "${when_of[$node]}"
             printf 'gres\t%s\n'   "${gres[$node]:-}"
             printf 'cputot\t%s\n' "${cputot[$node]:-}"
-            printf 'fleet\t%s\n'  "$fleet"
             printf '%s' "${jobs_here[$node]:-}"
             printf '%s' "${ours_by_node[$node]:-}"
             printf 'reason\t%s\n' "${reason_of[$node]}"
@@ -326,6 +321,5 @@ snapshot_write() {
     done
 
     SNAPSHOT_WRITTEN="$written"
-    SNAPSHOT_QUEUED_FLEET="$fleet"
     return 0
 }
