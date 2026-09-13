@@ -124,9 +124,11 @@ location and `BRINGUP_HOME` disagree.
 
 | Path | Purpose |
 |------|---------|
-| `$BRINGUP_HOME/logs/<node>/` | Per-node health check output files |
-| `$BRINGUP_HOME/logs/<node>/.last-check` | When the checks last ran there and what they concluded, tab-separated. Drives the cadence — see [settings.md#health-check-cadence](settings.md#health-check-cadence) |
-| `$BRINGUP_HOME/logs/<node>/refresh` | Present when a re-check has been asked for ahead of the cadence. Set by `health-check.sh --refresh`, consumed by the next cycle |
+| `$HEALTH_LOG_DIR/<node>/` | Per-node health check output files. Defaults to `$BRINGUP_HOME/logs`; sites may place it on a compute-facing share |
+| `$HEALTH_LOG_DIR/<node>/.last-check` | When the checks last ran there and what they concluded, tab-separated. Drives the cadence — see [settings.md#health-check-cadence](settings.md#health-check-cadence) |
+| `$HEALTH_LOG_DIR/<node>/refresh` | Present when a re-check has been asked for ahead of the cadence. Set by `health-check.sh --refresh`, consumed by the next cycle |
+| `$HEALTH_LOG_DIR/<node>/health.log` | Per-cycle decision trace from `node_health.sh` |
+| `$HEALTH_LOG_DIR/<node>/stderr.log` | Health runner and check stderr, redirected away from the systemd journal |
 | `$BRINGUP_HOME/valid-config/default/` | Symlink to the reference baseline node |
 | `$BRINGUP_HOME/results/<node>/` | Per-node benchmark result files |
 | `$BRINGUP_HOME/results/<node>/.heartbeat` | Touched at the top of every agent cycle, before any gate. Empty; only its mtime is read. See [explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means](../explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means) |
@@ -142,7 +144,6 @@ location and `BRINGUP_HOME` disagree.
 | `$BRINGUP_HOME/results/.yield-check` | When the watchdog last looked for waiters, one stamp for the fleet — `GET_OUT_OF_THE_WAY_POLL_MINUTES` |
 | `$BRINGUP_HOME/results/<node>/trigger.log` | Per-cycle decision trace from `launch_job.sh` |
 | `$BRINGUP_HOME/results/<node>/copy.log` | Per-cycle trace from `file_copy.sh`, and where the detached copy reports what it did after the cycle that started it has ended |
-| `$BRINGUP_HOME/results/<node>/health.log` | Per-cycle decision trace from `node_health.sh` |
 | `$BRINGUP_HOME/results/<node>/quick-view.txt` | One line per benchmark: `DONE` / `QUEUED` |
 | `$BRINGUP_HOME/results/<node>/recover.log` | One line per drain cleared. The attempt history `RECOVER_MAX_ATTEMPTS` is counted from. Tab separated: epoch, date, class, state, setter, reason, and the pre-job check that failed. See [explanation/drain-recovery.md#and-it-has-to-outlive-the-trace](../explanation/drain-recovery.md#and-it-has-to-outlive-the-trace) |
 | `$BRINGUP_HOME/results/<node>/unkillable.stamp` | First-seen epoch and pid set of GPU processes that survived their step's kill. Tab separated; a changed pid set restarts the clock. See [explanation/drain-recovery.md#a-step-that-outlives-its-own-kill](../explanation/drain-recovery.md#a-step-that-outlives-its-own-kill) |

@@ -602,8 +602,8 @@ ink50-dh01-h01-33            2026-08-07 11:26:20  failed   not cycling — no ch
 
 `overdue` is the one to read: the node is past its interval and has not
 re-checked, so no agent cycle is reaching it. `tail
-results/<node>/health.log` names the gate. `(never)` on a node that has a
-`logs/<node>` means the stamp predates the cadence, and one cycle fixes it.
+$HEALTH_LOG_DIR/<node>/health.log` names the gate. `(never)` on a node that has a
+`$HEALTH_LOG_DIR/<node>` means the stamp predates the cadence, and one cycle fixes it.
 
 | `NEXT DUE` | What it means |
 |---|---|

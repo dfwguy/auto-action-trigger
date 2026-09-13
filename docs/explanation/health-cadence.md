@@ -166,7 +166,8 @@ nobody asked for. See
 
 ## Every cycle says what it decided
 
-The trace goes to `results/<node>/health.log`, beside `trigger.log`, and
+The trace goes to `$HEALTH_LOG_DIR/<node>/health.log`, beside the check output,
+and
 `trigger-log.sh` section 5 reads it the same way section 1 reads the sequencer's:
 a log that has stopped being written is the agent not firing, and a fresh log
 whose last line is an `EXIT` is a gate that has already named itself.

@@ -38,7 +38,7 @@ home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
 source "$home/fanout.sh"
 results_dir="$home/results"
-logs_dir="$home/logs"
+logs_dir="$HEALTH_LOG_DIR"
 
 want_tests=0
 want_health=0

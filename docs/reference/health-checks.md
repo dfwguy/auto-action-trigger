@@ -13,9 +13,10 @@ run is identical up to that point and Slurm is simply left alone.
 
 It fires on every agent cycle and re-checks on a cadence:
 `HEALTH_INTERVAL_HOURS` after a clean run, `HEALTH_RETRY_INTERVAL_HOURS` after
-one that found something. A `refresh` sentinel file in `logs/<node>/` jumps the
+one that found something. A `refresh` sentinel file in
+`$HEALTH_LOG_DIR/<node>/` jumps the
 queue — `health-check.sh --refresh` sets it. Every cycle writes what it decided
-to `results/<node>/health.log`, and `health-check.sh --explain` reports when each
+to `$HEALTH_LOG_DIR/<node>/health.log`, and `health-check.sh --explain` reports when each
 node is next due. See
 [health-cadence.md](../explanation/health-cadence.md).
 

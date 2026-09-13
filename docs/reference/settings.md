@@ -232,15 +232,22 @@ against — see
 |---------|---------|---------|
 | `HEALTH_INTERVAL_HOURS` | `4` | How long after a **clean** run `node_health.sh` re-runs the checks |
 | `HEALTH_RETRY_INTERVAL_HOURS` | `1` | How long after a run that **found something** it re-runs them |
+| `HEALTH_LOG_DIR` | `$BRINGUP_HOME/logs` | Shared, compute-facing root for per-node check output, cadence state and health trace |
 
 Whole hours, and `0` on either disables the cadence in the state it applies to —
 the checks then re-run only when `health-check.sh --refresh` sets the sentinel,
 which is how this tree behaved before the cadence existed.
 
-The interval is measured from `logs/<node>/.last-check`, which also records
+The interval is measured from `$HEALTH_LOG_DIR/<node>/.last-check`, which also records
 which of the two applies. `health-check.sh --explain` prints the resulting due
 times across the fleet. Why two intervals and no backoff:
 [explanation/health-cadence.md#choosing-the-two-intervals](../explanation/health-cadence.md#choosing-the-two-intervals).
+
+Set `HEALTH_LOG_DIR` to a share mounted directly by compute nodes when health
+traffic should not traverse the controller. `node_health.sh` also redirects its
+stderr to `<node>/stderr.log`; routine permission and tool errors therefore do
+not fan into systemd-journald or centralized syslog. Failure to create or open
+the configured path is still reported to the service journal once.
 
 ## The agent and the watchdog
 

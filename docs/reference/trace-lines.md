@@ -8,7 +8,7 @@ Four files, one timestamped line per decision, appending rather than truncating
 | `results/<node>/agent.log` | `agent/node-agent.sh` — [the agent trace](#the-agent-trace) |
 | `results/<node>/trigger.log` | `actions/launch_job.sh` — everything up to [the health trace](#the-health-trace) |
 | `results/<node>/copy.log` | `actions/file_copy.sh` — [the container copy trace](#the-container-copy-trace) |
-| `results/<node>/health.log` | `actions/node_health.sh` — [the health trace](#the-health-trace) |
+| `$HEALTH_LOG_DIR/<node>/health.log` | `actions/node_health.sh` — [the health trace](#the-health-trace) |
 | `results/supervisor.log` | `agent/supervisor.sh` — [the watchdog trace](#the-watchdog-trace) |
 
 Reading them across the cluster is `trigger-log.sh`, in
@@ -218,7 +218,7 @@ second lets a job start off local disk.
 
 ## The health trace
 
-`results/<node>/health.log`, written by `actions/node_health.sh`. The same three
+`$HEALTH_LOG_DIR/<node>/health.log`, written by `actions/node_health.sh`. The same three
 conventions hold, and the same 1 MB / 2000-line trim. Why it is a separate file:
 [explanation/health-cadence.md#every-cycle-says-what-it-decided](../explanation/health-cadence.md#every-cycle-says-what-it-decided).
 

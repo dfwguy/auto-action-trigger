@@ -1,6 +1,6 @@
 #!/bin/bash
 # The health check runner, run by the node agent: this site's checks in numeric
-# order, write each one's output to logs/<node>/<check>, diff that against
+# order, write each one's output to $HEALTH_LOG_DIR/<node>/<check>, diff that against
 # valid-config/default/<check>, and drain this node with the names that differ.
 # Checks live in health-checks/$HEALTHCHECKS/NN-<check>.sh -- a platform is a
 # directory, so a check that does not apply is a file that is not there.
@@ -18,7 +18,7 @@
 # load-bearing: change one and every node fails against every older baseline.
 #
 # Runs on every agent cycle and re-checks on a cadence, tracing every
-# gate to results/<node>/health.log. See docs/explanation/health-cadence.md.
+# gate to $HEALTH_LOG_DIR/<node>/health.log. See docs/explanation/health-cadence.md.
 
 ## Located from this file, not a literal path. See docs/reference/layout.md#runtime-paths.
 ## A missing settings.sh is fatal rather than defaulted: no check directory
@@ -77,9 +77,8 @@ done
 ## Above the sinfo check below, and it says so: that check cannot tell a head
 ## node from a busy controller, and exits silently either way.
 ##
-## Before the trace directory is created, unlike every gate under it: a
-## results/<host> holding only a health trace and no not-a-compute-node marker
-## puts the head node back into every report that walks results/*/.
+## Before the trace directory is created, so hosts that are not compute nodes
+## do not acquire a health-output directory.
 ## See docs/explanation/sequencing.md#a-host-that-is-not-a-compute-node.
 if node_excluded "$HOSTNAME" || node_self_excluded; then
     echo "########INFO: $HOSTNAME is not a compute node -- health checks not run there"
@@ -88,13 +87,23 @@ fi
 
 ## ── Tracing ───────────────────────────────────────────────────────────────
 ##
-## Its own file beside trigger.log, read by trigger-log.sh section 5. Every gate
-## below writes down why it stopped, or a cadence that has quietly wedged is
-## indistinguishable from one with nothing to do.
+## The check output, cadence stamp and trace share one compute-facing directory.
+## Sites can keep this off the controller/head-node filesystem with
+## HEALTH_LOG_DIR. Every gate below writes down why it stopped, or a cadence
+## that has quietly wedged is indistinguishable from one with nothing to do.
 ## See docs/explanation/health-cadence.md#every-cycle-says-what-it-decided.
-logs="$home/results/$HOSTNAME"
-tracelog="$logs/health.log"
-mkdir -p "$logs" 2>/dev/null
+node_health="${HEALTH_LOG_DIR%/}/$HOSTNAME"
+tracelog="$node_health/health.log"
+stderrlog="$node_health/stderr.log"
+mkdir -p "$node_health" 2>/dev/null
+
+## A systemd service otherwise sends every shell/tool complaint to journald.
+## Once the site output path is writable, keep those diagnostics beside the
+## check results instead. A path failure still reaches the service journal once
+## so a broken mount does not make the runner silently disappear.
+if { : >> "$stderrlog"; } 2>/dev/null; then
+    exec 2>> "$stderrlog"
+fi
 
 TRACE_WRITABLE=-1
 trace_writable() {
@@ -144,8 +153,6 @@ fi
 ## Create valid-config/default by using "ln -s {target} default
 valid_health="$home/valid-config/default/"
 #valid_health="/cm/shared/apps/bringup/valid-config/air-test/"
-node_health="$home/logs/$HOSTNAME/"
-
 ## use to gather env data as seen from script
 #env > $node_health/script-env
 
@@ -256,7 +263,7 @@ if [[ -f "$HEALTHCHECKS_DIR/20-pcie-lnk-stat.sh" ||
     fi
 fi
 
-mkdir -p $node_health
+mkdir -p "$node_health"
 
 append_reason() {
   local header="$1"
@@ -295,9 +302,9 @@ for check_file in "$HEALTHCHECKS_DIR"/[0-9]*.sh; do
     informational=$(check_meta "$check_file" informational)
     reason_detail=$(check_meta "$check_file" reason-detail)
 
-    ## stderr is deliberately uncaptured: a tool's own complaint belongs in the
-    ## agent's output, not in the file being diffed against the baseline.
-    out=$(bash "$check_file" 2>/dev/null)
+    ## Stderr is kept out of the baseline/diff, but preserved locally for
+    ## diagnosis instead of flowing through the service journal.
+    out=$(bash "$check_file" 2>>"$stderrlog")
 
     printf '%s\n' "$banner" > "$node_health/$check"
     printf '%s\n' "$out"   >> "$node_health/$check"
