@@ -63,9 +63,8 @@ out=$(PATH="$stub:$PATH" HOSTNAME=node01 FILE_COPY_HOME="$tree" \
     fail "disabled --explain exited non-zero: $out"
 grep -q '>f+++++++++ image.sqsh' <<<"$out" ||
     fail "RUN_CONTAINER_COPY=no blocked the preview: $out"
-if grep -q 'RUN_CONTAINER_COPY=no' <<<"$out"; then
-    fail "the copy switch obscured the requested preview: $out"
-fi
+grep -q 'NOTE: RUN_CONTAINER_COPY=no.*a real run starts no new copy.*previewing' <<<"$out" ||
+    fail "the preview did not explain why a real copy would not run: $out"
 [[ -e "$runtime/.bringup-file-copy.disabled-state-logged" ]] ||
     fail "--explain removed the disabled-state marker"
 
