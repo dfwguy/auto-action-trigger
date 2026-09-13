@@ -307,7 +307,7 @@ quietly getting `pdsh` has a preference nobody honoured. See
 |---------|---------|-------|
 | `RUN_JOBS` | `yes` | `launch_job.sh`: submit nothing, drain nothing |
 | `RUN_HEALTH_CHECKS` | `yes` | `node_health.sh`: run no checks, touch Slurm in neither direction |
-| `RUN_CONTAINER_COPY` | `yes` | `file_copy.sh`: start no new rsync into `NODE_CONTAINER_DIR` |
+| `RUN_CONTAINER_COPY` | `yes` | `file_copy.sh`: start no new rsync into `NODE_CONTAINER_DIR`. It is reread every cycle; changing it back to `yes` resumes copying on the next cycle |
 | `RUN_RECOVERY` | `yes` | `launch_job.sh` and `node_health.sh`: clear no drains Slurm set itself |
 | `RUN_ARMING` | `yes` | `supervisor.sh`: arm no node. Agents already running carry on cycling, and their node views are still written |
 | `RUN_BURNIN` | `no` | The odd one out: default is *off*, and `yes` is what starts burn-in rather than what stops something already running. See [Burn-in](#burn-in) |

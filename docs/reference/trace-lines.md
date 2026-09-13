@@ -194,17 +194,26 @@ nothing — this host is the single point the fleet depends on.
 
 `results/<node>/copy.log`, plus the copy's own transient unit —
 `journalctl --user -u bringup-copy.service` on the node is what it is doing right
-now. Every precondition ends the run and every one says so,
+now. Every precondition ends the run and says so; a continuously disabled state
+is recorded once per boot rather than rewritten on every two-minute cycle,
 because "the images never arrived" and "the images are not built yet" are the
 same silence from outside. A cycle with nothing to do writes nothing here — the
 copy is the one step whose steady state is genuinely no-op, and a line per node
 per cycle saying so would bury the ones that matter.
 
+`RUN_CONTAINER_COPY` is still read from `SETTINGS` on every cycle. The node-local
+`${XDG_RUNTIME_DIR}/.bringup-file-copy.disabled-state-logged` file is only a
+record that the current disabled period has already been written to `copy.log`;
+it does **not** keep copying disabled. Setting `RUN_CONTAINER_COPY=yes` takes
+effect on the next cycle and removes that file. Setting it to `no` again writes
+one new disabled line. A reboot normally clears `XDG_RUNTIME_DIR`, so a node that
+is still disabled writes one new line after it comes back.
+
 | Line | When |
 |------|------|
 | `EXIT: no *.sqsh in <dir> -- nothing to copy yet` | The normal state until `build_containers.sh` has run |
 | `EXIT: <dir> does not exist here (CONTAINER_DIR from …)` | The share is not mounted on this node, or `CONTAINER_DIR` names somewhere that is not there |
-| `EXIT: RUN_CONTAINER_COPY=<value> in <settings file>` | No new copy; one already running finishes |
+| `EXIT: RUN_CONTAINER_COPY=<value> in <settings file>` | `SETTINGS` currently disables new copies; one already running finishes. This appears once per continuous disabled period, not every cycle |
 | `EXIT: cannot open /tmp/.file_copy.lock … Fix: sudo rm -f …` | A lock left by the root cycles. `/tmp` is sticky, so it can be neither written nor removed by this account — run the command in the line. See [explanation/containers.md#a-lock-left-by-the-old-chain](../explanation/containers.md#a-lock-left-by-the-old-chain) |
 | `EXIT: rsync is not installed here` | Jobs read the image over the share instead, which works and is slower |
 | `copying: <n> of <n> image(s) here, from <dir>` | A copy just started, detached. The next line comes when it finishes, which may be several cycles later |

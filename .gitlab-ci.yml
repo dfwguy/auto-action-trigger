@@ -189,6 +189,12 @@ pcie-snapshot:
   script:
     - ./tests/pcie-snapshot-test.sh
 
+file-copy-disabled:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/file-copy-disabled-test.sh
+
 # Every gate here ends a cycle with exit 0, so a mistake is a fleet that has
 # quietly stopped health-checking -- or a golden baseline overwritten by the
 # node it is meant to judge. See docs/explanation/health-cadence.md.
