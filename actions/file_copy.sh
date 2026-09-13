@@ -82,12 +82,12 @@ if declare -F setting_disabled >/dev/null && setting_disabled "${RUN_CONTAINER_C
     ## XDG_RUNTIME_DIR is node-local and normally cleared when the node reboots.
     disabled_log_marker="${XDG_RUNTIME_DIR:-/tmp}/.bringup-file-copy.disabled-state-logged"
     if [[ "$EXPLAIN" -eq 1 ]]; then
-        trace "EXIT: RUN_CONTAINER_COPY=$RUN_CONTAINER_COPY in ${SETTINGS_FILE:-<none>} -- no new copy started; one already running finishes"
+        trace "NOTE: RUN_CONTAINER_COPY=$RUN_CONTAINER_COPY in ${SETTINGS_FILE:-<none>} -- a real run starts no new copy; previewing what would be copied if enabled"
     elif [[ ! -e "$disabled_log_marker" ]]; then
         : > "$disabled_log_marker" 2>/dev/null || true
         trace "EXIT: RUN_CONTAINER_COPY=$RUN_CONTAINER_COPY in ${SETTINGS_FILE:-<none>} -- no new copy started; one already running finishes"
     fi
-    exit 0
+    [[ "$EXPLAIN" -eq 1 ]] || exit 0
 fi
 ## The setting is read on every cycle. When it is enabled again, forget the old
 ## log suppression state so a later disabled period gets one new trace line.

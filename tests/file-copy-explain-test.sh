@@ -57,11 +57,14 @@ expected=(-a --partial --dry-run --itemize-changes "$src/" "$dst/")
 
 touch "$runtime/.bringup-file-copy.disabled-state-logged"
 sed -i 's/RUN_CONTAINER_COPY=yes/RUN_CONTAINER_COPY=no/' "$tree/SETTINGS"
-out=$(HOSTNAME=node01 FILE_COPY_HOME="$tree" XDG_RUNTIME_DIR="$runtime" \
+out=$(PATH="$stub:$PATH" HOSTNAME=node01 FILE_COPY_HOME="$tree" \
+    XDG_RUNTIME_DIR="$runtime" RSYNC_ARGS="$work/rsync.args" \
     bash "$tree/actions/file_copy.sh" --explain) ||
     fail "disabled --explain exited non-zero: $out"
-grep -q 'RUN_CONTAINER_COPY=no' <<<"$out" ||
-    fail "disabled gate was not explained: $out"
+grep -q '>f+++++++++ image.sqsh' <<<"$out" ||
+    fail "RUN_CONTAINER_COPY=no blocked the preview: $out"
+grep -q 'NOTE: RUN_CONTAINER_COPY=no.*a real run starts no new copy.*previewing' <<<"$out" ||
+    fail "the preview did not explain why a real copy would not run: $out"
 [[ -e "$runtime/.bringup-file-copy.disabled-state-logged" ]] ||
     fail "--explain removed the disabled-state marker"
 
