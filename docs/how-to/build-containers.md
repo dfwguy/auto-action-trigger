@@ -5,7 +5,8 @@ Run on the headnode, once per CPU architecture in the cluster.
 ```bash
 ./build_containers.sh -L                  # log in to nvcr.io, once per machine
 ./build_containers.sh -a arm hpc-benchmarks nvbandwidth mnubergemm   # these, whatever is missing
-./build_containers.sh -a arm -l           # what is present, what is not, and the login state
+./build_containers.sh -l                  # files actually present, and the login state
+./build_containers.sh -a arm -l           # expected ARM images: present, missing, or staged
 ```
 
 Downloading is the normal path and, by default, the only one. Everything the

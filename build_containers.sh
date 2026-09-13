@@ -13,9 +13,10 @@
 #   ./build_containers.sh -a arm -S -F       # headnode: fetch ARM sources
 #   srun -N1 ./build_containers.sh -a arm -B  # ARM node: compile what was fetched
 #
-# -a (or $ARCH) is required for everything except -L and -h: this script has no
-# opinion of its own about which architecture you meant, and a headnode's own
-# `uname -m` is often not the trays'. arm or x86.
+# -a (or $ARCH) is required for building and for the architecture-specific -l
+# view. Bare -l lists the files already present without guessing what architecture
+# they belong to. This script has no opinion of its own about which architecture
+# you meant, and a headnode's own `uname -m` is often not the trays'. arm or x86.
 # See docs/how-to/build-containers.md#building-arm-images-on-an-x86-headnode.
 #
 # --no-login builds nvbandwidth or mnubergemm without nvcr.io credentials
@@ -99,7 +100,7 @@ usage() {
     awk 'NR > 2 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
     echo
     echo "Images:     $ALL_IMAGES"
-    echo "Arch:       arm x86 -- required (\$ARCH also works), except with -L"
+    echo "Arch:       arm x86 -- required (\$ARCH also works), except with -L or bare -l"
     echo "nvcr.io:    $(have_ngc_login && echo "logged in ($CREDS_FILE)" || echo "not logged in -- $0 -L")"
     exit "${1:-0}"
 }
@@ -577,10 +578,26 @@ if [[ "$MODE" == build ]]; then
     STAGE=$CONTAINER_STAGE_DIR
 fi
 
-## Login writes one file and builds nothing -- the one thing here that needs
-## no opinion about architecture -- so it runs before -a is required.
+## Login writes one file and builds nothing, so it runs before -a is required.
 if [[ "$LOGIN" -eq 1 ]]; then
     ngc_login
+    exit 0
+fi
+
+## The useful answer to bare -l is the literal contents of the shared image
+## directory. It needs no architecture: unlike a build, it is reporting a fact
+## rather than choosing a target. Supplying -a retains the richer view below,
+## which says which known images for that architecture are present or missing.
+if [[ "$LIST" -eq 1 && -z "$arch" ]]; then
+    echo "Images in $DEST:"
+    if compgen -G "$DEST/*.sqsh" >/dev/null 2>&1; then
+        du -h "$DEST"/*.sqsh | sort -k2
+    else
+        echo "  (none)"
+    fi
+    echo
+    echo "nvcr.io: $(have_ngc_login && echo "logged in ($CREDS_FILE)" || echo "not logged in -- run '$0 -L'")"
+    echo "Use '-a arm -l' or '-a x86 -l' to include expected and missing images."
     exit 0
 fi
 
