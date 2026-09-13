@@ -239,9 +239,18 @@ service or writing a trace:
 actions/file_copy.sh --explain
 ```
 
+From the deployment root on the app server, group the answer across a node set:
+
+```bash
+clush -B -w '<nodes>' "$(pwd)/actions/file_copy.sh --explain"
+pdsh -R ssh -w '<nodes>' "$(pwd)/actions/file_copy.sh --explain"
+```
+
 The itemized output covers everything under `CONTAINER_DIR`, not only `.sqsh`
 files, because that is what the real `rsync -a --partial` invocation copies.
 An empty itemized section followed by `up to date` means it would copy nothing.
+`RUN_CONTAINER_COPY=no` stops real copies, not this read-only preview, so the
+same command can inspect a whole paused fleet through `clush` or `pdsh`.
 
 ## What the container gets from the host
 

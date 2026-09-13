@@ -233,7 +233,9 @@ second lets a job start off local disk.
 `actions/file_copy.sh --explain` writes no trace. It prints the source and
 destination followed by rsync's itemized dry-run output, or `up to date` when
 there would be no changes. `agent/node-agent.sh --explain` includes that same
-preview when it reaches the copy step.
+preview when it reaches the copy step. Explain mode ignores
+`RUN_CONTAINER_COPY=no`: the switch prevents real copies, while a dry run is
+the safe way to inspect a fleet before enabling them.
 
 ## The health trace
 
