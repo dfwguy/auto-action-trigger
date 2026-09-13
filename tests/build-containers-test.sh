@@ -55,7 +55,7 @@ else
     bad "-a arm: stopped before enroot: $out"
 fi
 
-echo "== -L and -h need no architecture =="
+echo "== -L, -l and -h need no architecture =="
 
 out=$(NGC_API_KEY=nvapi-test run -L 2>&1); rc=$?
 if [[ "$rc" -eq 0 ]] && grep -q 'wrote the nvcr.io entry' <<<"$out"; then
@@ -69,6 +69,25 @@ if [[ "$rc" -eq 0 ]] && grep -q '^Arch:' <<<"$out"; then
     ok "-h with no -a: still prints usage"
 else
     bad "-h with no -a: $out"
+fi
+
+mkdir -p "$work/images"
+truncate -s 1M "$work/images/one-arm.sqsh"
+truncate -s 2M "$work/images/two-x86.sqsh"
+out=$(run -d "$work/images" -l 2>&1); rc=$?
+if [[ "$rc" -eq 0 ]] && grep -q 'one-arm\.sqsh' <<<"$out" &&
+   grep -q 'two-x86\.sqsh' <<<"$out"; then
+    ok "-l with no -a: lists the files actually present"
+else
+    bad "-l with no -a: $out"
+fi
+
+mkdir -p "$work/empty-images"
+out=$(run -d "$work/empty-images" -l 2>&1); rc=$?
+if [[ "$rc" -eq 0 ]] && grep -q '(none)' <<<"$out"; then
+    ok "-l with no -a: reports an empty image directory"
+else
+    bad "-l with no -a on an empty directory: $out"
 fi
 
 echo "== a build needing nvcr.io refuses without a login =="
