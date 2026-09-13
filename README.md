@@ -99,6 +99,27 @@ It takes effect immediately and needs no remount, no client change and no reboot
 
 `agent/install-agent.sh` refuses to arm the serving host until this is set, and says so rather than arming a fleet that will stall hours later. It checks nothing on a compute node — a host that mounts the tree has no delegation to grant. `ALLOW_NFS_DELEGATIONS=yes` forces the install past the refusal and downgrades it to a warning on every run. **Do not use it outside a deliberate experiment.** It changes nothing about the recalls; it only removes the one warning you would get before the fleet stops, and the stall it leads to reads as a dead watchdog rather than as a filesystem problem — which is what made this cost ten hours the first time.
 
+For a large simultaneous container copy, bound the NFS server itself instead of
+coordinating clients with shared lock files. For example, this drop-in limits
+`nfs-server.service` to the equivalent of 64 fully occupied CPU cores:
+
+```ini
+# /etc/systemd/system/nfs-server.service.d/override.conf
+[Service]
+CPUQuota=6400%
+```
+
+Apply it during an appropriate service window:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart nfs-server.service
+```
+
+Choose the quota for the server. This limits CPU consumption; it does not cap
+storage or network bandwidth, and the framework intentionally adds no
+fleet-wide copy lock.
+
 ### Operational scripts (headnode only)
 
 The following scripts are run manually by an operator from the headnode and do not require the `cmods` user — they only need standard Slurm CLI access and read/write access to the repo directory:
