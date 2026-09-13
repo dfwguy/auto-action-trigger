@@ -82,11 +82,11 @@ than in whichever file happened to be first.
 | `dcgmi-r3` | `-r 3` | adds the full stress plugins — targeted stress, targeted power, memory bandwidth at length | Hybrid |
 | `dcgmi-r4` | `-r 4` | the same plugins run long, for faults that only appear under sustained thermal and power load | Exhaustive |
 
-The default `BENCHMARKS` runs `dcgmi-r1` and `dcgmi-r3`: `-r 1` is nearly free
-and catches a misconfigured node before anything else is attempted, and `-r 3`
-is the deepest level that still fits inside a normal sweep. `-r 2` is there for
-a TTM schedule that cannot afford `-r 3`, and `-r 4` for a node under
-investigation.
+The default `BENCHMARKS` runs `dcgmi-r1`, `dcgmi-r3`, and `dcgmi-r4`: `-r 1` is
+nearly free and catches a misconfigured node before anything else is attempted,
+`-r 3` is the deep normal-sweep gate, and `-r 4` adds sustained thermal and
+power stress. `-r 2` remains available for a TTM schedule that cannot afford
+`-r 3`.
 
 All four share one gate in `verdict.sh` — the output format does not change with
 the level, only how much of it there is. `tests/verdict-test.sh` checks that
