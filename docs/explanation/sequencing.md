@@ -310,8 +310,7 @@ and the `scancel` that would clear it.
 That answer used to be a whole-queue `squeue`, made by every node on every cycle
 that reached a submission — the single most expensive thing in the design, and
 the reason [the-fleet-snapshot.md](the-fleet-snapshot.md) exists. The same lines
-serve the [fleet-wide cap](#the-fleet-wide-cap), which the watchdog counts once
-for everybody.
+serve every node's duplicate-submission guard.
 
 The guard is no longer exact, and that is a decision rather than an oversight. A
 view is up to one watchdog interval old, so it cannot see a job submitted
@@ -327,65 +326,18 @@ What has *not* changed is the direction of failure: a view that is missing or
 stale stops the submission rather than allowing it. Reading "I could not find
 out" as "nothing of ours is out" is precisely what puts two jobs on one node.
 
-## The fleet-wide cap
+## Submission limits belong to Slurm
 
-Every gate described above is per node, and that is the gap `MAX_QUEUED_JOBS`
-closes. One node submits one job at a time; two hundred nodes submit two hundred
-jobs, within a couple of cycles of the sequencer being enabled, and
-nothing in the design noticed. The controller does — over a thousand of our jobs
-is enough to peg `slurmctld`, which is single-threaded for scheduling and does
-not shed load gracefully. It goes quiet instead, and a quiet controller is the
-input every other gate here is careful not to believe.
+The sequencer prevents duplicate work on each node, but it does not implement a
+fleet-wide submission throttle. Configure that policy in Slurm, where it is
+atomic and applies to every submission path charged to the association. This
+requires both `MaxSubmitJobs` on every association the framework uses and
+`AccountingStorageEnforce=limits` in `slurm.conf`; a value visible in `sacctmgr`
+is not enforced without the second half. [Configure and verify both](../how-to/configure-slurm-submission-limits.md)
+before enabling a large fleet.
 
-So immediately after the per-node guard, the count of queued and running jobs
-named `bringup-*` or `burnin-*` is compared against `MAX_QUEUED_JOBS`. At or
-above it, nothing is submitted and the trace says so with the count.
-
-The count is the `fleet` line in the node view. Every node used to work it out
-from its own full-queue listing, which meant the fleet-wide number was computed
-two thousand times per cycle to be identical two thousand times; the watchdog
-now counts it once and writes it to everybody.
-
-It ships as `500`, which is below the point where this was observed to bite —
-`slurmctld` pegged at a full core with over a thousand of our jobs out — and
-above what a single rack's sweep will ever ask for. It is a ceiling, not a
-target: a fleet small enough never to reach it is unaffected, which is why the
-default is a number rather than `0`. The number that matters is the one below
-which the controller stays responsive under everything else the cluster is
-doing, not a fraction of the node count.
-
-It counts jobs in `PENDING` and `RUNNING` whose name begins `bringup-` or
-`burnin-` — this framework's own work, not the cluster's total queue, and not
-anything submitted by hand under another name.
-
-The cap defers rather than skips. `next_eligible` is not consulted again — the
-job it picked stays eligible, because nothing about its result file changed, and
-the next cycle offers the same one. The sweep is rate-limited, not shortened:
-a full sweep of a large fleet takes `nodes × benchmarks ÷ MAX_QUEUED_JOBS` job
-slots' worth of time rather than finishing as fast as the scheduler will take
-work. Nothing is lost, and no result is judged differently.
-
-Three consequences worth being explicit about:
-
-- **It is racy between nodes, deliberately.** Each node reads the count and
-  decides for itself, so two nodes can both see 199 of a 200 cap and both
-  submit. Overshoot is bounded by the number of nodes cycling at once and costs
-  a job or two above the line, which is not what saturates a controller. The
-  alternative is a fleet-wide lock, and a lock on NFS that can be held by a node
-  that reboots is a worse failure than a cap that is occasionally off by one.
-- **A blocked node re-reads its view every cycle.** It stays eligible rather
-  than becoming busy, so it reaches the cap check once per cycle instead of once
-  per job. That used to be the one way the cap *added* controller traffic; it is
-  now an NFS read of a file the node was reading anyway, and costs the
-  controller nothing.
-- **There is no fairness between nodes.** Whoever asks while there is room gets
-  the slot. Over a few cycles this evens out, because a node that submitted is
-  then busy and out of the running, but a cap set very low against a large fleet
-  will leave some nodes waiting noticeably longer than others.
-
-A value that is not a whole number is traced and ignored, leaving the cycle
-uncapped — an unreadable setting carries on rather than stopping the fleet, as
-the pause switches do.
+Choose the value as a site policy. The framework does not maintain a second,
+racy count from periodic queue snapshots.
 
 ## When the controller does not answer
 
@@ -562,18 +514,17 @@ Three things it deliberately does not do:
   through everything else at full speed, and only the job that keeps failing
   slows down.
 - **It does not survive `--force`.** A backed-off window is a timing gate like
-  any other, so an operator can ignore it; `RUN_JOBS` and `MAX_QUEUED_JOBS`
-  are the site switches that `--force` does not open. See
+  any other, so an operator can ignore it; `RUN_JOBS` is a site switch that
+  `--force` does not open. See
   [site switches are not timing gates](#site-switches-are-not-timing-gates).
 
 A held job is traced once a cycle, both lists on one line — `backing off:
 allreduce run 1 after 4 failures: 4h window, 137m left`. Without it a job in a
 12h window is indistinguishable in the log from one nobody listed. A
 `RETRY_BACKOFF_MAX_HOURS` that is not a whole number of hours at or above
-`RETRY_INTERVAL_HOURS` is refused with a warning and the flat window kept, on
-the same principle as `MAX_QUEUED_JOBS`: a typo in `SETTINGS` must not be able
-to stop the fleet, and a cap below the base interval would shorten every retry
-rather than lengthen it.
+`RETRY_INTERVAL_HOURS` is refused with a warning and the flat window kept: a
+typo in `SETTINGS` must not be able to stop the fleet, and a cap below the base
+interval would shorten every retry rather than lengthen it.
 
 ## Two lists
 
@@ -674,8 +625,7 @@ no run count to reach, only a clock, so `continue_running_next()` checks the
 result file's age directly rather than walking runs the way `next_eligible()`
 and `burnin_order()` do. Submissions from this tier carry the same
 `bringup-<node>` job name as `BENCHMARKS` — not a third name — so
-`RUN_JOBS=no`, `MAX_QUEUED_JOBS` and `kill-jobs.sh` all cover it without
-change.
+`RUN_JOBS=no` and `kill-jobs.sh` both cover it without change.
 
 The interesting case is a job listed here that is *also* in `BENCHMARKS` or
 `BURNIN`, which is the intended pattern: while it keeps passing, only
@@ -1066,13 +1016,8 @@ expected start of any higher-priority job. A 25-minute single-node benchmark
 slots into the idle time ahead of somebody's 32-node reservation without moving
 it, so the sweep progresses on a cluster that is nominally full.
 
-Two things follow, and both matter more than they look:
+One consequence matters more than it looks:
 
-- **The fleet cap is not the only thing bounding our impact.** Backfill means
-  most of what the sweep consumes is time nobody else could have used, which is
-  why a sweep can run under a busy cluster without a fairness complaint.
-  `MAX_QUEUED_JOBS` bounds the load on `slurmctld`, not the load on the nodes —
-  see [the fleet-wide cap](#the-fleet-wide-cap).
 - **Padding a walltime costs coverage, not just clock.** A job whose `-t` is
   generous stops fitting gaps and starts waiting for reservations instead. That
   is the second reason the limits in
@@ -1327,11 +1272,10 @@ that plus `GET_OUT_OF_THE_WAY_AFTER_MINUTES`.
 
 ## Site switches are not timing gates
 
-`--force` opens the hourly retry gate and nothing else. `RUN_JOBS`,
-`NODE_FILTER` and `MAX_QUEUED_JOBS` are all statements about what the cluster
-should be given, not about when a job is next due, so a forced sweep is asked
-the same questions a normal cycle is and each one traces that `--force` did not
-override it.
+`--force` opens the hourly retry gate and nothing else. `RUN_JOBS` and
+`NODE_FILTER` are statements about what the cluster should be given, not about
+when a job is next due, so a forced sweep is asked the same questions a normal
+cycle is and each one traces that `--force` did not override it.
 
 `NODE_FILTER` is the one most likely to be forced over by accident: `-f` is
 normally issued across a whole rack at once, and it must not quietly test

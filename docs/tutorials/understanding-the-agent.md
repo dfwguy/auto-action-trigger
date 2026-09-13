@@ -212,7 +212,7 @@ Read that output slowly — it is the clearest single view of the system you wil
 get. You are watching every gate be evaluated in order: the exclusions, the busy
 gate, then inside the sequencer the pause switches, the node filter, the drain
 recovery, the queue, the survey of which benchmarks have passed, the hourly gate,
-the fleet-wide cap. Each one either passes or ends the run with an `EXIT:`.
+the per-node submission guard. Each one either passes or ends the run with an `EXIT:`.
 
 If it ends in `WOULD SUBMIT`, the node is due for work and will get it. If it
 ends in `EXIT:`, that gate is the answer, and it named itself.

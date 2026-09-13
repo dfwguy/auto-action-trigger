@@ -82,14 +82,6 @@ else
         old_setting_present "$old" &&
             bad "SETTINGS still sets $old -- renamed to RUN_${old#PAUSE_} and no longer read"
     done
-    ## A closed cap is the other deliberate answer to "nothing is running", and
-    ## the only one that is fleet-wide. See docs/explanation/sequencing.md#the-fleet-wide-cap.
-    if [[ "$MAX_QUEUED_JOBS" =~ ^[0-9]+$ ]] && [[ "$MAX_QUEUED_JOBS" -gt 0 ]]; then
-        note "MAX_QUEUED_JOBS=$MAX_QUEUED_JOBS -- nodes defer while the fleet is at the cap; trigger-log.sh says when one did"
-    elif [[ -n "${MAX_QUEUED_JOBS// /}" && "$MAX_QUEUED_JOBS" != 0 ]]; then
-        bad "MAX_QUEUED_JOBS='$MAX_QUEUED_JOBS' is not a whole number -- the cap is ignored and the fleet submits uncapped"
-    fi
-
     ## A benchmark that keeps being cancelled part-way is this and not a fault,
     ## and nothing else in the tree cancels a running job of ours.
     ## See docs/explanation/sequencing.md#getting-out-of-the-way.

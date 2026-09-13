@@ -185,7 +185,7 @@ inside one cycle, and re-reading per gate would pay the NFS read again.
 | Caller | Was | Now |
 |---|---|---|
 | `launch_job.sh` `node_info` | `scontrol show node` | `state`, `reason` |
-| `launch_job.sh` `queued_ours` | whole-queue `squeue` | `ours` lines, and `fleet` for `MAX_QUEUED_JOBS` |
+| `launch_job.sh` `queued_ours` | whole-queue `squeue` | `ours` lines |
 | `launch_job.sh` in-flight gate | `squeue -j <id>` | `ours` line for that id |
 | `slurm-recovery.sh` entry | `sinfo -N -n` | `state`, `setter`, `when`, `reason` |
 | `slurm-recovery.sh` counts | `scontrol show node` | `gres`, `cputot` |

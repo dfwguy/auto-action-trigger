@@ -433,10 +433,6 @@ grep -q '^ours	4242	RUNNING' "$results/n-a/.slurm-view" &&
 grep -q '^ours' "$results/n-b/.slurm-view" &&
     bad "n-b was given another node's job" ||
     ok "and does not reach a node it is not for"
-grep -q '^fleet	1' "$results/n-b/.slurm-view" &&
-    ok "the fleet-wide count reaches every node, for MAX_QUEUED_JOBS" ||
-    bad "no fleet count in the view: $(cat "$results/n-b/.slurm-view")"
-
 ## A view is what the controller said, not an action taken on it, so it is
 ## written whatever else this cycle is or is not allowed to do.
 rm -rf "$results"; beat 3600 n-paused

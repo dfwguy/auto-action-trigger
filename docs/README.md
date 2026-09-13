@@ -60,6 +60,7 @@ Task-oriented, for someone who already knows the system.
 | [enable-llm-pretrain.md](how-to/enable-llm-pretrain.md) | `build_llmb.sh`, and filling in the solo training command |
 | [capture-an-sbatch-from-llmb-run.md](how-to/capture-an-sbatch-from-llmb-run.md) | Getting the batch script `llmb-run` generates out of a cluster, and what to keep from it |
 | [enable-nvsm.md](how-to/enable-nvsm.md) | The sudoers grant and platform definition files NVSM needs (DGX only) |
+| [configure-slurm-submission-limits.md](how-to/configure-slurm-submission-limits.md) | Set and verify the `MaxSubmitJobs` association limit and the controller enforcement it requires |
 
 **When something is wrong**
 
@@ -98,7 +99,7 @@ Understanding-oriented. Why it is like this, and what it cost to find out.
 | [architecture.md](explanation/architecture.md) | How the pieces fit together, *silence is the enemy*, why every remote command is a `clush` or a `pdsh`, arming a node |
 | [the-agent-and-the-watchdog.md](explanation/the-agent-and-the-watchdog.md) | What a heartbeat means, whose clock decides, which node states are armed, why the account lingers |
 | [running-unprivileged.md](explanation/running-unprivileged.md) | What still needs root and what no longer does, the sudoers drop-in, why a lost rule stops the run |
-| [sequencing.md](explanation/sequencing.md) | One job at a time, the fleet cap, stale markers, retry and drain behaviour, what a pause is for |
+| [sequencing.md](explanation/sequencing.md) | One job at a time, stale markers, retry and drain behaviour, what a pause is for |
 | [the-fleet-snapshot.md](explanation/the-fleet-snapshot.md) | Why no compute node asks slurmctld anything, what the watchdog writes for each of them, and what a stale view obliges a node to do |
 | [health-cadence.md](explanation/health-cadence.md) | Why the checks re-run on a timer, the stamp file, and why the golden baseline is a copy |
 | [verdicts-and-the-cache.md](explanation/verdicts-and-the-cache.md) | Why a verdict is derived and never stored, and what makes the cache safe |

@@ -307,7 +307,7 @@ done <<< "$states"
 if [[ "${#scope[@]}" -eq 0 ]]; then
     trace "WARNING: no node survived EXCLUDE_NODES='$EXCLUDE_NODES' and NODE_FILTER='$NODE_FILTER' -- no view was written, so every agent will stop deciding once the one it has ages out."
 elif snapshot_write "$results" "$now" "${scope[@]}"; then
-    trace "snapshot: $SNAPSHOT_WRITTEN of ${#scope[@]} node view(s) written, $SNAPSHOT_QUEUED_FLEET job(s) of ours in the queue fleet-wide"
+    trace "snapshot: $SNAPSHOT_WRITTEN of ${#scope[@]} node view(s) written"
 else
     trace "WARNING: $SNAPSHOT_WRITE_WHY"
 fi
