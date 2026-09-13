@@ -83,10 +83,15 @@ settings 'HEALTH_INTERVAL_HOURS=4
 HEALTH_RETRY_INTERVAL_HOURS=1'
 
 ## 1. No stamp: an upgraded tree must run once rather than wait for a sentinel.
+saved_umask=$(umask)
+umask 0077
 run >/dev/null
+umask "$saved_umask"
 check "first run writes the stamp" "clean" "$(cat "$work/logs/$NODE/.last-check")"
 check "first run wrote a log"      "alpha-value" "$(cat "$work/logs/$NODE/alpha")"
 check "first run traced"           "every check matches" "$(trace_tail)"
+check "shared log directory is group writable" "775" "$(stat -c %a "$work/logs/$NODE")"
+check "shared check output is group writable"  "664" "$(stat -c %a "$work/logs/$NODE/alpha")"
 
 ## 2. Stamp is fresh: the ordinary quiet cycle, which must say why it stopped.
 run >/dev/null

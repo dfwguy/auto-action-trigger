@@ -32,6 +32,7 @@ if [[ ! -f "$home/settings.sh" ]]; then
 fi
 source "$home/settings.sh"
 source "$home/priv.sh"
+umask 0002
 
 ## ── Flags ─────────────────────────────────────────────────────────────────
 ##
@@ -212,6 +213,28 @@ fi
 
 ## ── The checks that need root ─────────────────────────────────────────────
 ##
+unwritable_count=0
+first_unwritable=""
+note_unwritable() {
+    [[ "$unwritable_count" -eq 0 ]] && first_unwritable="$1"
+    unwritable_count=$((unwritable_count + 1))
+}
+if ! mkdir -p "$node_health" 2>/dev/null || [[ ! -w "$node_health" ]]; then
+    note_unwritable "$node_health"
+fi
+[[ ! -e "$stamp" || -w "$stamp" ]] || note_unwritable "$stamp"
+for check_file in "$HEALTHCHECKS_DIR"/[0-9]*.sh; do
+    [[ -f "$check_file" ]] || continue
+    check=$(basename "$check_file" .sh)
+    check="${check#*-}"
+    target="$node_health/$check"
+    [[ ! -e "$target" || -w "$target" ]] || note_unwritable "$target"
+done
+if [[ "$unwritable_count" -gt 0 ]]; then
+    trace "EXIT: cannot update $unwritable_count health output path(s) as $(id -un); first is $first_unwritable -- repair ownership or group-write permission before retrying"
+    exit 1
+fi
+
 ## Below the cadence gate, not above it: this reads every check file to find the
 ## commands they need, and on a 2,000-node fleet doing that per cycle rather
 ## than per run is 77,000 NFS reads every couple of minutes for an answer worth
@@ -256,7 +279,7 @@ if [[ -f "$HEALTHCHECKS_DIR/20-pcie-lnk-stat.sh" ||
     fi
 fi
 
-mkdir -p $node_health
+mkdir -p "$node_health"
 
 append_reason() {
   local header="$1"

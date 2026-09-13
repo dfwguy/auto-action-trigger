@@ -15,6 +15,7 @@ if [[ ! -f "$home/settings.sh" ]]; then
     exit 1
 fi
 source "$home/settings.sh"
+umask 0002
 
 agent_role
 if [[ "$AGENT_ROLE" == "head" ]]; then
