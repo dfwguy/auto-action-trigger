@@ -50,9 +50,9 @@ dealt with rather than quietly lost:
   [when a node is drained](#when-a-node-is-drained).
 - **`GET_OUT_OF_THE_WAY`** cancels a running job of ours when somebody else is
   queued for the node — which is exactly the cycle the busy gate now ends. It is
-  unreachable from the timer, and reachable only from a hand-run of
-  `launch_job.sh`. Rather than leave a switch that silently does nothing, a busy
-  cycle with it set writes a second line saying so. See
+  therefore not a node-local decision: the head-node watchdog finds the waiter
+  in its fleet queue snapshot, cancels our job, and leaves the node a breadcrumb
+  explaining why its job disappeared. See
   [getting out of the way](#getting-out-of-the-way).
 
 ## One job at a time
