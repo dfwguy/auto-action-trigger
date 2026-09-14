@@ -331,8 +331,10 @@ if [[ -f "$submit_circuit" ]]; then
     IFS=$'\t' read -r _opened _until circuit_matches circuit_diag < "$submit_circuit" 2>/dev/null
     if [[ "$_until" =~ ^[0-9]+$ && "$_until" -gt "$now" ]]; then
         circuit_active=1
-    elif [[ "$EXPLAIN" -eq 0 ]]; then
-        rm -f "$submit_circuit" 2>/dev/null
+    else
+        circuit_matches=0
+        circuit_diag=""
+        [[ "$EXPLAIN" -eq 0 ]] && rm -f "$submit_circuit" 2>/dev/null
     fi
 fi
 

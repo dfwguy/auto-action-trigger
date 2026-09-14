@@ -523,6 +523,20 @@ IFS=$'\t' read -r _ circuit_until circuit_count circuit_diag < "$results/.submit
 [[ "$circuit_diag" == *"Socket timed out"* ]] &&
     ok "the shared hold retains Slurm's diagnosis" ||
     bad "the circuit lost the diagnosis: $circuit_diag"
+
+rm -f "$results"/*/.submit-retry
+rm -f "$results/.supervisor-heartbeat"
+printf '%s\t%s\t2789\t%s\n' "$(( $(date +%s) - 1200 ))" \
+    "$(( $(date +%s) - 600 ))" "sbatch: error: stale failure" \
+    > "$results/.submit-circuit"
+run_sup 'n-submit1 idle
+n-submit2 idle
+n-submit3 idle'
+if [[ ! -e "$results/.submit-circuit" ]]; then
+    ok "an expired circuit discards its saved failure count"
+else
+    bad "an expired circuit reopened from its stale count: $(cat "$results/.submit-circuit" 2>/dev/null)"
+fi
 sed -i '/^SUBMIT_CIRCUIT_FAILURES=3$/d' "$tree/SETTINGS"
 
 echo "== --explain touches nothing =="
