@@ -152,7 +152,6 @@ in that step's own file.
 | `idle: no job here -- file_copy node_health launch_job` | The ordinary line of a working cycle. A step that exited non-zero has `(exit N)` after its name |
 | `BUSY: job(s) <ids> running here -- no copy, no health check, no submission` | Any job at all, ours or a neighbour's. The whole cycle stops here — see [explanation/sequencing.md#the-busy-gate](../explanation/sequencing.md#the-busy-gate) |
 | `BUSY: 'scontrol listjobs' exited <n> (<output>)` | An inconclusive answer reads as busy, which is the direction that cannot interrupt a running job |
-| `NOTE: GET_OUT_OF_THE_WAY=<value>, but it only ever acts on a job of ours that is running` | The one switch the busy gate makes unreachable, said out loud rather than left looking live |
 | `EXIT: the cycle that started <n>s ago still holds /tmp/.bringup-agent.lock` | One cycle at a time. A long first container copy is the usual cause, and it detaches, so this is rare |
 | `NOTE: cannot open /tmp/.bringup-agent.lock` | The cycle runs anyway, without the one-at-a-time guard, rather than not running |
 | `EXIT: scontrol is not on PATH after 'module load slurm' (PATH=…)` | Whether a job is running here cannot be answered, and every step below needs Slurm anyway |
@@ -185,7 +184,7 @@ nothing — this host is the single point the fleet depends on.
 | `CANCELLED pending under RUN_JOBS=<value>: <ids>` | The pause reaching the queue, fleet-wide in one call |
 | `RUN_JOBS=no: job <id> (<name>) still RUNNING -- left to finish` | A pause stops new work; it does not kill work in progress |
 | `CANCELLED held after a failed launch ('launch failed requeued held'): <ids>` | Jobs the scheduler gave up launching, which sit at priority 0 and never start — see [explanation/sequencing.md#jobs-the-scheduler-has-given-up-on](../explanation/sequencing.md#jobs-the-scheduler-has-given-up-on) |
-| `YIELDED <node>: cancelled our job <id> (<name>) to get out of the way of job <id> (<name>, <user>) pending <n>m` | Somebody else is queued for the node and our running job was given up for them |
+| `YIELDED <node>: cancelled our job <id> (<name>) to get out of the way of job <id> (<name>, <user>) pending <n>m` | The head-node watchdog found somebody else queued for the node and cancelled our running job for them. The compute node did not initiate the cancel |
 | `not a waiter: job <id> (<name>, <user>) pending <n>m cannot start -- <u> of the <n> node(s) it needs are schedulable -- <node> (<state>)…` | A pending job whose nodes are drained, down, or held by somebody this cannot cancel. Yielding to it would give the nodes to nobody — see [explanation/sequencing.md#a-waiter-that-cannot-run-is-not-a-waiter](../explanation/sequencing.md#a-waiter-that-cannot-run-is-not-a-waiter) |
 | `no node states passed to the scan -- a waiter whose nodes are drained cannot be told from one that would start` | The check above is inert this cycle; every waiter reads as able to run |
 | `not yielded, nothing of ours confirmed running there: <node> (<waiter>)…` | A node somebody is queued for that this did not give up. Says so, rather than leaving it indistinguishable from the scan never running |

@@ -570,11 +570,13 @@ for what turning it on commits a site to.
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `GET_OUT_OF_THE_WAY` | `no` | Cancel a node's own running job when somebody else is queued for that node |
+| `GET_OUT_OF_THE_WAY` | `no` | Have the head-node watchdog cancel our running job on a node when somebody else is queued for that node |
 | `GET_OUT_OF_THE_WAY_AFTER_MINUTES` | `5` | How long the other job must have been pending before the node is given up |
 | `GET_OUT_OF_THE_WAY_POLL_MINUTES` | `5` | How often the watchdog scans for waiters. One stamp for the fleet, at `results/.yield-check` |
 
-Decided on the head node, for every node at once — see
+The supervisor/watchdog decides and executes the cancel on the head node, for
+every node at once. A compute node neither scans for waiters nor runs `scancel`;
+it only reads the `.yielded` breadcrumb afterward. See
 [explanation/the-fleet-snapshot.md#what-moved-to-the-head-node](../explanation/the-fleet-snapshot.md#what-moved-to-the-head-node).
 Only a job named `bringup-<node>` or `burnin-<node>`, owned by `JOB_USER`, and
 confirmed `RUNNING` on the wanted node by the queue itself is ever cancelled —

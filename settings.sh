@@ -136,8 +136,9 @@ fi
 ## On by default: a job Slurm will not schedule sits PENDING in everybody's
 ## squeue. See docs/explanation/sequencing.md#submitting-only-to-an-idle-node.
 : "${SUBMIT_ONLY_WHEN_IDLE:=yes}"
-## Experimental, and off: it is the one setting that cancels a job of ours that
-## is working. See docs/explanation/sequencing.md#getting-out-of-the-way.
+## Experimental, and off: the head-node watchdog uses this to cancel a job of
+## ours that is working. A compute node never makes this decision or calls
+## scancel. See docs/explanation/sequencing.md#getting-out-of-the-way.
 : "${GET_OUT_OF_THE_WAY:=no}"
 : "${GET_OUT_OF_THE_WAY_AFTER_MINUTES:=5}"
 : "${GET_OUT_OF_THE_WAY_POLL_MINUTES:=5}"

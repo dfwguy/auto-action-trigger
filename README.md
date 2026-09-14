@@ -26,6 +26,14 @@ bringup-supervisor.timer           bringup-agent.timer  → agent/node-agent.sh
                                               passed. Drains the node if a benchmark fails.
 ```
 
+Automatic queue cancellation is owned by `agent/supervisor.sh` on the head
+node. Compute-node agents never run `scancel`. In particular, when
+`GET_OUT_OF_THE_WAY` is enabled, the supervisor finds a genuine waiter in its
+fleet queue snapshot, cancels only the framework job occupying a node that
+waiter can use, and writes `results/<node>/.yielded`; the compute node merely
+reads that breadcrumb on its next cycle. See
+[Getting out of the way](docs/explanation/sequencing.md#getting-out-of-the-way).
+
 Nothing here is a service you start by hand and nothing runs as root: the timers re-evaluate every cycle, so a node picks up a new image or a changed setting without rebooting, and the handful of commands that genuinely need privilege go through `sudo -n`. There is no dependency on a cluster manager — this was three BCM monitoring triggers until August 2026, and a BCM head node still works exactly as before, it is simply no longer in the path.
 
 This page covers what has to be in place, how to stand the framework up, and the commands a bringup needs day to day. Everything else is in [docs/](docs/):

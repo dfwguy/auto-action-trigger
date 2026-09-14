@@ -153,11 +153,6 @@ if [[ "$rc" -ne 0 ]]; then
 fi
 if [[ -n "$running" ]]; then
     trace "BUSY: job(s) $running running here -- no copy, no health check, no submission"
-    ## The one switch this gate makes unreachable, said out loud rather than left
-    ## as a setting that quietly does nothing.
-    ## See docs/explanation/sequencing.md#getting-out-of-the-way.
-    setting_enabled "$GET_OUT_OF_THE_WAY" && \
-        trace "NOTE: GET_OUT_OF_THE_WAY=$GET_OUT_OF_THE_WAY, but it only ever acts on a job of ours that is running -- which is what this cycle just stopped for. It is reachable only from a hand-run of actions/launch_job.sh."
     exit 0
 fi
 
