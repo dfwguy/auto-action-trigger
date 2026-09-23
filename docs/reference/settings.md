@@ -78,8 +78,8 @@ BENCHMARKS="dcgmi-r1 dcgmi-r3 dcgmi-r4 nvbandwidth allreduce \
 ```
 
 The default assumes an NGC login, because `nvbandwidth` is pulled from a private
-org, and a prepared LLMB installation for the two LLM jobs. The catalog of what
-is available is
+org, plus a staged NeMo image and populated `LLM_HF_HOME` for the two LLM jobs.
+The catalog of what is available is
 [reference/jobs.md](jobs.md#the-job-catalog); choosing a list for a site is
 [how-to/enable-a-benchmark.md](../how-to/enable-a-benchmark.md).
 
@@ -648,9 +648,9 @@ will be dropped.
 | `JOB_USER` | `cmods` | The account Slurm jobs are submitted as, and the owner `results/` and `logs/` are handed to |
 | `BRINGUP_HOME` | `/home/$JOB_USER/bringup` | Where this tree lives on the cluster |
 
-`JOB_USER` is the only place the account is named; `BRINGUP_HOME` and
-`LLMB_INSTALL` derive from it, so moving to an automation account of its own is
-one line. Why it is worth
+`JOB_USER` is the only place the account is named; `BRINGUP_HOME` and the
+optional LLMB capture workspace derive from it, so moving to an automation
+account of its own is one line. Why it is worth
 keeping it that way — and what a hardcoded account broke last time — is
 [explanation/architecture.md#one-account-name](../explanation/architecture.md#one-account-name).
 
@@ -684,9 +684,22 @@ can detect and which fails silently.
 [explanation/containers.md#one-share-two-mount-points](../explanation/containers.md#one-share-two-mount-points)
 is the whole argument.
 
+## LLM pre-training
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `LLM_HF_HOME` | empty | Required host path to the non-empty, pre-staged Llama Hugging Face cache used by `llm-pretrain` and `llm-pretrain-solo` |
+
+`launch_job.sh` exports this path to both batch jobs. They mount it at
+`/hf-cache` and run offline. An empty value is allowed globally so sites can
+disable both LLM jobs; either job refuses with a named reason if it is enabled
+without the setting. See
+[how-to/enable-llm-pretrain.md#2-stage-the-llama-cache](../how-to/enable-llm-pretrain.md#2-stage-the-llama-cache).
+
 ## llmb-run
 
-Only the `llm-pretrain` job reads these. A site not running it needs neither.
+These are capture/install settings for `build_llmb.sh` and `llmb_check.py`.
+Neither LLM batch job reads them at runtime.
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
@@ -695,20 +708,15 @@ Only the `llm-pretrain` job reads these. A site not running it needs neither.
 | `LLMB_BIN` | empty | Directory holding the `llmb-run` executable. Empty is searched for |
 | `LLMB_CONFIG` | empty | Path to `cluster_config.yaml`. Empty is searched for |
 | `LLMB_IMAGES` | empty | Directory holding the `.sqsh` images. Empty is searched for |
-| `LLMB_HF` | empty | The `HF_HOME` both LLM jobs read offline. Empty is searched for |
+| `LLMB_HF` | empty | The install's Hugging Face cache. Empty is searched for; copy the resolved directory into `LLM_HF_HOME` to remove the runtime dependency |
 
 The four empty ones exist to adopt an install this tree did not build, whose
 layout it cannot assume. `./build_llmb.sh -l` runs the search, prints what
-answered and exits non-zero if anything is missing; the assignments it reports
-belong in `SETTINGS`, because the search runs on the head node and the jobs run
-elsewhere. See
+answered and exits non-zero if anything is missing. See
 [explanation/llmb.md#adopting-an-existing-install](../explanation/llmb.md#adopting-an-existing-install).
 
 `LLMB_INSTALL` is deliberately outside `BRINGUP_HOME`, and `build_llmb.sh`
-refuses to install into it or below it. It is handed to a host launcher through
-the same allowlist as `JOB_ENV` — see [What is rejected](#what-is-rejected) — and
-a value carrying anything outside `[A-Za-z0-9_.:/+@%=-]` is dropped with a
-`WARNING`, after which the job refuses rather than running without it.
+refuses to install into it or below it.
 
 Everything else `llmb-run` needs lives in `cluster_config.yaml` inside the
 install, written by the collection's own installer — not in `SETTINGS`. See

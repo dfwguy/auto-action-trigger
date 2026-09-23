@@ -282,5 +282,16 @@ else
     bad "build_llmb.sh -l reads LLMB_INSTALL" "$(grep 'install root' <<<"$out")"
 fi
 
+## The install is a capture-time tool. A frozen job that mentions it has
+## silently restored the runtime dependency this separation removed.
+for job in "$home"/jobs/nvl72/llm-pretrain*.sbatch; do
+    if ! grep -q '/opt/Megatron-Bridge/scripts/performance/run_script.py' "$job" ||
+       ! grep -q 'LLM_HF_HOME' "$job" || grep -q 'LLMB_INSTALL\|LLMB_HF' "$job"; then
+        bad "frozen job is independent of LLMB" "${job##*/}"
+    else
+        ok "frozen job is independent of LLMB" "${job##*/}"
+    fi
+done
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

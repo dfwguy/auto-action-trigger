@@ -1,145 +1,151 @@
 # Enable the LLM pre-training jobs
 
-Two jobs, one install. Why they are shaped the way they are is
+The two jobs need one NeMo image and one offline Hugging Face cache. They do
+not need an LLMB installation at runtime. Why the jobs have different shapes is
 [explanation/llmb.md](../explanation/llmb.md).
 
-## 1. Install on the head node
+## 1. Stage the NeMo image
 
-Head node only, once per CPU architecture — `nvl72` is ARM, and the image is
-architecture-specific.
-
-```bash
-export HF_TOKEN=hf_...            # this run only; never written to a node
-./build_llmb.sh                   # installs the LLMB_REF in SETTINGS
-./build_llmb.sh -l                # what is present, what is not
-```
-
-**The `nemo` image has to be in `CONTAINER_DIR`**, or every run reads it over
-the share instead of from local disk:
+Run this on the head node, once per CPU architecture. `nvl72` is ARM:
 
 ```bash
 ./build_containers.sh -a arm nemo
+./build_containers.sh -l
 ```
 
-Everything in that directory is cached on every node, so building it is the
-whole of asking for it. `build_containers.sh -l` says whether it is there.
+The image lands in `CONTAINER_DIR`; `actions/file_copy.sh` copies it into
+`NODE_CONTAINER_DIR` on each node. The NGC credentials are the ones
+`./build_containers.sh -L` writes. No registry credential reaches a compute
+node. See [build-containers.md#nemo](build-containers.md#nemo).
 
-To move versions, edit `LLMB_REF` in `SETTINGS` and re-run. `-l` prints both the
-ref `SETTINGS` asks for and the one actually checked out, so a drift between
-them is visible. A ref that does not exist lists the tags that do.
-
-It leaves `$LLMB_INSTALL/src` (the pinned collection), `bin/`, `venvs/`,
-`workloads/`, `datasets/`, `images/*.sqsh`, a `cluster_config.yaml`, and
-`$LLMB_INSTALL/hf` holding the tokenizer cache.
-
-Two things to expect:
-
-- **The collection's `install.sh` prompts** — for cluster settings, workload
-  selection and `HF_TOKEN` — so the first run is interactive, not unattended. It
-  is passed `-i "$LLMB_INSTALL/images"` so repeat installs share one image
-  directory instead of re-importing.
-- **There is no dataset staging subcommand.** The installer fetches what a
-  selected workload needs. `-d` therefore **checks** that `$HF_HOME` is
-  populated rather than fetching it — an empty cache is a two-hour failure on a
-  node with no route out, and it is worth catching on the head node instead.
-  `-i` re-stages the image into `containers/` only.
-
-If the installer stops with `mkdir: cannot create directory '/var/lib/enroot'`,
-the enroot overrides did not reach it — do not re-run it under `sudo`. See
-[explanation/llmb.md#the-installers-enroot-import](../explanation/llmb.md#the-installers-enroot-import).
-
-Llama is a **gated** Hugging Face repo: it needs an access approval on the
-account behind `HF_TOKEN`, and approval is per-account rather than carried by
-the token. Get that first or the staging fails.
-
-`cluster_config.yaml` (schema v2) is where `llmb_install`, `gpu_type` and the
-`slurm` settings live — not environment variables. Set `gpu_type: gb200` and the
-tray's GPU count there. See
-[reference/llmb-run.md#configuration](../reference/llmb-run.md#configuration).
-
-The image is copied into `containers/` as well, so `actions/file_copy.sh` rsyncs
-it to `NODE_CONTAINER_DIR` (`/opt/containers` by default) on each node like every other image. Without that step
-every node streams the same multi-GB squashfs off one filer at the same moment.
-The NGC credentials are the ones `./build_containers.sh -L` already writes — see
-[build-containers.md#logging-in-to-ngc](build-containers.md#logging-in-to-ngc).
-No credential ever reaches a compute node.
-
-## 1b. Or adopt an install that already exists
-
-A cluster that already has an llmb-run install does not need a second one. Point
-`LLMB_INSTALL` at it and ask:
+An image imported by an old LLMB installation works too:
 
 ```bash
-./build_llmb.sh -l                # exits non-zero if anything the jobs need is missing
+cp "$LLMB_INSTALL"/images/nvidia+nemo+*.sqsh "$CONTAINER_DIR"/
 ```
 
-The search does not assume this script's layout: it finds the `llmb-run`
-executable wherever it is — including a `llmb_venv/` *beside* the install root —
-the `cluster_config.yaml`, the images and the HF cache. Whatever it resolved by
-fallback is printed as `LLMB_BIN=` / `LLMB_CONFIG=` / `LLMB_IMAGES=` / `LLMB_HF=`
-lines. **Put those in `SETTINGS`**: the search ran here, and the jobs run on the
-compute nodes.
+Keep the upstream filename: its version ties the measurement to the frozen
+recipe.
 
-Then set `LLMB_REF` to the version the report says the install actually is, or
-empty it to skip the gate — with the floors in `parsers/*/verdict.sh` re-read
-either way. See
-[explanation/llmb.md#adopting-an-existing-install](../explanation/llmb.md#adopting-an-existing-install).
+## 2. Stage the Llama cache
 
-## 2. Enable `llm-pretrain`
+Llama is a **gated** Hugging Face repository. It requires access approval for
+the account behind `HF_TOKEN`; approval is per account rather than carried by
+the token. Compute nodes run offline, so `LLM_HF_HOME` is required and must name
+a non-empty directory they can read.
+
+Put its compute-node path in `SETTINGS`:
+
+```bash
+LLM_HF_HOME=/cluster/bringup/llm/hf
+```
+
+Do not put an access token in `SETTINGS`. A token is needed only while staging
+the cache on a networked head node and never reaches a compute node.
+
+### Run now from an existing LLMB cache
+
+Find the known-good cache that the old installation populated:
+
+```bash
+./build_llmb.sh -l
+```
+
+The report prints `LLMB_HF=<resolved-path>`. Copy that directory once into the
+new standalone location; do not use `--delete` while establishing it:
+
+```bash
+mkdir -p /cluster/bringup/llm/hf
+rsync -a <resolved-LLMB_HF>/ /cluster/bringup/llm/hf/
+test -n "$(find /cluster/bringup/llm/hf -mindepth 1 -maxdepth 1 -print -quit)"
+```
+
+For the first smoke test, `LLM_HF_HOME` may point directly at the resolved
+`LLMB_HF` directory. That proves the new job path before copying data, but the
+old install directory remains a storage dependency until the cache is copied
+and the setting is changed to the standalone path.
+
+If the head and compute nodes mount the share at different paths, use the head
+node's path as the `rsync` destination and put the compute-node view in
+`SETTINGS`. The job validates the path from the compute node immediately before
+starting the container.
+
+This is the shortest supported migration path because it preserves the exact
+cache layout already proven by the recipe. Once copied, neither job reads
+`LLMB_INSTALL`, `LLMB_HF`, the LLMB virtual environment, its config, or its
+workload tree.
+
+The cache can later be populated directly with
+`huggingface_hub.snapshot_download()`. Do that only after recording the exact
+repository and file patterns used by the pinned Llama recipe: downloading the
+whole model repository needlessly stages weights, while an incomplete pattern
+fails only after the job reaches tokenizer setup.
+
+### What the jobs see
+
+The host directory in `LLM_HF_HOME` is mounted at `/hf-cache` inside the
+container. Both jobs set `HF_HOME=/hf-cache` and all three offline flags. Their
+generated NeMo files go under the writable container's `/mnt/nemo` and are
+intentionally ephemeral; the evidence used by the verdict is stdout in
+`results/<node>/llm-pretrain*.txt`.
+
+## 3. Run one node
 
 In order, because each step is checkable on its own:
 
-1. `./build_llmb.sh` on the head node, then `-l` to confirm.
-2. `cp "$LLMB_INSTALL"/images/nvidia+nemo+*.sqsh "$CONTAINER_DIR"/` — the job
-   reads the image from the container share, not from the install. See
-   [capture-an-sbatch-from-llmb-run.md#getting-the-image-onto-the-nodes](capture-an-sbatch-from-llmb-run.md#getting-the-image-onto-the-nodes).
-3. `actions/launch_job.sh --test llm-pretrain --explain` on one node — it prints
-   the launch it would run without running it.
-4. Drop `--explain` on that one node and read `results/<node>/trigger.log` and
+1. Stage the image and set a populated `LLM_HF_HOME` as above.
+2. Run `actions/launch_job.sh --test llm-pretrain --explain` and confirm the
+   image, `CONTAINER_DIR` and `LLM_HF_HOME` in the printed submission.
+3. Drop `--explain` on that one node and read `results/<node>/trigger.log` and
    `results/<node>/llm-pretrain.txt`.
-5. Capture that output as a fixture in `tests/fixtures/` and check it against
-   `_v_gate_llm_pretrain` with `./tests/verdict-test.sh`.
-6. Only then add `llm-pretrain` to `BENCHMARKS`.
+4. Run `actions/launch_job.sh --test llm-pretrain-solo` on the same node and
+   read `results/<node>/llm-pretrain-solo.txt`.
+5. Check both outputs with `./tests/verdict-test.sh`, then add the jobs to
+   `BENCHMARKS`.
 
 The job's four ranks and the tray's GPU count have to agree; both are set for
 `nvl72` in `jobs/nvl72/llm-pretrain.sbatch`. On a platform with a different GPU
-count, both move together — and so does the NUMA divisor, which is
+count, both move together, as does the NUMA divisor described in
 [explanation/llmb.md#the-numa-binding](../explanation/llmb.md#the-numa-binding).
 
-## 3. Filling in the solo training command
+## 4. Check the solo training command
 
-`jobs/nvl72/llm-pretrain-solo.sbatch` now carries the command, captured from a
-real scale-1 submission — it is the sibling's `run_script.py` invocation with
-`--num_gpus 1`. Nothing to fill in; this section is what to check if you change
-it.
+`jobs/nvl72/llm-pretrain-solo.sbatch` carries a command captured from a real
+scale-1 submission. It is the sibling's `run_script.py` invocation with
+`--num_gpus 1`.
 
-`--dry-run` will **not** give you a replacement. It prints the task list and
-nothing about the script; the command has to come from the generated artifacts,
-which is [capture-an-sbatch-from-llmb-run.md](capture-an-sbatch-from-llmb-run.md).
+`--dry-run` will **not** provide a replacement. It prints the task list but not
+the generated script; capture the generated artifacts as described in
+[capture-an-sbatch-from-llmb-run.md](capture-an-sbatch-from-llmb-run.md).
 
-Whatever replaces it has to be a **single-process** invocation: no `torchrun`,
-no `srun`, no distributed launcher. The four copies are already four Slurm
-tasks, and a launcher inside them would fan out again.
-
-Do not remove `--gpus-per-task=1`, the `WORLD_SIZE=1 RANK=0 LOCAL_RANK=0`
-overrides, or `srun --label` — all three are load-bearing, and the failure when
-they go is quiet. See
+Any replacement must remain a **single-process** invocation: no `torchrun`,
+inner `srun`, or distributed launcher. The four copies are already four Slurm
+tasks. Keep the per-rank `CUDA_VISIBLE_DEVICES`, the
+`WORLD_SIZE=1 RANK=0 LOCAL_RANK=0` overrides, the private rendezvous port and
+`srun --label`. See
 [explanation/llmb.md#keeping-the-four-solo-copies-independent](../explanation/llmb.md#keeping-the-four-solo-copies-independent).
 
-## 4. Set the spread floor
+## 5. Set the spread floor
 
 `VERDICT_MAX_COV_LLM_SOLO` ships as **0.02**, four times the `0.005` a healthy
-GB300 tray showed. It came from one node and one run, so check it against the
-second and third trays to finish the job: a healthy tray sitting near the line
-means widen it, not that the tray is bad. `0` skips the check. See
+GB300 tray showed. Check it against the second and third trays: a healthy tray
+near the line means widen it, not that the tray is bad. `0` skips the check. See
 [explanation/llmb.md#judging-the-four-step-times](../explanation/llmb.md#judging-the-four-step-times).
 
 ## If a launch is refused
 
-Every refusal writes `FAIL` and its reason into the result file, so
-`results/<node>/llm-pretrain.txt` names it. In order: the step did not receive
-the whole node, no `nvidia+nemo` image in `$NODE_CONTAINER_DIR` or `$CONTAINER_DIR`,
-no `run_script.py` under `$LLMB_INSTALL`, and no pre-staged `$HF_HOME`.
+Every refusal writes `FAIL` and its reason into the result file. The reasons,
+in order, are: the step did not receive the whole node; no `nvidia+nemo` image
+was found; `LLM_HF_HOME` was unset, missing or empty; or
+`/opt/Megatron-Bridge/scripts/performance/run_script.py` was absent from the
+image.
 
-Anything absent from `$HF_HOME` at launch is a failed run, not a slow one.
-`build_llmb.sh -d` is what fixes it, and it runs on the head node.
+Anything absent from the cache at launch is a staging failure, not a slow GPU.
+Repair the standalone cache on the head node; the compute node remains offline.
+
+## LLMB after migration
+
+`build_llmb.sh`, `llmb_check.py` and `llmb-run` remain useful for capturing a
+new upstream recipe. They are not production runtime dependencies. A site can
+remove its LLMB installation after the image and known-good cache have been
+copied and both jobs have passed using `LLM_HF_HOME`.
