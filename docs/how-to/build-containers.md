@@ -246,9 +246,9 @@ cp "$LLMB_INSTALL"/images/nvidia+nemo+*.sqsh "$CONTAINER_DIR"/
 ```
 
 Either way the jobs find it by the glob `nvidia+nemo+*.sqsh`, so the installer's
-name and this script's `-${arch}` suffixed one both work. What the jobs still
-need from `$LLMB_INSTALL` after that — the recipe scripts and the Hugging Face
-cache — is
+name and this script's `-${arch}` suffixed one both work. The recipe script
+comes from `/opt/Megatron-Bridge` in the image and the cache comes from
+`LLM_HF_HOME`; neither job reads `$LLMB_INSTALL`. See
 [capture-an-sbatch-from-llmb-run.md#getting-the-image-onto-the-nodes](capture-an-sbatch-from-llmb-run.md#getting-the-image-onto-the-nodes).
 
 ## Verify an image before enabling its job

@@ -185,6 +185,7 @@ CONTAINER_DIR=\$BRINGUP_HOME/containers
 ## BRINGUP_HOME above, file_copy.sh actually mkdir's this one, so it has to
 ## resolve to a real writable path rather than the symbolic account home.
 NODE_CONTAINER_DIR=$tree/node-containers
+LLM_HF_HOME=$tree/llm-hf
 LLMB_INSTALL=
 EOF
     printf '%s\n' "$tree"
@@ -287,6 +288,12 @@ if grep -q "NODE_CONTAINER_DIR=$tree_b/node-containers" "$out_b"; then
     ok "NODE_CONTAINER_DIR reaches the job on --export"
 else
     bad "NODE_CONTAINER_DIR is not in the --export list -- a bare sbatch cannot resolve it"
+fi
+
+if grep -q "LLM_HF_HOME=$tree_b/llm-hf" "$out_b"; then
+    ok "LLM_HF_HOME reaches the job on --export"
+else
+    bad "LLM_HF_HOME is not in the --export list -- the LLM jobs cannot mount their cache"
 fi
 
 ##############################################################################

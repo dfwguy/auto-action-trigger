@@ -716,7 +716,7 @@ would pass `sbatch`:
 
 ```
 SBATCH_JOB_NAME=<bringup|burnin>-<node> RESULT_FILE=<file> \
-  LLMB_INSTALL=... [<JOB_ENV>] bash <job>.sh
+  [<site paths>] [<JOB_ENV>] bash <job>.sh
 ```
 
 `SBATCH_JOB_NAME` is a real `sbatch` default, and it is also the name the
@@ -729,9 +729,9 @@ handed over in the environment. They are the launcher's job, using whatever its
 own tool provides — for `llmb-run` that was `--nodelist` and `--slurm-arg`. See
 [llmb.md#pinning-the-submission](llmb.md#pinning-the-submission).
 
-`LLMB_INSTALL` goes through the same allowlist as `JOB_ENV`, and for the same
-reason: the submission is a string handed to a shell, so an unvalidated
-`SETTINGS` value runs on every node as whatever the cycle is. See
+Site paths, including `LLM_HF_HOME`, go through the same allowlist as `JOB_ENV`,
+and for the same reason: the submission is a string handed to a shell, so an
+unvalidated `SETTINGS` value runs on every node as whatever the cycle is. See
 [reference/settings.md#what-is-rejected](../reference/settings.md#what-is-rejected).
 
 Success is **not** taken from the launcher's exit status. A tool can exit `0`

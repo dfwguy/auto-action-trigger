@@ -135,7 +135,7 @@ if [[ "$DO_IMAGE" -eq 1 ]]; then
     ## Staged into containers/ as well, so actions/file_copy.sh rsyncs it to
     ## NODE_CONTAINER_DIR on each node like every other image. Without that, every
     ## node streams the same multi-GB squashfs off one filer at once.
-    ## See docs/how-to/enable-llm-pretrain.md#1-install-on-the-head-node.
+    ## See docs/how-to/enable-llm-pretrain.md#1-stage-the-nemo-image.
     mkdir -p "$CONTAINER_DIR_HEAD" || die "cannot create $CONTAINER_DIR_HEAD"
     shopt -s nullglob
     staged=0
@@ -146,7 +146,7 @@ if [[ "$DO_IMAGE" -eq 1 ]]; then
     done
     shopt -u nullglob
     [[ "$staged" -gt 0 ]] ||
-        die "no .sqsh under $images -- the installer did not import an image, so there is nothing for the nodes to run. See docs/how-to/enable-llm-pretrain.md#1-install-on-the-head-node."
+        die "no .sqsh under $images -- the installer did not import an image, so there is nothing for the nodes to run. See docs/how-to/enable-llm-pretrain.md#1-stage-the-nemo-image."
 fi
 
 ## ── Tokenizer and dataset ─────────────────────────────────────────────────

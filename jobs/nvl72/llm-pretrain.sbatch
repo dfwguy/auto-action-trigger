@@ -71,26 +71,18 @@ CONT=$(nemo_image "${NODE_CONTAINER_DIR:-/opt/containers}")
     exit 0
 }
 
-LLMB_INSTALL=${LLMB_INSTALL:?not set -- launch_job.sh exports it; a bare sbatch must too}
-WORKLOAD_DIR=$LLMB_INSTALL/workloads/pretrain_llama3.1
-PERF_DIR=$WORKLOAD_DIR/Megatron-Bridge/scripts/performance
-
-[[ -f "$PERF_DIR/run_script.py" ]] || {
-    echo "no $PERF_DIR/run_script.py -- the recipe half of the llmb install is missing"
+## A cache miss on a node with no route out must fail, not stall.
+## See docs/explanation/llmb.md#running-offline.
+LLM_HF_HOME=${LLM_HF_HOME:-}
+[[ "$LLM_HF_HOME" == /* && "$LLM_HF_HOME" != *:* && "$LLM_HF_HOME" != *,* ]] || {
+    echo "LLM_HF_HOME must be an absolute mount path without ':' or ',': ${LLM_HF_HOME:-<unset>}"
     echo "exit status: 1"
     echo FAIL
     exit 0
 }
-
-## A cache miss on a node with no route out must fail, not stall.
-## See docs/explanation/llmb.md#running-offline.
-export HF_HOME="${LLMB_HF:-$LLMB_INSTALL/.cache/huggingface}"
-export HF_HUB_OFFLINE=1
-export HF_DATASETS_OFFLINE=1
-export TRANSFORMERS_OFFLINE=1
-
-[[ -d "$HF_HOME" ]] || {
-    echo "no pre-staged $HF_HOME -- the node cannot download it"
+[[ -d "$LLM_HF_HOME" && -n "$(find "$LLM_HF_HOME" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]] || {
+    echo "LLM_HF_HOME is missing or empty: $LLM_HF_HOME"
+    echo "the node cannot download the gated Llama files -- see docs/how-to/enable-llm-pretrain.md"
     echo "exit status: 1"
     echo FAIL
     exit 0
@@ -107,13 +99,7 @@ export TORCH_NCCL_AVOID_RECORD_STREAMS=1
 export TORCH_NCCL_HIGH_PRIORITY=1
 export PYTHONUNBUFFERED=1
 
-## The install is written to during a run -- the recipe puts its experiment
-## directory under --log_dir -- so this mount is not read-only.
-MOUNTS="${LLMB_INSTALL}:${LLMB_INSTALL}"
-case "$HF_HOME" in
-    "$LLMB_INSTALL"/*) ;;
-    *) MOUNTS="${MOUNTS},${HF_HOME}:${HF_HOME}" ;;
-esac
+MOUNTS="${LLM_HF_HOME}:/hf-cache"
 
 ## numactl pins each of the four local ranks to the NUMA node its GPU sits on --
 ## a GB200/GB300 tray assumption, and the first line to revisit on other
@@ -127,8 +113,17 @@ srun --time="$STEP_TIMELIMIT" --label --export=ALL \
         --container-workdir=/tmp \
         --no-container-mount-home --container-writable \
         bash -c '
+    PERF_SCRIPT=/opt/Megatron-Bridge/scripts/performance/run_script.py
+    [[ -f "$PERF_SCRIPT" ]] || {
+        echo "no $PERF_SCRIPT in the nvidia+nemo image"
+        exit 1
+    }
+    export HF_HOME=/hf-cache
+    export HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+    export NEMORUN_HOME=/mnt/nemo
+    mkdir -p "$NEMORUN_HOME/experiments"
     numactl --cpunodebind=$((SLURM_LOCALID/2)) --membind=$((SLURM_LOCALID/2)) \
-    python '"$PERF_DIR"'/run_script.py \
+    python "$PERF_SCRIPT" \
         --model_family_name llama \
         --model_recipe_name llama3_8b \
         --gpu gb300 \
@@ -137,13 +132,14 @@ srun --time="$STEP_TIMELIMIT" --label --export=ALL \
         --gpus_per_node 4 \
         --offline \
         --max_steps=50 \
-        --custom_mounts='"$HF_HOME"' \
+        --custom_mounts=/hf-cache \
         --compute_dtype fp8_cs \
         --enable_pct_binding false \
         --config_variant v2 \
         --account "$SLURM_JOB_ACCOUNT" \
         --partition "$SLURM_JOB_PARTITION" \
-        --log_dir '"$WORKLOAD_DIR"' \
+        --log_dir "$NEMORUN_HOME" \
+        --nemo_home "$NEMORUN_HOME/experiments" \
         --time_limit '"$STEP_TIMELIMIT"' \
         --packager none \
         train.manual_gc=true train.manual_gc_interval=100

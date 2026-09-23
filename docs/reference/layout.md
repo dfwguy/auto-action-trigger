@@ -81,7 +81,7 @@ pieces fit together this way is
 ├── tests/                         # Offline suites; stub Slurm, need no cluster
 ├── .gitlab-ci.yml                 # CI: the tests, plus the conventions in CLAUDE.md
 ├── build_containers.sh            # Build job container images into containers/
-├── build_llmb.sh                  # Install llmb-run + image + tokenizer for the LLM jobs
+├── build_llmb.sh                  # Install/inspect the optional llmb-run capture workspace
 ├── llmb_check.py                  # Resolve and report an llmb install; run by build_llmb.sh
 ├── set-valid-default.sh           # Capture a validated node as the health baseline
 ├── health-check.sh                # Cluster-wide health summary, plus --explain and --refresh

@@ -8,13 +8,13 @@ catalog of what is available is [reference/jobs.md](../reference/jobs.md).
 The `dcgmi-r*` jobs use a host binary, and the NCCL jobs use the
 `hpc-benchmarks` image that `build_containers.sh` pulls from the public catalog.
 The default also includes `nvbandwidth`, which comes from a private NGC org,
-and the two LLM jobs, which require a prepared LLMB installation. A missing
-dependency makes its job fail on every node. Check both before enabling a
-sweep:
+and the two LLM jobs, which require the NeMo image and a populated
+`LLM_HF_HOME`. A missing dependency makes its job fail on every node. Check the
+images and cache before enabling a sweep:
 
 ```bash
 ./build_containers.sh -a arm -l      # what is actually present
-./build_llmb.sh -l                   # resolve and validate the LLMB install
+test -n "$(find "$LLM_HF_HOME" -mindepth 1 -maxdepth 1 -print -quit)"
 ```
 
 Everything else needs one of three things first:
@@ -37,8 +37,8 @@ gated by `RUN_BURNIN`, off by default).
 
 ## Pick a list
 
-**Default — ships as written.** Assumes an NGC login for `nvbandwidth` and a
-prepared LLMB installation:
+**Default — ships as written.** Assumes an NGC login for `nvbandwidth`, the
+staged NeMo image and a populated `LLM_HF_HOME`:
 
 ```bash
 BENCHMARKS="dcgmi-r1 dcgmi-r3 dcgmi-r4 nvbandwidth allreduce \

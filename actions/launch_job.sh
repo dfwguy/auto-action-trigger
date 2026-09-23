@@ -261,7 +261,7 @@ unset _pair
 ## where a command line takes spaces.
 SITE_ARGS=""
 SITE_EXPORT=""
-for _var in BRINGUP_HOME CONTAINER_DIR NODE_CONTAINER_DIR LLMB_INSTALL LLMB_BIN LLMB_HF LLMB_IMAGES; do
+for _var in BRINGUP_HOME CONTAINER_DIR NODE_CONTAINER_DIR LLM_HF_HOME; do
     _value="${!_var:-}"
     [[ -n "$_value" ]] || continue
     if [[ "$_value" =~ ^[A-Za-z0-9_.:/+@%=-]+$ ]]; then

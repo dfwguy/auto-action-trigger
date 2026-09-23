@@ -88,18 +88,20 @@ idle node and submits another benchmark onto the same four GPUs. Both die, and
 `DRAIN_AFTER_FAILED_BENCHMARK` drains the node for what was a scheduling
 mistake. The `MAX_JOB_HOURS` reaper cannot see it either.
 
-So the job stays in Slurm and `llmb-run` does the submitting.
+That left submission with `llmb-run` as a temporary compromise. Freezing the
+generated batch script removed the nested-submitter problem and restored the
+ordinary one-`sbatch`-per-node model.
 
 ## Where the install lives
 
-`LLMB_INSTALL`, shipped as `/home/cmods/llmb` — deliberately *outside*
-`BRINGUP_HOME`. It holds a venv, a multi-GB image, a tokenizer and a dataset,
-and `bringup/` is a tree a tarball drop replaces. `build_llmb.sh` refuses to
-install into `BRINGUP_HOME` or below it rather than letting an upgrade delete a
-day of staging.
+`LLMB_INSTALL`, shipped as `/home/cmods/llmb`, is the capture tool's workspace
+and is deliberately outside `BRINGUP_HOME`. It can hold a venv, image, cache and
+dataset, while `bringup/` is a tree a tarball drop replaces. `build_llmb.sh`
+refuses to install into `BRINGUP_HOME` or below it rather than letting an
+upgrade delete a day of staging.
 
-An empty `LLMB_INSTALL` means "no llmb install" and is a real answer: a site not
-running `llm-pretrain` needs none of this.
+An empty `LLMB_INSTALL` means "no local capture tool" and is a real answer. The
+frozen LLM jobs can still run from their image and `LLM_HF_HOME`.
 
 ## The installer's enroot import
 
@@ -125,10 +127,9 @@ come along: their defaults sit under `$HOME`, which is NFS here, and an import
 otherwise writes a multi-gigabyte layer tree over the wire and reads it back.
 
 The installer's own advice — "try a SLURM-based installation" — is not the fix,
-and **neither is `sudo`**. A root install produces a root-owned `.sqsh`, venv
-and dataset in `$LLMB_INSTALL`; `file_copy.sh` and every job read them as
-`cmods`, and the failure lands a sweep later on a compute node rather than here.
-Setting the four variables is the whole of it.
+and **neither is `sudo`**. A root install produces root-owned capture artifacts
+that the automation account cannot copy or inspect. Setting the four variables
+is the whole of it.
 
 ## Adopting an existing install
 
@@ -144,15 +145,12 @@ pieces, and an empty one is *searched for* rather than assumed:
 | `LLMB_IMAGES` | `$LLMB_INSTALL/images` |
 | `LLMB_HF` | `$LLMB_INSTALL/hf`, `environment.HF_HOME` from the config, then `hf/` beside the root |
 
-`build_llmb.sh -l` runs the search and prints what answered, then **exits
-non-zero if anything the jobs need is missing** — which is what makes it usable
-as a preflight rather than a thing to read.
+`build_llmb.sh -l` runs the search and prints what answered, then exits non-zero
+if the capture installation is incomplete.
 
-The loop it closes is easy to miss: the search happens on the head node, and the
-compute nodes read `SETTINGS`. So the report ends by printing the assignments it
-resolved by fallback, to be written into `SETTINGS` — `launch_job.sh` passes
-those four to the jobs through the same allowlist as `LLMB_INSTALL`, and passes
-nothing it was not given.
+The report ends by printing the assignments it resolved by fallback. In
+particular, `LLMB_HF` identifies the known-good cache to copy once into the
+standalone `LLM_HF_HOME`; none of the four capture settings is passed to jobs.
 
 Three failures this exists to catch, none of which look like failures:
 
@@ -163,10 +161,9 @@ Three failures this exists to catch, none of which look like failures:
   `LLMB_INSTALL`, so `llmb-run` is not under the root at all and is on no
   node's `PATH`. `LLMB_BIN` is what `build_llmb.sh -l` resolves and what a
   capture run needs on the head node; no job reads it any more.
-- **The HF cache is somewhere else.** With `HF_HUB_OFFLINE=1` a miss is an
-  immediate failure, so `llm-pretrain-solo.sbatch` extends
-  `--container-mounts` when `HF_HOME` falls outside the install root. Without
-  that the cache exists on the node and is invisible inside the container.
+- **The HF cache is somewhere else.** `LLMB_HF` identifies the source cache for
+  migration. The running jobs mount the independent `LLM_HF_HOME` at the fixed
+  in-container path `/hf-cache`.
 
 ### Telling a real config from the template
 
@@ -263,8 +260,9 @@ meant to prevent.
 
 ## Running offline
 
-Both LLM jobs export `HF_HOME=$LLMB_INSTALL/hf`, `HF_HUB_OFFLINE=1`,
-`HF_DATASETS_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1`.
+Both LLM jobs require the site setting `LLM_HF_HOME`, mount that host directory
+at `/hf-cache`, and export `HF_HOME=/hf-cache`, `HF_HUB_OFFLINE=1`,
+`HF_DATASETS_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` inside the container.
 
 This matters for Llama specifically. Llama is a **gated** Hugging Face repo, so
 it needs a real tokenizer cache and an access approval on the account behind
@@ -277,8 +275,9 @@ out is a silent stall that eats the two-hour wall limit and is then reported as
 a training failure — a hardware verdict for a staging mistake. With them the
 same miss fails immediately and says what was missing.
 
-The corollary: anything absent from `$LLMB_INSTALL/hf` at launch is a failed
-run, not a slow one.
+The corollary: anything absent from `LLM_HF_HOME` at launch is a failed run, not
+a slow one. The job checks that the directory exists and is non-empty before it
+starts the container.
 
 ## The frozen recipe
 
@@ -297,11 +296,18 @@ training command that a real submission produced, and nothing on the node calls
 `llmb-run`. Re-deriving it when the collection moves is
 [how-to/capture-an-sbatch-from-llmb-run.md](../how-to/capture-an-sbatch-from-llmb-run.md).
 
-What this does not remove is the install. The recipe scripts under
-`Megatron-Bridge/scripts/performance` and the Hugging Face cache are still read
-from `$LLMB_INSTALL`; only the submitter is gone. The image is the exception and
-is copied into `CONTAINER_DIR`, so it reaches the nodes through
-`file_copy.sh` like every other image rather than over NFS per run.
+The runtime no longer reads the install. The jobs run
+`/opt/Megatron-Bridge/scripts/performance/run_script.py` from the image, mount
+only `LLM_HF_HOME`, and write NeMo's generated files into the writable
+container under `/mnt/nemo`. Those files are ephemeral; Slurm already captures
+the training output the verdict reads. The image reaches nodes through
+`CONTAINER_DIR` and `file_copy.sh` like every other image.
+
+LLMB remains a capture-time tool. It is useful when an upstream recipe version
+must be regenerated and reviewed, but the resulting jobs need only the image
+and standalone cache. The known-good migration path is to copy the cache
+reported as `LLMB_HF` by `build_llmb.sh -l` into `LLM_HF_HOME`; see
+[how-to/enable-llm-pretrain.md#run-now-from-an-existing-llmb-cache](../how-to/enable-llm-pretrain.md#run-now-from-an-existing-llmb-cache).
 
 ### The captured environment
 
@@ -370,8 +376,8 @@ stopped testing. See
 
 The refusals in `llm-pretrain.sbatch`, in order: the step did not receive the
 whole node, no `nvidia+nemo` image in `$NODE_CONTAINER_DIR` or `$CONTAINER_DIR`, no
-`run_script.py` under `$LLMB_INSTALL`, and no pre-staged `$HF_HOME`. The middle
-two are the halves of the install that the frozen job still needs —
+non-empty `LLM_HF_HOME`, and no `run_script.py` at
+`/opt/Megatron-Bridge/scripts/performance` in that image —
 [The frozen recipe](#the-frozen-recipe).
 
 ## Keeping the four solo copies independent
@@ -554,8 +560,8 @@ and never reached its first step, which is a different place to look.
 
 Note what this does *not* do: it does not consult `VERDICT_RUN_ERRORS`, and a
 log carrying one of those strings **and** no timings is still reported here. The
-preflight messages that produce this case — a missing recipe, an unreadable
-`$LLMB_INSTALL` — match none of them, so nothing is being hidden today. A gate
+preflight messages that produce this case — a missing recipe or an empty
+`LLM_HF_HOME` — match none of them, so nothing is being hidden today. A gate
 that learns to read those messages belongs above this one, not inside it.
 
 ## Judging the four step times

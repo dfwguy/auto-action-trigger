@@ -115,20 +115,20 @@ first with the shared copy as fallback, exactly as every other job does —
 Keep the upstream filename. It carries the framework version, which is the only
 thing tying a result to a recipe once `llmb-run` is out of the picture.
 
-**What the copy does not free you from.** The image is not the whole payload: the
-recipe mounts `Megatron-Bridge/scripts/performance` from the install, so the
-frozen job still needs `$LLMB_INSTALL` on NFS for the recipe scripts and the
-Hugging Face cache. Whether that mount is still needed is worth re-testing — the
-image ships `/opt/Megatron-Bridge`, and if `run_script.py` is present there the
-mount was only ever pinning the installer's copy:
+The image contains the recipe entry point at
+`/opt/Megatron-Bridge/scripts/performance/run_script.py`, and both LLM jobs run
+that copy. Their only external data mount is the standalone `LLM_HF_HOME`
+cache. Generated NeMo files stay under `/mnt/nemo` in the writable container,
+so `$LLMB_INSTALL` is not a runtime dependency.
+
+Verify a replacement image before enabling it:
 
 ```bash
 srun -w <node> --ntasks=1 --container-image="$CONTAINER_DIR"/nvidia+nemo+<version>.sqsh \
      ls /opt/Megatron-Bridge/scripts/performance/
 ```
 
-If that lists `run_script.py`, the job can drop to image plus HF cache and
-`LLMB_INSTALL` stops being a runtime dependency.
+That directory must list `run_script.py`.
 
 ## What to keep from the captured script
 
