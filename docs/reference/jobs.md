@@ -8,6 +8,15 @@ this framework.
 `jobs/nvl72/` covers the single-node (SNT) rows of the
 [AI Factory Testing Plan](https://gitlab-master.nvidia.com/nvis-npi/validation-mops/-/blob/main/ai_factory_testing_plan.md).
 
+`jobs/b300-spx/` is the same catalog, ported to GB300 nodes on a Spectrum-X
+(RoCEv2) fabric rather than InfiniBand: 8 GPUs instead of 4, and the
+`-nonvlink` pair loads the SPCX NCCL plugin instead of IB's. A site running it
+sets `PARSERS=spectrum-x` alongside `JOBS=b300-spx` — the two are independent
+settings and neither implies the other — see
+[settings.md#which-set-of-things-to-run](settings.md#which-set-of-things-to-run)
+and
+[explanation/judging-benchmarks.md#the-plugin-name-is-a-property-of-the-fabric](../explanation/judging-benchmarks.md#the-plugin-name-is-a-property-of-the-fabric).
+
 ## The job catalog
 
 | Job | Description | Tier | Plan row |
