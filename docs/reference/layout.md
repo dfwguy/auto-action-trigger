@@ -77,7 +77,7 @@ pieces fit together this way is
 │       └── hpl/
 │           ├── hpl1N.dat              # HPL config for 1-node runs
 │           └── hpl2N.dat              # HPL config for 2-node runs
-│   └── b300-spx/                  # GB300 NVL72, Spectrum-X (RoCEv2) fabric; pair with PARSERS=spectrum-x
+│   ├── b300-spx/                  # GB300 NVL72, Spectrum-X (RoCEv2) fabric; pair with PARSERS=spectrum-x
 │       ├── dcgmi-r1.sbatch            # DCGM diagnostics (level 1, quick gate)
 │       ├── dcgmi-r2.sbatch            # DCGM diagnostics (level 2, TTM gate)
 │       ├── dcgmi-r3.sbatch            # DCGM diagnostics (level 3, Hybrid gate)
@@ -88,6 +88,35 @@ pieces fit together this way is
 │       ├── alltoall-nonvlink.sbatch   # NCCL all-to-all over the HCAs, SPCX plugin (NVLink excluded)
 │       ├── mnubergemm.sbatch          # GPU burn-in, steady load (single node per the plan)
 │       └── nccl-hca.sh                # Compute-plane HCA discovery, Spectrum-X rail HCAs
+│   └── nvl72-spx/                 # nvl72's node shape, Spectrum-X fabric; pair with PARSERS=spectrum-x
+│       ├── example.sbatch             # Annotated template for adding new benchmarks
+│       ├── dcgmi-r1.sbatch            # DCGM diagnostics (level 1, quick gate)
+│       ├── dcgmi-r2.sbatch            # DCGM diagnostics (level 2, TTM gate)
+│       ├── dcgmi-r3.sbatch            # DCGM diagnostics (level 3, Hybrid gate)
+│       ├── dcgmi-r4.sbatch            # DCGM diagnostics (level 4, Exhaustive gate)
+│       ├── nvbandwidth.sbatch         # HBM / PCIe / NVLink bandwidth
+│       ├── allreduce.sbatch           # NCCL all-reduce, NVLink scope
+│       ├── alltoall.sbatch            # NCCL all-to-all, NVLink scope
+│       ├── allreduce-nonvlink.sbatch  # NCCL all-reduce over the HCAs, SPCX plugin (NVLink excluded)
+│       ├── alltoall-nonvlink.sbatch   # NCCL all-to-all over the HCAs, SPCX plugin (NVLink excluded)
+│       ├── nvsm.sbatch                # NVSM stress test
+│       ├── stream.sbatch              # STREAM CPU memory bandwidth
+│       ├── memtester.sbatch           # DRAM integrity
+│       ├── stress-ng.sbatch           # CPU / cache / mmap stress
+│       ├── stressapptest.sbatch       # Extended memory integrity
+│       ├── fio.sbatch                 # Local NVMe / shared storage I/O
+│       ├── ethr.sbatch                # North-south management + storage NIC
+│       ├── nvloom.sbatch              # MNNVL fabric health (optional/exploratory)
+│       ├── mnubergemm.sbatch          # GPU burn-in, steady load (single node per the plan)
+│       ├── mnubergemm-pulse.sbatch    # GPU burn-in, pulsed load; off unless named in BURNIN
+│       ├── llm-pretrain.sbatch        # Single-node LLM pre-training, 4-way DP; frozen llmb-run capture
+│       ├── llm-pretrain-solo.sbatch   # 4 independent 1-GPU pre-training copies; per-GPU step times
+│       ├── hpl.sbatch                 # HPL (Linpack), GB200 remediation-only GEMM
+│       ├── cublasmatmul.sbatch        # GB300 remediation-only single-node GEMM
+│       ├── nccl-hca.sh                # Compute-plane HCA discovery, Spectrum-X rail HCAs
+│       └── hpl/
+│           ├── hpl1N.dat              # HPL config for 1-node runs
+│           └── hpl2N.dat              # HPL config for 2-node runs
 │
 ├── README.md                      # Entry point: what the framework is and how to deploy it
 ├── docs/                          # This directory

@@ -10,9 +10,13 @@ this framework.
 
 `jobs/b300-spx/` is the same catalog, ported to GB300 nodes on a Spectrum-X
 (RoCEv2) fabric rather than InfiniBand: 8 GPUs instead of 4, and the
-`-nonvlink` pair loads the SPCX NCCL plugin instead of IB's. A site running it
-sets `PARSERS=spectrum-x` alongside `JOBS=b300-spx` — the two are independent
-settings and neither implies the other — see
+`-nonvlink` pair loads the SPCX NCCL plugin instead of IB's. `jobs/nvl72-spx/`
+is the same fabric port applied to `nvl72/`'s own node shape (4 GPUs)
+unchanged — every job carries over from `nvl72/` except the `-nonvlink` pair
+and the HCA-discovery library, which both spectrum-x directories share the
+same filtering logic for. A site running either sets `PARSERS=spectrum-x`
+alongside `JOBS=b300-spx` or `JOBS=nvl72-spx` — the two settings are
+independent and neither implies the other — see
 [settings.md#which-set-of-things-to-run](settings.md#which-set-of-things-to-run)
 and
 [explanation/judging-benchmarks.md#the-plugin-name-is-a-property-of-the-fabric](../explanation/judging-benchmarks.md#the-plugin-name-is-a-property-of-the-fabric).
