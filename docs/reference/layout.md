@@ -42,8 +42,10 @@ pieces fit together this way is
 │       └── 45-nodeinfo.sh       # Per-node inventory; informational, never diffed
 │
 ├── parsers/                       # One directory per platform; PARSERS picks one
-│   └── nvl72/
-│       └── verdict.sh             # Pass/fail rule and bandwidth floors for every job
+│   ├── nvl72/
+│   │   └── verdict.sh             # Pass/fail rule and bandwidth floors for every job
+│   └── spectrum-x/
+│       └── verdict.sh             # Same rule; the -nonvlink pair requires SPCX, not IB, as the chosen network
 │
 ├── jobs/                          # One directory per platform; JOBS picks one
 │   └── nvl72/

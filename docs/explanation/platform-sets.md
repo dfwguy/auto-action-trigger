@@ -1,7 +1,9 @@
 # Platform sets are directories, not files
 
 `JOBS`, `HEALTHCHECKS` and `PARSERS` each name a subdirectory, and all three
-ship as `nvl72`. The values and the paths they produce are in
+default to `nvl72`. `PARSERS` also ships `spectrum-x`, whose `verdict.sh`
+differs from nvl72's only in the NCCL net plugin name the `-nonvlink` pair
+requires. The values and the paths they produce are in
 [reference/settings.md#which-set-of-things-to-run](../reference/settings.md#which-set-of-things-to-run).
 
 ## Three variables rather than one `PLATFORM`
