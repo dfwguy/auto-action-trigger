@@ -21,6 +21,12 @@ independent and neither implies the other — see
 and
 [explanation/judging-benchmarks.md#the-plugin-name-is-a-property-of-the-fabric](../explanation/judging-benchmarks.md#the-plugin-name-is-a-property-of-the-fabric).
 
+`jobs/b300/` is `b300-spx/`'s 8-GPU node shape with `nvl72/`'s InfiniBand
+fabric instead of Spectrum-X — the DCGM gates, both NCCL scopes,
+`allreduce-forcesharp` and `mnubergemm` are covered. Neither `b300-spx/` nor
+`nvl72-spx/` ships `allreduce-forcesharp`. `jobs/b300/` pairs with
+`PARSERS=nvl72`, unchanged, since the transport is real IB.
+
 ## The job catalog
 
 | Job | Description | Tier | Plan row |

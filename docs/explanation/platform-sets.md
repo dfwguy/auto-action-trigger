@@ -3,10 +3,11 @@
 `JOBS`, `HEALTHCHECKS` and `PARSERS` each name a subdirectory, and all three
 default to `nvl72`. `PARSERS` also ships `spectrum-x`, whose `verdict.sh`
 differs from nvl72's only in the NCCL net plugin name the `-nonvlink` pair
-requires. `JOBS` ships two directories that pair with it, `b300-spx` and
-`nvl72-spx` — different node shapes, same fabric, so both set
-`PARSERS=spectrum-x` and neither needs its own parser. The values and the
-paths they produce are in
+requires. `JOBS` ships three directories beyond `nvl72` itself: `b300-spx` and
+`nvl72-spx` are different node shapes on the same Spectrum-X fabric, so both
+set `PARSERS=spectrum-x`; `b300` is `b300-spx`'s node shape back on
+InfiniBand, so it sets `PARSERS=nvl72` instead. None of the three needs a
+parser of its own. The values and the paths they produce are in
 [reference/settings.md#which-set-of-things-to-run](../reference/settings.md#which-set-of-things-to-run).
 
 ## Three variables rather than one `PLATFORM`

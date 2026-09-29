@@ -77,6 +77,18 @@ pieces fit together this way is
 │       └── hpl/
 │           ├── hpl1N.dat              # HPL config for 1-node runs
 │           └── hpl2N.dat              # HPL config for 2-node runs
+│   ├── b300/                      # GB300, 8 GPUs, InfiniBand; pair with PARSERS=nvl72
+│       ├── dcgmi-r1.sbatch            # DCGM diagnostics (level 1, quick gate)
+│       ├── dcgmi-r2.sbatch            # DCGM diagnostics (level 2, TTM gate)
+│       ├── dcgmi-r3.sbatch            # DCGM diagnostics (level 3, Hybrid gate)
+│       ├── dcgmi-r4.sbatch            # DCGM diagnostics (level 4, Exhaustive gate)
+│       ├── allreduce.sbatch           # NCCL all-reduce, NVLink scope
+│       ├── allreduce-forcesharp.sbatch # NCCL all-reduce, NVLS/SHARP required (NCCL_ALGO=NVLS)
+│       ├── alltoall.sbatch            # NCCL all-to-all, NVLink scope
+│       ├── allreduce-nonvlink.sbatch  # NCCL all-reduce over the HCAs (NVLink excluded)
+│       ├── alltoall-nonvlink.sbatch   # NCCL all-to-all over the HCAs (NVLink excluded)
+│       ├── mnubergemm.sbatch          # GPU burn-in, steady load (single node per the plan)
+│       └── nccl-hca.sh                # Compute-plane HCA discovery, drops the NVSwitch HCA and bond0
 │   ├── b300-spx/                  # GB300 NVL72, Spectrum-X (RoCEv2) fabric; pair with PARSERS=spectrum-x
 │       ├── dcgmi-r1.sbatch            # DCGM diagnostics (level 1, quick gate)
 │       ├── dcgmi-r2.sbatch            # DCGM diagnostics (level 2, TTM gate)
