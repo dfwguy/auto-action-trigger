@@ -8,12 +8,23 @@ the page that carries its reasoning.
 |------|------------|
 | `SETTINGS.default` | Ships with the framework. Tracked in git, replaced by every tarball drop. |
 | `SETTINGS` | The site's own copy. Git-ignored, never written by an upgrade. |
+| `SETTINGS_HOME.default` | Ships with the framework. Names where `SETTINGS`/`SETTINGS.default` actually live — `/cluster/bringup-data/SETTINGS` by default, so a site that never touches this file still keeps `SETTINGS` out of the tree. |
+| `SETTINGS_HOME` | The site's own copy, naming a different path. Git-ignored, never written by an upgrade. |
 
 `settings.sh` reads `SETTINGS` if it exists, and `SETTINGS.default` if it does
-not. They are not layered — a site's `SETTINGS` is the whole answer.
+not, at whichever location `SETTINGS_HOME`/`SETTINGS_HOME.default` names. They
+are not layered — a site's `SETTINGS` is the whole answer.
 
 ```bash
-cp SETTINGS.default SETTINGS
+mkdir -p /cluster/bringup-data
+cp SETTINGS.default /cluster/bringup-data/SETTINGS
+```
+
+Relocating it further — off `/cluster/bringup-data` entirely — is the same
+one-line override, one level up:
+
+```bash
+echo /srv/site-config/SETTINGS > SETTINGS_HOME
 ```
 
 What *is* layered is the defaults inside `settings.sh`: any key a settings file
@@ -32,21 +43,34 @@ empty — is not.
 
 ## Reading them from a script
 
-`settings.sh` is sourced, never run. It takes the bringup root from
-`SETTINGS_HOME`, or from `home`, or failing both from its own location:
+`settings.sh` is sourced, never run. It takes `home` (the tree root) from
+whatever the caller set, or failing that from its own location:
 
 ```bash
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
 ```
 
+Where `SETTINGS` is actually *read from* is a separate question from where the
+tree is, resolved in order: the `SETTINGS_HOME` environment variable (the test
+suites only — treated as a directory, same two-file lookup as below), else
+whichever of `$home/SETTINGS_HOME` or `$home/SETTINGS_HOME.default` exists,
+read as the exact path to the real `SETTINGS` file; falling back to
+`$home/SETTINGS`/`$home/SETTINGS.default` directly only if that pointer is
+missing or names a file that is not there. `JOBS_DIR`, `HEALTHCHECKS_DIR` and
+`PARSERS_DIR` always derive from `home`, never from wherever `SETTINGS` was
+found — `jobs/`, `health-checks/` and `parsers/` live in the tree regardless of
+where a site puts its config.
+
 Afterwards `SETTINGS_FILE` holds the path that was actually read, or is empty if
-neither file was found. Nothing treats an empty one as fatal, because the
-defaults inside `settings.sh` are a complete working configuration on their own.
-The agent and its three steps are the exception in one respect only: they treat
-a missing `settings.sh` as fatal, because a defaulted empty benchmark or check
-list reads as "everything passing" on every node. They resolve their own
-location like everything else.
+none was found. Nothing treats an empty one as fatal, because the defaults
+inside `settings.sh` are a complete working configuration on their own.
+`agent/install-agent.sh` is the one place that does treat it as worth failing
+over — see
+[how-to/arm-a-node.md#armed-with-no-settings](../how-to/arm-a-node.md#armed-with-no-settings).
+The agent and its three steps treat a missing `settings.sh` itself as fatal,
+because a defaulted empty benchmark or check list reads as "everything
+passing" on every node. They resolve their own location like everything else.
 
 ## Which set of things to run
 

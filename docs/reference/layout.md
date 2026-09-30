@@ -23,6 +23,7 @@ pieces fit together this way is
 │   └── file_copy.sh               # Rsync containers to /tmp on each node (silent no-op if none)
 │
 ├── SETTINGS.default               # Shipped configuration; copy to SETTINGS to change anything
+├── SETTINGS_HOME.default          # Where SETTINGS lives; copy to SETTINGS_HOME to relocate it
 ├── settings.sh                    # Loads SETTINGS, else SETTINGS.default; backfills unset keys
 ├── priv.sh                        # The one place a command needing root is run from a cycle that is not
 ├── fanout.sh                      # The one place a command is run on more than one node: clush, else pdsh
@@ -173,6 +174,13 @@ They cannot read `BRINGUP_HOME` to find themselves, because that setting lives
 in the file they are trying to locate. `AGENT_HOME`, `LAUNCH_JOB_HOME`,
 `NODE_HEALTH_HOME` and `FILE_COPY_HOME` override the derivation; only the test
 suites set them.
+
+`SETTINGS` itself is not necessarily in the tree either, by default: a small
+pointer at the tree root, `SETTINGS_HOME`/`SETTINGS_HOME.default`, names where
+the real `SETTINGS` lives — `$BRINGUP_DATA/SETTINGS` as shipped. Resolving the
+pointer still only needs `home`, never `BRINGUP_HOME`, so the same bootstrap
+constraint holds. See
+[settings.md#reading-them-from-a-script](settings.md#reading-them-from-a-script).
 
 `agent/install-agent.sh` is the one place a path is written into something
 outside the tree: it substitutes its own location for `@BRINGUP_HOME@` in the

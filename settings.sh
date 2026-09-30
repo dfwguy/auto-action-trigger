@@ -7,13 +7,38 @@
 # the path that was read, or empty if neither was found -- not fatal, since the
 # defaults below are a complete working configuration on their own.
 
-_settings_home="${SETTINGS_HOME:-${home:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}}"
+## Tree root, unconditional -- JOBS_DIR/HEALTHCHECKS_DIR/PARSERS_DIR below
+## always derive from this, never from wherever SETTINGS was found.
+home="${home:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
 SETTINGS_FILE=""
-if [[ -f "$_settings_home/SETTINGS" ]]; then
-    SETTINGS_FILE="$_settings_home/SETTINGS"
-elif [[ -f "$_settings_home/SETTINGS.default" ]]; then
-    SETTINGS_FILE="$_settings_home/SETTINGS.default"
+site_override=0
+if [[ -n "${SETTINGS_HOME:-}" ]]; then
+    ## Existing override, unchanged: a directory, same two-file lookup as
+    ## always. The test suites are the only callers.
+    site_override=1
+    [[ -f "$SETTINGS_HOME/SETTINGS" ]] && SETTINGS_FILE="$SETTINGS_HOME/SETTINGS"
+    [[ -z "$SETTINGS_FILE" && -f "$SETTINGS_HOME/SETTINGS.default" ]] &&
+        SETTINGS_FILE="$SETTINGS_HOME/SETTINGS.default"
+elif [[ -f "$home/SETTINGS_HOME" ]]; then
+    ## A site's own pointer, not the shipped default -- naming nothing real
+    ## is a misconfiguration to report, not a reason to fall back quietly.
+    site_override=1
+    candidate=$(grep -vE '^[[:space:]]*(#|$)' "$home/SETTINGS_HOME" | head -1)
+    [[ -f "$candidate" ]] && SETTINGS_FILE="$candidate"
+elif [[ -f "$home/SETTINGS_HOME.default" ]]; then
+    candidate=$(grep -vE '^[[:space:]]*(#|$)' "$home/SETTINGS_HOME.default" | head -1)
+    [[ -f "$candidate" ]] && SETTINGS_FILE="$candidate"
+fi
+## Only when nothing above named a specific intent: no override at all, or
+## the shipped default pointer not populated yet -- same as SETTINGS.default
+## always being the safety net when a site has not written SETTINGS itself.
+if [[ -z "$SETTINGS_FILE" && "$site_override" -eq 0 ]]; then
+    if [[ -f "$home/SETTINGS" ]]; then
+        SETTINGS_FILE="$home/SETTINGS"
+    elif [[ -f "$home/SETTINGS.default" ]]; then
+        SETTINGS_FILE="$home/SETTINGS.default"
+    fi
 fi
 
 # shellcheck source=/dev/null
@@ -213,16 +238,17 @@ fi
 : "${LLMB_HF=}"
 
 ## The only place these paths are built; no caller should rebuild them by hand.
+## Always under the tree root, never wherever SETTINGS was actually read from.
 ## See docs/reference/settings.md#which-set-of-things-to-run.
 ##
 ## SC2034: read by the scripts that source this file, which shellcheck cannot
 ## see from here. Repeated because it covers only the next assignment.
 # shellcheck disable=SC2034
-JOBS_DIR="$_settings_home/jobs/$JOBS"
+JOBS_DIR="$home/jobs/$JOBS"
 # shellcheck disable=SC2034
-HEALTHCHECKS_DIR="$_settings_home/health-checks/$HEALTHCHECKS"
+HEALTHCHECKS_DIR="$home/health-checks/$HEALTHCHECKS"
 # shellcheck disable=SC2034
-PARSERS_DIR="$_settings_home/parsers/$PARSERS"
+PARSERS_DIR="$home/parsers/$PARSERS"
 
 ## Read a yes/no setting. Anything not affirmative is off, including a typo and
 ## including empty. See docs/reference/settings.md#drains.
