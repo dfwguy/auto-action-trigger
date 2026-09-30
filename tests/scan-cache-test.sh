@@ -29,6 +29,15 @@ cp -a "$home" "$tmp/tree" || exit 1
 tree="$tmp/tree"
 rm -rf "$tree/results"
 mkdir -p "$tree/results"
+## Keep results/ inside this copy rather than the real /cluster/bringup-data
+## default -- whichever file settings.sh actually reads. Appended after
+## SETTINGS.default's own RESULTS_DIR=$BRINGUP_DATA/results line, so overriding
+## BRINGUP_DATA alone would not cascade; RESULTS_DIR is set directly instead.
+if [[ -f "$tree/SETTINGS" ]]; then
+    printf 'RESULTS_DIR=%s/results\n' "$tree" >> "$tree/SETTINGS"
+else
+    printf 'RESULTS_DIR=%s/results\n' "$tree" >> "$tree/SETTINGS.default"
+fi
 
 ## Four is enough: one node changing while three do not is the whole shape.
 F="$home/tests/fixtures"

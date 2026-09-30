@@ -43,6 +43,7 @@ cp "$home/agent/node-agent.sh" "$tree/agent/"
 cat > "$tree/SETTINGS" <<EOF
 JOB_USER=$(id -un)
 BRINGUP_HOME=$tree
+BRINGUP_DATA=$tree
 GET_OUT_OF_THE_WAY=no
 EOF
 

@@ -107,6 +107,7 @@ printf 'bad\n' > "$work/logs/node02/bios"
 printf 'bad\n' > "$work/logs/node03/bios"
 
 cd "$work" || exit 1
+export BRINGUP_DATA="$work"
 
 ## Ungrouped: clubak is not installable in CI, and what this suite asserts is
 ## the content of each line rather than how the grouping tool folds them. The

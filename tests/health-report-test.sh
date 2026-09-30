@@ -99,7 +99,7 @@ done
 EOF
 chmod 755 "$work/bin/scontrol"
 
-run() { ( cd "$work" && PATH="$work/bin:$PATH" COLUMNS=100 bash health-check.sh "$@" 2>&1 ); }
+run() { ( cd "$work" && PATH="$work/bin:$PATH" COLUMNS=100 BRINGUP_DATA="$work" bash health-check.sh "$@" 2>&1 ); }
 
 ## ── The default report ────────────────────────────────────────────────────
 

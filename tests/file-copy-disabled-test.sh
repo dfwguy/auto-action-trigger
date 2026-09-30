@@ -7,7 +7,7 @@ trap 'rm -rf -- "$work"' EXIT
 mkdir -p "$work/tree/actions" "$work/runtime"
 cp "$repo/actions/file_copy.sh" "$repo/settings.sh" "$work/tree/"
 mv "$work/tree/file_copy.sh" "$work/tree/actions/file_copy.sh"
-printf 'RUN_CONTAINER_COPY=no\n' > "$work/tree/SETTINGS"
+printf 'RUN_CONTAINER_COPY=no\nBRINGUP_DATA=%s\n' "$work/tree" > "$work/tree/SETTINGS"
 
 run() {
     HOSTNAME=node01 FILE_COPY_HOME="$work/tree" XDG_RUNTIME_DIR="$work/runtime" \
@@ -24,11 +24,11 @@ second=$(stat -c %Y "$work/tree/results/node01/copy.log")
 [[ "$first" == "$second" ]] || { echo 'disabled cycle rewrote the shared trace' >&2; exit 1; }
 [[ "$(wc -l < "$work/tree/results/node01/copy.log")" -eq 1 ]] || { echo 'disabled state was logged more than once' >&2; exit 1; }
 
-printf 'RUN_CONTAINER_COPY=yes\n' > "$work/tree/SETTINGS"
+printf 'RUN_CONTAINER_COPY=yes\nBRINGUP_DATA=%s\n' "$work/tree" > "$work/tree/SETTINGS"
 run
 [[ ! -e "$marker" ]] || { echo 'enabling copies did not clear the log suppression marker' >&2; exit 1; }
 
-printf 'RUN_CONTAINER_COPY=no\n' > "$work/tree/SETTINGS"
+printf 'RUN_CONTAINER_COPY=no\nBRINGUP_DATA=%s\n' "$work/tree" > "$work/tree/SETTINGS"
 run
 [[ "$(grep -c 'RUN_CONTAINER_COPY=no' "$work/tree/results/node01/copy.log")" -eq 2 ]] || {
     echo 'a new disabled period was not logged' >&2

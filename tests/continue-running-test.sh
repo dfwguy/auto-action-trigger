@@ -132,6 +132,7 @@ base_settings() {
 JOBS=nvl72
 HEALTHCHECKS=nvl72
 PARSERS=nvl72
+BRINGUP_DATA=$tree
 BENCHMARKS=""
 BURNIN=""
 RUN_BURNIN=no

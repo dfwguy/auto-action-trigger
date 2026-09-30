@@ -93,6 +93,7 @@ cp "$home/agent/supervisor.sh" "$tree/agent/"
 cat > "$tree/SETTINGS" <<EOF
 JOB_USER=$(id -un)
 BRINGUP_HOME=$tree
+BRINGUP_DATA=$tree
 HEARTBEAT_STALE_MINUTES=10
 ARM_RETRY_MINUTES=10
 ARM_MAX_ATTEMPTS=3

@@ -101,6 +101,7 @@ cat > "$tree/SETTINGS" <<EOF
 JOBS=nvl72
 HEALTHCHECKS=nvl72
 PARSERS=nvl72
+BRINGUP_DATA=$tree
 BENCHMARKS="probe"
 NODE_FILTER=""
 RUN_BURNIN=no
@@ -162,6 +163,7 @@ run_launch() {
     local name="$1" flag="$2"
     CASE_DIR="$work/case-$((pass + fail))"
     cp -r "$tree" "$CASE_DIR"
+    sed -i "s#^BRINGUP_DATA=.*#BRINGUP_DATA=$CASE_DIR#" "$CASE_DIR/SETTINGS"
     logs="$CASE_DIR/results/$NODE"
     eval "$setup"
     write_view
