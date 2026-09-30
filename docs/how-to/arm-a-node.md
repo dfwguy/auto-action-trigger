@@ -164,6 +164,7 @@ the node in its summary line rather than sshing at it for ever. What
 | `FAILED: systemctl --user enable --now …` | no user session bus, from some cause other than the one above — install-agent.sh now stops before reaching this call when lingering was the cause. Check it directly |
 | `FAILED: bringup-agent.timer active, next elapse never` | the manager is still holding a monotonic unit — it has a `TimersMonotonic=` and no calendar one. See [Armed, but never heartbeats](#armed-but-never-heartbeats) |
 | `FAILED: cannot write …/.heartbeat` | `results/<node>` is not writable by `cmods`. `sudo chown -R cmods:cmods /cluster/bringup-data/results` |
+| `FAILED: SETTINGS_HOME resolves nowhere readable` | the node cycles on `settings.sh`'s coded defaults, not this site's. See [Armed, with no settings](#armed-with-no-settings) |
 | `Unit file … is masked` | a zero-length unit, left by two hosts racing on a shared `$HOME` before the temp file was made unique. Re-run `install-agent.sh`, which replaces an empty unit and unmasks it |
 | armed, but `agent.log` says `scontrol is not on PATH` | the unit is not reaching whatever puts the Slurm tools on `PATH`. Both units run `/bin/bash -lc` for this; a unit installed before that ran the script directly, so re-run `install-agent.sh`. See [run-slurm-commands-remotely.md](run-slurm-commands-remotely.md) |
 | `WARNING: sudo would refuse: …` | armed, and the health checks will not run. The sudoers drop-in is missing |
@@ -271,6 +272,31 @@ To let the watchdog try again once the cause is fixed, rather than waiting out
 ```bash
 rm /cluster/bringup-data/results/<node>/arm.log
 ```
+
+## Armed, with no settings
+
+The install reports `FAILED: SETTINGS_HOME resolves nowhere readable`. The
+node still cycles — `settings.sh`'s own coded defaults are a complete working
+configuration on their own — but on the framework's defaults, not this site's,
+which is the same silent-success-with-the-wrong-answer shape as an unwritten
+heartbeat: nothing crashes, the node just runs the wrong `BENCHMARKS` against
+the wrong `HEALTHCHECKS` until someone happens to look closely at a report.
+
+`settings.sh` resolves `SETTINGS_HOME` in order: the `SETTINGS_HOME`
+environment variable (test suites only), then whichever of
+`$BRINGUP_HOME/SETTINGS_HOME` or `$BRINGUP_HOME/SETTINGS_HOME.default` exists,
+read as the exact path to the real `SETTINGS` file — falling back to
+`$BRINGUP_HOME/SETTINGS`/`SETTINGS.default` only if that pointer is missing or
+names a file that is not there. See
+[reference/settings.md#accounts-and-paths](../reference/settings.md#accounts-and-paths).
+
+```bash
+cat /cluster/bringup/SETTINGS_HOME 2>/dev/null || cat /cluster/bringup/SETTINGS_HOME.default
+```
+
+The usual cause is a `SETTINGS_HOME` file that names a path the pointer was
+never actually populated at — `cp SETTINGS.default SETTINGS` still has to run
+at wherever that path is, same as any other deployment.
 
 ## When the role is wrong
 

@@ -154,5 +154,46 @@ else
     ok "stopped before the systemctl --user calls that cannot work here"
 fi
 
+echo "== SETTINGS_HOME resolving nowhere is caught, not silently defaulted =="
+
+## A pointer that names a file nobody ever created. settings.sh falls through
+## to coded defaults rather than failing -- JOB_USER exported so the run gets
+## past the earlier account-match gate on that same coded default, and
+## reaches the check this case is actually about.
+## See docs/how-to/arm-a-node.md#armed-with-no-settings.
+echo "$work/nowhere/SETTINGS" > "$tree/SETTINGS_HOME"
+me=$(id -un)
+out=$(
+    export PATH="$stub:$PATH" HOME="$work/home" HOSTNAME=testhost \
+           AGENT_HOME="$tree" XDG_RUNTIME_DIR="$work" JOB_USER="$me" \
+           STUB_SHOW='NextElapseUSecRealtime=1799999999000000
+NextElapseUSecMonotonic=infinity
+TimersCalendar={ OnCalendar=*:0/2 ; next_elapse=n/a }
+TimersMonotonic='
+    "$tree/agent/install-agent.sh" --node 2>&1
+)
+if grep -q 'FAILED: SETTINGS_HOME resolves nowhere readable' <<< "$out"; then
+    ok "named the unreadable pointer rather than cycling on coded defaults silently"
+else
+    bad "a pointer to nothing was not caught: $out"
+fi
+rm -f "$tree/SETTINGS_HOME"
+
+echo "== a resolving SETTINGS_HOME is not reported as a fault =="
+
+echo "$tree/SETTINGS" > "$tree/SETTINGS_HOME"
+out=$(run_arm 'NextElapseUSecRealtime=1799999999000000
+NextElapseUSecMonotonic=infinity
+TimersCalendar={ OnCalendar=*:0/2 ; next_elapse=n/a }
+TimersMonotonic=')
+if grep -q "ok: reading settings from $tree/SETTINGS" <<< "$out"; then
+    ok "named the resolved file"
+elif grep -q 'FAILED: SETTINGS_HOME resolves nowhere' <<< "$out"; then
+    bad "a pointer that resolves was reported as broken: $out"
+else
+    bad "no verdict on SETTINGS_FILE at all: $out"
+fi
+rm -f "$tree/SETTINGS_HOME"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

@@ -269,6 +269,15 @@ fi
 ## writes a heartbeat is the failure with no symptom -- the watchdog re-arms it,
 ## the install succeeds again, and nothing anywhere says why.
 ## See docs/how-to/arm-a-node.md#armed-but-never-heartbeats.
+
+## Resolved by the source above; nowhere readable still cycles, on coded
+## defaults. See docs/how-to/arm-a-node.md#armed-with-no-settings.
+if [[ -z "$SETTINGS_FILE" ]]; then
+    fail "SETTINGS_HOME resolves nowhere readable -- cycling on settings.sh's coded defaults, not this site's. docs/how-to/arm-a-node.md#armed-with-no-settings"
+else
+    ok "reading settings from $SETTINGS_FILE"
+fi
+
 if ! systemctl --user is-active --quiet "$unit.timer" 2>/dev/null; then
     fail "$unit.timer is not active after enabling it. docs/how-to/arm-a-node.md#armed-but-never-heartbeats"
 else
