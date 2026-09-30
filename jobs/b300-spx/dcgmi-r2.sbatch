@@ -10,7 +10,7 @@
 #SBATCH --nice=2
 ## Matches the -r level, so the gates run in order; ahead of the sweep they gate,
 ## behind a hand-submitted job, which defaults to 0. See docs/reference/jobs.md#queue-priority.
-##SBATCH -o <BRINGUP_HOME>/results/%N/dcgmi-r2.txt
+##SBATCH -o <RESULTS_DIR>/%N/dcgmi-r2.txt
 
 ## DCGM diagnostics at run level 2. The four dcgmi-r* jobs differ only in the
 ## -r level and the time that level needs. See docs/reference/jobs.md#the-dcgmi-gates.

@@ -9,7 +9,7 @@
 #SBATCH --nice=20
 ## The sweep's tier: higher is later, behind the dcgmi gates at 0 and ahead of
 ## burn-in at 100000. See docs/reference/jobs.md#queue-priority.
-##SBATCH -o <BRINGUP_HOME>/results/%N/alltoall.txt
+##SBATCH -o <RESULTS_DIR>/%N/alltoall.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
 ## implies --exact. See docs/reference/jobs.md#the-allocation-header.

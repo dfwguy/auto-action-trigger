@@ -10,7 +10,7 @@
 #SBATCH --nice=20
 ## --nice 20 is the sweep's tier; higher is LATER. See
 ## docs/reference/jobs.md#queue-priority.
-##SBATCH -o <BRINGUP_HOME>/results/%N/llm-pretrain.txt
+##SBATCH -o <RESULTS_DIR>/%N/llm-pretrain.txt
 
 ## Llama 3.1 8B FP8, four-way data parallel across the tray -- the recipe
 ## llmb-run submits, frozen. Every value below was captured from a real

@@ -8,7 +8,7 @@
 #SBATCH -t 0:40:00
 #SBATCH --nice=20
 ## 20 is the sweep's tier; higher is later. See docs/reference/jobs.md#queue-priority.
-##SBATCH -o <BRINGUP_HOME>/results/%N/nvbandwidth.txt
+##SBATCH -o <RESULTS_DIR>/%N/nvbandwidth.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
 ## implies --exact. See docs/reference/jobs.md#the-allocation-header.

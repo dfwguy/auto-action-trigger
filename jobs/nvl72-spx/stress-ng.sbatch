@@ -7,7 +7,7 @@
 #SBATCH -t 2:10:00
 #SBATCH --nice=20
 ## nice=20 is the sweep's tier. See docs/reference/jobs.md#queue-priority.
-##SBATCH -o <BRINGUP_HOME>/results/%N/stress-ng.txt
+##SBATCH -o <RESULTS_DIR>/%N/stress-ng.txt
 
 ## No --gres: never touches a GPU. --mem=0 is not implied by --exclusive and
 ## `--vm-bytes 8G` needs it; no --cpus-per-task, it implies --exact and would
