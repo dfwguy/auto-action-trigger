@@ -25,7 +25,7 @@ home="${FILE_COPY_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 ## Read for the PAUSE/CONTAINER settings, but a missing settings.sh is not
 ## fatal here as it is in the other two steps: it costs a cache warm.
 [[ -f "$home/settings.sh" ]] && source "$home/settings.sh"
-src="${CONTAINER_DIR:-$home/containers}"
+src="${CONTAINER_DIR:-/cluster/bringup-data/containers}"
 dst="${NODE_CONTAINER_DIR:-/opt/containers}"
 
 EXPLAIN=0
