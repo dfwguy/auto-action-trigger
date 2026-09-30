@@ -166,6 +166,17 @@ a copy pasted into any directory still cancels correctly, and one that cannot
 find a tree cancels anyway, reports why the pause did not happen, and exits
 non-zero.
 
+### The pause follows SETTINGS_HOME
+
+`kill-jobs.sh` does not source `settings.sh` — it is meant to be pasted into
+other teams' checkouts standalone — so it carries its own copy of the
+`SETTINGS_HOME`/`SETTINGS_HOME.default` lookup
+([settings.md#reading-them-from-a-script](../reference/settings.md#reading-them-from-a-script))
+rather than hardcoding `SETTINGS` beside itself. Writing `RUN_JOBS=no`
+anywhere else would pause a file nothing reads while the fleet kept
+submitting, so a site's own `SETTINGS_HOME` naming a file that is not there
+refuses with that reason rather than guessing.
+
 To do it by hand instead:
 
 ```bash

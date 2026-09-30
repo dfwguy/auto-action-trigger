@@ -49,8 +49,28 @@ self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 home=""
 for cand in "$self_dir" "${BRINGUP_HOME:-}"; do
     [[ -n "$cand" ]] || continue
-    [[ -f "$cand/SETTINGS" || -f "$cand/SETTINGS.default" ]] && { home="$cand"; break; }
+    [[ -f "$cand/SETTINGS" || -f "$cand/SETTINGS.default" ||
+       -f "$cand/SETTINGS_HOME" || -f "$cand/SETTINGS_HOME.default" ]] &&
+        { home="$cand"; break; }
 done
+
+## Same pointer settings.sh uses, duplicated rather than sourced since this
+## script is pasted standalone. See docs/how-to/pause-and-resume.md#the-pause-follows-settings_home.
+settings=""
+settings_broken=""
+if [[ -n "$home" ]]; then
+    pointer="$home/SETTINGS_HOME"
+    [[ -f "$pointer" ]] || pointer="$home/SETTINGS_HOME.default"
+    if [[ -f "$pointer" ]]; then
+        candidate=$(grep -vE '^[[:space:]]*(#|$)' "$pointer" | head -1)
+        if [[ -f "$candidate" ]]; then
+            settings="$candidate"
+        elif [[ "$pointer" == "$home/SETTINGS_HOME" ]]; then
+            settings_broken="$pointer names $candidate, which is not there"
+        fi
+    fi
+    [[ -n "$settings" || -n "$settings_broken" ]] || settings="$home/SETTINGS"
+fi
 
 pause=0
 dryrun=0
@@ -98,16 +118,19 @@ node_selected() {
 ## a cycle landing in between would resubmit what this is clearing.
 pause_failed=""
 if [[ "$pause" -eq 1 && "$dryrun" -eq 1 ]]; then
-    if [[ -n "$home" ]]; then
-        echo "WOULD SET RUN_JOBS=no in $home/SETTINGS$([[ -f "$home/SETTINGS" ]] || printf ', created from SETTINGS.default')"
+    if [[ -n "$settings_broken" ]]; then
+        echo "WOULD NOT PAUSE: $settings_broken"
+    elif [[ -n "$settings" ]]; then
+        echo "WOULD SET RUN_JOBS=no in $settings$([[ -f "$settings" ]] || printf ', created from SETTINGS.default')"
     else
         echo "WOULD NOT PAUSE: no SETTINGS or SETTINGS.default beside $self_dir${BRINGUP_HOME:+ or at $BRINGUP_HOME}"
     fi
 elif [[ "$pause" -eq 1 ]]; then
-    if [[ -z "$home" ]]; then
+    if [[ -n "$settings_broken" ]]; then
+        pause_failed="$settings_broken"
+    elif [[ -z "$settings" ]]; then
         pause_failed="no SETTINGS or SETTINGS.default beside $self_dir${BRINGUP_HOME:+ or at $BRINGUP_HOME} -- set BRINGUP_HOME to the deployed tree"
     else
-        settings="$home/SETTINGS"
         if [[ ! -f "$settings" ]]; then
             if cp "$home/SETTINGS.default" "$settings"; then
                 echo "Created $settings from SETTINGS.default"
