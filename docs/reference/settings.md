@@ -54,7 +54,7 @@ location like everything else.
 |---------|---------|-----------|----------|
 | `JOBS` | `nvl72` | `jobs/$JOBS/` | The `.sbatch` files `launch_job.sh` submits — see [reference/jobs.md](jobs.md) |
 | `HEALTHCHECKS` | `nvl72` | `health-checks/$HEALTHCHECKS/` | One file per check, run by `node_health.sh` — see [reference/health-checks.md](health-checks.md) |
-| `PARSERS` | `nvl72` | `parsers/$PARSERS/` | `verdict.sh`: the pass/fail rule and the bandwidth floors |
+| `PARSERS` | `nvl72` | `parsers/$PARSERS/` | `verdict.sh`: the pass/fail rule and the bandwidth floors. `spectrum-x` also ships, for RoCEv2 fabrics whose NCCL plugin reports `SPCX` rather than `IB` -- see [explanation/judging-benchmarks.md#the-plugin-name-is-a-property-of-the-fabric](../explanation/judging-benchmarks.md#the-plugin-name-is-a-property-of-the-fabric) |
 
 Each is a directory *name*, never a path. `settings.sh` joins each to the
 bringup root and leaves `JOBS_DIR`, `HEALTHCHECKS_DIR` and `PARSERS_DIR` set;

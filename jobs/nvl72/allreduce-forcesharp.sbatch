@@ -80,14 +80,6 @@ srun --time="$STEP_TIMELIMIT" --mpi=pmix --export=ALL --cpu-bind=none --mem-bind
                 --container-image="${CONT}" \
                 all_reduce_perf_mpi -b 8 -e 16G -f 2 -g 1
 rc=$?
-#                --dat /hpldat/hpl${SLURM_NNODES}N.dat
-#                --mem-affinity 0:0:1:1 \
-#                --cpu-affinity 0-35:36-71:72-107:108-143 \
-#                --gpu-affinity 0:1:2:3
-#		--ucx-affinity roce_r0:roce_r1:roce_r2:roce_r3
-
-#srun --ntasks-per-node=1 nvidia-smi -pl 2500 -sc 1
-#srun --ntasks-per-node=1 ./set-cpufreq.sh 3400000
 
 
 ## ------------- parse info starts here ----------- ##

@@ -1,0 +1,35 @@
+preflight: br-msp2-b300-td1-su1-01 gpus=8 cores=344/344
+INFO: host /sys/class/infiniband: mlx5_0 mlx5_1 mlx5_2 mlx5_3 mlx5_bond_0 roce_p0_rail0 roce_p0_rail1
+INFO: forcing collectives over HCAs: roce_p0_rail0,roce_p0_rail1,roce_p0_rail2,roce_p0_rail3
+INFO: container NCCL_IB_HCA: roce_p0_rail0,roce_p0_rail1,roce_p0_rail2,roce_p0_rail3
+INFO: container sees HCAs (via ibv_devinfo): roce_p0_rail4 roce_p1_rail4 roce_p0_rail5 roce_p1_rail5 mlx5_0
+# nccl-tests version 2.17.8 nccl-headers=22902 nccl-library=22902
+# Collective test starting: all_reduce_perf_mpi
+#
+# Using devices
+#  Rank  0 Group  0 Pid 1329667 on br-msp2-b300-td1-su1-01 device  0 [0000:1a:00] NVIDIA B300 SXM6 AC
+br-msp2-b300-td1-su1-01:1329667:1329667 [0] NCCL INFO NCCL_NET_PLUGIN set by environment to /opt/hpcx/nccl_spectrum-x_plugin/lib/libnccl-net-spcx.so
+br-msp2-b300-td1-su1-01:1329667:1329667 [0] NCCL INFO NET/Plugin: Loaded net plugin SPCX (v11)
+br-msp2-b300-td1-su1-01:1329667:1329667 [0] NCCL INFO Successfully loaded external network plugin /opt/hpcx/nccl_spectrum-x_plugin/lib/libnccl-net-spcx.so
+br-msp2-b300-td1-su1-01:1329667:1329667 [0] NCCL INFO NET/IB : Using [0]roce_p0_rail4:1/RoCE [1]roce_p1_rail4:1/RoCE [RO]; OOB bond0:10.4.7.11<0>
+br-msp2-b300-td1-su1-01:1329667:1329667 [0] NCCL INFO Initialized NET plugin SPCX
+br-msp2-b300-td1-su1-01:1329667:1329667 [0] NCCL INFO Assigned NET plugin SPCX to comm
+br-msp2-b300-td1-su1-01:1329667:1329667 [0] NCCL INFO Using network SPCX
+br-msp2-b300-td1-su1-01:1329667:1329667 [0] NCCL INFO Channel 02/0 : 0[0] -> 1[1] [send] via NET/SPCX/16/GDRDMA
+br-msp2-b300-td1-su1-01:1329667:1329667 [0] NCCL INFO Channel 00/0 : 4[4] -> 0[0] [receive] via NET/SPCX/16/GDRDMA
+#
+#                                                              out-of-place                       in-place
+#       size         count      type   redop    root     time   algbw   busbw  #wrong     time   algbw   busbw  #wrong
+         512           128     float     sum      -1    55.62    0.01    0.02       0    54.81    0.01    0.02       0
+    67108864      16777216     float     sum      -1  1313.55   51.09   89.41       0  1311.35   51.18   89.56       0
+   536870912     134217728     float     sum      -1  10102.9   53.14   93.00       0  10111.3   53.10   92.92       0
+ 17179869184    4294967296     float     sum      -1   318411   53.96   45.10       0   318471   53.94   45.02       0
+br-msp2-b300-td1-su1-01:1329667:1329667 [0] NCCL INFO comm 0x55555d039a50 rank 0 nranks 8 cudaDev 0 busId 1a000 - Destroy COMPLETE
+br-msp2-b300-td1-su1-01:1329667:1329667 [0] NCCL INFO Unloading plugin /opt/hpcx/nccl_spectrum-x_plugin/lib/libnccl-net-spcx.so
+# Out of bounds values : 0 OK
+# Avg bus bandwidth    : 34.3197
+#
+# Collective test concluded: all_reduce_perf_mpi
+#
+exit status: 0
+PENDING

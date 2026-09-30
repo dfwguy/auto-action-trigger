@@ -195,6 +195,21 @@ is ever used. A perfectly healthy single-node NVLink run initialises a net
 plugin for potential inter-node use, finds no IB, falls back to Socket for that
 role, logs all of the above, and then moves every byte over NVLink at 220 GB/s.
 
+## The plugin name is a property of the fabric
+
+`Using network IB` is not what every fabric prints — it is what NCCL's
+InfiniBand net plugin prints, and a site's `-nonvlink` pair only sees it if that
+plugin is the one loaded. A Spectrum-X node (RoCEv2, not IB) loads
+`libnccl-net-spcx.so` instead and logs `Using network SPCX`; requiring the
+literal string `IB` there fails every run regardless of the fabric's health,
+same as it would for a QM9700 site running a different vendor's plugin. The
+fabric-specific string is a `PARSERS` concern, not a bug in the check itself —
+`parsers/spectrum-x/verdict.sh` carries the Spectrum-X gate as its own copy of
+`_v_gate_nccl`'s `ib` branch, per
+[explanation/platform-sets.md](platform-sets.md), rather than a parameter on
+the shared nvl72 one, so a floor change on one fabric can never silently move
+the other's pass rate.
+
 Both halves of this have now been got wrong once. `Using network IB` was
 accepted as proof a run reached the HCAs when it proves nothing of the sort, and
 then `Using network Socket` was rejected as proof a run had fallen to TCP —
