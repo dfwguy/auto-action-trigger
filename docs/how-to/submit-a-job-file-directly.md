@@ -7,8 +7,8 @@ rather than through `launch_job.sh`.
 whether or not `BENCHMARKS` names it, and supplies everything below correctly:
 
 ```bash
-clush -w ink50-dh01-h01-11 '/home/cmods/bringup/actions/launch_job.sh -t hpl -v'
-pdsh -R ssh -w ink50-dh01-h01-11 '/home/cmods/bringup/actions/launch_job.sh -t hpl -v'
+clush -w ink50-dh01-h01-11 '/cluster/bringup/actions/launch_job.sh -t hpl -v'
+pdsh -R ssh -w ink50-dh01-h01-11 '/cluster/bringup/actions/launch_job.sh -t hpl -v'
 ```
 
 It drains nothing, leaves `quick-view.txt` alone, and the result lands where the
@@ -38,7 +38,7 @@ Source `settings.sh` rather than typing paths: it yields the site's own values,
 so this stays correct if the tree, the account or the image share ever moves.
 
 ```bash
-cd /home/cmods/bringup          # or wherever BRINGUP_HOME is
+cd /cluster/bringup          # or wherever BRINGUP_HOME is
 source settings.sh
 
 node=ink50-dh01-h01-11
@@ -46,7 +46,7 @@ job=cublasmatmul
 
 sbatch -w "$node" --nice=0 \
        --export=ALL,BRINGUP_HOME="$BRINGUP_HOME",CONTAINER_DIR="$CONTAINER_DIR" \
-       --output="$BRINGUP_HOME/results/$node/$job.txt" \
+       --output="$RESULTS_DIR/$node/$job.txt" \
        "$JOBS_DIR/$job.sbatch"
 ```
 
@@ -87,7 +87,7 @@ launch_job.sh exports it; a bare sbatch must too
 
 The job exits there, so the result file holds that line and no end marker, and
 the reports show it `INCOMPLETE` — the same as any run that died part-way. That
-is deliberate. These used to carry a hardcoded `/home/cmods/bringup/...`
+is deliberate. These used to carry a hardcoded `/cluster/bringup/...`
 fallback, which was silently wrong for any site that had moved its images or its
 account — the job ran, found no image at the NFS path, and failed later looking
 like something else entirely. Stopping at the missing variable names the actual

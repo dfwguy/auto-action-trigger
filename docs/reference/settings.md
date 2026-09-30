@@ -234,7 +234,7 @@ against — see
 |---------|---------|---------|
 | `HEALTH_INTERVAL_HOURS` | `4` | How long after a **clean** run `node_health.sh` re-runs the checks |
 | `HEALTH_RETRY_INTERVAL_HOURS` | `1` | How long after a run that **found something** it re-runs them |
-| `HEALTH_LOG_DIR` | `$BRINGUP_HOME/logs` | Shared, compute-facing root for per-node check output, cadence state and health trace |
+| `HEALTH_LOG_DIR` | `$BRINGUP_DATA/logs` | Shared, compute-facing root for per-node check output, cadence state and health trace — see [#accounts-and-paths](#accounts-and-paths) |
 
 Whole hours, and `0` on either disables the cadence in the state it applies to —
 the checks then re-run only when `health-check.sh --refresh` sets the sentinel,
@@ -645,14 +645,19 @@ will be dropped.
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `JOB_USER` | `cmods` | The account Slurm jobs are submitted as, and the owner `results/` and `logs/` are handed to |
-| `BRINGUP_HOME` | `/home/$JOB_USER/bringup` | Where this tree lives on the cluster |
+| `JOB_USER` | `cmods` | The account Slurm jobs are submitted as, and the owner `RESULTS_DIR` and `HEALTH_LOG_DIR` are handed to |
+| `BRINGUP_HOME` | `/cluster/bringup` | Where this tree lives on the cluster |
+| `BRINGUP_DATA` | `/cluster/bringup-data` | Where results, logs, container images and the health baseline live — independent of `BRINGUP_HOME`, so the checkout and the data it produces can sit on different filesystems |
 
-`JOB_USER` is the only place the account is named; `BRINGUP_HOME` and the
-optional LLMB capture workspace derive from it, so moving to an automation
-account of its own is one line. Why it is worth
-keeping it that way — and what a hardcoded account broke last time — is
+`JOB_USER` is the only place the account is named; the optional LLMB capture
+workspace derives from it, so moving to an automation account of its own is
+one line. Why it is worth keeping it that way — and what a hardcoded account
+broke last time — is
 [explanation/architecture.md#one-account-name](../explanation/architecture.md#one-account-name).
+
+Neither default writes to `/home`. A site that wants the old layout, or any
+other, overrides `BRINGUP_HOME`/`BRINGUP_DATA` — or any one path below them —
+in its own `SETTINGS`.
 
 The account has to exist on every compute node with a working login shell:
 root's cycles reach it through `su - $JOB_USER -c`, and an operator running a
@@ -666,21 +671,35 @@ location. It is read by the jobs, which cannot, and checked by
 deployed one. See
 [reference/layout.md#runtime-paths](layout.md#runtime-paths).
 
+### Where results, logs and the baseline live
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `RESULTS_DIR` | `$BRINGUP_DATA/results` | Per-node benchmark and agent output — see [layout.md#runtime-paths](layout.md#runtime-paths) |
+| `HEALTH_LOG_DIR` | `$BRINGUP_DATA/logs` | Per-node health check output |
+| `VALID_CONFIG_DIR` | `$BRINGUP_DATA/valid-config` | The health baseline `set-valid-default.sh` writes and every check is judged against |
+
+Each defaults under `BRINGUP_DATA` but is independently overridable — a site
+can put `RESULTS_DIR` on a compute-facing share while leaving `HEALTH_LOG_DIR`
+and `VALID_CONFIG_DIR` at the `BRINGUP_DATA` default, for instance. Clearing
+any of them is safe at any time — see
+[layout.md#result-path-ownership](layout.md#result-path-ownership).
+
 ### Where the images live
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `CONTAINER_DIR` | `$BRINGUP_HOME/containers` | The shared image directory, as the compute nodes mount it |
+| `CONTAINER_DIR` | `$BRINGUP_DATA/containers` | The shared image directory, as the compute nodes mount it |
 | `CONTAINER_DIR_HEAD` | `$CONTAINER_DIR` | The same directory as the head node mounts it |
-| `CONTAINER_STAGE_DIR` | `$BRINGUP_HOME/container-src` | Source staging for `-S`/`-F`/`-B`, as the compute nodes mount it |
+| `CONTAINER_STAGE_DIR` | `$BRINGUP_DATA/container-src` | Source staging for `-S`/`-F`/`-B`, as the compute nodes mount it |
 | `CONTAINER_STAGE_DIR_HEAD` | `$CONTAINER_STAGE_DIR` | The same, as the head node mounts it |
 | `NODE_CONTAINER_DIR` | `/opt/containers` | Node-local cache `file_copy.sh` rsyncs `CONTAINER_DIR` into. `/opt` survives a reboot; change this one line to move it |
 
 Separate from `BRINGUP_HOME` because the images are tens of gigabytes and a
-site's bulk share is usually not the filesystem `/home` is on. Set only the two
-non-`_HEAD` ones unless the head node reaches that share by a different path
-than the nodes do — `/mnt/server-1-data` against `/data`, say — which nothing
-can detect and which fails silently.
+site's bulk share is usually not the filesystem the checkout is on. Set only
+the two non-`_HEAD` ones unless the head node reaches that share by a
+different path than the nodes do — `/mnt/server-1-data` against `/data`, say —
+which nothing can detect and which fails silently.
 [explanation/containers.md#one-share-two-mount-points](../explanation/containers.md#one-share-two-mount-points)
 is the whole argument.
 

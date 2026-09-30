@@ -90,9 +90,9 @@ Four places, and only the first is the one to read:
 
 | What | Where |
 |---|---|
-| One line per cycle, including the quiet ones | `$BRINGUP_HOME/results/supervisor.log` |
-| Its own liveness | `$BRINGUP_HOME/results/.supervisor-heartbeat` — mtime only, and the clock every other age is measured against |
-| What it heard back from one node, per attempt | `$BRINGUP_HOME/results/<node>/arm.log` |
+| One line per cycle, including the quiet ones | `$RESULTS_DIR/supervisor.log` |
+| Its own liveness | `$RESULTS_DIR/.supervisor-heartbeat` — mtime only, and the clock every other age is measured against |
+| What it heard back from one node, per attempt | `$RESULTS_DIR/<node>/arm.log` |
 | Anything it could not write, plus login-shell noise from the unit | the systemd journal |
 
 The unit passes `--quiet`, so a healthy cycle writes to the file and says nothing

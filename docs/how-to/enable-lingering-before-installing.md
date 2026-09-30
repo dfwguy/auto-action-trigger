@@ -48,7 +48,7 @@ turned on: enable it as its own deliberate first step, in its own session,
 ssh cmods@head-node 'loginctl enable-linger cmods'
 # disconnect, then reconnect (or open a second session) before continuing
 ssh cmods@head-node
-bash /home/cmods/bringup/agent/install-agent.sh
+bash /cluster/bringup/agent/install-agent.sh
 ```
 
 — rather than letting the installer discover and enable it for you mid-run.

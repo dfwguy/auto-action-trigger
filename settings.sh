@@ -55,9 +55,6 @@ fi
 ## 0 disables the cadence. See docs/explanation/health-cadence.md.
 : "${HEALTH_INTERVAL_HOURS:=4}"
 : "${HEALTH_RETRY_INTERVAL_HOURS:=1}"
-## Health output can live on a compute-facing share independently of this
-## deployment tree. The historical location remains the default.
-: "${HEALTH_LOG_DIR:=$_settings_home/logs}"
 ## Run and drain switches, all defaulting on (RUN_BURNIN is the one
 ## exception, opt-in) so an empty or unreadable value carries on rather than
 ## stopping the fleet or draining it. See docs/reference/settings.md#run-switches
@@ -184,15 +181,24 @@ fi
 ## The only account name in the tree; the paths derive from it.
 ## See docs/reference/settings.md#accounts-and-paths.
 : "${JOB_USER:=cmods}"
-: "${BRINGUP_HOME:=/home/$JOB_USER/bringup}"
+: "${BRINGUP_HOME:=/cluster/bringup}"
+## Where results, logs, container images and the health baseline live --
+## independent of BRINGUP_HOME so the checkout and the data it produces can
+## sit on different filesystems. See docs/reference/settings.md#accounts-and-paths.
+: "${BRINGUP_DATA:=/cluster/bringup-data}"
+: "${RESULTS_DIR:=$BRINGUP_DATA/results}"
+: "${HEALTH_LOG_DIR:=$BRINGUP_DATA/logs}"
 ## Its own share, and the _HEAD pair is the head node's mount point for it.
 ## See docs/explanation/containers.md#one-share-two-mount-points.
-: "${CONTAINER_DIR:=$BRINGUP_HOME/containers}"
+: "${CONTAINER_DIR:=$BRINGUP_DATA/containers}"
 : "${CONTAINER_DIR_HEAD:=$CONTAINER_DIR}"
-: "${CONTAINER_STAGE_DIR:=$BRINGUP_HOME/container-src}"
+: "${CONTAINER_STAGE_DIR:=$BRINGUP_DATA/container-src}"
 : "${CONTAINER_STAGE_DIR_HEAD:=$CONTAINER_STAGE_DIR}"
 ## Node-local cache file_copy.sh rsyncs CONTAINER_DIR into. See docs/explanation/containers.md#one-share-two-mount-points.
 : "${NODE_CONTAINER_DIR:=/opt/containers}"
+## The health baseline captured by set-valid-default.sh. See
+## docs/reference/settings.md#accounts-and-paths.
+: "${VALID_CONFIG_DIR:=$BRINGUP_DATA/valid-config}"
 : "${LLM_HF_HOME=}"
 ## `=` not `:=`: empty means no llmb install.
 ## See docs/explanation/llmb.md#where-the-install-lives.

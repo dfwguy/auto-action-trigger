@@ -16,7 +16,7 @@ working node and use it throughout:
 
 ```bash
 N=ink50-dh01-h20-11
-cd /home/cmods/bringup
+cd /cluster/bringup
 ```
 
 ## 1. The two timers
@@ -204,8 +204,8 @@ drains nothing and writes nothing but its own trace, so it is safe while the
 timer is live:
 
 ```bash
-clush -w "$N" '/home/cmods/bringup/agent/node-agent.sh --explain'
-pdsh -R ssh -w "$N" '/home/cmods/bringup/agent/node-agent.sh --explain'
+clush -w "$N" '/cluster/bringup/agent/node-agent.sh --explain'
+pdsh -R ssh -w "$N" '/cluster/bringup/agent/node-agent.sh --explain'
 ```
 
 Read that output slowly — it is the clearest single view of the system you will

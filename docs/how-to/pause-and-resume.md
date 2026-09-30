@@ -161,7 +161,7 @@ place, since a tarball drop overwrites it. **Nothing here lifts a pause**: set
 `RUN_JOBS=yes` by hand when the window closes.
 
 The script needs Slurm and nothing else, and finds the tree only for `-p` —
-first beside itself, then at `BRINGUP_HOME` (default `/home/cmods/bringup`). So
+first beside itself, then at `BRINGUP_HOME` (default `/cluster/bringup`). So
 a copy pasted into any directory still cancels correctly, and one that cannot
 find a tree cancels anyway, reports why the pause did not happen, and exits
 non-zero.

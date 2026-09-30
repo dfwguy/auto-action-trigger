@@ -20,7 +20,7 @@ configuration behind them.
 Everything here is **read-only**. Pick a cluster with results on disk:
 
 ```bash
-cd /home/cmods/bringup
+cd /cluster/bringup
 ```
 
 ## The three questions

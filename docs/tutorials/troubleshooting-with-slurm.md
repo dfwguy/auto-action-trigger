@@ -15,7 +15,7 @@ and use it throughout. Substitute it for `$N`:
 
 ```bash
 N=ink50-dh01-h20-11        # a node with results under results/<node>
-cd /home/cmods/bringup
+cd /cluster/bringup
 ```
 
 ## 1. What Slurm thinks of the node

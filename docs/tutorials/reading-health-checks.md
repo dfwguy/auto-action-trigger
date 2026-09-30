@@ -14,7 +14,7 @@ Everything here is **read-only**. Nothing is contacted, nothing is re-run, and
 no drain is set or cleared. Pick a cluster with health logs on disk:
 
 ```bash
-cd /home/cmods/bringup
+cd /cluster/bringup
 ```
 
 ## What the checks are, in one paragraph
@@ -372,8 +372,8 @@ The supported way is `launch_job.sh --test`, because it goes through the same
 gates and writes its result where the reports read it:
 
 ```bash
-clush -w ink50-dh01-h01-11 '/home/cmods/bringup/actions/launch_job.sh -t allreduce -v'
-pdsh -R ssh -w ink50-dh01-h01-11 '/home/cmods/bringup/actions/launch_job.sh -t allreduce -v'
+clush -w ink50-dh01-h01-11 '/cluster/bringup/actions/launch_job.sh -t allreduce -v'
+pdsh -R ssh -w ink50-dh01-h01-11 '/cluster/bringup/actions/launch_job.sh -t allreduce -v'
 ```
 
 `--test` runs that job whether or not `BENCHMARKS` names it, implies `--force`
@@ -385,13 +385,13 @@ For a single repaired node, `hpl` and `cublasmatmul` are the remediation jobs
 meant to be run by hand. Submit one straight from the job directory:
 
 ```bash
-cd /home/cmods/bringup
+cd /cluster/bringup
 source settings.sh
 
 node=ink50-dh01-h01-11
 sbatch -w "$node" --nice=0 \
        --export=ALL,BRINGUP_HOME="$BRINGUP_HOME",CONTAINER_DIR="$CONTAINER_DIR" \
-       --output="$BRINGUP_HOME/results/$node/cublasmatmul.txt" \
+       --output="$RESULTS_DIR/$node/cublasmatmul.txt" \
        "$JOBS_DIR/cublasmatmul.sbatch"
 ```
 

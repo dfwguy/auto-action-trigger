@@ -22,10 +22,10 @@ node's own log.
 
 ```bash
 clush -w 'ink50-dh01-h02-[11,13-18],ink50-dh01-h04-[11-13]' \
-      '/home/cmods/bringup/actions/launch_job.sh -f -v'
+      '/cluster/bringup/actions/launch_job.sh -f -v'
 
 pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18],ink50-dh01-h04-[11-13]' \
-     '/home/cmods/bringup/actions/launch_job.sh -f -v'
+     '/cluster/bringup/actions/launch_job.sh -f -v'
 ```
 
 Every command in these docs that reaches a node goes through `clush` or `pdsh`, never a
@@ -69,8 +69,8 @@ re-queues appear in `quick-view.txt` as `QUEUED  <- re-queued by --all`.
 Combine either with `--explain` to see the batch before committing to it:
 
 ```bash
-clush -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --all --explain'
-pdsh -R ssh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --all --explain'
+clush -w ink50-dh01-h20-11 '/cluster/bringup/actions/launch_job.sh --all --explain'
+pdsh -R ssh -w ink50-dh01-h20-11 '/cluster/bringup/actions/launch_job.sh --all --explain'
 ```
 
 ## Running a job that is not in the list
@@ -82,8 +82,8 @@ the fleet is judged on, and adding a job to it to try it once changes what every
 node is expected to pass and what the daily report calls a hole.
 
 ```bash
-clush -w ink50-dh01-h02-11 '/home/cmods/bringup/actions/launch_job.sh -t ethr -v'
-pdsh -R ssh -w ink50-dh01-h02-11 '/home/cmods/bringup/actions/launch_job.sh -t ethr -v'
+clush -w ink50-dh01-h02-11 '/cluster/bringup/actions/launch_job.sh -t ethr -v'
+pdsh -R ssh -w ink50-dh01-h02-11 '/cluster/bringup/actions/launch_job.sh -t ethr -v'
 ```
 
 The name must have a launcher behind it in `JOBS_DIR` — an `.sbatch`, or a `.sh`
@@ -140,8 +140,8 @@ The health side has the same shape: `actions/node_health.sh` decides about the
 node it runs on and takes no node argument, so a sweep is a `clush` over the nodes.
 
 ```bash
-clush -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/node_health.sh -f -v'
-pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '/home/cmods/bringup/actions/node_health.sh -f -v'
+clush -w 'ink50-dh01-h02-[11,13-18]' '/cluster/bringup/actions/node_health.sh -f -v'
+pdsh -R ssh -w 'ink50-dh01-h02-[11,13-18]' '/cluster/bringup/actions/node_health.sh -f -v'
 ```
 
 | Flag | Does |
