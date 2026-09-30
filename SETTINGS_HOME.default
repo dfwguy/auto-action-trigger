@@ -1,0 +1,4 @@
+## Where settings.sh looks for SETTINGS when nothing overrides it. Copy this
+## to SETTINGS_HOME (gitignored) and edit the copy to put SETTINGS somewhere
+## else -- never edit this file in place; a tarball drop replaces it.
+/cluster/bringup-data/SETTINGS

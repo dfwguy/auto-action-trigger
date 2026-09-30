@@ -7,7 +7,7 @@
 #SBATCH -t 4:10:00
 #SBATCH --nice=20
 ## The sweep's tier; higher is later. See docs/reference/jobs.md#queue-priority.
-##SBATCH -o <BRINGUP_HOME>/results/%N/stream.txt
+##SBATCH -o <RESULTS_DIR>/%N/stream.txt
 
 ## No --gres, this job never touches a GPU. Steps inherit only what was
 ## explicitly requested; no --cpus-per-task, it implies --exact and would shrink

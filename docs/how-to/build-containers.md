@@ -21,7 +21,7 @@ source is a fallback that happens only when `-S` asks for it.
 -A            every image the script knows about (implies -S)
 -f            rebuild even if the .sqsh is already there
 -l            list images and whether they are present, build nothing
--d DIR        write somewhere other than /home/cmods/bringup/containers
+-d DIR        write somewhere other than /cluster/bringup-data/containers
 -a ARCH       arm or x86 -- required for everything except -L and -h
 --no-login    build nvbandwidth or mnubergemm without checking nvcr.io login first
 -F            fetch pass only (headnode); compile nothing   (implies -S)
@@ -64,7 +64,7 @@ and compiles it, which is a much longer run than the downloads.
 - `enroot` on the headnode, and on the compute nodes for the `-B` pass (pyxis
   already depends on it there, so this is a given).
 - `squashfs-tools` for `unsquashfs` on the headnode — optional.
-- Write access to `/home/cmods/bringup/containers/` and `container-src/`.
+- Write access to `/cluster/bringup-data/containers/` and `container-src/`.
 - No docker, anywhere.
 - An NGC API key if pulling from the private org — see below. Needed on the
   machine doing the import only, **never** on a compute node.
@@ -205,7 +205,7 @@ Without credentials, the script prints the command and exits non-zero; obtain
 the image through the internal channel for your platform and run it by hand:
 
 ```bash
-enroot import -o /home/cmods/bringup/containers/mnubergemm-26.03-v1.17-arm.sqsh \
+enroot import -o /cluster/bringup-data/containers/mnubergemm-26.03-v1.17-arm.sqsh \
     docker://nvcr.io#0948245400141054/mnubergemm:tensorrt-26.03-v1.17-arm
 ```
 

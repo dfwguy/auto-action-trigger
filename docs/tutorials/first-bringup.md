@@ -17,13 +17,13 @@ hour, most of it waiting for an image to download.
 
 ## 1. Get the tree onto the cluster
 
-The framework runs from `/home/cmods/bringup/` on the head node, exported over
+The framework runs from `/cluster/bringup/` on the head node, exported over
 NFS to every compute node. A git checkout is a *source* of that tree, never the
 tree itself — copy it into place:
 
 ```bash
-sudo -u cmods cp -a auto-action-trigger/. /home/cmods/bringup/
-cd /home/cmods/bringup
+sudo -u cmods cp -a auto-action-trigger/. /cluster/bringup/
+cd /cluster/bringup
 ```
 
 Check it landed with its permissions intact — the exec bits are load-bearing,
@@ -149,8 +149,8 @@ tail -f results/supervisor.log
 Do not wait for the hourly cadence. Ask the node what it would do:
 
 ```bash
-clush -w <your-node> '/home/cmods/bringup/agent/node-agent.sh --explain'
-pdsh -R ssh -w <your-node> '/home/cmods/bringup/agent/node-agent.sh --explain'
+clush -w <your-node> '/cluster/bringup/agent/node-agent.sh --explain'
+pdsh -R ssh -w <your-node> '/cluster/bringup/agent/node-agent.sh --explain'
 ```
 
 `--explain` prints every gate it evaluates and the `sbatch` command it would
@@ -164,8 +164,8 @@ itself. Fix what it says and re-run; nothing here has side effects.
 When the `WOULD SUBMIT` looks right, do it for real:
 
 ```bash
-clush -w <your-node> '/home/cmods/bringup/actions/launch_job.sh --force -v'
-pdsh -R ssh -w <your-node> '/home/cmods/bringup/actions/launch_job.sh --force -v'
+clush -w <your-node> '/cluster/bringup/actions/launch_job.sh --force -v'
+pdsh -R ssh -w <your-node> '/cluster/bringup/actions/launch_job.sh --force -v'
 squeue -n bringup-<your-node>
 ```
 

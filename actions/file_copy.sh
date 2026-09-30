@@ -25,7 +25,7 @@ home="${FILE_COPY_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 ## Read for the PAUSE/CONTAINER settings, but a missing settings.sh is not
 ## fatal here as it is in the other two steps: it costs a cache warm.
 [[ -f "$home/settings.sh" ]] && source "$home/settings.sh"
-src="${CONTAINER_DIR:-$home/containers}"
+src="${CONTAINER_DIR:-/cluster/bringup-data/containers}"
 dst="${NODE_CONTAINER_DIR:-/opt/containers}"
 
 EXPLAIN=0
@@ -58,7 +58,7 @@ done
 ## Beside health.log and trigger.log rather than in agent.log, which belongs to
 ## the agent: the detached copy below outlives the cycle that started it and
 ## writes here after the agent has moved on.
-logs="$home/results/$HOSTNAME"
+logs="$RESULTS_DIR/$HOSTNAME"
 tracelog="$logs/copy.log"
 trace() {
     if [[ "$EXPLAIN" -eq 0 ]]; then

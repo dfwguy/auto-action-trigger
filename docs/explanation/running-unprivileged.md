@@ -169,8 +169,8 @@ shell error for every check.
 Existing state from a restrictive umask needs a one-time repair by the site:
 
 ```bash
-chgrp -R <job-group> "$BRINGUP_HOME/results" "$BRINGUP_HOME/logs"
-chmod -R g+rwX "$BRINGUP_HOME/results" "$BRINGUP_HOME/logs"
+chgrp -R <job-group> "$RESULTS_DIR" "$HEALTH_LOG_DIR"
+chmod -R g+rwX "$RESULTS_DIR" "$HEALTH_LOG_DIR"
 ```
 
 ## What is still not the framework's to do
@@ -179,8 +179,8 @@ The migration itself needs root, once, and is the site's:
 
 1. The sudo rules on every node, through the software image — see
    [the sudoers drop-in](#the-sudoers-drop-in).
-2. `chown -R $JOB_USER:$JOB_USER` over `$BRINGUP_HOME/results` and
-   `$BRINGUP_HOME/logs`. Years of root cycles left files and directories in
+2. `chown -R $JOB_USER:$JOB_USER` over `$RESULTS_DIR` and
+   `$HEALTH_LOG_DIR`. Years of root cycles left files and directories in
    there owned by root; nothing repairs them now, because nothing has the
    privilege to. `trigger-debug.sh` section 6-7 names them.
 3. Passwordless ssh from the head node to every compute node **as `$JOB_USER`**,

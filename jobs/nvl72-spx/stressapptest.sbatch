@@ -7,7 +7,7 @@
 #SBATCH -t 4:10:00
 #SBATCH --nice=20
 ## 20 is the sweep's tier. See docs/reference/jobs.md#queue-priority.
-##SBATCH -o <BRINGUP_HOME>/results/%N/stressapptest.txt
+##SBATCH -o <RESULTS_DIR>/%N/stressapptest.txt
 
 ## No --gres, this job never touches a GPU; --mem=0 matters most here, the
 ## footprint below is 80% of MemAvailable. See

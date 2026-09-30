@@ -8,7 +8,7 @@
 #SBATCH -t 0:25:00
 #SBATCH --nice=20
 ## 20 is the sweep's tier; higher is later. See docs/reference/jobs.md#queue-priority.
-##SBATCH -o <BRINGUP_HOME>/results/%N/allreduce-forcesharp.txt
+##SBATCH -o <RESULTS_DIR>/%N/allreduce-forcesharp.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
 ## implies --exact. See docs/reference/jobs.md#the-allocation-header.

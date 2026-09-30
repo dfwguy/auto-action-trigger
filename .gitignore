@@ -6,6 +6,10 @@
 # node list, a drain switch and a job set, all replaced silently by an upgrade.
 SETTINGS
 
+# Same split, for where SETTINGS itself lives: SETTINGS_HOME.default ships and
+# is tracked; SETTINGS_HOME is the site's override, naming the real path.
+SETTINGS_HOME
+
 # Per-node output, written on the cluster.
 results/
 logs/

@@ -7,13 +7,38 @@
 # the path that was read, or empty if neither was found -- not fatal, since the
 # defaults below are a complete working configuration on their own.
 
-_settings_home="${SETTINGS_HOME:-${home:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}}"
+## Tree root, unconditional -- JOBS_DIR/HEALTHCHECKS_DIR/PARSERS_DIR below
+## always derive from this, never from wherever SETTINGS was found.
+home="${home:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
 SETTINGS_FILE=""
-if [[ -f "$_settings_home/SETTINGS" ]]; then
-    SETTINGS_FILE="$_settings_home/SETTINGS"
-elif [[ -f "$_settings_home/SETTINGS.default" ]]; then
-    SETTINGS_FILE="$_settings_home/SETTINGS.default"
+site_override=0
+if [[ -n "${SETTINGS_HOME:-}" ]]; then
+    ## Existing override, unchanged: a directory, same two-file lookup as
+    ## always. The test suites are the only callers.
+    site_override=1
+    [[ -f "$SETTINGS_HOME/SETTINGS" ]] && SETTINGS_FILE="$SETTINGS_HOME/SETTINGS"
+    [[ -z "$SETTINGS_FILE" && -f "$SETTINGS_HOME/SETTINGS.default" ]] &&
+        SETTINGS_FILE="$SETTINGS_HOME/SETTINGS.default"
+elif [[ -f "$home/SETTINGS_HOME" ]]; then
+    ## A site's own pointer, not the shipped default -- naming nothing real
+    ## is a misconfiguration to report, not a reason to fall back quietly.
+    site_override=1
+    candidate=$(grep -vE '^[[:space:]]*(#|$)' "$home/SETTINGS_HOME" | head -1)
+    [[ -f "$candidate" ]] && SETTINGS_FILE="$candidate"
+elif [[ -f "$home/SETTINGS_HOME.default" ]]; then
+    candidate=$(grep -vE '^[[:space:]]*(#|$)' "$home/SETTINGS_HOME.default" | head -1)
+    [[ -f "$candidate" ]] && SETTINGS_FILE="$candidate"
+fi
+## Only when nothing above named a specific intent: no override at all, or
+## the shipped default pointer not populated yet -- same as SETTINGS.default
+## always being the safety net when a site has not written SETTINGS itself.
+if [[ -z "$SETTINGS_FILE" && "$site_override" -eq 0 ]]; then
+    if [[ -f "$home/SETTINGS" ]]; then
+        SETTINGS_FILE="$home/SETTINGS"
+    elif [[ -f "$home/SETTINGS.default" ]]; then
+        SETTINGS_FILE="$home/SETTINGS.default"
+    fi
 fi
 
 # shellcheck source=/dev/null
@@ -55,9 +80,6 @@ fi
 ## 0 disables the cadence. See docs/explanation/health-cadence.md.
 : "${HEALTH_INTERVAL_HOURS:=4}"
 : "${HEALTH_RETRY_INTERVAL_HOURS:=1}"
-## Health output can live on a compute-facing share independently of this
-## deployment tree. The historical location remains the default.
-: "${HEALTH_LOG_DIR:=$_settings_home/logs}"
 ## Run and drain switches, all defaulting on (RUN_BURNIN is the one
 ## exception, opt-in) so an empty or unreadable value carries on rather than
 ## stopping the fleet or draining it. See docs/reference/settings.md#run-switches
@@ -184,15 +206,24 @@ fi
 ## The only account name in the tree; the paths derive from it.
 ## See docs/reference/settings.md#accounts-and-paths.
 : "${JOB_USER:=cmods}"
-: "${BRINGUP_HOME:=/home/$JOB_USER/bringup}"
+: "${BRINGUP_HOME:=/cluster/bringup}"
+## Where results, logs, container images and the health baseline live --
+## independent of BRINGUP_HOME so the checkout and the data it produces can
+## sit on different filesystems. See docs/reference/settings.md#accounts-and-paths.
+: "${BRINGUP_DATA:=/cluster/bringup-data}"
+: "${RESULTS_DIR:=$BRINGUP_DATA/results}"
+: "${HEALTH_LOG_DIR:=$BRINGUP_DATA/logs}"
 ## Its own share, and the _HEAD pair is the head node's mount point for it.
 ## See docs/explanation/containers.md#one-share-two-mount-points.
-: "${CONTAINER_DIR:=$BRINGUP_HOME/containers}"
+: "${CONTAINER_DIR:=$BRINGUP_DATA/containers}"
 : "${CONTAINER_DIR_HEAD:=$CONTAINER_DIR}"
-: "${CONTAINER_STAGE_DIR:=$BRINGUP_HOME/container-src}"
+: "${CONTAINER_STAGE_DIR:=$BRINGUP_DATA/container-src}"
 : "${CONTAINER_STAGE_DIR_HEAD:=$CONTAINER_STAGE_DIR}"
 ## Node-local cache file_copy.sh rsyncs CONTAINER_DIR into. See docs/explanation/containers.md#one-share-two-mount-points.
 : "${NODE_CONTAINER_DIR:=/opt/containers}"
+## The health baseline captured by set-valid-default.sh. See
+## docs/reference/settings.md#accounts-and-paths.
+: "${VALID_CONFIG_DIR:=$BRINGUP_DATA/valid-config}"
 : "${LLM_HF_HOME=}"
 ## `=` not `:=`: empty means no llmb install.
 ## See docs/explanation/llmb.md#where-the-install-lives.
@@ -207,16 +238,17 @@ fi
 : "${LLMB_HF=}"
 
 ## The only place these paths are built; no caller should rebuild them by hand.
+## Always under the tree root, never wherever SETTINGS was actually read from.
 ## See docs/reference/settings.md#which-set-of-things-to-run.
 ##
 ## SC2034: read by the scripts that source this file, which shellcheck cannot
 ## see from here. Repeated because it covers only the next assignment.
 # shellcheck disable=SC2034
-JOBS_DIR="$_settings_home/jobs/$JOBS"
+JOBS_DIR="$home/jobs/$JOBS"
 # shellcheck disable=SC2034
-HEALTHCHECKS_DIR="$_settings_home/health-checks/$HEALTHCHECKS"
+HEALTHCHECKS_DIR="$home/health-checks/$HEALTHCHECKS"
 # shellcheck disable=SC2034
-PARSERS_DIR="$_settings_home/parsers/$PARSERS"
+PARSERS_DIR="$home/parsers/$PARSERS"
 
 ## Read a yes/no setting. Anything not affirmative is off, including a typo and
 ## including empty. See docs/reference/settings.md#drains.

@@ -269,6 +269,15 @@ fi
 ## writes a heartbeat is the failure with no symptom -- the watchdog re-arms it,
 ## the install succeeds again, and nothing anywhere says why.
 ## See docs/how-to/arm-a-node.md#armed-but-never-heartbeats.
+
+## Resolved by the source above; nowhere readable still cycles, on coded
+## defaults. See docs/how-to/arm-a-node.md#armed-with-no-settings.
+if [[ -z "$SETTINGS_FILE" ]]; then
+    fail "SETTINGS_HOME resolves nowhere readable -- cycling on settings.sh's coded defaults, not this site's. docs/how-to/arm-a-node.md#armed-with-no-settings"
+else
+    ok "reading settings from $SETTINGS_FILE"
+fi
+
 if ! systemctl --user is-active --quiet "$unit.timer" 2>/dev/null; then
     fail "$unit.timer is not active after enabling it. docs/how-to/arm-a-node.md#armed-but-never-heartbeats"
 else
@@ -321,7 +330,7 @@ systemctl --user start --no-block "$unit.service" 2>/dev/null &&
 ## The one thing a cycle must be able to do, tested as the cycle will do it. A
 ## results/<host> the account cannot write makes the node invisible to the
 ## watchdog for ever: no heartbeat, so it is armed again, every interval.
-beat_dir="$home/results/$HOSTNAME"
+beat_dir="$RESULTS_DIR/$HOSTNAME"
 if node_excluded "$HOSTNAME" || [[ "$ROLE" == "head" ]]; then
     :   ## no heartbeat is written here; the watchdog has its own
 elif ! mkdir -p "$beat_dir" 2>/dev/null; then

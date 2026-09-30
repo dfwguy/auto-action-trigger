@@ -53,13 +53,13 @@ is the compass; the four entry points are:
 
 ### The automation user
 
-A local user named by `JOB_USER` — `cmods` as shipped — must exist on the **headnode and every compute node** in the cluster. It is the only place the account is named: the tree path and the llmb install derive from it, so pointing the framework at a dedicated automation account is one line in `SETTINGS` and no code change. See [docs/reference/settings.md#accounts-and-paths](docs/reference/settings.md#accounts-and-paths).
+A local user named by `JOB_USER` — `cmods` as shipped — must exist on the **headnode and every compute node** in the cluster. It is the only place the account is named: the llmb install derives from it, so pointing the framework at a dedicated automation account is one line in `SETTINGS` and no code change. See [docs/reference/settings.md#accounts-and-paths](docs/reference/settings.md#accounts-and-paths).
 
-- The tree is deployed at `$BRINGUP_HOME`, which defaults to `/home/$JOB_USER/bringup/` — that home directory is the deployment root.
+- The tree is deployed at `$BRINGUP_HOME`, which defaults to `/cluster/bringup` — never `/home`. The results, logs, container images and health baseline it produces live separately, under `$BRINGUP_DATA` (default `/cluster/bringup-data`), so the checkout and its data can sit on different filesystems.
 - Every cycle runs as `$JOB_USER` under that account's `systemd --user`, so the account needs lingering enabled (`agent/install-agent.sh` does it) and passwordless ssh from the head node.
 - It needs a `sudo` rule for the handful of privileged commands the health checks and the drains use — `agent/sudoers.default` is the shipped reference. See [docs/explanation/running-unprivileged.md](docs/explanation/running-unprivileged.md).
 - `launch_job.sh` submits Slurm jobs as that account directly, so it must be a valid login user with access to the Slurm environment (`/etc/profile.d/modules.sh` and the `slurm` module), and with whatever Slurm association the site requires — an `sbatch` refused for a missing association lands in `trigger.log` rather than being swallowed. A large fleet also needs Slurm's submission limit configured and enforced; see [configure-slurm-submission-limits.md](docs/how-to/configure-slurm-submission-limits.md).
-- It must have write access to `logs/` and `results/` under the deployment root on the headnode.
+- It must have write access to `$HEALTH_LOG_DIR` and `$RESULTS_DIR` on the headnode.
 - If the home directory is shared via NFS or another network filesystem, compute nodes will inherit it automatically. If not, `$BRINGUP_HOME` must be accessible on each compute node (e.g., via a shared filesystem mount).
 
 The container images do **not** have to live under that home directory: `CONTAINER_DIR` is its own setting, so they can sit on whatever bulk share the site has, and `CONTAINER_DIR_HEAD` covers the case where the headnode mounts that share at a different path than the compute nodes do. See [docs/explanation/containers.md#one-share-two-mount-points](docs/explanation/containers.md#one-share-two-mount-points).
@@ -176,8 +176,8 @@ which preflights every command this check set needs and names any that are
 missing:
 
 ```bash
-clush -w <node> '/home/cmods/bringup/agent/node-agent.sh --explain'
-pdsh -R ssh -w <node> '/home/cmods/bringup/agent/node-agent.sh --explain'
+clush -w <node> '/cluster/bringup/agent/node-agent.sh --explain'
+pdsh -R ssh -w <node> '/cluster/bringup/agent/node-agent.sh --explain'
 ```
 
 A missing rule does not make a check fail — it changes its output, which the
@@ -202,7 +202,7 @@ Safe to re-run, and re-running is how a changed unit or interval is picked up. S
 Nothing is installed tray by tray. The watchdog arms every `idle` or `drained` node itself, over one `clush`, within `HEARTBEAT_STALE_MINUTES` of its heartbeat going stale — so the first check is simply to watch it happen:
 
 ```bash
-tail -f /home/cmods/bringup/results/supervisor.log
+tail -f /cluster/bringup-data/results/supervisor.log
 ```
 
 One line per cycle whether or not it armed anything. Within a few minutes you want to see it name the trays and then stop naming them:
@@ -216,7 +216,7 @@ One line per cycle whether or not it armed anything. Within a few minutes you wa
 
 ```bash
 bash trigger-log.sh                                     # section 0, fleet-wide
-stat -c '%y %n' /home/cmods/bringup/results/*/.heartbeat | sort   # newest write per tray
+stat -c '%y %n' /cluster/bringup-data/results/*/.heartbeat | sort   # newest write per tray
 ```
 
 Every heartbeat should be within `AGENT_INTERVAL_MINUTES` — two minutes as shipped. A tray with no `.heartbeat` at all has never been armed; one whose heartbeat has stopped has a timer that is not firing, and `results/<tray>/arm.log` holds what the watchdog heard back from it on each attempt.
@@ -233,7 +233,7 @@ pdsh -R ssh -w 'ink50-dh01-h02-[11-28]' 'XDG_RUNTIME_DIR=/run/user/$(id -u) syst
 Then watch a tray decide something:
 
 ```bash
-tail -f /home/cmods/bringup/results/<tray>/agent.log
+tail -f /cluster/bringup-data/results/<tray>/agent.log
 ```
 
 `idle: no job here -- file_copy node_health launch_job` is a working cycle. `BUSY: job(s) … running here` is a tray with work on it, which does nothing else by design. Nothing at all after a few minutes means the timer is not firing there — go back to `arm.log`. See [docs/how-to/arm-a-node.md](docs/how-to/arm-a-node.md) and [docs/tutorials/understanding-the-agent.md](docs/tutorials/understanding-the-agent.md).
@@ -401,7 +401,7 @@ bash pause-agents.sh          # the watchdog here, then every node timer
 That is also the thing to run before replacing the deployment with a new drop — `rsync -av /tmp/auto-action-trigger-*/ /cluster/bringup/`, with no `--delete` and so no exclude list, because the site's own data is not in the drop to begin with. See [docs/how-to/pause-and-resume.md#replacing-the-tree](docs/how-to/pause-and-resume.md#replacing-the-tree). To remove the framework rather than stop it, carry on: on the head node, as `cmods`,
 
 ```bash
-bash /home/cmods/bringup/agent/uninstall-agent.sh
+bash /cluster/bringup/agent/uninstall-agent.sh
 ```
 
 Then empty the queue, or the last sweep runs on nodes nobody is watching:
@@ -414,15 +414,15 @@ bash kill-jobs.sh                         # cancel it
 Then disarm the trays:
 
 ```bash
-clush -w 'ink50-dh01-h02-[11-28]' '/home/cmods/bringup/agent/uninstall-agent.sh'
-pdsh -R ssh -w 'ink50-dh01-h02-[11-28]' '/home/cmods/bringup/agent/uninstall-agent.sh'
+clush -w 'ink50-dh01-h02-[11-28]' '/cluster/bringup/agent/uninstall-agent.sh'
+pdsh -R ssh -w 'ink50-dh01-h02-[11-28]' '/cluster/bringup/agent/uninstall-agent.sh'
 ```
 
 Confirm nothing is left running, and that the heartbeats have stopped moving:
 
 ```bash
 clush -w 'ink50-dh01-h02-[11-28]' 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active bringup-agent.timer'
-stat -c '%y %n' /home/cmods/bringup/results/*/.heartbeat | sort | tail -3
+stat -c '%y %n' /cluster/bringup-data/results/*/.heartbeat | sort | tail -3
 ```
 
 `inactive` on every line, and heartbeats that stop advancing.

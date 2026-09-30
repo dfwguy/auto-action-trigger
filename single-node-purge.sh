@@ -6,7 +6,8 @@ if ! command -v scontrol &>/dev/null; then
 fi
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-loc="$home/results"
+source "$home/settings.sh"
+loc="$RESULTS_DIR"
 
 if [[ $# -eq 0 ]]; then
     echo "Usage: $0 <node|nodelist> [<node|nodelist> ...]"

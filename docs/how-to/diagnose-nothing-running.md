@@ -124,10 +124,10 @@ happens is
 Rather than waiting for an agent cycle:
 
 ```bash
-clush -w ink50-dh01-h20-11 '/home/cmods/bringup/agent/node-agent.sh --explain'
-pdsh -R ssh -w ink50-dh01-h20-11 '/home/cmods/bringup/agent/node-agent.sh --explain'
-clush -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --explain'
-pdsh -R ssh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/launch_job.sh --explain'
+clush -w ink50-dh01-h20-11 '/cluster/bringup/agent/node-agent.sh --explain'
+pdsh -R ssh -w ink50-dh01-h20-11 '/cluster/bringup/agent/node-agent.sh --explain'
+clush -w ink50-dh01-h20-11 '/cluster/bringup/actions/launch_job.sh --explain'
+pdsh -R ssh -w ink50-dh01-h20-11 '/cluster/bringup/actions/launch_job.sh --explain'
 ```
 
 The first prints the agent's own gates — the exclusions and the busy gate — and
@@ -144,8 +144,8 @@ The health runner takes the same flags, and answers the other half of "nothing
 is happening on this node":
 
 ```bash
-clush -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/node_health.sh --explain'
-pdsh -R ssh -w ink50-dh01-h20-11 '/home/cmods/bringup/actions/node_health.sh --explain'
+clush -w ink50-dh01-h20-11 '/cluster/bringup/actions/node_health.sh --explain'
+pdsh -R ssh -w ink50-dh01-h20-11 '/cluster/bringup/actions/node_health.sh --explain'
 bash health-check.sh --explain ink50-dh01-h20      # or, from the head node
 ```
 

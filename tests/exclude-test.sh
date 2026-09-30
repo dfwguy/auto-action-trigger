@@ -138,7 +138,7 @@ for n in node01 nscale-hn1; do
 done
 node_mark_excluded "$tree/results/nscale-hn1" "self-detected: test"
 
-printf 'BENCHMARKS="dcgmi-r1"\nEXCLUDE_NODES=""\n' > "$tree/SETTINGS"
+printf 'BENCHMARKS="dcgmi-r1"\nEXCLUDE_NODES=""\nBRINGUP_DATA=%s\n' "$tree" > "$tree/SETTINGS"
 
 report_case() {
     local label="$1" script="$2"
@@ -170,7 +170,7 @@ report_case "daily-report.sh" daily-report.sh
 ## The same host excluded by the setting instead of the marker, with no marker
 ## on disk at all -- the two paths have to reach the same table.
 node_unmark_excluded "$tree/results/nscale-hn1"
-printf 'BENCHMARKS="dcgmi-r1"\nEXCLUDE_NODES="nscale-hn*"\n' > "$tree/SETTINGS"
+printf 'BENCHMARKS="dcgmi-r1"\nEXCLUDE_NODES="nscale-hn*"\nBRINGUP_DATA=%s\n' "$tree" > "$tree/SETTINGS"
 report_case "EXCLUDE_NODES, status-check.sh" status-check.sh
 
 ## trigger-log.sh hides it like the rest, and is the one script that can still

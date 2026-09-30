@@ -9,7 +9,7 @@
 #SBATCH --nice=20
 ## --nice 20 is the sweep's tier; higher is later. See
 ## docs/reference/jobs.md#queue-priority.
-##SBATCH -o <BRINGUP_HOME>/results/%N/alltoall-nonvlink.txt
+##SBATCH -o <RESULTS_DIR>/%N/alltoall-nonvlink.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
 ## implies --exact. See docs/reference/jobs.md#the-allocation-header.

@@ -93,8 +93,8 @@
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
 logs_dir="$HEALTH_LOG_DIR"
-results_dir="$home/results"
-valid_dir="$home/valid-config/default"
+results_dir="$RESULTS_DIR"
+valid_dir="$VALID_CONFIG_DIR/default"
 
 # Parse before loading Slurm, so --help works on a host that has neither.
 drained=0

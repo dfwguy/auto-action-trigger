@@ -51,6 +51,7 @@ export FANOUT_TOOL=clush   ## clubak, never a real dshbak that happens to be her
 
 settings() {
     cat > "$tmp/SETTINGS" <<EOF
+BRINGUP_DATA=$tmp
 BENCHMARKS="dcgmi-r3 nvbandwidth"
 RUN_BURNIN=no
 RETRY_INTERVAL_HOURS=1

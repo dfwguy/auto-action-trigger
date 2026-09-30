@@ -1019,8 +1019,8 @@ drained nodes deciding whether to lift the pause. It reports each pause it
 passes, then carries on:
 
 ```
-RUN_RECOVERY=no in /home/cmods/bringup/SETTINGS -- explaining anyway; nothing below would be resumed while it is set
-RUN_JOBS=no in /home/cmods/bringup/SETTINGS -- explaining anyway; nothing below would run while it is set
+RUN_RECOVERY=no in /cluster/bringup/SETTINGS -- explaining anyway; nothing below would be resumed while it is set
+RUN_JOBS=no in /cluster/bringup/SETTINGS -- explaining anyway; nothing below would run while it is set
 WOULD RECOVER ink50-dh01-h03-16: drained 'Prolog error' (machine, set by slurm) -- attempt 1/3 in 24h
 ```
 

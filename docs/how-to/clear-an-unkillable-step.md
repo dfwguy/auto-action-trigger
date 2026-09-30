@@ -109,8 +109,8 @@ When it is back, let the checks judge it before it takes work again — a node
 that comes back with NVLink still short should not be resumed:
 
 ```bash
-clush -w <node> '/home/cmods/bringup/actions/node_health.sh'
-pdsh -R ssh -w <node> '/home/cmods/bringup/actions/node_health.sh'
+clush -w <node> '/cluster/bringup/actions/node_health.sh'
+pdsh -R ssh -w <node> '/cluster/bringup/actions/node_health.sh'
 ./health-check.sh --diff <node>
 scontrol update nodename=<node> state=RESUME
 ```
@@ -134,8 +134,8 @@ with no time limit is never enough on its own — those stay held, for you.
 Check what it would do without it doing anything:
 
 ```bash
-clush -w <node> '/home/cmods/bringup/actions/launch_job.sh --explain'
-pdsh -R ssh -w <node> '/home/cmods/bringup/actions/launch_job.sh --explain'
+clush -w <node> '/cluster/bringup/actions/launch_job.sh --explain'
+pdsh -R ssh -w <node> '/cluster/bringup/actions/launch_job.sh --explain'
 ```
 
 `--explain` traces `WOULD MARK DOWN` and changes nothing.

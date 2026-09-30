@@ -8,7 +8,7 @@
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
 logs="$HEALTH_LOG_DIR"
-valid="$home/valid-config"
+valid="$VALID_CONFIG_DIR"
 
 node="$1"
 

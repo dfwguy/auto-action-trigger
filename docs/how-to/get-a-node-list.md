@@ -125,8 +125,8 @@ pdsh -R ssh -w 'ink50-dh01-h20-[03,17]' 'nvidia-smi -L'
 scontrol update nodename='ink50-dh01-h20-[03,17]' state=RESUME
 
 # force a sweep now
-clush -w 'ink50-dh01-h20-[03,17]' '/home/cmods/bringup/actions/launch_job.sh -f -v'
-pdsh -R ssh -w 'ink50-dh01-h20-[03,17]' '/home/cmods/bringup/actions/launch_job.sh -f -v'
+clush -w 'ink50-dh01-h20-[03,17]' '/cluster/bringup/actions/launch_job.sh -f -v'
+pdsh -R ssh -w 'ink50-dh01-h20-[03,17]' '/cluster/bringup/actions/launch_job.sh -f -v'
 ```
 
 **`clush` or `pdsh`, never `ssh`.** Every remote command here is one of the two, which

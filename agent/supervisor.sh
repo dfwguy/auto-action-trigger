@@ -65,7 +65,7 @@ for arg in "$@"; do
     esac
 done
 
-results="$home/results"
+results="$RESULTS_DIR"
 tracelog="$results/supervisor.log"
 mkdir -p "$results" 2>/dev/null
 

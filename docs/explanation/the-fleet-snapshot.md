@@ -72,7 +72,7 @@ So the watchdog does the join and writes **one small file per node**, beside the
 heartbeat that node already writes:
 
 ```
-$BRINGUP_HOME/results/<node>/.slurm-view
+$RESULTS_DIR/<node>/.slurm-view
 ```
 
 A few hundred bytes, and a node reads only its own. The fleet-wide copies still

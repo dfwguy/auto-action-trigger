@@ -129,12 +129,12 @@ status)
     fresh=0; stale=0; never=0; live=0; newest=-1
     now_s=$(date +%s)
     for n in "${nodes[@]}"; do
-        beat="$home/results/$n/.heartbeat"
+        beat="$RESULTS_DIR/$n/.heartbeat"
         if [[ ! -f "$beat" ]]; then never=$((never + 1)); continue; fi
         age=$(( now_s - $(stat -c %Y "$beat" 2>/dev/null || echo 0) ))
         [[ "$newest" -lt 0 || "$age" -lt "$newest" ]] && newest="$age"
         [[ "$age" -lt $(( quiet_after * 60 )) ]] && live=$((live + 1))
-        if heartbeat_stale "$home/results" "$n"; then stale=$((stale + 1)); else fresh=$((fresh + 1)); fi
+        if heartbeat_stale "$RESULTS_DIR" "$n"; then stale=$((stale + 1)); else fresh=$((fresh + 1)); fi
     done
     printf 'nodes matching %s: %d cycling within %sm, %d stale, %d never armed\n' \
         "${pattern}" "$fresh" "$HEARTBEAT_STALE_MINUTES" "$stale" "$never"

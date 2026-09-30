@@ -12,7 +12,7 @@
 #
 # The slug rule below is GitHub's, reimplemented because the anchors have to
 # resolve in GitLab's blob view and in whatever renders the deployed tree at
-# /home/cmods/bringup/docs/. Dots are dropped, underscores are kept -- the two
+# /cluster/bringup/docs/. Dots are dropped, underscores are kept -- the two
 # that have been got wrong by hand.
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

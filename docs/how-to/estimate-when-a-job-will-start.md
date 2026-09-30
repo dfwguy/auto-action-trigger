@@ -85,7 +85,7 @@ longer than that.
 Check what the site actually runs rather than assuming the default:
 
 ```bash
-grep -E '^(BENCHMARKS|BURNIN|RUN_BURNIN)=' /home/cmods/bringup/SETTINGS
+grep -E '^(BENCHMARKS|BURNIN|RUN_BURNIN)=' /cluster/bringup/SETTINGS
 ```
 
 If that file does not exist the site is on `SETTINGS.default`, which is the
@@ -209,7 +209,7 @@ Asking for fewer nodes has the same effect for the same reason.
 Before blaming the sweep, check whether the node is even available:
 
 ```bash
-bash /home/cmods/bringup/check_squeue.sh -j <your-jobid>
+bash /cluster/bringup/check_squeue.sh -j <your-jobid>
 ```
 
 This exists for exactly this question. The queue's reason field names a

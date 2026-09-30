@@ -179,6 +179,7 @@ RECOVER_SLURM_DRAINS=no
 GET_OUT_OF_THE_WAY=no
 JOB_USER=$user
 BRINGUP_HOME=/home/\$JOB_USER/bringup
+RESULTS_DIR=$tree/results
 CONTAINER_DIR=\$BRINGUP_HOME/containers
 ## /opt/containers, the real default, is not this sandbox's to create -- same
 ## as a site that has not yet handed JOB_USER write access to it. Unlike
@@ -356,19 +357,21 @@ else
 fi
 
 ##############################################################################
-echo "== changing the account moves the derived paths =="
+echo "== changing the account moves only the llmb install =="
 ##############################################################################
 
-## The whole point of the change: one name in SETTINGS, and the tree, the
-## images and the llmb install follow it. See docs/reference/settings.md#accounts-and-paths.
+## BRINGUP_HOME and CONTAINER_DIR are fixed under /cluster regardless of
+## JOB_USER -- neither writes to a home directory by default. LLMB_INSTALL is
+## the one path still named after the account. See
+## docs/reference/settings.md#accounts-and-paths.
 derived=$(
     JOB_USER=$USER_B SETTINGS_HOME=$work/none \
     bash -c 'source "$0"; printf "%s %s %s\n" "$BRINGUP_HOME" "$CONTAINER_DIR" "$LLMB_INSTALL"' \
         "$repo/settings.sh"
 )
-want="/home/$USER_B/bringup /home/$USER_B/bringup/containers /home/$USER_B/llmb"
+want="/cluster/bringup /cluster/bringup-data/containers /home/$USER_B/llmb"
 if [[ "$derived" == "$want" ]]; then
-    ok "BRINGUP_HOME, CONTAINER_DIR and LLMB_INSTALL follow JOB_USER"
+    ok "BRINGUP_HOME and CONTAINER_DIR stay fixed; LLMB_INSTALL follows JOB_USER"
 else
     bad "expected '$want', got '$derived'"
 fi

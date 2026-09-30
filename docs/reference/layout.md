@@ -23,6 +23,7 @@ pieces fit together this way is
 │   └── file_copy.sh               # Rsync containers to /tmp on each node (silent no-op if none)
 │
 ├── SETTINGS.default               # Shipped configuration; copy to SETTINGS to change anything
+├── SETTINGS_HOME.default          # Where SETTINGS lives; copy to SETTINGS_HOME to relocate it
 ├── settings.sh                    # Loads SETTINGS, else SETTINGS.default; backfills unset keys
 ├── priv.sh                        # The one place a command needing root is run from a cycle that is not
 ├── fanout.sh                      # The one place a command is run on more than one node: clush, else pdsh
@@ -156,18 +157,30 @@ pieces fit together this way is
 
 ## Runtime paths
 
-The tree is deployed at `$BRINGUP_HOME`, which defaults to
-`/home/$JOB_USER/bringup` — so `/home/cmods/bringup/` as shipped. Every script
-resolves its own location, the agent and its three steps included: the systemd
-unit names them by absolute path with no working directory to infer one from,
-but that path is inside the tree, so `${BASH_SOURCE[0]}` finds it. Deploying
-elsewhere means changing `JOB_USER` (or `BRINGUP_HOME`) in `SETTINGS` and
-nothing else.
+The tree is deployed at `$BRINGUP_HOME`, which defaults to `/cluster/bringup`.
+Every script resolves its own location, the agent and its three steps
+included: the systemd unit names them by absolute path with no working
+directory to infer one from, but that path is inside the tree, so
+`${BASH_SOURCE[0]}` finds it. Deploying elsewhere means changing
+`BRINGUP_HOME` in `SETTINGS` and nothing else.
+
+The data the tree produces — `results/`, `logs/`, `containers/` and
+`valid-config/` — lives separately, under `$BRINGUP_DATA` (default
+`/cluster/bringup-data`), so the checkout and the data it writes can sit on
+different filesystems. See
+[settings.md#accounts-and-paths](settings.md#accounts-and-paths).
 
 They cannot read `BRINGUP_HOME` to find themselves, because that setting lives
 in the file they are trying to locate. `AGENT_HOME`, `LAUNCH_JOB_HOME`,
 `NODE_HEALTH_HOME` and `FILE_COPY_HOME` override the derivation; only the test
 suites set them.
+
+`SETTINGS` itself is not necessarily in the tree either, by default: a small
+pointer at the tree root, `SETTINGS_HOME`/`SETTINGS_HOME.default`, names where
+the real `SETTINGS` lives — `$BRINGUP_DATA/SETTINGS` as shipped. Resolving the
+pointer still only needs `home`, never `BRINGUP_HOME`, so the same bootstrap
+constraint holds. See
+[settings.md#reading-them-from-a-script](settings.md#reading-them-from-a-script).
 
 `agent/install-agent.sh` is the one place a path is written into something
 outside the tree: it substitutes its own location for `@BRINGUP_HOME@` in the
@@ -178,35 +191,35 @@ location and `BRINGUP_HOME` disagree.
 
 | Path | Purpose |
 |------|---------|
-| `$HEALTH_LOG_DIR/<node>/` | Per-node health check output files. Defaults to `$BRINGUP_HOME/logs`; sites may place it on a compute-facing share |
+| `$HEALTH_LOG_DIR/<node>/` | Per-node health check output files. Defaults to `$BRINGUP_DATA/logs`; sites may place it on a compute-facing share |
 | `$HEALTH_LOG_DIR/<node>/.last-check` | When the checks last ran there and what they concluded, tab-separated. Drives the cadence — see [settings.md#health-check-cadence](settings.md#health-check-cadence) |
 | `$HEALTH_LOG_DIR/<node>/refresh` | Present when a re-check has been asked for ahead of the cadence. Set by `health-check.sh --refresh`, consumed by the next cycle |
 | `$HEALTH_LOG_DIR/<node>/health.log` | Per-cycle decision trace from `node_health.sh` |
 | `$HEALTH_LOG_DIR/<node>/stderr.log` | Health runner and check stderr, redirected away from the systemd journal |
 | `$HEALTH_LOG_DIR/<node>/service.log` | Unexpected stdout/stderr from the timer's quiet node-agent cycle; normally empty |
 | `$HEALTH_LOG_DIR/_supervisor/service.log` | The same quiet-cycle catch-all for the app-server supervisor |
-| `$BRINGUP_HOME/valid-config/default/` | Symlink to the reference baseline node |
-| `$BRINGUP_HOME/results/<node>/` | Per-node benchmark result files |
-| `$BRINGUP_HOME/results/<node>/.heartbeat` | Touched at the top of every agent cycle, before any gate. Empty; only its mtime is read. See [explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means](../explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means) |
-| `$BRINGUP_HOME/results/<node>/.slurm-view` | What Slurm says about this node and its jobs, written every watchdog cycle and read instead of querying the controller. Tab separated, key first, sealed with an `end` line — see [explanation/the-fleet-snapshot.md#what-is-on-disk](../explanation/the-fleet-snapshot.md#what-is-on-disk) |
-| `$BRINGUP_HOME/results/<node>/.submit-retry` | Last failed job submission and its node-local exponential retry clock; removed after a successful submission |
-| `$BRINGUP_HOME/results/.submit-circuit` | Watchdog-owned fleet hold opened by matching recent submission failures; carries its expiry and clears itself |
-| `$BRINGUP_HOME/results/<node>/.yielded` | Left by the watchdog when it cancelled this node's job for a waiter, so the next cycle can say why rather than reporting it as gone. Tab separated: epoch, text. Read once and removed — see [explanation/the-fleet-snapshot.md#what-moved-to-the-head-node](../explanation/the-fleet-snapshot.md#what-moved-to-the-head-node) |
-| `$BRINGUP_HOME/results/<node>/agent.log` | Per-cycle trace from `node-agent.sh`: the busy gate, the lock, which steps ran |
-| `$BRINGUP_HOME/results/<node>/arm.log` | One line per arming attempt by the watchdog, and what came back. Tab separated: epoch, output. The attempt history `ARM_MAX_ATTEMPTS` is counted from |
-| `$BRINGUP_HOME/results/.supervisor-owner` | Which host is arming the fleet, refreshed every watchdog cycle. Tab separated: hostname, epoch. A second host that finds this fresh stands by — see [explanation/the-agent-and-the-watchdog.md#only-one-watchdog](../explanation/the-agent-and-the-watchdog.md#only-one-watchdog) |
-| `$BRINGUP_HOME/results/.supervisor-heartbeat` | Touched at the top of every watchdog cycle. Doubles as the clock every heartbeat age is measured against — see [explanation/the-agent-and-the-watchdog.md#whose-clock-decides](../explanation/the-agent-and-the-watchdog.md#whose-clock-decides) |
-| `$BRINGUP_HOME/results/supervisor.log` | One line per watchdog cycle, including the ones that armed nothing |
-| `$BRINGUP_HOME/results/.slurm/nodes.psv` | The fleet-wide `sinfo` the per-node views are cut from. For the head node's own tools; no compute node reads it |
-| `$BRINGUP_HOME/results/.slurm/queue.psv` | The fleet-wide `squeue`, same |
-| `$BRINGUP_HOME/results/.yield-check` | When the watchdog last looked for waiters, one stamp for the fleet — `GET_OUT_OF_THE_WAY_POLL_MINUTES` |
-| `$BRINGUP_HOME/results/<node>/trigger.log` | Per-cycle decision trace from `launch_job.sh` |
-| `$BRINGUP_HOME/results/<node>/copy.log` | Per-cycle trace from `file_copy.sh`, and where the detached copy reports what it did after the cycle that started it has ended |
-| `$BRINGUP_HOME/results/<node>/quick-view.txt` | One line per benchmark: `DONE` / `QUEUED` |
-| `$BRINGUP_HOME/results/<node>/recover.log` | One line per drain cleared. The attempt history `RECOVER_MAX_ATTEMPTS` is counted from. Tab separated: epoch, date, class, state, setter, reason, and the pre-job check that failed. See [explanation/drain-recovery.md#and-it-has-to-outlive-the-trace](../explanation/drain-recovery.md#and-it-has-to-outlive-the-trace) |
-| `$BRINGUP_HOME/results/<node>/unkillable.stamp` | First-seen epoch and pid set of GPU processes that survived their step's kill. Tab separated; a changed pid set restarts the clock. See [explanation/drain-recovery.md#a-step-that-outlives-its-own-kill](../explanation/drain-recovery.md#a-step-that-outlives-its-own-kill) |
-| `$BRINGUP_HOME/results/<node>/.not-a-compute-node` | Present when the host has decided it can never run a job. Holds the reason; every script that walks `results/*/` skips the directory. See [settings.md#hosts-that-are-not-compute-nodes](settings.md#hosts-that-are-not-compute-nodes) |
-| `$CONTAINER_DIR` | Container images built by `build_containers.sh`. Defaults under the tree, but need not be there — see [explanation/containers.md#one-share-two-mount-points](../explanation/containers.md#one-share-two-mount-points) |
+| `$VALID_CONFIG_DIR/default/` | Symlink to the reference baseline node |
+| `$RESULTS_DIR/<node>/` | Per-node benchmark result files |
+| `$RESULTS_DIR/<node>/.heartbeat` | Touched at the top of every agent cycle, before any gate. Empty; only its mtime is read. See [explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means](../explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means) |
+| `$RESULTS_DIR/<node>/.slurm-view` | What Slurm says about this node and its jobs, written every watchdog cycle and read instead of querying the controller. Tab separated, key first, sealed with an `end` line — see [explanation/the-fleet-snapshot.md#what-is-on-disk](../explanation/the-fleet-snapshot.md#what-is-on-disk) |
+| `$RESULTS_DIR/<node>/.submit-retry` | Last failed job submission and its node-local exponential retry clock; removed after a successful submission |
+| `$RESULTS_DIR/.submit-circuit` | Watchdog-owned fleet hold opened by matching recent submission failures; carries its expiry and clears itself |
+| `$RESULTS_DIR/<node>/.yielded` | Left by the watchdog when it cancelled this node's job for a waiter, so the next cycle can say why rather than reporting it as gone. Tab separated: epoch, text. Read once and removed — see [explanation/the-fleet-snapshot.md#what-moved-to-the-head-node](../explanation/the-fleet-snapshot.md#what-moved-to-the-head-node) |
+| `$RESULTS_DIR/<node>/agent.log` | Per-cycle trace from `node-agent.sh`: the busy gate, the lock, which steps ran |
+| `$RESULTS_DIR/<node>/arm.log` | One line per arming attempt by the watchdog, and what came back. Tab separated: epoch, output. The attempt history `ARM_MAX_ATTEMPTS` is counted from |
+| `$RESULTS_DIR/.supervisor-owner` | Which host is arming the fleet, refreshed every watchdog cycle. Tab separated: hostname, epoch. A second host that finds this fresh stands by — see [explanation/the-agent-and-the-watchdog.md#only-one-watchdog](../explanation/the-agent-and-the-watchdog.md#only-one-watchdog) |
+| `$RESULTS_DIR/.supervisor-heartbeat` | Touched at the top of every watchdog cycle. Doubles as the clock every heartbeat age is measured against — see [explanation/the-agent-and-the-watchdog.md#whose-clock-decides](../explanation/the-agent-and-the-watchdog.md#whose-clock-decides) |
+| `$RESULTS_DIR/supervisor.log` | One line per watchdog cycle, including the ones that armed nothing |
+| `$RESULTS_DIR/.slurm/nodes.psv` | The fleet-wide `sinfo` the per-node views are cut from. For the head node's own tools; no compute node reads it |
+| `$RESULTS_DIR/.slurm/queue.psv` | The fleet-wide `squeue`, same |
+| `$RESULTS_DIR/.yield-check` | When the watchdog last looked for waiters, one stamp for the fleet — `GET_OUT_OF_THE_WAY_POLL_MINUTES` |
+| `$RESULTS_DIR/<node>/trigger.log` | Per-cycle decision trace from `launch_job.sh` |
+| `$RESULTS_DIR/<node>/copy.log` | Per-cycle trace from `file_copy.sh`, and where the detached copy reports what it did after the cycle that started it has ended |
+| `$RESULTS_DIR/<node>/quick-view.txt` | One line per benchmark: `DONE` / `QUEUED` |
+| `$RESULTS_DIR/<node>/recover.log` | One line per drain cleared. The attempt history `RECOVER_MAX_ATTEMPTS` is counted from. Tab separated: epoch, date, class, state, setter, reason, and the pre-job check that failed. See [explanation/drain-recovery.md#and-it-has-to-outlive-the-trace](../explanation/drain-recovery.md#and-it-has-to-outlive-the-trace) |
+| `$RESULTS_DIR/<node>/unkillable.stamp` | First-seen epoch and pid set of GPU processes that survived their step's kill. Tab separated; a changed pid set restarts the clock. See [explanation/drain-recovery.md#a-step-that-outlives-its-own-kill](../explanation/drain-recovery.md#a-step-that-outlives-its-own-kill) |
+| `$RESULTS_DIR/<node>/.not-a-compute-node` | Present when the host has decided it can never run a job. Holds the reason; every script that walks `results/*/` skips the directory. See [settings.md#hosts-that-are-not-compute-nodes](settings.md#hosts-that-are-not-compute-nodes) |
+| `$CONTAINER_DIR` | Container images built by `build_containers.sh`. Defaults under `$BRINGUP_DATA`, but need not be there — see [explanation/containers.md#one-share-two-mount-points](../explanation/containers.md#one-share-two-mount-points) |
 | `$NODE_CONTAINER_DIR` (on each node, `/opt/containers` default) | Node-local cache of the above, rsync'd by `file_copy.sh` |
 
 ## Result-path ownership
@@ -234,7 +247,7 @@ root-owned directories left over from those years has to be handed over once,
 as root:
 
 ```bash
-sudo chown -R cmods:cmods /home/cmods/bringup/results /home/cmods/bringup/logs
+sudo chown -R cmods:cmods /cluster/bringup-data/results /cluster/bringup-data/logs
 ```
 
 `trigger-debug.sh` section 6-7 names the directories that need it. The cycle

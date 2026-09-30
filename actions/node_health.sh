@@ -152,7 +152,7 @@ if setting_disabled "$RUN_HEALTH_CHECKS"; then
 fi
 
 ## Create valid-config/default by using "ln -s {target} default
-valid_health="$home/valid-config/default/"
+valid_health="$VALID_CONFIG_DIR/default/"
 #valid_health="/cm/shared/apps/bringup/valid-config/air-test/"
 ## use to gather env data as seen from script
 #env > $node_health/script-env
@@ -392,10 +392,10 @@ if command -v /cm/local/apps/slurm/current/bin/scontrol >/dev/null 2>&1; then
       # shellcheck disable=SC2034
       RECOVER_ACCEPT="machine health"
       # shellcheck disable=SC2034
-      RECOVER_LOG="$home/results/${node_name}/recover.log"
+      RECOVER_LOG="$RESULTS_DIR/${node_name}/recover.log"
       ## Where recovery reads the node view. See docs/explanation/the-fleet-snapshot.md.
       # shellcheck disable=SC2034
-      SNAPSHOT_RESULTS="$home/results"
+      SNAPSHOT_RESULTS="$RESULTS_DIR"
       [[ -f "$home/slurm-snapshot.sh" ]] && source "$home/slurm-snapshot.sh"
       snapshot_log() { trace "$@"; }
       source "$home/slurm-recovery.sh"

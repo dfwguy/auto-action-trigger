@@ -21,7 +21,6 @@ export HOSTNAME="$NODE"
 
 mkdir -p "$work"/{bin,health-checks/stub,valid-config,logs,results}
 cp "$home/settings.sh" "$work/settings.sh"
-: > "$work/SETTINGS"
 
 ## Slurm and the module system, stubbed. `sinfo` has to answer, or every run
 ## stops at the gate above the ones under test.
@@ -50,6 +49,8 @@ settings() {
     cat > "$work/SETTINGS" <<EOF
 HEALTHCHECKS=stub
 JOB_USER=$(id -un)
+BRINGUP_HOME=$work
+BRINGUP_DATA=$work
 EXCLUDE_NODES=""
 $*
 EOF

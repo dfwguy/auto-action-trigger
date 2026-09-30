@@ -134,6 +134,7 @@ cat > "$tree/SETTINGS" <<EOF
 JOBS=nvl72
 HEALTHCHECKS=nvl72
 PARSERS=nvl72
+BRINGUP_DATA=$tree
 BENCHMARKS=""
 BURNIN="test1 test2 test3"
 RUN_BURNIN=yes

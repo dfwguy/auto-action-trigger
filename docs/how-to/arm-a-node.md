@@ -31,7 +31,7 @@ None of these are in the framework's gift, and each fails quietly:
    by root cycles has root-owned directories in it, and nothing repairs them now:
 
    ```bash
-   sudo chown -R cmods:cmods /home/cmods/bringup/results /home/cmods/bringup/logs
+   sudo chown -R cmods:cmods /cluster/bringup-data/results /cluster/bringup-data/logs
    ```
 4. **`fs.leases-enable = 0` on whichever host exports the tree.** Only there;
    a node that mounts it has no delegation to grant. `install-agent.sh` refuses
@@ -57,7 +57,7 @@ None of these are in the framework's gift, and each fails quietly:
 On the head node, as `$JOB_USER`:
 
 ```bash
-bash /home/cmods/bringup/agent/install-agent.sh
+bash /cluster/bringup/agent/install-agent.sh
 ```
 
 It works out that this host is the head node — `slurmctld` installed and
@@ -65,7 +65,7 @@ It works out that this host is the head node — `slurmctld` installed and
 
 ```bash
 systemctl --user status bringup-supervisor.timer
-tail -f /home/cmods/bringup/results/supervisor.log
+tail -f /cluster/bringup-data/results/supervisor.log
 ```
 
 One line every `SUPERVISOR_INTERVAL_MINUTES`, whether or not it armed anything.
@@ -83,8 +83,8 @@ journalctl --user -u bringup-supervisor.service -n 20    # as cmods, on the head
 To arm a rack yourself rather than wait:
 
 ```bash
-clush -w 'ink50-dh01-h02-[11-18]' '/home/cmods/bringup/agent/install-agent.sh --quiet' | clubak -b
-pdsh -R ssh -w 'ink50-dh01-h02-[11-18]' '/home/cmods/bringup/agent/install-agent.sh --quiet' | dshbak -c
+clush -w 'ink50-dh01-h02-[11-18]' '/cluster/bringup/agent/install-agent.sh --quiet' | clubak -b
+pdsh -R ssh -w 'ink50-dh01-h02-[11-18]' '/cluster/bringup/agent/install-agent.sh --quiet' | dshbak -c
 ```
 
 Re-running is safe and is how a changed unit or interval is picked up.
@@ -125,7 +125,7 @@ steps.
 Cheapest first. The heartbeat answers it from the head node, with no ssh:
 
 ```bash
-stat -c '%n %y' /home/cmods/bringup/results/*/.heartbeat | sort -k2
+stat -c '%n %y' /cluster/bringup-data/results/*/.heartbeat | sort -k2
 bash trigger-log.sh          # section 0, fleet-wide
 ```
 
@@ -133,7 +133,7 @@ A heartbeat written in the last couple of minutes means the timer is firing.
 Past `HEARTBEAT_STALE_MINUTES` it is not, and the watchdog is already trying:
 
 ```bash
-cat /home/cmods/bringup/results/<node>/arm.log    # what it heard back, per attempt
+cat /cluster/bringup-data/results/<node>/arm.log    # what it heard back, per attempt
 ```
 
 To ask the node itself:
@@ -163,7 +163,8 @@ the node in its summary line rather than sshing at it for ever. What
 | `FAILED: … does not exist` | the node cannot see `$BRINGUP_HOME` — NFS not mounted, or mounted somewhere else |
 | `FAILED: systemctl --user enable --now …` | no user session bus, from some cause other than the one above — install-agent.sh now stops before reaching this call when lingering was the cause. Check it directly |
 | `FAILED: bringup-agent.timer active, next elapse never` | the manager is still holding a monotonic unit — it has a `TimersMonotonic=` and no calendar one. See [Armed, but never heartbeats](#armed-but-never-heartbeats) |
-| `FAILED: cannot write …/.heartbeat` | `results/<node>` is not writable by `cmods`. `sudo chown -R cmods:cmods /home/cmods/bringup/results` |
+| `FAILED: cannot write …/.heartbeat` | `results/<node>` is not writable by `cmods`. `sudo chown -R cmods:cmods /cluster/bringup-data/results` |
+| `FAILED: SETTINGS_HOME resolves nowhere readable` | the node cycles on `settings.sh`'s coded defaults, not this site's. See [Armed, with no settings](#armed-with-no-settings) |
 | `Unit file … is masked` | a zero-length unit, left by two hosts racing on a shared `$HOME` before the temp file was made unique. Re-run `install-agent.sh`, which replaces an empty unit and unmasks it |
 | armed, but `agent.log` says `scontrol is not on PATH` | the unit is not reaching whatever puts the Slurm tools on `PATH`. Both units run `/bin/bash -lc` for this; a unit installed before that ran the script directly, so re-run `install-agent.sh`. See [run-slurm-commands-remotely.md](run-slurm-commands-remotely.md) |
 | `WARNING: sudo would refuse: …` | armed, and the health checks will not run. The sudoers drop-in is missing |
@@ -179,16 +180,16 @@ states. See
 To clear the give-up counter and let the watchdog try again immediately:
 
 ```bash
-rm /home/cmods/bringup/results/<node>/arm.log
+rm /cluster/bringup-data/results/<node>/arm.log
 ```
 
 ## Running one cycle now, without waiting
 
 ```bash
-clush -w <node> '/home/cmods/bringup/agent/node-agent.sh --explain'   # decides nothing
-pdsh -R ssh -w <node> '/home/cmods/bringup/agent/node-agent.sh --explain'   # decides nothing
-clush -w <node> '/home/cmods/bringup/agent/node-agent.sh --verbose'   # a real cycle
-pdsh -R ssh -w <node> '/home/cmods/bringup/agent/node-agent.sh --verbose'   # a real cycle
+clush -w <node> '/cluster/bringup/agent/node-agent.sh --explain'   # decides nothing
+pdsh -R ssh -w <node> '/cluster/bringup/agent/node-agent.sh --explain'   # decides nothing
+clush -w <node> '/cluster/bringup/agent/node-agent.sh --verbose'   # a real cycle
+pdsh -R ssh -w <node> '/cluster/bringup/agent/node-agent.sh --verbose'   # a real cycle
 ```
 
 `--explain` prints every gate the agent and the three steps under it evaluate,
@@ -206,8 +207,8 @@ Run one cycle in the foreground. It prints every gate it evaluates, submits
 nothing and drains nothing:
 
 ```bash
-clush -w <node> '/home/cmods/bringup/agent/cycle.sh --verbose'
-pdsh -R ssh -w <node> '/home/cmods/bringup/agent/cycle.sh --verbose'
+clush -w <node> '/cluster/bringup/agent/cycle.sh --verbose'
+pdsh -R ssh -w <node> '/cluster/bringup/agent/cycle.sh --verbose'
 ```
 
 If that works and writes a heartbeat, **the cycle is fine and the timer is the
@@ -262,15 +263,40 @@ clush -w <node> 'XDG_RUNTIME_DIR=/run/user/$(id -u) \
 | `systemd reported no next elapse (realtime=[] monotonic=[0])` | not a fault. `systemctl show` did not answer, which is not the same as answering badly — `systemctl --user list-timers` is the readable version. The install says this rather than failing, because failing on an unreadable answer once walled a whole fleet's output with `FAILED` lines for timers that were firing perfectly well |
 | the timer absent from `list-timers` | the unit is not loaded — `systemctl --user daemon-reload`, then re-run `install-agent.sh` |
 | `Finished bringup-agent.service` once, then nothing | lingering, above |
-| `cannot write …/.heartbeat` | `results/<node>` is not writable by `cmods`. `sudo chown -R cmods:cmods /home/cmods/bringup/results` |
+| `cannot write …/.heartbeat` | `results/<node>` is not writable by `cmods`. `sudo chown -R cmods:cmods /cluster/bringup-data/results` |
 | the service failing on every trigger | read the failure — it is a real one, and the cycle prints the same thing under `--verbose` |
 
 To let the watchdog try again once the cause is fixed, rather than waiting out
 `ARM_WINDOW_HOURS`:
 
 ```bash
-rm /home/cmods/bringup/results/<node>/arm.log
+rm /cluster/bringup-data/results/<node>/arm.log
 ```
+
+## Armed, with no settings
+
+The install reports `FAILED: SETTINGS_HOME resolves nowhere readable`. The
+node still cycles — `settings.sh`'s own coded defaults are a complete working
+configuration on their own — but on the framework's defaults, not this site's,
+which is the same silent-success-with-the-wrong-answer shape as an unwritten
+heartbeat: nothing crashes, the node just runs the wrong `BENCHMARKS` against
+the wrong `HEALTHCHECKS` until someone happens to look closely at a report.
+
+`settings.sh` resolves `SETTINGS_HOME` in order: the `SETTINGS_HOME`
+environment variable (test suites only), then whichever of
+`$BRINGUP_HOME/SETTINGS_HOME` or `$BRINGUP_HOME/SETTINGS_HOME.default` exists,
+read as the exact path to the real `SETTINGS` file — falling back to
+`$BRINGUP_HOME/SETTINGS`/`SETTINGS.default` only if that pointer is missing or
+names a file that is not there. See
+[reference/settings.md#accounts-and-paths](../reference/settings.md#accounts-and-paths).
+
+```bash
+cat /cluster/bringup/SETTINGS_HOME 2>/dev/null || cat /cluster/bringup/SETTINGS_HOME.default
+```
+
+The usual cause is a `SETTINGS_HOME` file that names a path the pointer was
+never actually populated at — `cp SETTINGS.default SETTINGS` still has to run
+at wherever that path is, same as any other deployment.
 
 ## When the role is wrong
 
@@ -315,8 +341,8 @@ anything on a host that is not a compute node — and leaves nobody arming the
 fleet. Override it when the detection is wrong:
 
 ```bash
-bash /home/cmods/bringup/agent/install-agent.sh --head
-bash /home/cmods/bringup/agent/install-agent.sh --node
+bash /cluster/bringup/agent/install-agent.sh --head
+bash /cluster/bringup/agent/install-agent.sh --node
 ```
 
 Naming the head node in `EXCLUDE_NODES` is the durable fix, and it is what keeps
@@ -326,8 +352,8 @@ that host out of the reports as well. See
 ## Disarming a node
 
 ```bash
-clush -w <node> '/home/cmods/bringup/agent/uninstall-agent.sh'
-pdsh -R ssh -w <node> '/home/cmods/bringup/agent/uninstall-agent.sh'
+clush -w <node> '/cluster/bringup/agent/uninstall-agent.sh'
+pdsh -R ssh -w <node> '/cluster/bringup/agent/uninstall-agent.sh'
 ```
 
 It stops and removes the timer and the unit, and leaves lingering alone — that

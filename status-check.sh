@@ -59,7 +59,7 @@
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
 source "$home/fanout.sh"
-results_dir="$home/results"
+results_dir="$RESULTS_DIR"
 jobs_dir="$JOBS_DIR"
 
 tests=()

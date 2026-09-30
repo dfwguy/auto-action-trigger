@@ -8,7 +8,7 @@
 #SBATCH -t 2:00:00
 #SBATCH --nice=20
 ## 20 is the sweep's tier. See docs/reference/jobs.md#queue-priority.
-##SBATCH -o <BRINGUP_HOME>/results/%N/hpl.txt
+##SBATCH -o <RESULTS_DIR>/%N/hpl.txt
 
 ## Steps inherit only what was explicitly requested; no --cpus-per-task, it
 ## implies --exact. See docs/reference/jobs.md#the-allocation-header.

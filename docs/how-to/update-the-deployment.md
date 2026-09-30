@@ -68,7 +68,7 @@ half-applied:
 
 ```bash
 bash pause-agents.sh --status                                        # QUIET or STILL RUNNING
-find /cluster/bringup/results -name .heartbeat -newermt '-2 minutes' # nodes still cycling
+find /cluster/bringup-data/results -name .heartbeat -newermt '-2 minutes' # nodes still cycling
 ```
 
 `--status` prints two different things and only one is about a stop. "N cycling

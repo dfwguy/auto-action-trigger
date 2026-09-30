@@ -177,10 +177,10 @@ remote shell of any kind lands on the host, which sees a complete and correct
 
 `JOB_USER` is the only place the automation account is written down. It is now
 also the account every cycle *runs* as, rather than one that root dropped to at
-two points — see [running-unprivileged.md](running-unprivileged.md). The tree
-path and the llmb install derive from it — `/home/$JOB_USER/bringup` and
-`/home/$JOB_USER/llmb` — so a site moving from a shared human account to an
-automation account of its own changes one line in `SETTINGS`.
+two points — see [running-unprivileged.md](running-unprivileged.md). The llmb
+install derives from it — `/home/$JOB_USER/llmb` — so a site moving from a
+shared human account to an automation account of its own changes one line in
+`SETTINGS`.
 
 It did not start that way. The account was a literal in about thirty places:
 the `home=` at the top of each action, the NFS container fallback in every
@@ -200,8 +200,11 @@ accounts in two trees and requires the traces to be the same text once the name
 is substituted out. It also greps the tree, because the differential cannot see
 a name that is hardcoded on both sides.
 
-Two things deliberately do *not* derive from `JOB_USER`. The container
-directories are their own settings, for the reasons in
+Several things deliberately do *not* derive from `JOB_USER`. `BRINGUP_HOME` and
+`BRINGUP_DATA` are their own settings, fixed under `/cluster/` regardless of
+which account runs the cycle — see
+[../reference/settings.md#accounts-and-paths](../reference/settings.md#accounts-and-paths).
+The container directories are their own settings too, for the reasons in
 [containers.md#one-share-two-mount-points](containers.md#one-share-two-mount-points).
 And the agent and the three steps under it find the tree from their own path
 rather than from `BRINGUP_HOME`, because they have to load `settings.sh` before
@@ -210,7 +213,7 @@ they can read it
 
 ## The checkout is not the deployment
 
-The tree runs at `$BRINGUP_HOME` — by default `/home/cmods/bringup/` — on
+The tree runs at `$BRINGUP_HOME` — by default `/cluster/bringup/` — on
 cluster head nodes, exported over NFS to every compute node. A git checkout is a *source* of that tree, never the tree
 itself. Nothing in the repo updates the deployment.
 

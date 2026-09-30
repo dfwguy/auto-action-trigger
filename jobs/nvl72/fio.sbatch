@@ -7,7 +7,7 @@
 #SBATCH -t 2:10:00
 #SBATCH --nice=20
 ## 20 is the sweep's tier. See docs/reference/jobs.md#queue-priority.
-##SBATCH -o <BRINGUP_HOME>/results/%N/fio.txt
+##SBATCH -o <RESULTS_DIR>/%N/fio.txt
 
 ## No --gres: this job never touches a GPU. Steps inherit only what was
 ## explicitly requested; no --cpus-per-task, it implies --exact.

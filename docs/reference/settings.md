@@ -8,12 +8,23 @@ the page that carries its reasoning.
 |------|------------|
 | `SETTINGS.default` | Ships with the framework. Tracked in git, replaced by every tarball drop. |
 | `SETTINGS` | The site's own copy. Git-ignored, never written by an upgrade. |
+| `SETTINGS_HOME.default` | Ships with the framework. Names where `SETTINGS`/`SETTINGS.default` actually live — `/cluster/bringup-data/SETTINGS` by default, so a site that never touches this file still keeps `SETTINGS` out of the tree. |
+| `SETTINGS_HOME` | The site's own copy, naming a different path. Git-ignored, never written by an upgrade. |
 
 `settings.sh` reads `SETTINGS` if it exists, and `SETTINGS.default` if it does
-not. They are not layered — a site's `SETTINGS` is the whole answer.
+not, at whichever location `SETTINGS_HOME`/`SETTINGS_HOME.default` names. They
+are not layered — a site's `SETTINGS` is the whole answer.
 
 ```bash
-cp SETTINGS.default SETTINGS
+mkdir -p /cluster/bringup-data
+cp SETTINGS.default /cluster/bringup-data/SETTINGS
+```
+
+Relocating it further — off `/cluster/bringup-data` entirely — is the same
+one-line override, one level up:
+
+```bash
+echo /srv/site-config/SETTINGS > SETTINGS_HOME
 ```
 
 What *is* layered is the defaults inside `settings.sh`: any key a settings file
@@ -32,21 +43,34 @@ empty — is not.
 
 ## Reading them from a script
 
-`settings.sh` is sourced, never run. It takes the bringup root from
-`SETTINGS_HOME`, or from `home`, or failing both from its own location:
+`settings.sh` is sourced, never run. It takes `home` (the tree root) from
+whatever the caller set, or failing that from its own location:
 
 ```bash
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$home/settings.sh"
 ```
 
+Where `SETTINGS` is actually *read from* is a separate question from where the
+tree is, resolved in order: the `SETTINGS_HOME` environment variable (the test
+suites only — treated as a directory, same two-file lookup as below), else
+whichever of `$home/SETTINGS_HOME` or `$home/SETTINGS_HOME.default` exists,
+read as the exact path to the real `SETTINGS` file; falling back to
+`$home/SETTINGS`/`$home/SETTINGS.default` directly only if that pointer is
+missing or names a file that is not there. `JOBS_DIR`, `HEALTHCHECKS_DIR` and
+`PARSERS_DIR` always derive from `home`, never from wherever `SETTINGS` was
+found — `jobs/`, `health-checks/` and `parsers/` live in the tree regardless of
+where a site puts its config.
+
 Afterwards `SETTINGS_FILE` holds the path that was actually read, or is empty if
-neither file was found. Nothing treats an empty one as fatal, because the
-defaults inside `settings.sh` are a complete working configuration on their own.
-The agent and its three steps are the exception in one respect only: they treat
-a missing `settings.sh` as fatal, because a defaulted empty benchmark or check
-list reads as "everything passing" on every node. They resolve their own
-location like everything else.
+none was found. Nothing treats an empty one as fatal, because the defaults
+inside `settings.sh` are a complete working configuration on their own.
+`agent/install-agent.sh` is the one place that does treat it as worth failing
+over — see
+[how-to/arm-a-node.md#armed-with-no-settings](../how-to/arm-a-node.md#armed-with-no-settings).
+The agent and its three steps treat a missing `settings.sh` itself as fatal,
+because a defaulted empty benchmark or check list reads as "everything
+passing" on every node. They resolve their own location like everything else.
 
 ## Which set of things to run
 
@@ -234,7 +258,7 @@ against — see
 |---------|---------|---------|
 | `HEALTH_INTERVAL_HOURS` | `4` | How long after a **clean** run `node_health.sh` re-runs the checks |
 | `HEALTH_RETRY_INTERVAL_HOURS` | `1` | How long after a run that **found something** it re-runs them |
-| `HEALTH_LOG_DIR` | `$BRINGUP_HOME/logs` | Shared, compute-facing root for per-node check output, cadence state and health trace |
+| `HEALTH_LOG_DIR` | `$BRINGUP_DATA/logs` | Shared, compute-facing root for per-node check output, cadence state and health trace — see [#accounts-and-paths](#accounts-and-paths) |
 
 Whole hours, and `0` on either disables the cadence in the state it applies to —
 the checks then re-run only when `health-check.sh --refresh` sets the sentinel,
@@ -645,14 +669,19 @@ will be dropped.
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `JOB_USER` | `cmods` | The account Slurm jobs are submitted as, and the owner `results/` and `logs/` are handed to |
-| `BRINGUP_HOME` | `/home/$JOB_USER/bringup` | Where this tree lives on the cluster |
+| `JOB_USER` | `cmods` | The account Slurm jobs are submitted as, and the owner `RESULTS_DIR` and `HEALTH_LOG_DIR` are handed to |
+| `BRINGUP_HOME` | `/cluster/bringup` | Where this tree lives on the cluster |
+| `BRINGUP_DATA` | `/cluster/bringup-data` | Where results, logs, container images and the health baseline live — independent of `BRINGUP_HOME`, so the checkout and the data it produces can sit on different filesystems |
 
-`JOB_USER` is the only place the account is named; `BRINGUP_HOME` and the
-optional LLMB capture workspace derive from it, so moving to an automation
-account of its own is one line. Why it is worth
-keeping it that way — and what a hardcoded account broke last time — is
+`JOB_USER` is the only place the account is named; the optional LLMB capture
+workspace derives from it, so moving to an automation account of its own is
+one line. Why it is worth keeping it that way — and what a hardcoded account
+broke last time — is
 [explanation/architecture.md#one-account-name](../explanation/architecture.md#one-account-name).
+
+Neither default writes to `/home`. A site that wants the old layout, or any
+other, overrides `BRINGUP_HOME`/`BRINGUP_DATA` — or any one path below them —
+in its own `SETTINGS`.
 
 The account has to exist on every compute node with a working login shell:
 root's cycles reach it through `su - $JOB_USER -c`, and an operator running a
@@ -666,21 +695,35 @@ location. It is read by the jobs, which cannot, and checked by
 deployed one. See
 [reference/layout.md#runtime-paths](layout.md#runtime-paths).
 
+### Where results, logs and the baseline live
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `RESULTS_DIR` | `$BRINGUP_DATA/results` | Per-node benchmark and agent output — see [layout.md#runtime-paths](layout.md#runtime-paths) |
+| `HEALTH_LOG_DIR` | `$BRINGUP_DATA/logs` | Per-node health check output |
+| `VALID_CONFIG_DIR` | `$BRINGUP_DATA/valid-config` | The health baseline `set-valid-default.sh` writes and every check is judged against |
+
+Each defaults under `BRINGUP_DATA` but is independently overridable — a site
+can put `RESULTS_DIR` on a compute-facing share while leaving `HEALTH_LOG_DIR`
+and `VALID_CONFIG_DIR` at the `BRINGUP_DATA` default, for instance. Clearing
+any of them is safe at any time — see
+[layout.md#result-path-ownership](layout.md#result-path-ownership).
+
 ### Where the images live
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `CONTAINER_DIR` | `$BRINGUP_HOME/containers` | The shared image directory, as the compute nodes mount it |
+| `CONTAINER_DIR` | `$BRINGUP_DATA/containers` | The shared image directory, as the compute nodes mount it |
 | `CONTAINER_DIR_HEAD` | `$CONTAINER_DIR` | The same directory as the head node mounts it |
-| `CONTAINER_STAGE_DIR` | `$BRINGUP_HOME/container-src` | Source staging for `-S`/`-F`/`-B`, as the compute nodes mount it |
+| `CONTAINER_STAGE_DIR` | `$BRINGUP_DATA/container-src` | Source staging for `-S`/`-F`/`-B`, as the compute nodes mount it |
 | `CONTAINER_STAGE_DIR_HEAD` | `$CONTAINER_STAGE_DIR` | The same, as the head node mounts it |
 | `NODE_CONTAINER_DIR` | `/opt/containers` | Node-local cache `file_copy.sh` rsyncs `CONTAINER_DIR` into. `/opt` survives a reboot; change this one line to move it |
 
 Separate from `BRINGUP_HOME` because the images are tens of gigabytes and a
-site's bulk share is usually not the filesystem `/home` is on. Set only the two
-non-`_HEAD` ones unless the head node reaches that share by a different path
-than the nodes do — `/mnt/server-1-data` against `/data`, say — which nothing
-can detect and which fails silently.
+site's bulk share is usually not the filesystem the checkout is on. Set only
+the two non-`_HEAD` ones unless the head node reaches that share by a
+different path than the nodes do — `/mnt/server-1-data` against `/data`, say —
+which nothing can detect and which fails silently.
 [explanation/containers.md#one-share-two-mount-points](../explanation/containers.md#one-share-two-mount-points)
 is the whole argument.
 
