@@ -44,7 +44,7 @@ source "$home/settings.sh"      ## for BRINGUP_HOME, in the closing hint
 [[ -f "$home/fanout.sh" ]] && source "$home/fanout.sh"              ## fanout_example
 # shellcheck source=/dev/null
 [[ -f "$home/report-format.sh" ]] && source "$home/report-format.sh"  ## compress
-results_dir="$home/results"
+results_dir="$RESULTS_DIR"
 logs_dir="$HEALTH_LOG_DIR"
 
 window_hours=24

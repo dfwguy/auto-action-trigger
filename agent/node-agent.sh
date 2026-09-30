@@ -55,7 +55,7 @@ if node_excluded "$HOSTNAME" || node_self_excluded; then
     exit 0
 fi
 
-logs="$home/results/$HOSTNAME"
+logs="$RESULTS_DIR/$HOSTNAME"
 tracelog="$logs/agent.log"
 heartbeat="$logs/.heartbeat"
 mkdir -p "$logs" 2>/dev/null

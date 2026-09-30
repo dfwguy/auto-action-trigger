@@ -321,7 +321,7 @@ systemctl --user start --no-block "$unit.service" 2>/dev/null &&
 ## The one thing a cycle must be able to do, tested as the cycle will do it. A
 ## results/<host> the account cannot write makes the node invisible to the
 ## watchdog for ever: no heartbeat, so it is armed again, every interval.
-beat_dir="$home/results/$HOSTNAME"
+beat_dir="$RESULTS_DIR/$HOSTNAME"
 if node_excluded "$HOSTNAME" || [[ "$ROLE" == "head" ]]; then
     :   ## no heartbeat is written here; the watchdog has its own
 elif ! mkdir -p "$beat_dir" 2>/dev/null; then

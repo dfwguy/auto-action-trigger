@@ -23,7 +23,7 @@ source "$home/priv.sh"
 ## docs/explanation/sequencing.md#two-lists.
 
 ## set paths
-logs="$home/results/$HOSTNAME"
+logs="$RESULTS_DIR/$HOSTNAME"
 quickview="$logs/quick-view.txt"
 tracelog="$logs/trigger.log"
 
@@ -292,10 +292,10 @@ ensure_owned() {
     local d="$1"
     [[ -d "$d" ]] || mkdir -p "$d" 2>/dev/null || return 1
     [[ -w "$d" ]] && return 0
-    trace "WARNING: $d is owned by $(stat -c %U "$d" 2>/dev/null) and not writable by $(id -un) -- sbatch --output will fail. sudo chown -R $JOB_USER:$JOB_USER $home/results"
+    trace "WARNING: $d is owned by $(stat -c %U "$d" 2>/dev/null) and not writable by $(id -un) -- sbatch --output will fail. sudo chown -R $JOB_USER:$JOB_USER $RESULTS_DIR"
 }
 
-ensure_owned "$home/results"
+ensure_owned "$RESULTS_DIR"
 ensure_owned "$logs"
 
 ## ── Hosts that are not compute nodes ──────────────────────────────────────
@@ -427,7 +427,7 @@ fi
 source "$home/slurm-snapshot.sh"
 snapshot_log() { trace "$@"; }
 SNAPSHOT_OK=0
-snapshot_load "$home/results" "$HOSTNAME" && SNAPSHOT_OK=1
+snapshot_load "$RESULTS_DIR" "$HOSTNAME" && SNAPSHOT_OK=1
 
 ## The pass/fail rule, sourced here because the in-flight gate below needs it to
 ## tell a finished job from one still writing. See the header of verdict.sh.
@@ -614,7 +614,7 @@ recover_slurm_drains() {
         # shellcheck disable=SC2034
         RECOVER_DRY_RUN="$EXPLAIN"
         # shellcheck disable=SC2034
-        SNAPSHOT_RESULTS="$home/results"
+        SNAPSHOT_RESULTS="$RESULTS_DIR"
         source "$home/slurm-recovery.sh"
         if slurm_recover_node "$HOSTNAME"; then
             ## The re-read that used to sit here asked the controller for the
@@ -1278,7 +1278,7 @@ resume_node
 ## it is what the marker records and what the next cycle asks slurmstepd about.
 SUBMITTED_ID=""
 submit_retry="$logs/.submit-retry"
-submit_circuit="$home/results/.submit-circuit"
+submit_circuit="$RESULTS_DIR/.submit-circuit"
 
 ## A failed sbatch has no result file, so the workload retry window cannot slow
 ## it down. Keep a separate durable clock. The upper bound doubles per failure;

@@ -21,13 +21,13 @@
 #   4. sudo rules on the node
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-results_dir="$home/results"
 
 ## Absence is reported in section 0 rather than here, so the whole answer
 ## arrives in one place. Nothing is faked: such a tree cannot run anyway.
 [[ -f "$home/settings.sh" ]] && source "$home/settings.sh"
 # shellcheck source=/dev/null
 [[ -f "$home/fanout.sh" ]] && source "$home/fanout.sh"
+results_dir="$RESULTS_DIR"
 
 ASK_NODES=0
 pattern=""

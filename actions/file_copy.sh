@@ -58,7 +58,7 @@ done
 ## Beside health.log and trigger.log rather than in agent.log, which belongs to
 ## the agent: the detached copy below outlives the cycle that started it and
 ## writes here after the agent has moved on.
-logs="$home/results/$HOSTNAME"
+logs="$RESULTS_DIR/$HOSTNAME"
 tracelog="$logs/copy.log"
 trace() {
     if [[ "$EXPLAIN" -eq 0 ]]; then
