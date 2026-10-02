@@ -8,6 +8,7 @@ pieces fit together this way is
 
 ```
 .
+├── abup                            # Wrapper: abup <group> <name> dispatches to <group>_<name>.sh
 ├── agent/
 │   ├── cycle.sh                   # What the timer runs: decides the role, hands over to one of the two below
 │   ├── node-agent.sh              # One cycle on one node: heartbeat, busy gate, the three steps

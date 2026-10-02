@@ -3,6 +3,15 @@
 Every entry point, what it takes and what it prints. Everything here runs from
 the headnode and is safe to run while the timers are live.
 
+Every script below is `<group>_<name>.sh` — `report_benchmarks.sh`,
+`check_trigger-log.sh` — specifically so the name says the command: `abup
+<group> <name>` runs it, forwarding anything after `<name>` unchanged. `abup
+-h` lists what's actually in the tree rather than a copy of this page that
+could drift from it. See
+[how-to/install-abup.md](../how-to/install-abup.md). Every example on this
+page is written as `bash <script>.sh ...`; substitute `abup <group> <name>
+...` for any of them.
+
 Eleven of these implement `-h`/`--help` by printing their own header comment —
 `report_job-status.sh`, `report_health.sh`, `report_overall.sh`, `report_benchmarks.sh`,
 `check_trigger-log.sh`, `admin_kill-jobs.sh`, `check_squeue.sh`,

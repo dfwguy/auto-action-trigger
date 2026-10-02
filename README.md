@@ -319,6 +319,10 @@ The checks re-run on this cadence on every node, so a node repaired between cycl
 
 ## Operating a bringup
 
+Every example below also runs as `abup <group> <name> ...` — `abup report
+job-status`, `abup check squeue -j 121918` — once `abup` is on `PATH`. See
+[docs/how-to/install-abup.md](docs/how-to/install-abup.md).
+
 ```bash
 bash report_job-status.sh                      # per-node benchmark status, all nodes
 bash report_job-status.sh ink50-dh01-h20        # one rack (bare prefix)
