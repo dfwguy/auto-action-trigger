@@ -1,0 +1,76 @@
+#!/bin/bash
+#
+# Usage: abup <group> <name> [args...]
+#
+# Dispatches to <group>_<name>.sh in the bringup tree -- abup report
+# benchmarks runs report_benchmarks.sh, passing through anything after <name>.
+# Safe to put on PATH as a symlink (e.g. /usr/local/bin/abup -> this file); a
+# detached copy with no symlink needs BRINGUP_HOME set.
+#
+# With no command, or -h/--help, prints every command actually in the tree;
+# abup <group> -h (or <group> alone) narrows that to one group. Discovered,
+# not maintained, so a script added later is reachable unaided. See
+# docs/how-to/install-abup.md.
+
+## Dereferenced first: a symlink's own dirname is wherever the symlink sits,
+## not the tree. A detached copy with no symlink falls through to BRINGUP_HOME.
+## See admin_kill-jobs.sh for the same two-branch shape without the symlink case.
+self="$(readlink -f "${BASH_SOURCE[0]}")"
+self_dir="$(cd "$(dirname "$self")" && pwd)"
+home=""
+for cand in "$self_dir" "${BRINGUP_HOME:-}"; do
+    [[ -n "$cand" ]] || continue
+    [[ -f "$cand/SETTINGS" || -f "$cand/SETTINGS.default" ||
+       -f "$cand/SETTINGS_HOME" || -f "$cand/SETTINGS_HOME.default" ]] &&
+        { home="$cand"; break; }
+done
+
+if [[ -z "$home" ]]; then
+    echo "ERROR: cannot find the bringup tree -- not beside this file ($self_dir)" >&2
+    echo "       and BRINGUP_HOME is not set to one either." >&2
+    exit 1
+fi
+
+## <verb>_<name>.sh is the whole mapping, by design -- see docs/reference/scripts.md.
+## $1, if given, narrows the listing to one group -- abup check -h shows only
+## check_*.sh, not the whole tree.
+list_commands() {
+    local filter="${1:-}" prefix f base
+    for prefix in build check report admin; do
+        [[ -n "$filter" && "$prefix" != "$filter" ]] && continue
+        for f in "$home/${prefix}_"*.sh; do
+            [[ -f "$f" ]] || continue
+            base="${f##*/}"; base="${base%.sh}"
+            printf '  %s %s\n' "${base%%_*}" "${base#*_}"
+        done
+    done | sort
+}
+
+if [[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
+    echo "Usage: abup <group> <name> [args...]"
+    echo
+    echo "Available commands:"
+    list_commands
+    [[ $# -eq 0 ]] && exit 1
+    exit 0
+fi
+
+group="$1"
+if [[ $# -eq 1 || "$2" == "-h" || "$2" == "--help" ]]; then
+    echo "Usage: abup $group <name> [args...]"
+    echo
+    echo "Available '$group' commands:"
+    list_commands "$group"
+    [[ $# -eq 1 ]] && exit 1
+    exit 0
+fi
+
+name="$2"; shift 2
+script="$home/${group}_${name}.sh"
+if [[ ! -x "$script" ]]; then
+    echo "ERROR: no such command '$group $name' ($script)" >&2
+    echo "Available '$group' commands:" >&2
+    list_commands "$group" >&2
+    exit 1
+fi
+exec "$script" "$@"
