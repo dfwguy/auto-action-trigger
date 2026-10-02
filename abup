@@ -1,0 +1,60 @@
+#!/bin/bash
+#
+# Usage: abup <group> <name> [args...]
+#
+# Dispatches to <group>_<name>.sh in the bringup tree -- abup report
+# benchmarks runs report_benchmarks.sh, passing through anything after <name>.
+# Safe to put on PATH as a symlink (e.g. /usr/local/bin/abup -> this file); a
+# detached copy with no symlink needs BRINGUP_HOME set.
+#
+# With no command, or -h/--help, prints the commands actually in the tree --
+# discovered, not maintained, so a script that follows the naming convention
+# is reachable the day it ships. See docs/how-to/install-abup.md.
+
+## Dereferenced first: a symlink's own dirname is wherever the symlink sits,
+## not the tree. A detached copy with no symlink falls through to BRINGUP_HOME.
+## See admin_kill-jobs.sh for the same two-branch shape without the symlink case.
+self="$(readlink -f "${BASH_SOURCE[0]}")"
+self_dir="$(cd "$(dirname "$self")" && pwd)"
+home=""
+for cand in "$self_dir" "${BRINGUP_HOME:-}"; do
+    [[ -n "$cand" ]] || continue
+    [[ -f "$cand/SETTINGS" || -f "$cand/SETTINGS.default" ||
+       -f "$cand/SETTINGS_HOME" || -f "$cand/SETTINGS_HOME.default" ]] &&
+        { home="$cand"; break; }
+done
+
+if [[ -z "$home" ]]; then
+    echo "ERROR: cannot find the bringup tree -- not beside this file ($self_dir)" >&2
+    echo "       and BRINGUP_HOME is not set to one either." >&2
+    exit 1
+fi
+
+## <verb>_<name>.sh is the whole mapping, by design -- see docs/reference/scripts.md.
+list_commands() {
+    local f base
+    for f in "$home"/{build,check,report,admin}_*.sh; do
+        [[ -f "$f" ]] || continue
+        base="${f##*/}"; base="${base%.sh}"
+        printf '  %s %s\n' "${base%%_*}" "${base#*_}"
+    done | sort
+}
+
+if [[ $# -lt 2 || "$1" == "-h" || "$1" == "--help" ]]; then
+    echo "Usage: abup <group> <name> [args...]"
+    echo
+    echo "Available commands:"
+    list_commands
+    [[ "$1" == "-h" || "$1" == "--help" ]] && exit 0
+    exit 1
+fi
+
+group="$1" name="$2"; shift 2
+script="$home/${group}_${name}.sh"
+if [[ ! -x "$script" ]]; then
+    echo "ERROR: no such command '$group $name' ($script)" >&2
+    echo "Available commands:" >&2
+    list_commands >&2
+    exit 1
+fi
+exec "$script" "$@"

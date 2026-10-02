@@ -149,6 +149,9 @@ permissions:
         check 100755 "$f"
       done
 
+      # abup has no .sh extension, so the glob above never finds it.
+      check 100755 abup
+
       [ "$status" -eq 0 ] && echo "modes match the table in CLAUDE.md"
       exit $status
 
@@ -160,7 +163,8 @@ layout-doc:
   script:
     - |
       status=0
-      for f in $(git ls-files -- '*.sh' | grep -v '/'); do
+      # abup has no .sh extension, so the glob below never finds it.
+      for f in $(git ls-files -- '*.sh' | grep -v '/') abup; do
         if ! grep -qF "$f" docs/reference/layout.md; then
           echo "not listed in docs/reference/layout.md: $f"
           status=1
