@@ -115,7 +115,7 @@ in flight is counted, cancelled and waited on exactly like any other benchmark,
 and the next agent cycle does not submit on top of it.
 
 The result lands at `results/<node>/<job>.txt` like any other, which is what
-lets `status-check.sh -t <job>` and `verdict.sh` judge it. Two consequences:
+lets `report_job-status.sh -t <job>` and `verdict.sh` judge it. Two consequences:
 
 - The hourly retry gate reads the newest result file's mtime across the whole
   directory, so a manual test postpones the node's next ordinary sweep by up to
@@ -123,8 +123,8 @@ lets `status-check.sh -t <job>` and `verdict.sh` judge it. Two consequences:
   deferred by an hour is visible in the trace, and teaching the cadence to
   ignore some result files is a subtler thing to get wrong.
 - A result for a job outside `BENCHMARKS` has no column in the reports, so it is
-  read with `status-check.sh -t` or by opening the file. It can also show up as
-  the "live" column for a running node in `status-check.sh`, which picks the
+  read with `report_job-status.sh -t` or by opening the file. It can also show up as
+  the "live" column for a running node in `report_job-status.sh`, which picks the
   newest result file in the directory and does not know the job was ad-hoc.
 
 `--test` is the supported way to run one job, and it is what you want almost
@@ -160,8 +160,8 @@ From the head node, and where you do not want to wait for a agent cycle to
 reach the node, ask for the re-check instead of running it:
 
 ```bash
-bash health-check.sh --refresh 'ink50-dh01-h02-[11,13-18]'
-bash health-check.sh --explain ink50-dh01-h02      # when is each node next due
+bash report_health.sh --refresh 'ink50-dh01-h02-[11,13-18]'
+bash report_health.sh --explain ink50-dh01-h02      # when is each node next due
 ```
 
 That sets the `refresh` sentinel, which the next cycle on each node consumes

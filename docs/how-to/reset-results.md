@@ -1,7 +1,7 @@
 # Reset results for a node, or for everything
 
 ```bash
-bash single-node-purge.sh node001 "node[002-004]"   # one or more nodes/nodelists
+bash admin_purge-node-benchmarks.sh node001 "node[002-004]"   # one or more nodes/nodelists
 mv results results.$(date +%F)       # everything, kept
 rm -rf results                       # everything, gone
 ```
@@ -13,7 +13,7 @@ for why ownership matters and how to fix a tree immediately rather than waiting.
 
 ## What a purge removes
 
-`single-node-purge.sh` removes `results/<node>` outright, per node: the current
+`admin_purge-node-benchmarks.sh` removes `results/<node>` outright, per node: the current
 result file for every benchmark, every `.fail<N>.txt` and `.prev<N>.txt`
 archive, `quick-view.txt`, `trigger.log` and `recover.log`. The node is then
 `NOT_RUN` in every column with no history behind it, and the next sweep re-runs
@@ -39,7 +39,7 @@ so a purge re-runs the benchmarks and changes nothing about what
 `node_health.sh` concluded. To redo that half:
 
 ```bash
-bash health-check.sh --refresh node001
+bash report_health.sh --refresh node001
 ```
 
 ## Do not purge a node with a benchmark in flight

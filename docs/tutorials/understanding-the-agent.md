@@ -232,7 +232,7 @@ Around thirty-eight files, one per check. Now the second step that writes
 something:
 
 ```bash
-bash health-check.sh --refresh "$N"
+bash report_health.sh --refresh "$N"
 ls "logs/$N/refresh"
 ```
 
@@ -257,7 +257,7 @@ The cycles in between are not silent either:
 ```bash
 tail -3 "$HEALTH_LOG_DIR/$N/health.log"
 cat "logs/$N/.last-check"
-bash health-check.sh --explain "$N"
+bash report_health.sh --explain "$N"
 ```
 
 Most of those lines are one gate: the last run was recent enough, and here is
@@ -274,7 +274,7 @@ You have now looked at each link by hand. There is a script that does all of it
 and names the one that is broken:
 
 ```bash
-bash trigger-debug.sh "$N"
+bash check_trigger-debug.sh "$N"
 ```
 
 It walks seven links in order — the watchdog is cycling, the node's heartbeat is
@@ -284,15 +284,15 @@ section 0 covering the deployed layout and the pause switches. Links 1 and 2 are
 answered from NFS; `--ask-nodes` adds 3 and 4, which cost a shell per node.
 
 **But the order matters, and this is the habit to leave with:** run
-`trigger-log.sh` *first*, always.
+`check_trigger-log.sh` *first*, always.
 
 ```bash
-bash trigger-log.sh "$N"
+bash check_trigger-log.sh "$N"
 ```
 
 Fresh traces settle the question on their own — they prove the chain is intact,
-so there is nothing for `trigger-debug.sh` to find and whatever is holding the
-cluster is a gate that has already explained itself. `trigger-debug.sh` answers
+so there is nothing for `check_trigger-debug.sh` to find and whatever is holding the
+cluster is a gate that has already explained itself. `check_trigger-debug.sh` answers
 the *other* case, where the heartbeats have stopped and nothing is writing
 anything.
 
@@ -313,7 +313,7 @@ discover a node was simply waiting out its hour.
   cluster are otherwise indistinguishable.
 - Health checks run on a cadence and a sentinel, not on every cycle, and they
   refuse to run at all rather than judge a node without the privilege they need.
-- `trigger-log.sh` before `trigger-debug.sh`, every time.
+- `check_trigger-log.sh` before `check_trigger-debug.sh`, every time.
 
 Where to go next:
 

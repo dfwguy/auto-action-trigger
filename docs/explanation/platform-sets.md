@@ -44,8 +44,8 @@ So each consumer checks the path and writes a reason instead:
 |---|---|
 | `node_health.sh` | `ERROR: no health check set at <dir>`, before the loop over `[0-9]*.sh` |
 | `launch_job.sh` | traces `EXIT: <dir>/verdict.sh is missing -- it carries the pass/fail rule`, and submits nothing |
-| `status-check.sh`, `daily-report.sh` | the same `verdict.sh` check, to stderr |
-| `trigger-debug.sh` | reports all three, each name with the directory it resolved to; flags one that does not exist, and one that exists but is empty |
+| `report_job-status.sh`, `report_benchmarks.sh` | the same `verdict.sh` check, to stderr |
+| `check_trigger-debug.sh` | reports all three, each name with the directory it resolved to; flags one that does not exist, and one that exists but is empty |
 
 The same rule applies one level down, to the names *inside* these directories: a
 benchmark listed in `BENCHMARKS` with no matching `.sbatch` is skipped with a

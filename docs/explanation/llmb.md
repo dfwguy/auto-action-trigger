@@ -451,7 +451,7 @@ Median, not mean, and for a reason visible in every run: iteration 1 costs
 a steady state of 3.3 s. A mean over 50 iterations carries roughly 0.3 s of
 warmup that has nothing to do with the hardware; the median does not notice it.
 
-That median is also what `daily-report.sh` prints in both LLM columns, under the
+That median is also what `report_benchmarks.sh` prints in both LLM columns, under the
 label `step_ms`, and it comes from the same `_v_llm_step_ms` the gate calls
 rather than from a second copy of the arithmetic. So the report's
 `min`/`median`/`mean`/`max` for `llm-pretrain` and `llm-pretrain-solo` read
@@ -462,7 +462,7 @@ iterations has no median and prints its status word instead of a number; what
 stops that from being a free pass is [A run that stopped
 early](#a-run-that-stopped-early) below.
 
-Read that summary block with one correction: `daily-report.sh` prints a number
+Read that summary block with one correction: `report_benchmarks.sh` prints a number
 for a `FAIL` cell as well as a `DONE` one, so the `min`/`median`/`mean`/`max`
 pool both. Re-deriving a band from it means filtering to `DONE` first, or the
 sample includes the nodes the band rejected.

@@ -63,7 +63,7 @@ grep -H '^gpu.[0-9]*.serial:' logs/*/nodeinfo
 Forcing a fresh collection on a node, rather than waiting for the cadence:
 
 ```bash
-bash health-check.sh --refresh <node|nodelist>
+bash report_health.sh --refresh <node|nodelist>
 ```
 
 Or run the collector directly on the nodes, which writes nothing and prints to

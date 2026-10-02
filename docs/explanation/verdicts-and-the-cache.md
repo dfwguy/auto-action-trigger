@@ -24,8 +24,8 @@ judgement rather than a stale marker.
 ## How a report is produced
 
 Both reports get their cells from `verdict-scan.sh`, which judges every
-`(node, column)` pair and writes one row per cell. `status-check.sh` ignores the
-metric field, `daily-report.sh` ignores the reason; neither walks the fleet
+`(node, column)` pair and writes one row per cell. `report_job-status.sh` ignores the
+metric field, `report_benchmarks.sh` ignores the reason; neither walks the fleet
 itself.
 
 A report is therefore tens of thousands of independent judgements, and each one
@@ -98,8 +98,8 @@ The files are derived and disposable:
 
 ```bash
 rm -f results/.result_cache.*      # rebuilt on the next run
-./status-check.sh --no-cache       # or bypass it for one run
-./daily-report.sh --no-cache
+./report_job-status.sh --no-cache       # or bypass it for one run
+./report_benchmarks.sh --no-cache
 ```
 
 Reach for either when you suspect the *cache* rather than the gate — a restore
@@ -109,8 +109,8 @@ with a cached one, that is a bug worth reporting, not a cache worth clearing.
 ## A shared cache file
 
 `.result_cache.<mode>` lives under `results/`, which is not one account's
-directory — any operator with access can run `status-check.sh` or
-`daily-report.sh` under their own login, not just `$JOB_USER`. Whoever rebuilds
+directory — any operator with access can run `report_job-status.sh` or
+`report_benchmarks.sh` under their own login, not just `$JOB_USER`. Whoever rebuilds
 the cache becomes its owner, because `scan_fleet()` replaces it by `mv` rather
 than editing it in place — the rename is what lets a reader see one whole cache
 or the other and never a half-written one.
@@ -156,7 +156,7 @@ rejection and the report. It reports `RERUNNING`, with the reason
 supports.
 
 `NOT_RUN` keeps its one meaning throughout: no attempt has ever been made.
-Reports that pass `SCAN_ARCHIVES=0` — `daily-report.sh` and `next-run.sh` — do
+Reports that pass `SCAN_ARCHIVES=0` — `report_benchmarks.sh` and `check_next-run.sh` — do
 not look at archives at all and read the gap as `NOT_RUN`, which is the same
 answer for what they ask: not passing.
 
@@ -165,7 +165,7 @@ answer for what they ask: not passing.
 `RUNNING` is not written by `verdict.sh`, which sees only the result file and
 reports a marker-less one as `INCOMPLETE`. That is right for `launch_job.sh`,
 which judges a node only after it knows nothing is queued or running on it.
-`status-check.sh` has no such guard — `sbatch --output` points at the result
+`report_job-status.sh` has no such guard — `sbatch --output` points at the result
 file, so a benchmark that is mid-run is a partial file with no marker. It
 resolves the ambiguity with one cluster-wide `squeue`, matching the
 `bringup-<node>` and `burnin-<node>` job names, and reclassifies the column that

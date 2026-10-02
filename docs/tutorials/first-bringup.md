@@ -90,14 +90,14 @@ configuration becomes the definition of "correct" for every other node, so this
 choice matters more than it looks:
 
 ```bash
-bash health-check.sh --refresh <your-node>
+bash report_health.sh --refresh <your-node>
 ```
 
 Wait for one agent cycle (about a minute), then:
 
 ```bash
 ls logs/<your-node>/
-bash set-valid-default.sh <your-node>
+bash admin_set-baseline.sh <your-node>
 ```
 
 You should see around 45 files, one per check, and `valid-config/default` should
@@ -177,7 +177,7 @@ the node's own log.
 `allreduce` takes a few minutes. When `squeue` is empty again:
 
 ```bash
-bash status-check.sh <your-node>
+bash report_job-status.sh <your-node>
 ```
 
 You will get one of six words. `DONE` means the gate accepted it. `FAIL` means
@@ -190,13 +190,13 @@ cat results/<your-node>/allreduce.txt
 
 The last two lines are the fork. `exit status: 0` under a `FAIL` means the
 workload ran clean and the *gate* rejected it, so the reason is in
-`status-check.sh` rather than in this file. A non-zero exit status is the job's
+`report_job-status.sh` rather than in this file. A non-zero exit status is the job's
 own verdict, and the cause is somewhere above it.
 
 Now read the number:
 
 ```bash
-bash daily-report.sh <your-node>
+bash report_benchmarks.sh <your-node>
 ```
 
 The `allreduce` cell holds out-of-place busbw at the largest message size, in
@@ -206,12 +206,12 @@ so you can compare the two directly.
 **The thing worth understanding here:** that verdict was not stored anywhere. It
 was derived from the log file just now, and it will be derived again next time
 anything reads it. Change the floor in `SETTINGS` and re-run
-`status-check.sh` — the same file gets a different verdict, with no re-run of
+`report_job-status.sh` — the same file gets a different verdict, with no re-run of
 the benchmark. Try it:
 
 ```bash
 sed -i 's/^VERDICT_MIN_PEAK_BW_ALLREDUCE=.*/VERDICT_MIN_PEAK_BW_ALLREDUCE=9999/' SETTINGS
-bash status-check.sh <your-node>       # now FAIL
+bash report_job-status.sh <your-node>       # now FAIL
 ```
 
 Put it back before you go on:

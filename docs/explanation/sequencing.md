@@ -458,7 +458,7 @@ is not one — there is nothing on the other side of it to force. See
 [reference/settings.md#hosts-that-are-not-compute-nodes](../reference/settings.md#hosts-that-are-not-compute-nodes).
 
 None of it is silent. The excluded host's own `trigger.log` carries the `EXIT:`
-line naming which of the two decided it, `trigger-log.sh --include-excluded`
+line naming which of the two decided it, `check_trigger-log.sh --include-excluded`
 still reads it, and every report prints one line naming the hosts it left out. A
 row that disappears with no reason given is not distinguishable from a node
 nobody ever registered, which would trade one reporting bug for a worse one.
@@ -633,11 +633,11 @@ information rather than a verdict. If every job in `BURNIN` reaches its own
 permanently unreachable without raising a cap — `launch_job.sh` traces this
 distinctly rather than reading as the ordinary "nothing eligible" silence.
 
-`status-check.sh`, `overall_report.sh` and `daily-report.sh` no longer grow a
+`report_job-status.sh`, `report_overall.sh` and `report_benchmarks.sh` no longer grow a
 column per run for a `BURNIN` job — that read as up to a dozen separate
 buckets for one job, which is what this section replaced. Each reports one
 accumulated-hours line instead, alongside the normal benchmark columns.
-`next-run.sh`'s burn-in row shows the earliest due time across any still-
+`check_next-run.sh`'s burn-in row shows the earliest due time across any still-
 eligible `BURNIN` job without naming which one — naming it correctly would mean
 re-deriving the fairness pick above a second time in a different script purely
 for a preview, which is not worth the risk of the two copies drifting apart.
@@ -657,7 +657,7 @@ no run count to reach, only a clock, so `continue_running_next()` checks the
 result file's age directly rather than walking runs the way `next_eligible()`
 and `burnin_order()` do. Submissions from this tier carry the same
 `bringup-<node>` job name as `BENCHMARKS` — not a third name — so
-`RUN_JOBS=no` and `kill-jobs.sh` both cover it without change.
+`RUN_JOBS=no` and `admin_kill-jobs.sh` both cover it without change.
 
 The interesting case is a job listed here that is *also* in `BENCHMARKS` or
 `BURNIN`, which is the intended pattern: while it keeps passing, only
@@ -977,11 +977,11 @@ timers keep firing and each step still runs — it reads its switch, does nothin
 and says so. That is deliberate: a disabled timer looks exactly like a broken
 one, and the state is only visible from the node. A pause leaves a trace line on
 every node saying it is paused, and
-`trigger-debug.sh` reports it in section 0 before it walks any of the links.
+`check_trigger-debug.sh` reports it in section 0 before it walks any of the links.
 
 Nothing is lost across a pause. Results stay on disk, the sweep resumes from
 where it stopped rather than restarting, and a `refresh` sentinel set by
-`health-check.sh --refresh` is held rather than consumed.
+`report_health.sh --refresh` is held rather than consumed.
 
 `RUN_JOBS=no` also reaches work already in the queue, because gating submission
 alone would leave hours of already-queued benchmarks running:
@@ -1233,7 +1233,7 @@ pending, a job of ours running somewhere nobody is waiting for — leaves the jo
 alone. A node that is wanted and was not given up is named in the trace, so
 "nothing of ours is there" and "the scan never ran" do not read alike.
 `scancel`'s output is read rather than its exit status, because a refused kill
-is reported on stdout with a zero exit, as in `kill-jobs.sh`.
+is reported on stdout with a zero exit, as in `admin_kill-jobs.sh`.
 
 ### The prefix is the gate
 

@@ -9,8 +9,8 @@ a good gate looks like, and the specific ways these ones have been got wrong.
 
 An sbatch does **not** decide whether its own result is good. It reports only
 whether it ran (`PENDING`) or could not (`FAIL`). `DONE` is derived by
-`verdict.sh`, which is read by `launch_job.sh`, `status-check.sh` and
-`daily-report.sh` every time they look at a result — it is never written to
+`verdict.sh`, which is read by `launch_job.sh`, `report_job-status.sh` and
+`report_benchmarks.sh` every time they look at a result — it is never written to
 disk.
 
 That split exists because the alternative failed in a way nothing could recover
@@ -278,7 +278,7 @@ little bandwidth, so its floor sits below `allreduce`'s rather than tracking it;
 and the `-nonvlink` pair crosses the compute-plane HCAs instead of NVLink.
 
 All five read the same number: out-of-place busbw at the largest message size
-actually run. That is also the figure `daily-report.sh` prints in those columns,
+actually run. That is also the figure `report_benchmarks.sh` prints in those columns,
 so a value in the report compares against the floor directly. The
 `# Avg bus bandwidth` summary line is required to be present, as evidence the
 run finished, but is **not** judged: it averages every message size and comes
@@ -287,7 +287,7 @@ against it could not be checked against anything an operator is looking at.
 
 Both `-nonvlink` floors sit above every IB-scope result captured as a fixture —
 the one that used to be `alltoall-nonvlink__good-ib` measures 32.35 and is now a
-below-floor case. Read a full `daily-report.sh` before acting on drains from
+below-floor case. Read a full `report_benchmarks.sh` before acting on drains from
 these two jobs: **a handful of nodes under the floor is a fabric problem; every
 node landing far below it is the floor being wrong**, and the first thing to
 check is the compute plane's link speed.

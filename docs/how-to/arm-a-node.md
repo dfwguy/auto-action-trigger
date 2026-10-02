@@ -106,7 +106,7 @@ nobody notices the four.
 | `FAILED: …` | not armed, and the line names which step |
 
 They partition the fleet: a host says `ARMED` or it says why not, never both.
-That is what lets `pause-agents.sh` tally them, and it is why a `WARNING` host
+That is what lets `admin_pause-agents.sh` tally them, and it is why a `WARNING` host
 is counted apart from an armed one rather than folded in.
 
 The lines carry no hostname, no timestamp and no pid — deliberately, because
@@ -116,7 +116,7 @@ every line with the node it came from; repeating it inside the message costs the
 grouping and buys nothing. Anything genuinely per-host, like the next elapse
 time, is in the full output and not in this one.
 
-`pause-agents.sh --resume` and the watchdog both use `--quiet`, so
+`admin_pause-agents.sh --resume` and the watchdog both use `--quiet`, so
 `results/<node>/arm.log` holds a verdict per attempt rather than a screen of
 steps.
 
@@ -126,7 +126,7 @@ Cheapest first. The heartbeat answers it from the head node, with no ssh:
 
 ```bash
 stat -c '%n %y' /cluster/bringup-data/results/*/.heartbeat | sort -k2
-bash trigger-log.sh          # section 0, fleet-wide
+bash check_trigger-log.sh          # section 0, fleet-wide
 ```
 
 A heartbeat written in the last couple of minutes means the timer is firing.
@@ -146,7 +146,7 @@ pdsh -R ssh -w <node> 'loginctl show-user cmods -p Linger --value; \
     XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active bringup-agent.timer'
 ```
 
-`yes` and `active` is a healthy node. `trigger-debug.sh --ask-nodes` runs the
+`yes` and `active` is a healthy node. `check_trigger-debug.sh --ask-nodes` runs the
 same question across everything it found stale, plus the sudo check.
 
 ## When a node will not stay armed

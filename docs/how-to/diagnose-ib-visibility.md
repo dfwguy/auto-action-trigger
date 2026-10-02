@@ -1,7 +1,7 @@
 # Diagnose IB visibility
 
 ```bash
-bash ib-visibility.sh ink50-dh01-h20-36
+bash check_ib.sh ink50-dh01-h20-36
 ```
 
 For the two NCCL `-nonvlink` jobs, which need the HCAs and fail four different
@@ -20,7 +20,7 @@ It prints three sections in causal order:
 
 **The first section that is wrong is the cause; the rest are consequences.**
 
-The case numbers it prints map to the reasons `status-check.sh` reports:
+The case numbers it prints map to the reasons `report_job-status.sh` reports:
 
 | Reported reason | Section that explains it |
 | --- | --- |

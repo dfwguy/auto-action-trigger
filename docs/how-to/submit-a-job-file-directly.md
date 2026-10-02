@@ -105,7 +105,7 @@ one of the sweep's own instead, add `-J bringup-$node`; be aware that the next
 cycle may then cancel it under `RUN_JOBS=no` or the in-flight gate.
 
 **The result is judged like any other.** It lands at
-`results/<node>/<job>.txt`, so `status-check.sh` and `verdict.sh` will pick it
+`results/<node>/<job>.txt`, so `report_job-status.sh` and `verdict.sh` will pick it
 up, and it postpones that node's next ordinary sweep by up to
 `RETRY_INTERVAL_HOURS` — the retry gate reads the newest mtime in the directory.
 Writing it somewhere else instead keeps it out of every report.

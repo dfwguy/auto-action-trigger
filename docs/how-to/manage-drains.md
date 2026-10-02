@@ -13,8 +13,8 @@ DRAIN_AFTER_FAILED_BENCHMARK=no      # launch_job.sh: failed sweep, and MAX_JOB_
 
 Nothing else changes with either off — checks and benchmarks still run, results
 are still recorded, and failures still re-queue hourly. The node is simply never
-taken out of service, so failures show up in `status-check.sh`,
-`health-check.sh` and `daily-report.sh` rather than in `sinfo`.
+taken out of service, so failures show up in `report_job-status.sh`,
+`report_health.sh` and `report_benchmarks.sh` rather than in `sinfo`.
 
 That is the state to be in during early bringup, when you want the full picture
 across a rack before nodes start dropping out, and while debugging a benchmark
@@ -22,10 +22,10 @@ that is failing for reasons unrelated to the hardware.
 
 Two consequences worth knowing:
 
-- `health-check.sh` and `overall_report.sh` both read the health verdict out of
+- `report_health.sh` and `report_overall.sh` both read the health verdict out of
   `logs/<node>` rather than out of `sinfo`, so a failing node is reported either
   way. What drains off costs you is the *scheduler*: those nodes are still
-  taking work. `health-check.sh` says how many, and `--drained` is the separate
+  taking work. `report_health.sh` says how many, and `--drained` is the separate
   report of what Slurm has taken out, grouped by reason.
 - Turning either on does not clear drains that already exist, and does not drain
   a node that is already failing — the next agent cycle does that.
@@ -34,7 +34,7 @@ Two consequences worth knowing:
 
 A node drained over a health failure, then repaired, keeps its drain until a
 clean run clears it. Between the repair and that run, Slurm says one thing and
-the logs say another. `health-check.sh` marks those lines rather than counting
+the logs say another. `report_health.sh` marks those lines rather than counting
 them as failures:
 
 ```
@@ -46,7 +46,7 @@ Read it as "nothing supports this drain any more". With
 `DRAIN_AFTER_FAILED_HEALTH_CHECK=yes` the next clean run resumes the node on its
 own, within `HEALTH_RETRY_INTERVAL_HOURS`; with drains off nothing will, and
 resuming it is a manual `scontrol update` — see [Resuming by
-hand](#resuming-by-hand) below. Either way `health-check.sh --refresh <node>`
+hand](#resuming-by-hand) below. Either way `report_health.sh --refresh <node>`
 brings the re-check forward.
 
 ## Which to turn on first
@@ -58,7 +58,7 @@ per-rack rather than per-cluster, drains the entire cluster on the first
 agent cycle. Bring it up only once this reads clean across the fleet:
 
 ```bash
-bash health-check.sh --summary
+bash report_health.sh --summary
 ```
 
 These replace the old `NODRAIN` file, which is gone. A `NODRAIN` left over from
@@ -105,13 +105,13 @@ nodes are recognised separately and marked `DOWN` for an operator —
 ## Reading what the recovery did
 
 ```bash
-./overall_report.sh --full <pattern>                 # start here: every drain, with why
+./report_overall.sh --full <pattern>                 # start here: every drain, with why
 grep -i recover results/*/trigger.log | tail         # the raw traces
 cat results/<node>/recover.log                       # one line per resume
-./trigger-log.sh                                     # recoveries appear as events
+./check_trigger-log.sh                                     # recoveries appear as events
 ```
 
-`overall_report.sh` is the one to reach for first. Its NODES section carries the
+`report_overall.sh` is the one to reach for first. Its NODES section carries the
 Slurm state and drain reason, the pre-job check that failed, the `held` and
 `skipped` traces, and — for a prolog drain whose cause is not in our logs — the
 fan-out line that reads BCM's own log **on the node**, which is where

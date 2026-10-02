@@ -84,7 +84,7 @@ The container images do **not** have to live under that home directory: `CONTAIN
 | `nvidia-imex-ctl` | `node_health.sh` (IMEX checks, GB series only) |
 | `enroot` | `build_containers.sh` (headnode for the fetch pass, compute nodes for the source-build pass; pyxis already needs it there) |
 | `squashfs-tools` | `build_containers.sh` (optional — shrinks the staged package set) |
-| `clubak` (ClusterShell), or `dshbak` (pdsh) | `status-check.sh`, to group identical rows. Ships with `clush`/`pdsh` respectively, so installing either family covers both |
+| `clubak` (ClusterShell), or `dshbak` (pdsh) | `report_job-status.sh`, to group identical rows. Ships with `clush`/`pdsh` respectively, so installing either family covers both |
 | `rsync` | `actions/file_copy.sh` (optional) |
 
 ### Required host settings (the NFS server)
@@ -134,18 +134,18 @@ The following scripts are run manually by an operator from the headnode and do n
 
 | Script | Requires |
 |--------|---------|
-| `status-check.sh` | `sinfo`, `clubak` or `dshbak`, read access to `results/` |
+| `report_job-status.sh` | `sinfo`, `clubak` or `dshbak`, read access to `results/` |
 | `check_squeue.sh` | `squeue`; `-j` also uses `sinfo` and `scontrol` |
-| `daily-report.sh` | `sinfo`, read access to `results/`; write access to wherever `-o` points |
-| `health-check.sh` | `sinfo`, `scontrol`, read access to `logs/` and `valid-config/` |
-| `health-check.sh --refresh` | write access to `logs/<node>/` |
-| `trigger-debug.sh` | `sinfo`, read access to `results/`; `--ask-nodes` also needs `clush` or `pdsh` |
-| `trigger-log.sh` | read access to `results/` and `logs/` |
-| `next-run.sh` | `clubak` or `dshbak`, read access to `results/` and `logs/` |
-| `watch-rack.sh` | `sinfo` |
-| `single-node-purge.sh` | write access to `results/` |
-| `kill-jobs.sh` | `squeue`, `scancel` as `JOB_USER` or root; `-p` also needs write access to `SETTINGS` |
-| `set-valid-default.sh` | write access to `valid-config/` |
+| `report_benchmarks.sh` | `sinfo`, read access to `results/`; write access to wherever `-o` points |
+| `report_health.sh` | `sinfo`, `scontrol`, read access to `logs/` and `valid-config/` |
+| `report_health.sh --refresh` | write access to `logs/<node>/` |
+| `check_trigger-debug.sh` | `sinfo`, read access to `results/`; `--ask-nodes` also needs `clush` or `pdsh` |
+| `check_trigger-log.sh` | read access to `results/` and `logs/` |
+| `check_next-run.sh` | `clubak` or `dshbak`, read access to `results/` and `logs/` |
+| `check_rack.sh` | `sinfo` |
+| `admin_purge-node-benchmarks.sh` | write access to `results/` |
+| `admin_kill-jobs.sh` | `squeue`, `scancel` as `JOB_USER` or root; `-p` also needs write access to `SETTINGS` |
+| `admin_set-baseline.sh` | write access to `valid-config/` |
 | `agent/install-agent.sh` | Run as `JOB_USER`; `systemctl --user`, `loginctl`, and permission to enable lingering |
 
 Draining and resuming nodes needs Slurm privilege — see [docs/reference/layout.md](docs/reference/layout.md#slurm-permissions).
@@ -182,7 +182,7 @@ pdsh -R ssh -w <node> '/cluster/bringup/agent/node-agent.sh --explain'
 
 A missing rule does not make a check fail — it changes its output, which the
 baseline diff reads as a hardware fault — so `node_health.sh` refuses to run at
-all rather than judge a node without it. `trigger-debug.sh --ask-nodes` asks the
+all rather than judge a node without it. `check_trigger-debug.sh --ask-nodes` asks the
 same question fleet-wide once nodes are armed.
 
 Then, as `$JOB_USER` on the head node:
@@ -215,7 +215,7 @@ One line per cycle whether or not it armed anything. Within a few minutes you wa
 `18 fresh, 0 armed` is the answer: every tray is writing a heartbeat and none needs arming. To check it directly rather than watching:
 
 ```bash
-bash trigger-log.sh                                     # section 0, fleet-wide
+bash check_trigger-log.sh                                     # section 0, fleet-wide
 stat -c '%y %n' /cluster/bringup-data/results/*/.heartbeat | sort   # newest write per tray
 ```
 
@@ -228,7 +228,7 @@ clush -w 'ink50-dh01-h02-[11-28]' 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl 
 pdsh -R ssh -w 'ink50-dh01-h02-[11-28]' 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active bringup-agent.timer'
 ```
 
-`active` on every line. `trigger-debug.sh --ask-nodes` runs that plus the lingering and sudo checks across everything it found stale, and `bash trigger-debug.sh` on its own answers the same questions from NFS for free.
+`active` on every line. `check_trigger-debug.sh --ask-nodes` runs that plus the lingering and sudo checks across everything it found stale, and `bash check_trigger-debug.sh` on its own answers the same questions from NFS for free.
 
 Then watch a tray decide something:
 
@@ -256,8 +256,8 @@ Downloading is the default and, without `-S`, the only path: an image that canno
 Run the health script manually on a node that has been fully validated, then capture its output as the reference:
 
 ```bash
-bash set-valid-default.sh <node_name>
-# e.g. bash set-valid-default.sh node001
+bash admin_set-baseline.sh <node_name>
+# e.g. bash admin_set-baseline.sh node001
 ```
 
 This copies `logs/<node_name>/` to `valid-config/<node_name>/` and symlinks it as `valid-config/default/`. All subsequent health checks diff against this baseline.
@@ -306,7 +306,7 @@ DRAIN_AFTER_FAILED_HEALTH_CHECK=no   # health check mismatched the baseline
 DRAIN_AFTER_FAILED_BENCHMARK=no      # benchmark sweep failed, or a job ran past MAX_JOB_HOURS
 ```
 
-Turn them on once the failures being reported are real ones. Health-check drains are the riskier half — a bad baseline drains the whole cluster on the first agent cycle — so bring that one up only after `bash health-check.sh --summary` reads clean. See [docs/how-to/manage-drains.md](docs/how-to/manage-drains.md).
+Turn them on once the failures being reported are real ones. Health-check drains are the riskier half — a bad baseline drains the whole cluster on the first agent cycle — so bring that one up only after `bash report_health.sh --summary` reads clean. See [docs/how-to/manage-drains.md](docs/how-to/manage-drains.md).
 
 ### 9. Decide how often health checks re-run
 
@@ -315,18 +315,18 @@ HEALTH_INTERVAL_HOURS=4         # after a clean run
 HEALTH_RETRY_INTERVAL_HOURS=1   # after a run that found something
 ```
 
-The checks re-run on this cadence on every node, so a node repaired between cycles clears its own health drain and a node that regresses is noticed without anyone asking. `0` on both restores the older behaviour, where nothing re-ran until `health-check.sh --refresh` said so. See [docs/explanation/health-cadence.md](docs/explanation/health-cadence.md).
+The checks re-run on this cadence on every node, so a node repaired between cycles clears its own health drain and a node that regresses is noticed without anyone asking. `0` on both restores the older behaviour, where nothing re-ran until `report_health.sh --refresh` said so. See [docs/explanation/health-cadence.md](docs/explanation/health-cadence.md).
 
 ## Operating a bringup
 
 ```bash
-bash status-check.sh                      # per-node benchmark status, all nodes
-bash status-check.sh ink50-dh01-h20        # one rack (bare prefix)
-bash status-check.sh -t allreduce          # one benchmark (repeatable, globs OK)
-bash status-check.sh -s                    # node lists per status, no reasons
-bash daily-report.sh                      # TSV table: slurm state + status + metrics
-bash daily-report.sh -c -o ~/r.csv        # same rows as CSV, and keep a copy
-bash watch-rack.sh "rack01-node[1-32]"    # live view of DOWN/drained nodes
+bash report_job-status.sh                      # per-node benchmark status, all nodes
+bash report_job-status.sh ink50-dh01-h20        # one rack (bare prefix)
+bash report_job-status.sh -t allreduce          # one benchmark (repeatable, globs OK)
+bash report_job-status.sh -s                    # node lists per status, no reasons
+bash report_benchmarks.sh                      # TSV table: slurm state + status + metrics
+bash report_benchmarks.sh -c -o ~/r.csv        # same rows as CSV, and keep a copy
+bash check_rack.sh "rack01-node[1-32]"    # live view of DOWN/drained nodes
 bash check_squeue.sh                      # the whole queue in one table
 bash check_squeue.sh -j 121918            # one job, plus its nodes' state and any reservation
 ```
@@ -338,24 +338,24 @@ reason names a condition, not the nodes behind it. See
 A node that has stopped testing:
 
 ```bash
-bash trigger-log.sh                       # read the traces: is it firing, and what did it decide
-bash trigger-log.sh ink50-dh01-h20-11     # one node, with its raw trace
-bash trigger-debug.sh ink50-dh01-h20      # walk watchdog → sbatch, name the broken link
-bash next-run.sh                          # the other half: when each node fires next
+bash check_trigger-log.sh                       # read the traces: is it firing, and what did it decide
+bash check_trigger-log.sh ink50-dh01-h20-11     # one node, with its raw trace
+bash check_trigger-debug.sh ink50-dh01-h20      # walk watchdog → sbatch, name the broken link
+bash check_next-run.sh                          # the other half: when each node fires next
 ```
 
-Start with `trigger-log.sh` — it reads the heartbeats and what the sequencer
+Start with `check_trigger-log.sh` — it reads the heartbeats and what the sequencer
 already wrote down, and separates the two cases that look identical from the
 outside: heartbeats stale means the timers are not firing (go to
-`trigger-debug.sh`), heartbeats fresh with nothing submitted means the agent is
+`check_trigger-debug.sh`), heartbeats fresh with nothing submitted means the agent is
 running and a gate is closed (the reason is already in the trace).
 
 A node that has been drained:
 
 ```bash
-bash health-check.sh                      # every failed health check, grouped by check
+bash report_health.sh                      # every failed health check, grouped by check
 sinfo -n node001 -o '%T %E'               # state and reason
-bash health-check.sh --diff node001       # diff its health output vs the baseline
+bash report_health.sh --diff node001       # diff its health output vs the baseline
 scontrol update nodename=node001 state=RESUME
 ```
 
@@ -371,31 +371,31 @@ RUN_ARMING=no           # the watchdog arms no node; running agents carry on
 Nothing is lost — results stay, the sweep resumes where it stopped. One already-running benchmark per node is left to finish. To empty the queue now instead:
 
 ```bash
-bash kill-jobs.sh -n                      # list what would be cancelled, change nothing
-bash kill-jobs.sh -p                      # pause, then cancel every job of ours
-bash kill-jobs.sh ink50-dh01-i01          # one node or glob; no -p, so the sweep resumes next cycle
+bash admin_kill-jobs.sh -n                      # list what would be cancelled, change nothing
+bash admin_kill-jobs.sh -p                      # pause, then cancel every job of ours
+bash admin_kill-jobs.sh ink50-dh01-i01          # one node or glob; no -p, so the sweep resumes next cycle
 ```
 
-`kill-jobs.sh` matches on our own job names rather than on the account, so it leaves anything else `cmods` owns alone, and it runs from any directory. See [docs/how-to/pause-and-resume.md](docs/how-to/pause-and-resume.md) and [emptying the queue](docs/how-to/pause-and-resume.md#emptying-the-queue-now).
+`admin_kill-jobs.sh` matches on our own job names rather than on the account, so it leaves anything else `cmods` owns alone, and it runs from any directory. See [docs/how-to/pause-and-resume.md](docs/how-to/pause-and-resume.md) and [emptying the queue](docs/how-to/pause-and-resume.md#emptying-the-queue-now).
 
 A drain reason containing `auto-retry` is the sequencer's own — it clears it on the next retry pass, so resuming by hand only starts the next sweep sooner. Any other reason is an operator drain, and the sequencer will neither clear it nor queue work behind it.
 
 Re-run health checks, or start a node's benchmarks over after a hardware swap:
 
 ```bash
-bash health-check.sh --refresh node001     # ahead of the cadence
-bash health-check.sh --explain node001    # when is it next due, and what did the last run find
-bash single-node-purge.sh node001
+bash report_health.sh --refresh node001     # ahead of the cadence
+bash report_health.sh --explain node001    # when is it next due, and what did the last run find
+bash admin_purge-node-benchmarks.sh node001
 ```
 
 Full command reference in [docs/reference/scripts.md](docs/reference/scripts.md); retry and drain rules in [docs/explanation/sequencing.md](docs/explanation/sequencing.md).
 
 ## Removing the framework
 
-**Stop the watchdog first.** It re-arms any idle or drained node whose heartbeat goes stale, so disarming a rack while it is running gets the rack armed straight back within `HEARTBEAT_STALE_MINUTES`. `pause-agents.sh` does it in the right order, and writes nothing to the share:
+**Stop the watchdog first.** It re-arms any idle or drained node whose heartbeat goes stale, so disarming a rack while it is running gets the rack armed straight back within `HEARTBEAT_STALE_MINUTES`. `admin_pause-agents.sh` does it in the right order, and writes nothing to the share:
 
 ```bash
-bash pause-agents.sh          # the watchdog here, then every node timer
+bash admin_pause-agents.sh          # the watchdog here, then every node timer
 ```
 
 That is also the thing to run before replacing the deployment with a new drop — `rsync -av /tmp/auto-action-trigger-*/ /cluster/bringup/`, with no `--delete` and so no exclude list, because the site's own data is not in the drop to begin with. See [docs/how-to/pause-and-resume.md#replacing-the-tree](docs/how-to/pause-and-resume.md#replacing-the-tree). To remove the framework rather than stop it, carry on: on the head node, as `cmods`,
@@ -407,8 +407,8 @@ bash /cluster/bringup/agent/uninstall-agent.sh
 Then empty the queue, or the last sweep runs on nodes nobody is watching:
 
 ```bash
-bash kill-jobs.sh -n                      # what would be cancelled
-bash kill-jobs.sh                         # cancel it
+bash admin_kill-jobs.sh -n                      # what would be cancelled
+bash admin_kill-jobs.sh                         # cancel it
 ```
 
 Then disarm the trays:

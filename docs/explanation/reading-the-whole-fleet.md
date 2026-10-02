@@ -1,6 +1,6 @@
 # Reading the whole fleet at once
 
-`overall_report.sh` answers one question — *what is not working, and what do we
+`report_overall.sh` answers one question — *what is not working, and what do we
 already know about it* — and it is the only report in this tree that crosses the
 three sources of truth: the benchmark results under `results/`, the health check
 output under `logs/`, and Slurm. It answers it twice, at two altitudes: one
@@ -67,7 +67,7 @@ three cases; the assertions about formatting are the cheap half of it.
 
 ## It is an exception list
 
-`status-check.sh` and `daily-report.sh` both describe the whole fleet: every
+`report_job-status.sh` and `report_benchmarks.sh` both describe the whole fleet: every
 node, every column, passing or not. That is the right shape when the question is
 "where does everything stand", and the wrong one when the question is "what do I
 work on" — a passing cell is a row of output that will never be acted on, and on
@@ -137,7 +137,7 @@ is built against — see [architecture.md](architecture.md#silence-is-the-enemy)
 
 ## Health, read from the files
 
-`health-check.sh` used to read the Slurm drain reason, because that is where
+`report_health.sh` used to read the Slurm drain reason, because that is where
 `node_health.sh` writes its verdict. That made it exactly as complete as the
 drains behind it, and with the shipped `DRAIN_AFTER_FAILED_HEALTH_CHECK=no`
 there are none: every node read as passing, and the script printed a banner
@@ -151,14 +151,14 @@ So neither report reads Slurm for health. `node_health.sh` decides by diffing
 both files are on the shared tree — so the same conclusion can be reached from
 the files, whether or not anything ever drained.
 
-The comparison lives in `health-scan.sh`, sourced by `overall_report.sh` and by
-`health-check.sh`, and so does the HEALTH block both of them print — one
+The comparison lives in `health-scan.sh`, sourced by `report_overall.sh` and by
+`report_health.sh`, and so does the HEALTH block both of them print — one
 function, one set of numbers. Two reports that disagree about which nodes are
 failing are worse than either of them alone, and that is what a second copy of
 this comparison would eventually become.
 
 What drains-off still costs is visible in `sinfo` and nowhere else: nothing was
-taken out of the queue. That is what `health-check.sh` says in its banner now.
+taken out of the queue. That is what `report_health.sh` says in its banner now.
 Slurm keeps one question the files cannot answer — what is drained, and for what
 — so `--drained` is a separate report against `sinfo` rather than a filter on
 this one.
@@ -188,14 +188,14 @@ anything on the nodes.
 
 ## Three spellings of a node list
 
-Every other tool in this workflow produces a *node list* — `status-check.sh -s`
+Every other tool in this workflow produces a *node list* — `report_job-status.sh -s`
 prints a compressed one per status, `sinfo -o %N` prints one, `nodeset -e`
-expands one. `health-check.sh` only ever took a glob, so a list had to be turned
+expands one. `report_health.sh` only ever took a glob, so a list had to be turned
 back into single names and fed through a loop:
 
 ```bash
-for i in $(nodeset -e "$(bash status-check.sh -s | grep -A1 FAIL | tail -1)"); do
-    bash health-check.sh "$i"
+for i in $(nodeset -e "$(bash report_job-status.sh -s | grep -A1 FAIL | tail -1)"); do
+    bash report_health.sh "$i"
 done
 ```
 
@@ -245,7 +245,7 @@ than printing a blank, for the same reason the trace exists at all.
 
 ## The spread column
 
-`daily-report.sh`'s metric summary carries `n`, `min`, `median`, `mean`, `max`
+`report_benchmarks.sh`'s metric summary carries `n`, `min`, `median`, `mean`, `max`
 and `cov` — the coefficient of variation, standard deviation over mean, across
 the cells that held a number.
 
@@ -277,7 +277,7 @@ without reading 2,000 rows.
 
 **It is taken over failing cells too**, like every other statistic in that block
 — see the note on `min` in
-[reference/scripts.md](../reference/scripts.md#daily-reportsh--per-node-table-with-metrics).
+[reference/scripts.md](../reference/scripts.md#report_benchmarkssh--per-node-table-with-metrics).
 So a fleet with a handful of hard failures reports a `cov` those failures
 dominate. That is the intended reading for spotting them; it is the wrong sample
 for re-deriving a pass floor, which wants the passing cells only.
@@ -302,7 +302,7 @@ mistake — **doing per-item work in bash**:
 - **`wrap_list`**, ~5 s on `--full`. One `awk` plus a process substitution to
   read it back, called about 1,700 times when 576 node blocks print. Now bash,
   writing into an array with no subprocess at all. It is a formatting primitive
-  shared with `health-check.sh`, so `tests/report-format-test.sh` keeps it
+  shared with `report_health.sh`, so `tests/report-format-test.sh` keeps it
   equivalent to the awk it replaced rather than trusting the rewrite.
 - **Ranking the node blocks**, 1.1 s. `$(node_rank "$node")` is a fork per node;
   it sets a variable now, the same way `verdict()` does and for the same reason.

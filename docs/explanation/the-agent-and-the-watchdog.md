@@ -49,7 +49,7 @@ are read well after the heartbeat touch, so none of them can produce a stale
 one — a paused node keeps writing `.heartbeat` on schedule. What the watchdog is
 looking for is the node whose *timer* has stopped — because the user manager was
 killed, because lingering was never enabled, because the machine was reimaged,
-because somebody ran `systemctl --user stop`, or because `pause-agents.sh` did
+because somebody ran `systemctl --user stop`, or because `admin_pause-agents.sh` did
 that on purpose fleet-wide for a tarball drop. None of those write anything to
 any log; the only evidence is an absence, so the absence has to be of something
 written unconditionally.
@@ -81,7 +81,7 @@ storm of ssh.
 
 The same file is the watchdog's own liveness marker, and it is the only one:
 nothing watches the watchdog. Its absence or staleness is the first thing
-`trigger-log.sh` and `trigger-debug.sh` report, above every per-node question,
+`check_trigger-log.sh` and `check_trigger-debug.sh` report, above every per-node question,
 because no answer below it can be trusted while nothing is arming anything.
 
 ## Where the watchdog logs
@@ -258,7 +258,7 @@ like for the moment after it is restarted. A calendar timer has no monotonic
 schedule at all, so `NextElapseUSecMonotonic` is `infinity` by construction,
 for ever, on every node that is working perfectly; and `NextElapseUSecRealtime`
 is `0` until the manager gets round to computing it. Two values, one of them
-constant and the other a race. On a fleet-wide `pause-agents.sh --resume` this
+constant and the other a race. On a fleet-wide `admin_pause-agents.sh --resume` this
 put a `FAILED` line and a non-zero exit against hundreds of nodes at once, every
 time, and every one of them was cycling a minute later — so the output taught its
 readers to ignore it, which is worse than not printing it.

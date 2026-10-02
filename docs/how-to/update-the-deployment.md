@@ -14,7 +14,7 @@ rm -rf /tmp/auto-action-trigger-*/
 tar -jxvf /tmp/auto-action-trigger-*.tar.bz2 -C /tmp
 
 # 2. stop the fleet
-bash /cluster/bringup/pause-agents.sh
+bash /cluster/bringup/admin_pause-agents.sh
 
 # 3. copy -- no --delete, so no --exclude list to get wrong
 rsync -av /tmp/auto-action-trigger-*/ /cluster/bringup/
@@ -23,7 +23,7 @@ rsync -av /tmp/auto-action-trigger-*/ /cluster/bringup/
 grep OnCalendar /cluster/bringup/agent/units/bringup-agent.timer
 
 # 5. resume
-bash /cluster/bringup/pause-agents.sh --resume
+bash /cluster/bringup/admin_pause-agents.sh --resume
 ```
 
 **Delete the extracted tree before untarring.** `tar` overwrites what it
@@ -45,7 +45,7 @@ at *that* directory's speed no matter how fast the deployment's own disk is.
 ## Stop the fleet before copying
 
 ```bash
-bash pause-agents.sh
+bash admin_pause-agents.sh
 ```
 
 Copying over a tree that two thousand agents are executing out of replaces
@@ -54,7 +54,7 @@ then execs the new `node-agent.sh` fails in ways that are genuinely hard to
 read. It is also slow, because the copy competes with every node reading the
 same files.
 
-`pause-agents.sh` stops the watchdog **first** and locally — it re-arms any node
+`admin_pause-agents.sh` stops the watchdog **first** and locally — it re-arms any node
 whose heartbeat goes stale, so stopping the nodes while it runs puts them
 straight back — then every node's timer. It writes nothing to the share, which
 is what makes it usable when the share is the thing that is struggling.
@@ -67,7 +67,7 @@ when a copy is slow, sticks on `settings.sh` or `launch_job.sh`, or lands
 half-applied:
 
 ```bash
-bash pause-agents.sh --status                                        # QUIET or STILL RUNNING
+bash admin_pause-agents.sh --status                                        # QUIET or STILL RUNNING
 find /cluster/bringup-data/results -name .heartbeat -newermt '-2 minutes' # nodes still cycling
 ```
 
@@ -158,7 +158,7 @@ tells you what a drop actually did.
 
 ### What the stop is still for
 
-The rename means a node that missed `pause-agents.sh` no longer risks a
+The rename means a node that missed `admin_pause-agents.sh` no longer risks a
 corrupted script. It does not make the stop optional, because a cycle is
 several `bash` invocations and the copy can land between them: `node-agent.sh`
 runs `file_copy.sh`, `node_health.sh` and `launch_job.sh` as separate execs, so
@@ -171,7 +171,7 @@ nodes mid-cycle, each for exactly one cycle, and the next one two minutes later
 is wholly on the new tree. Nothing is corrupted and nothing needs repair.
 
 So: keep the stop. It costs seconds and removes the question, and
-`pause-agents.sh` writes nothing to the share. The honest exception is a drop
+`admin_pause-agents.sh` writes nothing to the share. The honest exception is a drop
 that touches one file or only `docs/` — there is no skew to have — and even
 then the stop is cheaper than deciding whether you are right.
 
@@ -187,7 +187,7 @@ re-armed with the old unit — and the failure surfaces two thousand lines later
 as timers that never fire.
 
 ```bash
-bash pause-agents.sh --resume
+bash admin_pause-agents.sh --resume
 ```
 
 `--resume` re-arms through `agent/install-agent.sh` rather than a bare
@@ -217,7 +217,7 @@ invisible in every other line of the output.
 **Do not re-run `--resume` for those.** They still have a stale heartbeat, so
 the watchdog arms them on its next cycle, `ARM_BATCH` at a time, and records
 each attempt in `results/<node>/arm.log`. Giving it a cycle and then reading
-`trigger-log.sh` is both faster and more informative than a second fan-out that
+`check_trigger-log.sh` is both faster and more informative than a second fan-out that
 will hang on the same nodes for the same reason. If a node is still unarmed
 after `ARM_MAX_ATTEMPTS`, `arm.log` says what it said, and
 [arm-a-node.md#when-a-node-will-not-stay-armed](arm-a-node.md#when-a-node-will-not-stay-armed)
@@ -233,8 +233,8 @@ output. See
 Then:
 
 ```bash
-bash pause-agents.sh --status      # watchdog running, nodes cycling
-bash trigger-log.sh                # section 0: heartbeats and the watchdog
+bash admin_pause-agents.sh --status      # watchdog running, nodes cycling
+bash check_trigger-log.sh                # section 0: heartbeats and the watchdog
 ```
 
 ## What never gets copied

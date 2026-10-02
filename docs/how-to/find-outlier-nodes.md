@@ -8,7 +8,7 @@ weeks. The numbers will.
 ## 1. Read the spread, not the values
 
 ```bash
-bash daily-report.sh > /dev/null
+bash report_benchmarks.sh > /dev/null
 ```
 
 The summary is on stderr, so that discards the table and keeps it — aligned,
@@ -47,14 +47,14 @@ the worst node on the cluster, not the worst node that passed.
 The summary gives you a number, not a node. Sort the table to find it:
 
 ```bash
-bash daily-report.sh | sort -t$'\t' -k3 -g | head -10
+bash report_benchmarks.sh | sort -t$'\t' -k3 -g | head -10
 ```
 
 Column 3 is the first benchmark column (node, slurm state, then the jobs in
 `BENCHMARKS` order). Count across the header to pick the column you want:
 
 ```bash
-bash daily-report.sh | head -1 | tr '\t' '\n' | cat -n
+bash report_benchmarks.sh | head -1 | tr '\t' '\n' | cat -n
 ```
 
 Then sort on that column number. Cells holding a status word rather than a
@@ -136,8 +136,8 @@ The summary describes **the nodes that matched and nothing else**, so a filtered
 report's median is that rack's median rather than the fleet's:
 
 ```bash
-bash daily-report.sh > /dev/null                      # fleet
-bash daily-report.sh ink50-dh01-h20 > /dev/null       # one rack
+bash report_benchmarks.sh > /dev/null                      # fleet
+bash report_benchmarks.sh ink50-dh01-h20 > /dev/null       # one rack
 ```
 
 The `nodes` count in the first summary block is what says how many nodes the

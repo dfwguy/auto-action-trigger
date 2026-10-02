@@ -213,7 +213,7 @@ So each of the two shared directories has a pair of settings:
 
 | Setting | Whose view | Read by |
 |---------|-----------|---------|
-| `CONTAINER_DIR` | the compute nodes | the `.sbatch` jobs, `actions/file_copy.sh`, `ib-visibility.sh` |
+| `CONTAINER_DIR` | the compute nodes | the `.sbatch` jobs, `actions/file_copy.sh`, `check_ib.sh` |
 | `CONTAINER_DIR_HEAD` | the head node | `build_containers.sh`, `build_llmb.sh` |
 | `CONTAINER_STAGE_DIR` | the compute nodes | `build_containers.sh -B`, which runs under `srun` |
 | `CONTAINER_STAGE_DIR_HEAD` | the head node | `build_containers.sh -S`/`-F` |

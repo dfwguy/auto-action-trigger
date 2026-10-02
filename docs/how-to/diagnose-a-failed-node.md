@@ -12,8 +12,8 @@ The tables this procedure looks things up in are
 
 To see every node in this state at once, with its drain reason, its failing
 health checks and — for a node Slurm drained with `Prolog error` — the check
-that actually failed, start from `overall_report.sh --details`:
-[reference/scripts.md](../reference/scripts.md#overall_reportsh--the-fleet-in-one-line-per-node).
+that actually failed, start from `report_overall.sh --details`:
+[reference/scripts.md](../reference/scripts.md#report_overallsh--the-fleet-in-one-line-per-node).
 
 ## 1. Count the nodes before reading the failure
 
@@ -23,7 +23,7 @@ the single most common way time gets lost here.
 | Shape | What it almost always is | Start at |
 |-------|--------------------------|----------|
 | **One node**, everything else clean | That node's hardware | the result file itself |
-| **A handful, scattered** | Hardware, several instances | `daily-report.sh`, compare the numbers |
+| **A handful, scattered** | Hardware, several instances | `report_benchmarks.sh`, compare the numbers |
 | **One rack, all of it** | Rack-level: a switch, a power domain, an IMEX domain, cabling | the rack, not the nodes |
 | **Every node, all at once** | The framework, not the fleet | [step 4](#4-when-everything-fails-at-once) |
 
@@ -35,13 +35,13 @@ cluster-wide failure is a claim that all of your hardware broke simultaneously**
 which is rarely what happened.
 
 ```bash
-bash status-check.sh -s -t <job>     # node lists per status, for the job that failed
+bash report_job-status.sh -s -t <job>     # node lists per status, for the job that failed
 ```
 
 ## 2. Read the status word, then the result file
 
 ```bash
-bash status-check.sh <node>
+bash report_job-status.sh <node>
 cat results/<node>/<failing-job>.txt
 ```
 
@@ -49,12 +49,12 @@ Look up the status word and the verdict reason in
 [reference/reasons.md](../reference/reasons.md). The fork that matters most is
 the `exit status:` line at the end of the file: non-zero is the job's own
 verdict with the cause above it in the same file; zero under a `FAIL` means the
-gate rejected clean output, and the reason is only in `status-check.sh`.
+gate rejected clean output, and the reason is only in `report_job-status.sh`.
 
 ## 3. Read the number, not just the verdict
 
 ```bash
-bash daily-report.sh | grep <node>
+bash report_benchmarks.sh | grep <node>
 ```
 
 A `-nonvlink` cell at 41 GB/s and one at 2.2 both fail the same floor and are a
@@ -64,7 +64,7 @@ figure the floor is stated against.
 For the `-nonvlink` pair specifically, the fastest confirmation is:
 
 ```bash
-bash ib-visibility.sh <node>
+bash check_ib.sh <node>
 ```
 
 See [diagnose-ib-visibility.md](diagnose-ib-visibility.md).
@@ -76,7 +76,7 @@ whole-cluster failure that looked like a fleet-wide hardware event.
 
 1. **The baseline is missing or wrong.** `valid-config/default` is a symlink to
    a node on *this* cluster. If it does not resolve, every check on every node
-   diffs against a file that is not there. `health-check.sh` leads with
+   diffs against a file that is not there. `report_health.sh` leads with
    `WARNING: no baseline` — nothing under that banner is real.
 2. **The baseline node was not actually good.** Whatever node you named became
    the definition of correct BIOS, kernel params, IMEX and NVLink for the whole
@@ -102,7 +102,7 @@ whole-cluster failure that looked like a fleet-wide hardware event.
 ## Worked examples
 
 **Every `-nonvlink` cell reads 30-something, floor is 43.** Not 200 bad HCAs.
-Item 3 above — read a full `daily-report.sh` before acting on the drains. If the
+Item 3 above — read a full `report_benchmarks.sh` before acting on the drains. If the
 spread is tight and the transport is right (`via NET/IB`, not Socket), the floor
 is the thing that is wrong.
 
@@ -136,9 +136,9 @@ nowhere to write. See
 Collect, per affected node:
 
 ```bash
-bash status-check.sh <node>                       # what the gates say
-bash daily-report.sh | grep <node>                # the numbers, and Slurm state
-bash health-check.sh --diff <node>                # health-check diffs vs baseline
+bash report_job-status.sh <node>                       # what the gates say
+bash report_benchmarks.sh | grep <node>                # the numbers, and Slurm state
+bash report_health.sh --diff <node>                # health-check diffs vs baseline
 sinfo -R -n <node>                                # the drain reason verbatim
 tail -40 results/<node>/trigger.log               # what the sequencer decided
 cat results/<node>/<failing-job>.txt              # the raw output, whole file

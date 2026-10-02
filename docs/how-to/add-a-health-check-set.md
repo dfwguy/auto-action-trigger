@@ -6,7 +6,7 @@
 validated on **this** cluster:
 
 ```bash
-bash set-valid-default.sh <validated-node>
+bash admin_set-baseline.sh <validated-node>
 ```
 
 Whatever node you name becomes the definition of correct BIOS, OS, kernel
@@ -16,7 +16,7 @@ It is deliberately not in git (`valid-config/.gitignore`), and it must not be: a
 committed `default` pointing at a node name from another cluster gets copied
 over the live one on the next tarball drop, and then every check on every node
 diffs against a file that isn't there. The symptom is the whole cluster failing
-every check at once — `health-check.sh` leads with a `WARNING: no baseline`
+every check at once — `report_health.sh` leads with a `WARNING: no baseline`
 banner when the link does not resolve, because nothing below it is real.
 
 ## Add one check
@@ -24,9 +24,9 @@ banner when the link does not resolve, because nothing below it is real.
 1. Drop a numbered file into `health-checks/$HEALTHCHECKS/` — `NN-<name>.sh`,
    mode `644`, with a `# banner:` line. The format is
    [reference/health-checks.md#the-check-file-format](../reference/health-checks.md#the-check-file-format).
-2. `bash health-check.sh --refresh <baseline-node>` and let a agent cycle run
+2. `bash report_health.sh --refresh <baseline-node>` and let a agent cycle run
    it there.
-3. `bash set-valid-default.sh <baseline-node>` again, so the baseline has an
+3. `bash admin_set-baseline.sh <baseline-node>` again, so the baseline has an
    entry for the new check.
 
 **Without that third step the new check diffs against a missing file and fails
@@ -53,12 +53,12 @@ Sets worth having:
 ## Check it before turning drains on
 
 ```bash
-bash health-check.sh --summary     # where every node stands
-bash health-check.sh --diff <node> # why one node was taken down
+bash report_health.sh --summary     # where every node stands
+bash report_health.sh --diff <node> # why one node was taken down
 ./tests/health-runner-test.sh      # the runner loop, offline
 ```
 
-`health-check.sh` groups nodes by the *set* of checks they failed, so one group
+`report_health.sh` groups nodes by the *set* of checks they failed, so one group
 is one incident however many nodes are in it, and one node per group is enough
 to diagnose — the rest of the group failed the same checks.
 

@@ -1,7 +1,7 @@
 # Work out why nothing is running
 
-Two scripts, and **the order matters**. `trigger-log.sh` reads the record the
-sequencer already wrote; `trigger-debug.sh` inspects the configuration that
+Two scripts, and **the order matters**. `check_trigger-log.sh` reads the record the
+sequencer already wrote; `check_trigger-debug.sh` inspects the configuration that
 should be producing it. Read the record first — it tells you which of the two
 failures you have, and they are indistinguishable from the outside.
 
@@ -11,18 +11,18 @@ sequencer evaluates writes a line to `results/<node>/trigger.log` before it
 stops — so a heartbeat and a log written this cycle mean the timer fired, the
 agent ran and the script reached a decision. The chain is intact by definition,
 and whatever is holding the cluster is a gate that has already named itself.
-There is nothing for `trigger-debug.sh` to find in that case; it answers the
+There is nothing for `check_trigger-debug.sh` to find in that case; it answers the
 other one, where the heartbeats have stopped, nothing is writing anything, and
 the question is which link between the timer and `sbatch` is broken.
 
 ## 1. Read the traces
 
 ```bash
-bash trigger-log.sh                       # whole cluster
-bash trigger-log.sh ink50-dh01-h20        # one rack
-bash trigger-log.sh ink50-dh01-h20-11     # one node — adds its raw trace
-bash trigger-log.sh -w 2                  # only events from the last 2 hours
-bash trigger-log.sh -s 30                 # a log is stale after 30m, not 15m
+bash check_trigger-log.sh                       # whole cluster
+bash check_trigger-log.sh ink50-dh01-h20        # one rack
+bash check_trigger-log.sh ink50-dh01-h20-11     # one node — adds its raw trace
+bash check_trigger-log.sh -w 2                  # only events from the last 2 hours
+bash check_trigger-log.sh -s 30                 # a log is stale after 30m, not 15m
 ```
 
 It prints six sections:
@@ -81,8 +81,8 @@ means is [reference/trace-lines.md](../reference/trace-lines.md).
 ## 2. If the traces are stale, walk the chain
 
 ```bash
-bash trigger-debug.sh                 # whole cluster
-bash trigger-debug.sh ink50-dh01-h20  # one rack
+bash check_trigger-debug.sh                 # whole cluster
+bash check_trigger-debug.sh ink50-dh01-h20  # one rack
 ```
 
 Walks the chain from the watchdog down to `sbatch` and names the broken link:
@@ -94,7 +94,7 @@ Links 1 and 2 are answered from NFS and cost nothing. `--ask-nodes` adds 3 and
 4, which are a shell on every node it found stale:
 
 ```bash
-bash trigger-debug.sh --ask-nodes
+bash check_trigger-debug.sh --ask-nodes
 ```
 
 A node whose heartbeat is stale and which the watchdog cannot arm is
@@ -146,10 +146,10 @@ is happening on this node":
 ```bash
 clush -w ink50-dh01-h20-11 '/cluster/bringup/actions/node_health.sh --explain'
 pdsh -R ssh -w ink50-dh01-h20-11 '/cluster/bringup/actions/node_health.sh --explain'
-bash health-check.sh --explain ink50-dh01-h20      # or, from the head node
+bash report_health.sh --explain ink50-dh01-h20      # or, from the head node
 ```
 
-`health-check.sh --explain` needs no node access: it reads the stamps and says
+`report_health.sh --explain` needs no node access: it reads the stamps and says
 when each node is next due. A node reading `overdue` there is one no agent cycle
 is reaching — check its heartbeat in section 0. See
 [explanation/health-cadence.md](../explanation/health-cadence.md).
