@@ -27,13 +27,13 @@ pieces fit together this way is
 ├── settings.sh                    # Loads SETTINGS, else SETTINGS.default; backfills unset keys
 ├── priv.sh                        # The one place a command needing root is run from a cycle that is not
 ├── fanout.sh                      # The one place a command is run on more than one node: clush, else pdsh
-├── reason-map.sh                  # Slurm drain reason → check names (health-check.sh)
-├── report-format.sh               # Copyable node-list formatting, prose wrapping and elision (health-check.sh, overall_report.sh)
-├── health-scan.sh                 # The health verdict from logs/ against the baseline (health-check.sh, overall_report.sh)
+├── reason-map.sh                  # Slurm drain reason → check names (report_health.sh)
+├── report-format.sh               # Copyable node-list formatting, prose wrapping and elision (report_health.sh, report_overall.sh)
+├── health-scan.sh                 # The health verdict from logs/ against the baseline (report_health.sh, report_overall.sh)
 ├── slurm-snapshot.sh              # The fleet's one look at Slurm: written by the watchdog, read by every node
 ├── slurm-recovery.sh              # Clears drains Slurm set itself, never an operator's (both actions)
 ├── get-out-of-the-way.sh          # Cancels a node's job when somebody else is queued for it (supervisor.sh)
-├── verdict-scan.sh                # Judges every cell of the fleet in parallel (status-check.sh, daily-report.sh)
+├── verdict-scan.sh                # Judges every cell of the fleet in parallel (report_job-status.sh, report_benchmarks.sh)
 │
 ├── health-checks/                 # One directory per platform; HEALTHCHECKS picks one
 │   └── nvl72/                     # One file per check, NN-<check>.sh, run in numeric order
@@ -138,21 +138,21 @@ pieces fit together this way is
 ├── build_containers.sh            # Build job container images into containers/
 ├── build_llmb.sh                  # Install/inspect the optional llmb-run capture workspace
 ├── llmb_check.py                  # Resolve and report an llmb install; run by build_llmb.sh
-├── set-valid-default.sh           # Capture a validated node as the health baseline
-├── health-check.sh                # Cluster-wide health summary, plus --explain and --refresh
-├── ib-visibility.sh               # Compare HCAs the host sees vs the container sees
-├── single-node-purge.sh           # Clear benchmark results for a node
-├── dmesg-archive.sh               # Save, clear and resume nodes drained on a full dmesg
-├── kill-jobs.sh                   # Cancel our queued and running jobs; -p also pauses
+├── admin_set-baseline.sh          # Capture a validated node as the health baseline
+├── report_health.sh               # Cluster-wide health summary, plus --explain and --refresh
+├── check_ib.sh                    # Compare HCAs the host sees vs the container sees
+├── admin_purge-node-benchmarks.sh # Clear benchmark results for a node
+├── check_dmesg.sh                 # Save, clear and resume nodes drained on a full dmesg
+├── admin_kill-jobs.sh             # Cancel our queued and running jobs; -p also pauses
 ├── check_squeue.sh                # The queue in one table; -j adds node state and reservations
-├── status-check.sh                # Live per-node benchmark status (all nodes)
-├── daily-report.sh                # Per-node table: slurm state, status, performance metrics
-├── overall_report.sh              # One grouped line per node; --details is everything without a pass
-├── pause-agents.sh                # Stop every agent timer in the fleet, and start them again
-├── trigger-debug.sh               # Walk the watchdog → sbatch chain and name the broken link
-├── trigger-log.sh                 # Read what the chain wrote: trigger.log and health.log
-├── next-run.sh                    # When each node next submits a benchmark or runs its checks
-└── watch-rack.sh                  # Watch a nodelist for DOWN/drained nodes
+├── report_job-status.sh           # Live per-node benchmark status (all nodes)
+├── report_benchmarks.sh           # Per-node table: slurm state, status, performance metrics
+├── report_overall.sh              # One grouped line per node; --details is everything without a pass
+├── admin_pause-agents.sh          # Stop every agent timer in the fleet, and start them again
+├── check_trigger-debug.sh         # Walk the watchdog → sbatch chain and name the broken link
+├── check_trigger-log.sh           # Read what the chain wrote: trigger.log and health.log
+├── check_next-run.sh              # When each node next submits a benchmark or runs its checks
+└── check_rack.sh                  # Watch a nodelist for DOWN/drained nodes
 ```
 
 ## Runtime paths
@@ -193,7 +193,7 @@ location and `BRINGUP_HOME` disagree.
 |------|---------|
 | `$HEALTH_LOG_DIR/<node>/` | Per-node health check output files. Defaults to `$BRINGUP_DATA/logs`; sites may place it on a compute-facing share |
 | `$HEALTH_LOG_DIR/<node>/.last-check` | When the checks last ran there and what they concluded, tab-separated. Drives the cadence — see [settings.md#health-check-cadence](settings.md#health-check-cadence) |
-| `$HEALTH_LOG_DIR/<node>/refresh` | Present when a re-check has been asked for ahead of the cadence. Set by `health-check.sh --refresh`, consumed by the next cycle |
+| `$HEALTH_LOG_DIR/<node>/refresh` | Present when a re-check has been asked for ahead of the cadence. Set by `report_health.sh --refresh`, consumed by the next cycle |
 | `$HEALTH_LOG_DIR/<node>/health.log` | Per-cycle decision trace from `node_health.sh` |
 | `$HEALTH_LOG_DIR/<node>/stderr.log` | Health runner and check stderr, redirected away from the systemd journal |
 | `$HEALTH_LOG_DIR/<node>/service.log` | Unexpected stdout/stderr from the timer's quiet node-agent cycle; normally empty |
@@ -250,7 +250,7 @@ as root:
 sudo chown -R cmods:cmods /cluster/bringup-data/results /cluster/bringup-data/logs
 ```
 
-`trigger-debug.sh` section 6-7 names the directories that need it. The cycle
+`check_trigger-debug.sh` section 6-7 names the directories that need it. The cycle
 warns rather than failing silently when it finds one it cannot write.
 
 ## Executable bits

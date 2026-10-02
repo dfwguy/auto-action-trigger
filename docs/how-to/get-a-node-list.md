@@ -1,13 +1,13 @@
 # Get a node list you can act on
 
 You have a report and you need the nodes out of it, in a form `clush -w`,
-`scancel`, `scontrol` or `health-check.sh --refresh` will take. Both roll-ups exist
+`scancel`, `scontrol` or `report_health.sh --refresh` will take. Both roll-ups exist
 for this and neither is the default output.
 
 ## From benchmark status
 
 ```bash
-bash status-check.sh -s
+bash report_job-status.sh -s
 ```
 
 One compressed node list per status, reasons dropped. The default report answers
@@ -39,7 +39,7 @@ means **`DONE` there means every selected test passes**, not that some did.
 This is the part to get right before pasting anything anywhere:
 
 ```bash
-bash status-check.sh -s -t allreduce
+bash report_job-status.sh -s -t allreduce
 ```
 
 The header changes to name what the roll-up covers:
@@ -58,16 +58,16 @@ pull in `allreduce-nonvlink`. Spell out `-t 'allreduce*'` if you want both.
 Narrow by node at the same time:
 
 ```bash
-bash status-check.sh -s -t allreduce ink50-dh01-h20
+bash report_job-status.sh -s -t allreduce ink50-dh01-h20
 ```
 
 ## Straight from one roll-up into the other
 
-`health-check.sh` takes the same node lists these roll-ups print, so the health
+`report_health.sh` takes the same node lists these roll-ups print, so the health
 side of a benchmark failure is one command and not a loop:
 
 ```bash
-bash health-check.sh "$(bash status-check.sh -s -t llm-pretrain | grep -A1 FAIL | tail -1)"
+bash report_health.sh "$(bash report_job-status.sh -s -t llm-pretrain | grep -A1 FAIL | tail -1)"
 ```
 
 Quote it: the list is compressed, and unquoted the shell tries the brackets as a
@@ -78,18 +78,18 @@ lose the grouping that says how many incidents there really are.
 ## From health state
 
 ```bash
-bash health-check.sh --summary
+bash report_health.sh --summary
 ```
 
 One line per failing check with every node under it, nothing elided, so the list
 under a check name is the list to act on. It is the same block
-`overall_report.sh --details` prints under HEALTH.
+`report_overall.sh --details` prints under HEALTH.
 
 The never-checked list at the foot is the one to reach for first at a new site —
 those are nodes with no `logs/<node>`, meaning the checks have never run there:
 
 ```bash
-bash health-check.sh --refresh 'ink50-dh01-h15-[11-14]'
+bash report_health.sh --refresh 'ink50-dh01-h15-[11-14]'
 ```
 
 The default report is the other cut of the same data: nodes grouped by the set
@@ -98,7 +98,7 @@ enough, since the rest of the group failed the same checks. Its drain-reason
 section is **not** a health verdict; those nodes are down or drained for a
 reason `node_health.sh` did not write. Do not treat it as a list of bad nodes.
 
-`bash health-check.sh --drained` is the third cut, and not a health one: every
+`bash report_health.sh --drained` is the third cut, and not a health one: every
 drained or down node grouped by the reason it carries, largest group first. That
 is the list to take when the question is what is out of the queue rather than
 what is broken.
@@ -109,13 +109,13 @@ Take the list from either roll-up and use it directly:
 
 ```bash
 # why those nodes are unhealthy, grouped by the set of checks they failed
-bash health-check.sh 'ink50-dh01-h20-[03,17]'
+bash report_health.sh 'ink50-dh01-h20-[03,17]'
 
 # re-run the health checks
-bash health-check.sh --refresh 'ink50-dh01-h20-[03,17]'
+bash report_health.sh --refresh 'ink50-dh01-h20-[03,17]'
 
 # clear results and start that node's benchmarks over
-bash single-node-purge.sh 'ink50-dh01-h20-[03,17]'
+bash admin_purge-node-benchmarks.sh 'ink50-dh01-h20-[03,17]'
 
 # run something on each node
 clush -w 'ink50-dh01-h20-[03,17]' 'nvidia-smi -L'
@@ -146,8 +146,8 @@ occasionally does not.
 Two checks worth the extra command:
 
 **Is the report current?** Both roll-ups print a banner on stderr when the thing
-that produces them is paused — `RUN_JOBS` for `status-check.sh`,
-`RUN_HEALTH_CHECKS` for `health-check.sh`. A paused report cannot change and
+that produces them is paused — `RUN_JOBS` for `report_job-status.sh`,
+`RUN_HEALTH_CHECKS` for `report_health.sh`. A paused report cannot change and
 looks exactly like a cluster that has settled. The banner is on stderr
 deliberately, so it survives `-s` being piped and cannot land inside a node list
 you are about to paste.
@@ -158,7 +158,7 @@ or a missing image — see
 [diagnose-a-failed-node.md](diagnose-a-failed-node.md#4-when-everything-fails-at-once).
 Acting on the second case drains a working fleet.
 
-For anything cancelling jobs across the fleet, `kill-jobs.sh -n` prints what it
+For anything cancelling jobs across the fleet, `admin_kill-jobs.sh -n` prints what it
 would cancel and changes nothing. Use it — the patterns are shell globs typed
 under time pressure, and a `*` in the wrong place is the difference between one
 rack and the cluster. See [pause-and-resume.md](pause-and-resume.md).

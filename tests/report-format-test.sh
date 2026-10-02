@@ -8,7 +8,7 @@
 # a break never lands inside a [14,29,34] range -- because half a range is a
 # string neither scontrol nor a paste into `pdsh -R ssh -w` will take, and it looks
 # exactly like a whole one. It was one awk per call until a 576-node
-# overall_report.sh --full made that ~1700 forks, and it is now bash.
+# report_overall.sh --full made that ~1700 forks, and it is now bash.
 #
 # A rewrite of a formatting primitive is the kind of change that passes review
 # by inspection and is wrong in one case nobody typed. So the awk is kept here,

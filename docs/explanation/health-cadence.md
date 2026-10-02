@@ -81,15 +81,15 @@ state is most likely to change under an engineer's hands, and it is the one
 worth asking about most often.
 
 Setting either to `0` disables the cadence and restores the old behaviour: the
-checks then re-run only when `health-check.sh --refresh` asks. That is the
+checks then re-run only when `report_health.sh --refresh` asks. That is the
 escape hatch for a site that finds 46 checks an hour too expensive, and it is a
 real answer rather than a mistake, so nothing warns about it.
 
 ## Asking for a re-check
 
-`health-check.sh --refresh <node|nodelist>` writes the `refresh` sentinel, which
+`report_health.sh --refresh <node|nodelist>` writes the `refresh` sentinel, which
 the next agent cycle consumes ahead of the cadence. This used to be its own
-script, `node-health-refresh.sh`; it is a mode of `health-check.sh` now because
+script, `node-health-refresh.sh`; it is a mode of `report_health.sh` now because
 an operator holding a node name wants to look at the checks and re-run them in
 the same breath, and two scripts meant remembering which one took a nodelist and
 which took a glob.
@@ -130,7 +130,7 @@ declined to run anything. See
 ## The golden baseline
 
 `valid-config/default` is a symlink to a **copy** of one validated node's
-`logs/<node>/`, taken by `set-valid-default.sh`. The copy is the whole point,
+`logs/<node>/`, taken by `admin_set-baseline.sh`. The copy is the whole point,
 and the cadence is what makes it load-bearing.
 
 Pointed straight at a live `logs/<node>/` — which is a one-line change and looks
@@ -155,10 +155,10 @@ Both paths must resolve for the comparison to fire. `readlink -f` prints nothing
 when a parent directory is missing, and two empty strings compare equal, which
 would take the whole fleet out over a missing `valid-config/`.
 
-`set-valid-default.sh` also strips `refresh` and `.last-check` out of the copy.
+`admin_set-baseline.sh` also strips `refresh` and `.last-check` out of the copy.
 Neither is a check, and a `.last-check` sitting in the baseline directory reads
 as a check name to every consumer that lists it —
-`health-check.sh` filters it as well, because a baseline taken before this
+`report_health.sh` filters it as well, because a baseline taken before this
 change still has one. The informational checks go the same way and for a
 related reason: nothing diffs them, so a copy in the baseline is an answer
 nobody asked for. See
@@ -168,7 +168,7 @@ nobody asked for. See
 
 The trace goes to `$HEALTH_LOG_DIR/<node>/health.log`, beside the check output,
 and
-`trigger-log.sh` section 5 reads it the same way section 1 reads the sequencer's:
+`check_trigger-log.sh` section 5 reads it the same way section 1 reads the sequencer's:
 a log that has stopped being written is the agent not firing, and a fresh log
 whose last line is an `EXIT` is a gate that has already named itself.
 
@@ -177,7 +177,7 @@ rotate at different rates — the sequencer writes a line or two per cycle and t
 health side writes one per cadence interval — and interleaving them would mean
 the sequencer's volume rotating the health trace away long before it was stale.
 
-`health-check.sh --explain` answers the question the trace cannot: not what the
+`report_health.sh --explain` answers the question the trace cannot: not what the
 last cycle did, but when the next one is due, read from the stamps across the
 whole fleet.
 
@@ -201,7 +201,7 @@ in the same breath that nothing will pick it up yet.
 
 The heartbeat is the right question because the agent touches it every cycle
 before any gate, so it separates "the checks decided not to run" from "nothing
-ran". `./trigger-log.sh` section 0 is where a stale one gets diagnosed; this is
-the same judgement `next-run.sh` prints as `not cycling`, from the same helper in
+ran". `./check_trigger-log.sh` section 0 is where a stale one gets diagnosed; this is
+the same judgement `check_next-run.sh` prints as `not cycling`, from the same helper in
 `settings.sh`. See
 [the-agent-and-the-watchdog.md#what-the-heartbeat-means](the-agent-and-the-watchdog.md#what-the-heartbeat-means).

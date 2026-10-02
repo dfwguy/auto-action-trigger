@@ -3,7 +3,7 @@
 # actions/launch_job.sh: the burn-in round-robin (burnin_order), the shared
 # BURNIN_HOURS stop gate, and job_run_seconds' --time_to_run/STEP_TIMELIMIT
 # fallback. Also checks verdict-scan.sh's burnin_hours_cell renders the
-# "<N>H/<BURNIN_HOURS>H" form status-check.sh and the other reports print.
+# "<N>H/<BURNIN_HOURS>H" form report_job-status.sh and the other reports print.
 #
 # Issue #3: BURNIN used to run one job to its own totalRuns before the next
 # was ever touched, and every report grew a column per run. This suite is the
@@ -65,7 +65,7 @@ tree="$work/tree"
 mkdir -p "$tree/jobs/nvl72" "$tree/parsers/nvl72" "$tree/results/$NODE"
 cp "$repo/settings.sh" "$repo/reason-map.sh" "$repo/slurm-recovery.sh" \
    "$repo/slurm-snapshot.sh" "$repo/fanout.sh" "$repo/verdict-scan.sh" \
-   "$repo/status-check.sh" "$tree/"
+   "$repo/report_job-status.sh" "$tree/"
 cp "$repo/parsers/nvl72/verdict.sh" "$tree/parsers/nvl72/"
 
 cat > "$tree/jobs/nvl72/test1.sbatch" <<'EOF'
@@ -235,12 +235,12 @@ mark_passed test1 1 10
 mark_passed test2 1 3
 report_out=$(
     export PATH="$stub:$PATH" HOME="$work"
-    cd "$tree" && ./status-check.sh 2>/dev/null
+    cd "$tree" && ./report_job-status.sh 2>/dev/null
 )
 if grep -q '2H/1000H' <<<"$report_out"; then
-    ok "status-check.sh reports 2H/1000H (test1's 1h + test2's 1h)"
+    ok "report_job-status.sh reports 2H/1000H (test1's 1h + test2's 1h)"
 else
-    bad "status-check.sh did not report the expected hour total: $report_out"
+    bad "report_job-status.sh did not report the expected hour total: $report_out"
 fi
 if grep -qE 'test[123]-run[0-9]+' <<<"$report_out"; then
     bad "a -run column for a BURNIN job survived in the report"

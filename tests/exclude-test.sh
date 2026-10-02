@@ -164,28 +164,28 @@ report_case() {
     fi
 }
 
-report_case "status-check.sh" status-check.sh
-report_case "daily-report.sh" daily-report.sh
+report_case "report_job-status.sh" report_job-status.sh
+report_case "report_benchmarks.sh" report_benchmarks.sh
 
 ## The same host excluded by the setting instead of the marker, with no marker
 ## on disk at all -- the two paths have to reach the same table.
 node_unmark_excluded "$tree/results/nscale-hn1"
 printf 'BENCHMARKS="dcgmi-r1"\nEXCLUDE_NODES="nscale-hn*"\nBRINGUP_DATA=%s\n' "$tree" > "$tree/SETTINGS"
-report_case "EXCLUDE_NODES, status-check.sh" status-check.sh
+report_case "EXCLUDE_NODES, report_job-status.sh" report_job-status.sh
 
-## trigger-log.sh hides it like the rest, and is the one script that can still
+## check_trigger-log.sh hides it like the rest, and is the one script that can still
 ## be asked -- its trigger.log is where the reason was written.
 printf '2026-01-01 00:00:00 EXIT: nscale-hn1 runs slurmctld and has no slurmd\n' \
     > "$tree/results/nscale-hn1/trigger.log"
 printf '2026-01-01 00:00:00 queue: bench=0 burnin=0\n' \
     > "$tree/results/node01/trigger.log"
 
-if "$tree/trigger-log.sh" 2>&1 | grep -q 'skipped'; then
-    ok  "trigger-log.sh skips it and says so" "NOTE printed"
+if "$tree/check_trigger-log.sh" 2>&1 | grep -q 'skipped'; then
+    ok  "check_trigger-log.sh skips it and says so" "NOTE printed"
 else
-    bad "trigger-log.sh skips it and says so" "no NOTE"
+    bad "check_trigger-log.sh skips it and says so" "no NOTE"
 fi
-if "$tree/trigger-log.sh" --include-excluded -t 20 nscale-hn1 2>&1 | grep -q 'no slurmd'; then
+if "$tree/check_trigger-log.sh" --include-excluded -t 20 nscale-hn1 2>&1 | grep -q 'no slurmd'; then
     ok  "--include-excluded reads it anyway" "trace reachable"
 else
     bad "--include-excluded reads it anyway" "trace unreachable"

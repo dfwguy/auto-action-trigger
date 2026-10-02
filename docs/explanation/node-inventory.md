@@ -63,7 +63,7 @@ would otherwise have to be built and then kept correct:
 
 ## It is not a baseline
 
-`set-valid-default.sh` deletes `nodeinfo` from the copy it promotes, alongside
+`admin_set-baseline.sh` deletes `nodeinfo` from the copy it promotes, alongside
 `refresh` and `.last-check`. Nothing diffs the file, so leaving it would be
 inert rather than harmful — but `valid-config/default` is the tree's statement
 of what correct looks like, and a reader who opens it should not find one
@@ -76,11 +76,11 @@ checks are equally undiffed and equally not an answer, and a baseline that
 carries one rack's `imex-status` presents a membership matrix that was true for
 one rack for one minute. Reading the property is also what keeps the next
 informational check from landing in the baseline unnoticed — a named file only
-covers the file that was named. `health-check.sh` and `node_health.sh` read the
+covers the file that was named. `report_health.sh` and `node_health.sh` read the
 same line from the same place, so the three agree on which checks are gated
 without any of them holding a list.
 
-One consequence worth expecting: the count `set-valid-default.sh` prints is now
+One consequence worth expecting: the count `admin_set-baseline.sh` prints is now
 the gated set, and matches the `N of M checks differ` that `--diff` prints. It
 went down by the number of informational checks on the day this landed, without
 a single check being removed.

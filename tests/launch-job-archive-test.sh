@@ -9,7 +9,7 @@
 # failure has to stay in the separate .failN.txt series -- the two counters
 # are independent by design (see archive_result()'s comment), so a bug that
 # merged them would still pass a test that only checked one series existed.
-# status-check.sh is also driven against the archive it is left with, since a
+# report_job-status.sh is also driven against the archive it is left with, since a
 # filename nobody reads correctly is not actually preserving anything.
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -81,13 +81,13 @@ EOF
 chmod 755 "$stub"/*
 
 ## The stub tree: the real settings loader, parser and fan-out/scan libraries,
-## a job whose verdict comes from the generic gate, and status-check.sh itself
+## a job whose verdict comes from the generic gate, and report_job-status.sh itself
 ## so the archive it leaves behind is read the same way a real report would.
 tree="$work/tree"
 mkdir -p "$tree/jobs/nvl72" "$tree/parsers/nvl72" "$tree/results/$NODE"
 cp "$repo/settings.sh" "$repo/reason-map.sh" "$repo/slurm-recovery.sh" \
    "$repo/slurm-snapshot.sh" "$repo/fanout.sh" "$repo/verdict-scan.sh" \
-   "$repo/status-check.sh" "$tree/"
+   "$repo/report_job-status.sh" "$tree/"
 cp "$repo/parsers/nvl72/verdict.sh" "$tree/parsers/nvl72/"
 
 cat > "$tree/jobs/nvl72/probe.sbatch" <<'EOF'
@@ -222,16 +222,16 @@ run_launch "seeded FAIL, forced with --force" --force >/dev/null
 check "archived as .fail1, not .prev1" 'archived fail1 && ! archived prev1'
 check "a new attempt was submitted"    'submitted'
 
-echo "== status-check.sh reads a --all archive as RERUNNING, not FAIL =="
+echo "== report_job-status.sh reads a --all archive as RERUNNING, not FAIL =="
 
 setup='result_pass only'
 run_launch "seeded DONE for the report case" --all >/dev/null
 report_out="$CASE_DIR/report.out"
-( cd "$CASE_DIR" && ./status-check.sh ) > "$report_out" 2>/dev/null
+( cd "$CASE_DIR" && ./report_job-status.sh ) > "$report_out" 2>/dev/null
 if grep -q 'RERUNNING' "$report_out" && grep -qi "$NODE" "$report_out"; then
-    ok "status-check.sh reports the re-queued column as RERUNNING"
+    ok "report_job-status.sh reports the re-queued column as RERUNNING"
 else
-    bad "status-check.sh did not report RERUNNING for the re-queued column"
+    bad "report_job-status.sh did not report RERUNNING for the re-queued column"
     sed 's/^/       /' "$report_out"
 fi
 grep -q 'FAIL' "$report_out" &&

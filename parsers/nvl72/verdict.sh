@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Shared pass/fail rule for a benchmark result file. Sourced by
-# actions/launch_job.sh, status-check.sh and daily-report.sh.
+# actions/launch_job.sh, report_job-status.sh and report_benchmarks.sh.
 #
 # A verdict is DERIVED, never stored: an sbatch writes FAIL (could not run) or
 # PENDING (ran, srun exited 0), and DONE is computed here from the log on every
@@ -63,7 +63,7 @@ VERDICT_RUN_ERRORS='NCCL WARN|Test NCCL failure|Test failure|srun: error|Segment
 VERDICT_STEP_TIMING='train_step_timing|reduced_train_loss|elapsed time per iteration'
 
 ## Set by verdict() on every call. REASON must read IDENTICALLY on every node
-## failing the same way -- status-check.sh groups identical lines, so anything
+## failing the same way -- report_job-status.sh groups identical lines, so anything
 ## per-node in it splits one block into forty. Per-node specifics (line number,
 ## matched text, measured value) go in DETAIL and nowhere else.
 ## See docs/reference/scripts.md.

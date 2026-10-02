@@ -68,7 +68,7 @@ rewrite() {
     touch -d "$(date -d '+1 hour')" "$2"
 }
 
-run()  { ( cd "$tree" && ./status-check.sh "$@" 2>/dev/null ); }
+run()  { ( cd "$tree" && ./report_job-status.sh "$@" 2>/dev/null ); }
 
 cached_run_count() {
     ## From the cache's own records, not inferred from timing.

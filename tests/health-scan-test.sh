@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Checks health-scan.sh, which decides which nodes are failing for both
-# health-check.sh and overall_report.sh. Everything here is a way of getting
+# report_health.sh and report_overall.sh. Everything here is a way of getting
 # that answer wrong quietly: an informational check counted as a fault takes a
 # rack out on paper, a check with no baseline entry read as a pass hides the
 # missing baseline, and a node filter that misses turns a rack report into a
@@ -27,7 +27,7 @@ check() {
 }
 
 ## The tree: three gated checks, one informational, and `orphan` with no
-## baseline entry -- a check added since the last set-valid-default.sh run.
+## baseline entry -- a check added since the last admin_set-baseline.sh run.
 mkdir -p "$work"/{checks,baseline,logs}
 printf '#!/bin/bash\n# banner: b\n'                          > "$work/checks/10-alpha.sh"
 printf '#!/bin/bash\n# banner: b\n'                          > "$work/checks/20-beta.sh"

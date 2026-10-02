@@ -256,7 +256,7 @@ So the check goes into `recover.log` as well, in a seventh tab-separated field.
 That file is bounded too, but by *resumes* rather than by cycles: 500 lines is
 years of history on any node that is not flapping, and a node that is flapping
 is one this file wants to keep the history for. Field 6 stays the reason Slurm
-gave, which is what `overall_report.sh` and the rate limit already key on —
+gave, which is what `report_overall.sh` and the rate limit already key on —
 both read `-F'\t'` and neither looks past the fields it names, so older lines
 with six fields still read correctly.
 

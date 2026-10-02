@@ -36,9 +36,9 @@ Copying a new tree over `$BRINGUP_HOME` while two thousand agents cycle out of i
 replaces scripts under running processes, so it is a stop-copy-resume:
 
 ```bash
-bash pause-agents.sh              # stop the watchdog here, then every node timer
+bash admin_pause-agents.sh              # stop the watchdog here, then every node timer
 rsync -av /tmp/auto-action-trigger-*/ /cluster/bringup/
-bash pause-agents.sh --resume     # re-arm the nodes, then start the watchdog
+bash admin_pause-agents.sh --resume     # re-arm the nodes, then start the watchdog
 ```
 
 Run these as the configured `JOB_USER`. The script refuses to inspect another
@@ -47,8 +47,8 @@ make the account change explicit, add `--sudo`; the script re-executes itself as
 `JOB_USER` before inspecting or changing anything:
 
 ```bash
-bash pause-agents.sh --sudo
-bash pause-agents.sh --sudo --status
+bash admin_pause-agents.sh --sudo
+bash admin_pause-agents.sh --sudo --status
 ```
 
 No `--delete`, so no `--exclude` list: the site's own data is not in the drop
@@ -62,7 +62,7 @@ Every switch above lives in `SETTINGS`, on the exported tree — which makes the
 unreachable in the one case where you most want them: a share so loaded that a
 write to it hangs. The pause you cannot save is not a pause.
 
-`pause-agents.sh` is the answer to that too, because it writes nothing to the
+`admin_pause-agents.sh` is the answer to that too, because it writes nothing to the
 share. It stops the watchdog **first**, and locally: the watchdog arms every node
 whose heartbeat has gone stale, and a fleet that has stopped cycling for any
 reason is a fleet where every node qualifies, every interval. Stopping the nodes
@@ -78,7 +78,7 @@ systemctl --user stop bringup-agent.timer           # as JOB_USER, on the head n
 
 `results/supervisor.log` stops growing within a cycle. Every node keeps its own
 results and drains; nothing is lost. This is a stop rather than a pause —
-nothing re-enables these timers until `pause-agents.sh --resume` or
+nothing re-enables these timers until `admin_pause-agents.sh --resume` or
 `agent/install-agent.sh` runs — which is what makes it safe to reach for while
 you work out what happened.
 
@@ -104,7 +104,7 @@ In order of how long it takes to stop:
   [arm-a-node.md#disarming-a-node](arm-a-node.md#disarming-a-node).
 
 Nothing is lost. Results stay on disk and the sweep resumes rather than
-restarting, and a `refresh` set by `health-check.sh --refresh` is held through the
+restarting, and a `refresh` set by `report_health.sh --refresh` is held through the
 pause rather than consumed by a run that does nothing.
 
 `node-agent.sh --explain` still works while paused, and is the way to see what a
@@ -113,11 +113,11 @@ cycle *would* do on a node before lifting one.
 ## Confirming the pause is why the cluster is quiet
 
 ```bash
-bash trigger-log.sh                 # every node's last decision: RUN_JOBS=no ...
-bash trigger-debug.sh               # reports the switches in section 0, before the links
+bash check_trigger-log.sh                 # every node's last decision: RUN_JOBS=no ...
+bash check_trigger-debug.sh               # reports the switches in section 0, before the links
 ```
 
-Both `status-check.sh` and `health-check.sh` print a banner while their half is
+Both `report_job-status.sh` and `report_health.sh` print a banner while their half is
 paused, because a report that cannot change looks exactly like a cluster that
 has settled.
 
@@ -126,14 +126,14 @@ has settled.
 `RUN_JOBS=no` stops the *next* submission and cancels what is pending; the
 benchmark already running on each node is left to finish. When the cluster has
 to be empty now — a maintenance window starting, a switch coming out, another
-team needing the nodes — `kill-jobs.sh` is the hard stop:
+team needing the nodes — `admin_kill-jobs.sh` is the hard stop:
 
 ```bash
-bash kill-jobs.sh                      # cancel every job of ours, fleet-wide
-bash kill-jobs.sh -p                   # ... and set RUN_JOBS=no so it stays empty
-bash kill-jobs.sh ink50-dh01-i01       # one node (prefix match, as elsewhere)
-bash kill-jobs.sh 'dh01-rack0[12]*'    # a glob, honored as written
-bash kill-jobs.sh -n 'dh01-rack0[12]*' # what that would have cancelled, and nothing else
+bash admin_kill-jobs.sh                      # cancel every job of ours, fleet-wide
+bash admin_kill-jobs.sh -p                   # ... and set RUN_JOBS=no so it stays empty
+bash admin_kill-jobs.sh ink50-dh01-i01       # one node (prefix match, as elsewhere)
+bash admin_kill-jobs.sh 'dh01-rack0[12]*'    # a glob, honored as written
+bash admin_kill-jobs.sh -n 'dh01-rack0[12]*' # what that would have cancelled, and nothing else
 ```
 
 `-n` reads the queue and prints the list without cancelling or writing
@@ -145,7 +145,7 @@ It selects on the job *name*, `bringup-<node>` and `burnin-<node>`, so it is
 narrower than `scancel -u cmods`: anything else the framework's account happens
 to own — a hand-submitted reproduction, another team's job on a shared account —
 is not matched. The patterns filter on the node half of that name, with
-`status-check.sh`'s rule: a bare string is a prefix, anything holding a glob
+`report_job-status.sh`'s rule: a bare string is a prefix, anything holding a glob
 character is used as written.
 
 **Cancelling alone is a stall, not a stop.** The sequencer's next cycle finds an
@@ -168,7 +168,7 @@ non-zero.
 
 ### The pause follows SETTINGS_HOME
 
-`kill-jobs.sh` does not source `settings.sh` — it is meant to be pasted into
+`admin_kill-jobs.sh` does not source `settings.sh` — it is meant to be pasted into
 other teams' checkouts standalone — so it carries its own copy of the
 `SETTINGS_HOME`/`SETTINGS_HOME.default` lookup
 ([settings.md#reading-them-from-a-script](../reference/settings.md#reading-them-from-a-script))
@@ -187,7 +187,7 @@ scancel -u cmods                         # every job the framework owns
 ```
 
 Cancelling jobs owned by `JOB_USER` needs that account or root. `scancel`
-reports a refused kill on stdout and can still exit `0`, so `kill-jobs.sh`
+reports a refused kill on stdout and can still exit `0`, so `admin_kill-jobs.sh`
 treats its output as the report rather than its exit status, and prints the
 `squeue` that confirms the queue is actually empty.
 

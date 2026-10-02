@@ -51,7 +51,7 @@ clush -w <nodes> 'sudo -n dmesg >/dev/null 2>&1 && echo sudo-ok || echo sudo-REF
 pdsh -R ssh -w <nodes> 'sudo -n dmesg >/dev/null 2>&1 && echo sudo-ok || echo sudo-REFUSED'
 ```
 
-`trigger-debug.sh --ask-nodes` asks it fleet-wide, and `node-agent.sh --explain`
+`check_trigger-debug.sh --ask-nodes` asks it fleet-wide, and `node-agent.sh --explain`
 on a node preflights every command the check set needs and names the missing
 ones.
 
@@ -182,6 +182,6 @@ The migration itself needs root, once, and is the site's:
 2. `chown -R $JOB_USER:$JOB_USER` over `$RESULTS_DIR` and
    `$HEALTH_LOG_DIR`. Years of root cycles left files and directories in
    there owned by root; nothing repairs them now, because nothing has the
-   privilege to. `trigger-debug.sh` section 6-7 names them.
+   privilege to. `check_trigger-debug.sh` section 6-7 names them.
 3. Passwordless ssh from the head node to every compute node **as `$JOB_USER`**,
    which is how the watchdog arms anything.

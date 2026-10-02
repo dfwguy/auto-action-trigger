@@ -3,24 +3,25 @@
 Every entry point, what it takes and what it prints. Everything here runs from
 the headnode and is safe to run while the timers are live.
 
-Eight of these implement `-h`/`--help` by printing their own header comment —
-`status-check.sh`, `health-check.sh`, `overall_report.sh`, `daily-report.sh`,
-`trigger-log.sh`, `kill-jobs.sh`, `check_squeue.sh` and
-`build_llmb.sh`. **That header is the authoritative option list**, and it is
+Eleven of these implement `-h`/`--help` by printing their own header comment —
+`report_job-status.sh`, `report_health.sh`, `report_overall.sh`, `report_benchmarks.sh`,
+`check_trigger-log.sh`, `admin_kill-jobs.sh`, `check_squeue.sh`,
+`build_llmb.sh`, `check_dmesg.sh`, `check_next-run.sh` and `admin_pause-agents.sh`.
+**That header is the authoritative option list**, and it is
 deliberately not restated here: two copies of a command surface drift, and only
 one of them is testable.
 `tests/help-text-test.sh` keeps the printed range in step with the text. Run
 `<script> -h` for the flags; this page is what the output means.
 
-## `status-check.sh` — live per-node benchmark status
+## `report_job-status.sh` — live per-node benchmark status
 
 ```bash
-bash status-check.sh                      # every node
-bash status-check.sh ink50-dh01-h20        # one rack (bare prefix)
-bash status-check.sh -t allreduce          # one benchmark, every run of it
-bash status-check.sh -t 'allreduce*' -t dcgmi-r3 ink50-dh01-h20
-bash status-check.sh -s                    # node lists per status, no reasons
-bash status-check.sh --sort-by-hostname    # by node instead of by test
+bash report_job-status.sh                      # every node
+bash report_job-status.sh ink50-dh01-h20        # one rack (bare prefix)
+bash report_job-status.sh -t allreduce          # one benchmark, every run of it
+bash report_job-status.sh -t 'allreduce*' -t dcgmi-r3 ink50-dh01-h20
+bash report_job-status.sh -s                    # node lists per status, no reasons
+bash report_job-status.sh --sort-by-hostname    # by node instead of by test
 ```
 
 Reads `results/` and prints per-node status for each benchmark column, grouped
@@ -134,16 +135,16 @@ keeps `REASON` identical across nodes for the same fault and puts the varying
 part — the offending GPU, the measured bandwidth — in the detail. See
 [explanation/judging-benchmarks.md](../explanation/judging-benchmarks.md).
 
-## `daily-report.sh` — per-node table with metrics
+## `report_benchmarks.sh` — per-node table with metrics
 
 ```bash
-bash daily-report.sh
-bash daily-report.sh ink50-dh01-h20                 # one rack (bare prefix)
-bash daily-report.sh 'ink50-dh0[12]*'               # glob, as written
-bash daily-report.sh -c -o ~/report-$(date '+%F').csv
+bash report_benchmarks.sh
+bash report_benchmarks.sh ink50-dh01-h20                 # one rack (bare prefix)
+bash report_benchmarks.sh 'ink50-dh0[12]*'               # glob, as written
+bash report_benchmarks.sh -c -o ~/report-$(date '+%F').csv
 ```
 
-The node pattern is read exactly as `status-check.sh` reads its own: a bare
+The node pattern is read exactly as `report_job-status.sh` reads its own: a bare
 string gets a `*` appended, so a rack prefix covers the rack, and anything
 holding `*`, `?` or `[` is used as typed and can match anywhere in the name.
 With no pattern every node under `results/` is reported. A pattern matching no
@@ -194,19 +195,19 @@ its cells hold a number that says nothing about whether the gate accepted it.
 
 Both halves follow one rule: **TSV at a terminal** is column-aligned for
 reading, and **anything else** — a pipe, a redirect, `-o`, or `-c` — is the raw
-separated rows. It is asked of each stream on its own, so `daily-report.sh >
+separated rows. It is asked of each stream on its own, so `report_benchmarks.sh >
 /dev/null` still prints the summary aligned. Getting it into a
 spreadsheet is [how-to/export-a-report.md](../how-to/export-a-report.md).
 
-## `overall_report.sh` — the fleet in one line per node
+## `report_overall.sh` — the fleet in one line per node
 
 ```bash
-bash overall_report.sh                    # every node
-bash overall_report.sh ink50-dh01-h20     # one rack (bare prefix)
-bash overall_report.sh --details          # the long report, with every reason
-bash overall_report.sh --full             # that report, nothing elided
-bash overall_report.sh --csv              # the exceptions, as columns
-bash overall_report.sh -o ~/today.txt
+bash report_overall.sh                    # every node
+bash report_overall.sh ink50-dh01-h20     # one rack (bare prefix)
+bash report_overall.sh --details          # the long report, with every reason
+bash report_overall.sh --full             # that report, nothing elided
+bash report_overall.sh --csv              # the exceptions, as columns
+bash report_overall.sh -o ~/today.txt
 ```
 
 One line per node — whether it is cycling, what Slurm calls it, then `PASS` or
@@ -230,7 +231,7 @@ ink50-dh01-h20-[01-02,08-10,12-18] (12)
 ```
 
 The size of a group is the size of the incident, which is the same argument
-`health-check.sh` makes for grouping by the *set* of failed checks. One line
+`report_health.sh` makes for grouping by the *set* of failed checks. One line
 rather than two, so the grouping is over the whole verdict — a node failing
 `hpl` with clean checks and one failing `hpl` with a bad BIOS are two different
 faults and must not fold together.
@@ -307,12 +308,12 @@ Four sections:
 | `WHAT TO RUN NEXT` | the commands that answer what the report raises | — |
 
 A `FAIL` group carries `[measured …]` when the column has a metric, so how far
-below a floor the nodes are is visible without opening `daily-report.sh`. The
+below a floor the nodes are is visible without opening `report_benchmarks.sh`. The
 figures are the same ones that report prints, in the same units.
 
 The health section does **not** read Slurm drain reasons, so it is complete with
 the shipped `DRAIN_AFTER_FAILED_HEALTH_CHECK=no`. It is rendered by
-`health-scan.sh`, the same library `health-check.sh --summary` prints through,
+`health-scan.sh`, the same library `report_health.sh --summary` prints through,
 so the two agree by construction. Informational checks are excluded, because
 `node_health.sh` never drains on them.
 
@@ -354,20 +355,20 @@ per-node traces, so it asks only `squeue` and skips the `trigger.log` and
 one. Both submit nothing, drain nothing and resume nothing; `-o` is the only
 thing either writes.
 
-## `health-check.sh` — cluster-wide health summary
+## `report_health.sh` — cluster-wide health summary
 
 ```bash
-bash health-check.sh                      # every node
-bash health-check.sh ink50-dh01-h20       # one rack (bare prefix)
-bash health-check.sh ink50-dh01-h20-[03,17]     # a Slurm nodelist
-bash health-check.sh node001 node017 node022    # names, in one report
-bash health-check.sh --drained            # every drain, grouped by reason
-bash health-check.sh --summary            # the per-check roll-up, complete
-bash health-check.sh --by-state          # that roll-up, split by Slurm state
-bash health-check.sh --individual ib-firmware   # aggregate that check across all nodes
-bash health-check.sh --diff node001       # why one node failed, check by check
-bash health-check.sh --explain            # the cadence: when each node re-checks
-bash health-check.sh --refresh node001    # queue a re-check ahead of the cadence
+bash report_health.sh                      # every node
+bash report_health.sh ink50-dh01-h20       # one rack (bare prefix)
+bash report_health.sh ink50-dh01-h20-[03,17]     # a Slurm nodelist
+bash report_health.sh node001 node017 node022    # names, in one report
+bash report_health.sh --drained            # every drain, grouped by reason
+bash report_health.sh --summary            # the per-check roll-up, complete
+bash report_health.sh --by-state          # that roll-up, split by Slurm state
+bash report_health.sh --individual ib-firmware   # aggregate that check across all nodes
+bash report_health.sh --diff node001       # why one node failed, check by check
+bash report_health.sh --explain            # the cadence: when each node re-checks
+bash report_health.sh --refresh node001    # queue a re-check ahead of the cadence
 ```
 
 Groups nodes by the *set* of checks they failed, largest group first, so 60
@@ -379,7 +380,7 @@ those are never compared and so can never pass.
 
 The verdict comes from `logs/<node>/<check>` against `valid-config/default`, the
 same byte-for-byte comparison `node_health.sh` drains on and the same one
-`overall_report.sh` prints — one library, `health-scan.sh`, so the two reports
+`report_overall.sh` prints — one library, `health-scan.sh`, so the two reports
 cannot disagree. Slurm is asked for node state and for drain reasons, nothing
 else. A failing node therefore appears here whether or not
 `DRAIN_AFTER_FAILED_HEALTH_CHECK` is on; see
@@ -387,7 +388,7 @@ else. A failing node therefore appears here whether or not
 
 Long lists are elided with a count; `--summary` is the complete list. Node lists
 are compressed and wrapped at range boundaries, so they paste straight into
-`health-check.sh --refresh`. Nothing is contacted or re-run: it reports the logs
+`report_health.sh --refresh`. Nothing is contacted or re-run: it reports the logs
 the last health run left behind.
 
 A missing or dangling `valid-config/default` is reported first, above the
@@ -474,7 +475,7 @@ and the nodes that have never been checked. Nothing elides.
       ink50-dh01-h01-[11-18]
 ```
 
-This is the same block `overall_report.sh` prints under HEALTH, rendered by the
+This is the same block `report_overall.sh` prints under HEALTH, rendered by the
 same function from the same numbers, so the two can be compared line for line.
 The default report groups by node — "what do I fix" — and this one groups by
 check — "how far does each fix reach".
@@ -515,8 +516,8 @@ grouped under `unknown` rather than dropped.
 ### `--individual`
 
 ```bash
-bash health-check.sh --individual ib-firmware
-bash health-check.sh --individual ib-firmware ink50-dh01-h01   # one rack
+bash report_health.sh --individual ib-firmware
+bash report_health.sh --individual ib-firmware ink50-dh01-h01   # one rack
 ```
 
 Group nodes whose `logs/<node>/<check>` file is byte-for-byte identical, largest
@@ -544,9 +545,9 @@ values* the fleet has and which nodes share each one. It reads no Slurm state.
 ### `--diff`
 
 ```bash
-bash health-check.sh --diff ink50-dh01-h01-11
-bash health-check.sh --diff --all ink50-dh01-h01-11
-bash health-check.sh --diff 'ink50-dh01-h01-[11-14]'   # one block per node
+bash report_health.sh --diff ink50-dh01-h01-11
+bash report_health.sh --diff --all ink50-dh01-h01-11
+bash report_health.sh --diff 'ink50-dh01-h01-[11-14]'   # one block per node
 ```
 
 Why one node failed: each check it fails, diffed against `valid-config/default`.
@@ -617,22 +618,22 @@ $HEALTH_LOG_DIR/<node>/health.log` names the gate. `(never)` on a node that has 
 `not cycling` displaces every other value, including `refresh queued`, and the
 footer counts them. It is an agent fault rather than a health one — see
 [explanation/health-cadence.md#a-due-time-assumes-a-live-node](../explanation/health-cadence.md#a-due-time-assumes-a-live-node),
-and `./trigger-log.sh` section 0 to fix it.
+and `./check_trigger-log.sh` section 0 to fix it.
 
 `--refresh` takes node names and Slurm nodelists rather than a glob, repeatable,
 and does nothing else — no report is printed, because the re-check it just
 queued has not happened yet:
 
 ```bash
-bash health-check.sh --refresh ink50-dh01-h01-14 'ink50-dh01-h02-[11-14]'
+bash report_health.sh --refresh ink50-dh01-h01-14 'ink50-dh01-h02-[11-14]'
 ```
 
 Because it takes names, a tool that produces them composes with it directly —
 which is usually what someone reaching for a glob actually wanted:
 
 ```bash
-bash health-check.sh --refresh $(nodeset -e @IDLE)          # ClusterShell
-bash health-check.sh --refresh "$(sinfo -h -t idle -o %N)"  # Slurm, anywhere
+bash report_health.sh --refresh $(nodeset -e @IDLE)          # ClusterShell
+bash report_health.sh --refresh "$(sinfo -h -t idle -o %N)"  # Slurm, anywhere
 ```
 
 `nodeset` ships with ClusterShell, so it is there on a `clush` site and absent
@@ -662,9 +663,9 @@ rather than reporting a re-check that will not happen. See
 
 | Script | What it does |
 |---|---|
-| `set-valid-default.sh <node>` | Captures a validated node's `logs/` as the new baseline — see [health-checks.md](health-checks.md) |
-| `watch-rack.sh <nodelist>` | Refreshes every 20 seconds, showing only nodes that are DOWN or drained |
-| `trigger-log.sh` | Reads the heartbeats, `results/<node>/trigger.log` and `health.log` across the cluster — six sections, described in [how-to/diagnose-nothing-running.md](../how-to/diagnose-nothing-running.md). `--include-excluded` also reads the hosts the reports leave out |
+| `admin_set-baseline.sh <node>` | Captures a validated node's `logs/` as the new baseline — see [health-checks.md](health-checks.md) |
+| `check_rack.sh <nodelist>` | Refreshes every 20 seconds, showing only nodes that are DOWN or drained |
+| `check_trigger-log.sh` | Reads the heartbeats, `results/<node>/trigger.log` and `health.log` across the cluster — six sections, described in [how-to/diagnose-nothing-running.md](../how-to/diagnose-nothing-running.md). `--include-excluded` also reads the hosts the reports leave out |
 | `agent/cycle.sh` | What `bringup-agent.timer` runs on every host. Asks `agent_role` and hands over to `supervisor.sh` or `node-agent.sh` — one unit for both, because `$HOME` is shared. See [explanation/the-agent-and-the-watchdog.md#one-unit-for-both-roles](../explanation/the-agent-and-the-watchdog.md#one-unit-for-both-roles) |
 | `agent/node-agent.sh` | One cycle on the node it runs on: heartbeat, busy gate, then the three steps. Fired by `bringup-agent.timer`; `--explain`/`--verbose` for a hand-run over `clush` or `pdsh` |
 | `agent/supervisor.sh` | The head node's watchdog. Fired by `bringup-supervisor.timer`; `--explain` names what it would arm and drain, and does neither |
@@ -672,14 +673,14 @@ rather than reporting a re-check that will not happen. See
 | `agent/uninstall-agent.sh` | Stops and removes the timer and its unit. Leaves lingering and everything under `results/` alone |
 | `actions/file_copy.sh` | Warms this node's container cache. `--explain` itemizes the exact rsync changes without copying or writing state — see [explanation/containers.md#previewing-a-copy](../explanation/containers.md#previewing-a-copy) |
 | `actions/node_health.sh` | The health runner, second of the agent's three steps. Also runnable over `clush` or `pdsh` with `--explain`/`--force`/`--verbose` — see [how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand](../how-to/run-a-job-by-hand.md#re-running-health-checks-by-hand) |
-| `next-run.sh` | The other half of `trigger-log.sh`: when each node next submits a benchmark (`--tests`) or runs its health checks (`--healthchecks`), bucketed into `soon` and one bucket per hour and grouped with `clubak`. Read-only. See [how-to/see-what-fires-next.md](../how-to/see-what-fires-next.md) |
-| `trigger-debug.sh` | Walks the watchdog → `sbatch` chain and names the broken link. Read-only. `--ask-nodes` adds the per-node systemd and sudo checks |
+| `check_next-run.sh` | The other half of `check_trigger-log.sh`: when each node next submits a benchmark (`--tests`) or runs its health checks (`--healthchecks`), bucketed into `soon` and one bucket per hour and grouped with `clubak`. Read-only. See [how-to/see-what-fires-next.md](../how-to/see-what-fires-next.md) |
+| `check_trigger-debug.sh` | Walks the watchdog → `sbatch` chain and names the broken link. Read-only. `--ask-nodes` adds the per-node systemd and sudo checks |
 | `check_squeue.sh` | The queue in one aligned table, whole cluster; `-j <id>` adds node state and reservations |
-| `pause-agents.sh` | Stops the watchdog and every node timer, `--resume` puts them back through `install-agent.sh`, `--status` says what is running. Writes nothing to the share, which is what makes it usable when the share is the problem. See [how-to/update-the-deployment.md](../how-to/update-the-deployment.md) |
-| `kill-jobs.sh` | Cancels this framework's jobs; `-p` also sets `RUN_JOBS=no`. See [how-to/pause-and-resume.md](../how-to/pause-and-resume.md) |
-| `single-node-purge.sh <nodes>` | Removes `results/<node>` outright. See [how-to/reset-results.md](../how-to/reset-results.md) |
-| `dmesg-archive.sh <nodes>` | Saves each node's ring buffer under `dmesg-archive/`, and with `--clear --resume` breaks the drain-resume-drain loop a full dmesg causes. Will not clear a node the head node's syslog does not have. See [how-to/archive-and-clear-dmesg.md](../how-to/archive-and-clear-dmesg.md) |
-| `ib-visibility.sh <node>` | Compares the HCAs the host sees against the container's. See [how-to/diagnose-ib-visibility.md](../how-to/diagnose-ib-visibility.md) |
+| `admin_pause-agents.sh` | Stops the watchdog and every node timer, `--resume` puts them back through `install-agent.sh`, `--status` says what is running. Writes nothing to the share, which is what makes it usable when the share is the problem. See [how-to/update-the-deployment.md](../how-to/update-the-deployment.md) |
+| `admin_kill-jobs.sh` | Cancels this framework's jobs; `-p` also sets `RUN_JOBS=no`. See [how-to/pause-and-resume.md](../how-to/pause-and-resume.md) |
+| `admin_purge-node-benchmarks.sh <nodes>` | Removes `results/<node>` outright. See [how-to/reset-results.md](../how-to/reset-results.md) |
+| `check_dmesg.sh <nodes>` | Saves each node's ring buffer under `dmesg-archive/`, and with `--clear --resume` breaks the drain-resume-drain loop a full dmesg causes. Will not clear a node the head node's syslog does not have. See [how-to/archive-and-clear-dmesg.md](../how-to/archive-and-clear-dmesg.md) |
+| `check_ib.sh <node>` | Compares the HCAs the host sees against the container's. See [how-to/diagnose-ib-visibility.md](../how-to/diagnose-ib-visibility.md) |
 | `build_containers.sh` | Builds the images named on its command line, or `-A` for all. See [how-to/build-containers.md](../how-to/build-containers.md) |
 | `build_llmb.sh` | Installs or inspects the optional `llmb-run` capture workspace; its resolved cache can seed `LLM_HF_HOME`. See [how-to/enable-llm-pretrain.md](../how-to/enable-llm-pretrain.md) |
 

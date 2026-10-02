@@ -51,7 +51,7 @@ Usage: supervisor.sh [--explain] [--verbose|--quiet]
   --quiet,   -q   never mirror the trace to stdout
 
 Runs on the head node and decides about the whole fleet. The trace is
-results/supervisor.log; trigger-log.sh reads it.
+results/supervisor.log; check_trigger-log.sh reads it.
 USAGE
 }
 for arg in "$@"; do
@@ -487,7 +487,7 @@ cancel_ids() {
         return 0
     fi
     ## scancel reports a refused kill on stdout and can still exit 0, so the
-    ## output is the report and not the status -- as in kill-jobs.sh.
+    ## output is the report and not the status -- as in admin_kill-jobs.sh.
     # shellcheck disable=SC2086  # a deliberate word split: scancel takes a list
     out=$(scancel $ids 2>&1)
     trace "CANCELLED $what: $ids${out:+ -- $out}"

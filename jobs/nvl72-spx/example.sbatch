@@ -21,7 +21,7 @@
 # shellcheck disable=SC2034
 job_name=example
 ## totalRuns is read out of this file's TEXT -- launch_job.sh and
-## daily-report.sh grep the .sbatch for it -- so keep it a plain, greppable
+## report_benchmarks.sh grep the .sbatch for it -- so keep it a plain, greppable
 ## one-line `totalRuns=<n>`: no export, no arithmetic, no quoting. It looks
 ## unused to any static check.
 # shellcheck disable=SC2034

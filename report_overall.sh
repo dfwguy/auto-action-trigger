@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: overall_report.sh [--details [--full]] [--no-cache] [-o file] [pattern]
+# Usage: report_overall.sh [--details [--full]] [--no-cache] [-o file] [pattern]
 #
 # One line per node -- whether it is cycling, what Slurm calls it, then PASS or
 # the names of what is not passing under each half -- grouped so that every node
@@ -63,13 +63,13 @@
 #                     directory has to exist; naming a path is a statement
 #                     about where the report goes, and this creates nothing.
 #   pattern           optional node-name filter, read the same way as
-#                     status-check.sh's: a bare string matches every node whose
+#                     report_job-status.sh's: a bare string matches every node whose
 #                     name starts with it, so a rack prefix covers the whole
 #                     rack, while a shell glob (dh01-rack0[12]*, *node05) is
 #                     honored as written.
 #
 # The grouping is clubak (ClusterShell) or dshbak (pdsh), the pair
-# status-check.sh already prints through. With neither installed the lines are
+# report_job-status.sh already prints through. With neither installed the lines are
 # printed one per node and the report says so.
 #
 # --details has four sections, in the order they are usually needed:
@@ -261,7 +261,7 @@ if [[ "$details" -eq 0 ]]; then
         heartbeat_stale "$results_dir" "$node" && node_down["$node"]=1
     done
     [[ ${#node_down[@]} -gt 0 ]] &&
-        note "${#node_down[@]} of ${#nodes[@]} node(s) have written no heartbeat in ${HEARTBEAT_STALE_MINUTES}m and read DOWN below -- everything after that field on their line is the last thing written rather than what is true now. ./trigger-log.sh section 0 is why."
+        note "${#node_down[@]} of ${#nodes[@]} node(s) have written no heartbeat in ${HEARTBEAT_STALE_MINUTES}m and read DOWN below -- everything after that field on their line is the last thing written rather than what is true now. ./check_trigger-log.sh section 0 is why."
 fi
 
 ## ── Slurm, once for the fleet ─────────────────────────────────────────────
@@ -327,7 +327,7 @@ for n in "${!our_job[@]}"; do
 done > "$running_file"
 
 ## ── Health checks, from the files rather than from Slurm ──────────────────
-## Shared with health-check.sh, so the two cannot disagree about which nodes
+## Shared with report_health.sh, so the two cannot disagree about which nodes
 ## are failing. See docs/explanation/reading-the-whole-fleet.md#health-read-from-the-files.
 if [[ ! -f "$home/health-scan.sh" ]]; then
     echo "ERROR: $home/health-scan.sh is missing -- it carries the health verdict" >&2
@@ -428,7 +428,7 @@ export SCAN_COLUMNS="${columns[*]}"
 export SCAN_RUNNING_FILE="$running_file"
 export SCAN_ARCHIVES=1
 ## Only --details prints a [measured ..] range, and the flag is part of the
-## cache key -- off, the default shares status-check.sh's cache file.
+## cache key -- off, the default shares report_job-status.sh's cache file.
 export SCAN_METRICS="$details"
 
 declare -A group_nodes group_metrics col_missing
@@ -501,7 +501,7 @@ fi
 
 # "  [measured 590..641]" for a group's metrics, or nothing. The figures are
 # whatever the column's own extract_metric() returned, so they carry the units
-# named in daily-report.sh's metric block and none are printed here.
+# named in report_benchmarks.sh's metric block and none are printed here.
 metric_range() {
     awk '{ for (i = 1; i <= NF; i++) {
                n++
@@ -528,7 +528,7 @@ fi
 
 ## Sets BRIEF_LINE rather than printing it: $(...) here is two forks per node,
 ## and this runs over every node in the fleet rather than only the failing ones.
-## Worst status first, in the order status-check.sh ranks them.
+## Worst status first, in the order report_job-status.sh ranks them.
 ## Every gated check, for a node that has none of them passing.
 brief_all_checks=""
 if [[ ${#gated_check[@]} -gt 0 ]]; then
@@ -596,7 +596,7 @@ emit_brief() {
     printf "  <state> - sinfo's state for it, or NO-SLURM when sinfo did not answer\n"
     printf '  tests - <benchmark columns with no passing result>\n'
     printf '  healthchecks - <checks whose logs/<node> differs from valid-config/default>\n'
-    printf 'Why any of them: bash overall_report.sh --details\n\n'
+    printf 'Why any of them: bash report_overall.sh --details\n\n'
 
     for node in "${nodes[@]}"; do
         brief_line "$node"
@@ -609,10 +609,10 @@ emit_brief() {
     printf '%d of %d %s %s a benchmark column outstanding.\n' \
         "$n_out" "${#nodes[@]}" "$(plural "${#nodes[@]}")" \
         "$([[ "$n_out" -eq 1 ]] && echo has || echo have)"
-    printf '  bash overall_report.sh --details    the reason behind every name above\n'
-    printf '  bash status-check.sh -t <benchmark> one column, every node, pass included\n'
-    printf '  bash health-check.sh --diff <node>  the health diff behind a check name above\n'
-    printf '  bash trigger-log.sh                 why nothing is being submitted\n'
+    printf '  bash report_overall.sh --details    the reason behind every name above\n'
+    printf '  bash report_job-status.sh -t <benchmark> one column, every node, pass included\n'
+    printf '  bash report_health.sh --diff <node>  the health diff behind a check name above\n'
+    printf '  bash check_trigger-log.sh                 why nothing is being submitted\n'
 }
 
 ## ── The CSV report ────────────────────────────────────────────────────────
@@ -697,7 +697,7 @@ emit_report() {
     fi
 
     ## ── HEALTH ──
-    ## Rendered by health-scan.sh; `health-check.sh --summary` prints it too.
+    ## Rendered by health-scan.sh; `report_health.sh --summary` prints it too.
     health_section "$max_checks" \
         "$(printf '%s\n' "${!never_checked[@]}" | sort | paste -sd',' -)"
 
@@ -725,11 +725,11 @@ emit_report() {
 
     ## ── WHAT TO RUN NEXT ──
     printf '── WHAT TO RUN NEXT ────────────────────────────────────────\n'
-    printf '  bash trigger-log.sh                 why nothing is being submitted\n'
-    printf '  bash health-check.sh --diff <node>  the health diff behind a check name above\n'
-    printf '  bash status-check.sh -t <benchmark> one column, every node, pass included\n'
-    printf '  bash daily-report.sh                the numbers behind every pass\n'
-    printf '  sinfo -R                            every drained node, from Slurm itself\n'
+    printf '  bash check_trigger-log.sh                  why nothing is being submitted\n'
+    printf '  bash report_health.sh --diff <node>        the health diff behind a check name above\n'
+    printf '  bash report_job-status.sh -t <benchmark>   one column, every node, pass included\n'
+    printf '  bash report_benchmarks.sh                  the numbers behind every pass\n'
+    printf '  sinfo -R                                   every drained node, from Slurm itself\n'
 }
 
 # One node, everything known about it. Every line is "<label> <value>", so a

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Drain-reason -> check-name translation for health-check.sh, which uses it to
+# Drain-reason -> check-name translation for report_health.sh, which uses it to
 # tell a health drain from an operator's. Kept out of the script because the
 # strings are historical rather than structural -- see the note below.
 # See docs/reference/health-checks.md#reading-the-reason-field.

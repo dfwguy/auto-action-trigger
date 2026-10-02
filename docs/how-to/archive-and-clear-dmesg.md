@@ -11,7 +11,7 @@ time.
 ## Confirm that is what you have
 
 ```bash
-./overall_report.sh --full 'ink50-dh01-d06*'
+./report_overall.sh --full 'ink50-dh01-d06*'
 ```
 
 The line to look for is `prolog   the pre-job check failed on [dmesg]`. If it
@@ -31,7 +31,7 @@ node finds nothing, every time.
 
 Usually yes, and that is the point of the check. BCM forwards kernel messages to
 the head node, so clearing a node's ring buffer normally destroys a *copy*
-rather than the record. `dmesg-archive.sh` confirms that per node before it
+rather than the record. `check_dmesg.sh` confirms that per node before it
 clears anything, and reports the answer as `syslog:yes` or `NO SYSLOG`.
 
 **The check is local.** It is a `grep` over the syslog of the host you run the
@@ -66,8 +66,8 @@ Dry run first — it expands the node list and runs the syslog check, so the
 verdict is real:
 
 ```bash
-./dmesg-archive.sh -n --clear --resume 'ink50-dh01-d06-[17-18,28-31,33,35-36]'
-./dmesg-archive.sh    --clear --resume 'ink50-dh01-d06-[17-18,28-31,33,35-36]'
+./check_dmesg.sh -n --clear --resume 'ink50-dh01-d06-[17-18,28-31,33,35-36]'
+./check_dmesg.sh    --clear --resume 'ink50-dh01-d06-[17-18,28-31,33,35-36]'
 ```
 
 `--resume` is nearly always wanted here. A node that flapped to
@@ -99,7 +99,7 @@ also failing `dmesg-xid`, `dmesg-knvlink` or `dmesg-nv_err` it hides a hardware
 fault the fleet was correctly reporting — archive those **without** `--clear`
 and raise a ticket instead.
 
-`health-check.sh --diff <node>` before and after is how to see which of the
+`report_health.sh --diff <node>` before and after is how to see which of the
 seven were carrying something.
 
 ## Reading it back later
@@ -114,5 +114,5 @@ cleared — a line recording that, so a node that reads clean afterwards is not
 mistaken for one that never had anything wrong.
 
 The directory sits beside `results/`, not inside it, because
-`single-node-purge.sh` removes `results/<node>` outright and a kernel log should
+`admin_purge-node-benchmarks.sh` removes `results/<node>` outright and a kernel log should
 outlive a results reset. Nothing prunes it; it is one ring buffer per run.

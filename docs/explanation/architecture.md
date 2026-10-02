@@ -53,8 +53,8 @@ a running trace per step — `results/<node>/agent.log` for the cycle itself,
 `$HEALTH_LOG_DIR/<node>/health.log`
 for the health runner — one line per cycle recording
 what it did or why it stopped. Every line either can write is in
-[reference/trace-lines.md](../reference/trace-lines.md). `trigger-log.sh` reads
-those traces across the cluster; `trigger-debug.sh` walks the configuration
+[reference/trace-lines.md](../reference/trace-lines.md). `check_trigger-log.sh` reads
+those traces across the cluster; `check_trigger-debug.sh` walks the configuration
 behind them when the traces have gone stale. Which to reach for first is
 [how-to/diagnose-nothing-running.md](../how-to/diagnose-nothing-running.md).
 
@@ -126,7 +126,7 @@ forever inside the command. The usual cause is the share: `install-agent.sh`
 sources `$BRINGUP_HOME/settings.sh` as its first act, and a node whose NFS mount
 has gone stale blocks in that `source` in uninterruptible sleep. The ssh is up,
 the remote shell is running, and nothing will ever come back. One such node
-holds the whole fan-out open, so `pause-agents.sh --resume` appears to complete
+holds the whole fan-out open, so `admin_pause-agents.sh --resume` appears to complete
 its work and then sit there — the grouped output is already printed and the last
 node is still being waited on.
 
@@ -166,7 +166,7 @@ NFS tree into `~/.config/systemd/user/`, by the node itself — see
 [the-agent-and-the-watchdog.md#why-lingering](the-agent-and-the-watchdog.md#why-lingering).
 
 Two exceptions to the fan-out, both deliberate: anything that must run *inside*
-Slurm's view of the node uses `srun -w <node>` instead — `ib-visibility.sh` does
+Slurm's view of the node uses `srun -w <node>` instead — `check_ib.sh` does
 — and anything that must run inside the container asks the job's own payload. A
 remote shell of any kind lands on the host, which sees a complete and correct
 `/dev` no matter what the container saw. See
@@ -185,7 +185,7 @@ shared human account to an automation account of its own changes one line in
 It did not start that way. The account was a literal in about thirty places:
 the `home=` at the top of each action, the NFS container fallback in every
 `.sbatch`, and — worst, because it was a *comparison* rather than a path — the
-result-ownership check in `trigger-debug.sh`. That one had both failure modes at
+result-ownership check in `check_trigger-debug.sh`. That one had both failure modes at
 once. The top-level test was a prefix glob, so an account whose name began with
 the old one passed it; the per-node loop below was an exact match, so the same
 tree failed that. One check reported the fleet healthy and correct, the other

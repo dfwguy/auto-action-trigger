@@ -3,7 +3,7 @@
 # Judges every (node, column) cell of the fleet in parallel and writes one row
 # per cell: <node><FS><column><FS><status><FS><reason><FS><metric>.
 #
-# Sourced by status-check.sh and daily-report.sh for scan_fleet(), and run by
+# Sourced by report_job-status.sh and report_benchmarks.sh for scan_fleet(), and run by
 # its own xargs as the worker. See
 # docs/explanation/verdicts-and-the-cache.md#how-a-report-is-produced.
 

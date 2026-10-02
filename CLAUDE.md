@@ -217,9 +217,9 @@ answer is that every gate writes down why it stopped:
   says the timer fired, never that the cycle did work — and appends one line per
   cycle to `results/<node>/agent.log`.
 - `launch_job.sh` appends one line per cycle to `results/<node>/trigger.log`.
-- `trigger-log.sh` reads those traces — run it **first**. Fresh traces mean the
+- `check_trigger-log.sh` reads those traces — run it **first**. Fresh traces mean the
   chain is intact by definition and a gate is closed, and the gate named itself.
-- `trigger-debug.sh` checks the configuration that should be producing work.
+- `check_trigger-debug.sh` checks the configuration that should be producing work.
   Run it when the traces are stale.
 
 New gates get a trace line. An `exit 0` with no explanation is a bug even when
@@ -313,7 +313,7 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/verdict-test.sh        # parser gates against captured fixtures
 ./tests/health-runner-test.sh  # the health check runner loop
 ./tests/recover-test.sh        # drain classification in slurm-recovery.sh
-./tests/dmesg-archive-test.sh  # what dmesg-archive.sh refuses to clear, if you touched it
+./tests/dmesg-archive-test.sh  # what check_dmesg.sh refuses to clear, if you touched it
 ./tests/help-text-test.sh      # --help blocks, if you touched a header comment
 ./tests/scan-cache-test.sh     # the report cache, if you touched a gate or verdict-scan.sh
 ./tests/launch-job-archive-test.sh # .prevN/.failN archiving, if you touched archive_result or submit_one
@@ -324,9 +324,9 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/exclude-test.sh        # the head-node gate, if you touched EXCLUDE_NODES or a results/*/ walk
 ./tests/health-cadence-test.sh # the gates in node_health.sh, if you touched the cadence or the baseline
 ./tests/report-format-test.sh  # node-list formatting and prose wrapping, if you touched report-format.sh
-./tests/brief-report-test.sh   # the one-line report, if you touched overall_report.sh
+./tests/brief-report-test.sh   # the one-line report, if you touched report_overall.sh
 ./tests/health-scan-test.sh    # the health verdict, if you touched health-scan.sh
-./tests/health-report-test.sh  # the buckets and --drained, if you touched health-check.sh
+./tests/health-report-test.sh  # the buckets and --drained, if you touched report_health.sh
 ./tests/job-user-test.sh      # the two-account differential, if you touched JOB_USER, a path derived from it, or CONTAINER_DIR
 ./tests/agent-test.sh          # the heartbeat, the busy gate and the lock, if you touched node-agent.sh
 ./tests/supervisor-test.sh     # which nodes get armed, if you touched supervisor.sh
@@ -334,7 +334,7 @@ Read `docs/explanation/verdicts-and-the-cache.md#the-verdict-cache` before touch
 ./tests/build-containers-test.sh # -a required and the nvcr.io login gate, if you touched build_containers.sh
 ./tests/priv-test.sh           # the sudo layer, if you touched priv.sh or a check that needs root
 ./tests/fanout-test.sh         # clush before pdsh, if you touched fanout.sh
-./tests/next-run-test.sh       # the buckets, if you touched next-run.sh or either cadence
+./tests/next-run-test.sh       # the buckets, if you touched check_next-run.sh or either cadence
 ./tests/doc-links-test.sh      # every docs/ anchor the code points at, if you moved or retitled one
 bash -n <changed script>       # these scripts run as root on 200+ nodes
 shellcheck -S warning <changed script>   # CI gates on this; see below
@@ -361,7 +361,7 @@ drifted twice.
 A change under `agent/units/` is not testable from a checkout: the suites stub
 systemd, and a unit only takes effect when `install-agent.sh` rewrites and
 restarts it on every host. Say so in the commit, because the reader deploying it
-needs `pause-agents.sh --resume` and not just a copy.
+needs `admin_pause-agents.sh --resume` and not just a copy.
 
 ## Privilege is asked for, never held
 
@@ -382,9 +382,10 @@ changing any of it.
 
 ## Some scripts print their own header as `--help`
 
-`status-check.sh`, `health-check.sh`, `overall_report.sh`, `daily-report.sh`,
-`trigger-log.sh`, `kill-jobs.sh`, `check_squeue.sh` and
-`build_llmb.sh` implement `-h` as `sed -n '2,NNp'` over themselves — `tests/help-text-test.sh`
+`report_job-status.sh`, `report_health.sh`, `report_overall.sh`, `report_benchmarks.sh`,
+`check_trigger-log.sh`, `admin_kill-jobs.sh`, `check_squeue.sh`,
+`build_llmb.sh`, `check_dmesg.sh`, `check_next-run.sh` and `admin_pause-agents.sh`
+implement `-h` as `sed -n '2,NNp'` over themselves — `tests/help-text-test.sh`
 discovers them rather than listing them, so the set is whatever greps for the
 idiom. The line
 range is hardcoded, so in those files **comment length is runtime

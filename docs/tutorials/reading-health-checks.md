@@ -1,6 +1,6 @@
 # Reading the health checks
 
-`health-check.sh` has three views worth learning, and each one answers a
+`report_health.sh` has three views worth learning, and each one answers a
 question the other two cannot. By the end of this you will know which to reach
 for, and — the part that matters — why a node can be perfectly healthy in one of
 them and a problem in another without either being wrong.
@@ -32,7 +32,7 @@ Start here, because it is the only one of the three that answers a question
 about *Slurm* rather than about the logs:
 
 ```bash
-bash health-check.sh --drained
+bash report_health.sh --drained
 ```
 
 ```
@@ -79,7 +79,7 @@ into `scontrol`, `clush -w`, or the `--refresh` flag.
 Now the other half. This one ignores Slurm entirely and reads the logs:
 
 ```bash
-bash health-check.sh --summary
+bash report_health.sh --summary
 ```
 
 ```
@@ -108,13 +108,13 @@ report and a healthy cluster look identical:
 It has not passed. It is not counted as passing.
 
 **A check with no baseline entry is called out.** A check added since the last
-`set-valid-default.sh` run has nothing to compare against, so it fails on every
+`admin_set-baseline.sh` run has nothing to compare against, so it fails on every
 node forever. The fix is a new baseline, not anything on the nodes.
 
 Now split it by what the scheduler thinks:
 
 ```bash
-bash health-check.sh --by-state
+bash report_health.sh --by-state
 ```
 
 ```
@@ -147,7 +147,7 @@ baseline. This one does not judge at all. It takes a **check name** and groups
 the nodes whose file for that check is byte-for-byte identical:
 
 ```bash
-bash health-check.sh --individual ib-firmware
+bash report_health.sh --individual ib-firmware
 ```
 
 ```
@@ -193,14 +193,14 @@ The node pattern is the **second** argument here, because the first one is the
 check name:
 
 ```bash
-bash health-check.sh --individual ib-firmware ink50-dh01-h01
+bash report_health.sh --individual ib-firmware ink50-dh01-h01
 ```
 
 Try it against a check you expect to be uniform, then one you expect to vary:
 
 ```bash
-bash health-check.sh --individual bios
-bash health-check.sh --individual nvlinks
+bash report_health.sh --individual bios
+bash report_health.sh --individual nvlinks
 ```
 
 A single group means the fleet agrees, whatever the baseline says about it. Many
@@ -218,10 +218,10 @@ The three views chain, and the order is the same one you would ask the questions
 in out loud:
 
 ```bash
-bash health-check.sh --summary       # 1. what is broken, and how far does it reach?
-bash health-check.sh --by-state      # 2. how much of that is still taking work?
-bash health-check.sh --drained       # 3. what is out of the queue, and why?
-bash health-check.sh --individual <check>   # 4. what value is actually on the nodes?
+bash report_health.sh --summary       # 1. what is broken, and how far does it reach?
+bash report_health.sh --by-state      # 2. how much of that is still taking work?
+bash report_health.sh --drained       # 3. what is out of the queue, and why?
+bash report_health.sh --individual <check>   # 4. what value is actually on the nodes?
 ```
 
 Steps 1 and 3 read **different sources** — the logs and the Slurm reason field —
@@ -239,7 +239,7 @@ The three views above all stop at *which check* failed. To see *what is
 different*, diff the node against the baseline:
 
 ```bash
-bash health-check.sh --diff ink50-dh01-h01-11
+bash report_health.sh --diff ink50-dh01-h01-11
 ```
 
 ```
@@ -278,7 +278,7 @@ checks.
 Reach for `--all` when the baseline itself is in question:
 
 ```bash
-bash health-check.sh --diff --all ink50-dh01-h01-11
+bash report_health.sh --diff --all ink50-dh01-h01-11
 ```
 
 That diffs every gated check rather than only the failing ones, and names the
@@ -303,7 +303,7 @@ about fixing the hardware tells the framework to look again.
 Paste the node list straight out of any view above:
 
 ```bash
-bash health-check.sh --refresh 'ink50-dh01-h01-[11-18]'
+bash report_health.sh --refresh 'ink50-dh01-h01-[11-18]'
 ```
 
 ```
@@ -321,7 +321,7 @@ The node picks the sentinel up on its next agent cycle. Confirm it did
 rather than assuming:
 
 ```bash
-bash health-check.sh --explain 'ink50-dh01-h01-[11-18]'
+bash report_health.sh --explain 'ink50-dh01-h01-[11-18]'
 ```
 
 ```
@@ -341,8 +341,8 @@ reaching it — that is a different problem, and
 Both views, because they answer different halves:
 
 ```bash
-bash health-check.sh --summary 'ink50-dh01-h01-[11-18]'
-bash health-check.sh --individual ib-firmware 'ink50-dh01-h01-[11-18]'
+bash report_health.sh --summary 'ink50-dh01-h01-[11-18]'
+bash report_health.sh --individual ib-firmware 'ink50-dh01-h01-[11-18]'
 ```
 
 The first says whether it now passes. The second says **what value it landed
@@ -413,7 +413,7 @@ has the whole of it, including which jobs need which variables.
 Then read the verdict rather than the raw file:
 
 ```bash
-bash status-check.sh -t cublasmatmul ink50-dh01-h01-11
+bash report_job-status.sh -t cublasmatmul ink50-dh01-h01-11
 ```
 
 Only now is the node verified: the configuration matches the baseline *and* it
@@ -428,5 +428,5 @@ produced a number the gate accepts.
 | Turn the drain switches on, and read what drained | [how-to/manage-drains.md](../how-to/manage-drains.md) |
 | Add a check, or set a new baseline | [how-to/add-a-health-check-set.md](../how-to/add-a-health-check-set.md) |
 | A node failed and you need the device | [how-to/diagnose-a-failed-node.md](../how-to/diagnose-a-failed-node.md) |
-| Every flag, and what every column means | [reference/scripts.md](../reference/scripts.md#health-checksh--cluster-wide-health-summary) |
+| Every flag, and what every column means | [reference/scripts.md](../reference/scripts.md#report_healthsh--cluster-wide-health-summary) |
 | All 38 checks and the check file format | [reference/health-checks.md](../reference/health-checks.md) |

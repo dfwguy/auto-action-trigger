@@ -1,19 +1,19 @@
 #!/bin/bash
 #
-# Usage: kill-jobs.sh [-n] [-p] [node-pattern ...]
+# Usage: admin_kill-jobs.sh [-n] [-p] [node-pattern ...]
 #
 # Cancels every job this framework has out, and only those: the ones submitted
 # as bringup-<node> and burnin-<node>. Another team's job sharing a node is
 # matched by neither name and is never touched.
 #
 #   pattern  optional node filter, repeatable, with the same rules as
-#            status-check.sh: a bare string matches every node whose name starts
+#            report_job-status.sh: a bare string matches every node whose name starts
 #            with it, so a rack prefix covers the whole rack, and a pattern
 #            holding a glob character is honored as written.
 #
-#              kill-jobs.sh                          every node
-#              kill-jobs.sh ink50-dh01-i01           that node and anything under it
-#              kill-jobs.sh 'dh01-rack0[12]*' dh02   two racks and a prefix
+#              admin_kill-jobs.sh                          every node
+#              admin_kill-jobs.sh ink50-dh01-i01           that node and anything under it
+#              admin_kill-jobs.sh 'dh01-rack0[12]*' dh02   two racks and a prefix
 #
 #            A pattern matching nothing cancels nothing and says so. It is not
 #            an error: an empty queue is the state this script exists to reach.

@@ -190,11 +190,11 @@ broke". Every line it can write is in
 Now put the Slurm view and the results view side by side for the same node:
 
 ```bash
-bash status-check.sh "$N"
-bash daily-report.sh "$N"
+bash report_job-status.sh "$N"
+bash report_benchmarks.sh "$N"
 ```
 
-`status-check.sh` gives a verdict per benchmark column. `daily-report.sh` gives
+`report_job-status.sh` gives a verdict per benchmark column. `report_benchmarks.sh` gives
 the same row with the **numbers**, and its first column after the node name is
 the node's Slurm state — which is the join you have been building up to.
 
@@ -220,7 +220,7 @@ DONE
 the verdict, derived just now by the gate. Non-zero exit status under a `FAIL`
 means the workload failed and the cause is above it in this file; **zero** under
 a `FAIL` means the workload ran clean and the gate rejected the output — so the
-reason is in `status-check.sh` and not in this file at all.
+reason is in `report_job-status.sh` and not in this file at all.
 
 ## 8. Why a node was drained by a health check
 
@@ -229,7 +229,7 @@ your node's drain reason is a list of check names rather than prose:
 
 ```bash
 sinfo -n "$N" -o '%E'
-bash health-check.sh --diff "$N"
+bash report_health.sh --diff "$N"
 ```
 
 `--diff` diffs each check this node fails against the baseline. That is the
@@ -245,7 +245,7 @@ a fault that appeared after the drain was set is not in the reason, and with
 Across the fleet, group them:
 
 ```bash
-bash health-check.sh --summary
+bash report_health.sh --summary
 ```
 
 Nodes are grouped by the *set* of checks they failed, because nodes failing the
@@ -260,9 +260,9 @@ The route you just walked is the one to repeat, in this order:
 2. `squeue` / `check_squeue.sh -j` — is anything out, and what is it waiting on
 3. `sacct` — what happened to jobs that have already finished
 4. `trigger.log` — what the node itself decided, and why it stopped
-5. `status-check.sh` / `daily-report.sh` — what the results say, against the
+5. `report_job-status.sh` / `report_benchmarks.sh` — what the results say, against the
    Slurm state
-6. `health-check.sh --diff` — what is actually different about this machine
+6. `report_health.sh --diff` — what is actually different about this machine
 
 The habit worth taking away is step 1 before everything: **the same symptom
 means different things depending on whose drain it is**, and that is readable

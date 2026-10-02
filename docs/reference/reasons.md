@@ -6,7 +6,7 @@ procedure that uses them is
 
 ## Status words
 
-`status-check.sh` gives you one of six. Only two of them are about the device at
+`report_job-status.sh` gives you one of six. Only two of them are about the device at
 all.
 
 | Status | About the device? | Next step |
@@ -31,14 +31,14 @@ FAIL
   or was killed, and the diagnosis is somewhere above in the same file.
 - **Zero, under a `FAIL`** — the workload ran clean and the *gate* rejected the
   output. Nothing in the file says why, because the gate runs at status-check
-  time and writes nothing back. The reason is in `status-check.sh`.
+  time and writes nothing back. The reason is in `report_job-status.sh`.
 
 See
 [explanation/judging-benchmarks.md#exit-status-says-who-decided-a-fail](../explanation/judging-benchmarks.md#exit-status-says-who-decided-a-fail).
 
 ## Verdict reasons
 
-These are the strings `status-check.sh` prints after a `FAIL`.
+These are the strings `report_job-status.sh` prints after a `FAIL`.
 
 ### The collective did not go where it was supposed to
 
@@ -75,7 +75,7 @@ and read a live node with
 A `-nonvlink` cell at 41 GB/s and one at 2.2 GB/s both fail the same `-nonvlink`
 floor, and they are entirely different findings: the first is a slow fabric, the
 second is a socket fallback. **Always read the number, not just the verdict.**
-`daily-report.sh` prints the same figure the floor is stated against, so the
+`report_benchmarks.sh` prints the same figure the floor is stated against, so the
 comparison is direct.
 
 | Reason | Implicates |
@@ -124,8 +124,8 @@ that never got far enough to have a performance. See
 
 ## Drain reasons
 
-`sinfo -R` gives a reason; `health-check.sh` groups nodes by the *set* of checks
-they failed, and `health-check.sh --diff <node>` diffs one node against the baseline for
+`sinfo -R` gives a reason; `report_health.sh` groups nodes by the *set* of checks
+they failed, and `report_health.sh --diff <node>` diffs one node against the baseline for
 each check it fails. One node per group is enough — the rest failed the same way.
 
 Broad mapping from the 46 checks:
@@ -146,7 +146,7 @@ Broad mapping from the 46 checks:
 Three checks — `nvidia-smi-cuuid`, `imex-node-config`, `imex-status` — are
 informational and can never drain a node, because they compare something
 per-rack against a cluster-wide baseline. Read them by hand with
-`health-check.sh --diff --all <node>`; they are often the fastest confirmation that a
+`report_health.sh --diff --all <node>`; they are often the fastest confirmation that a
 node is cabled into the wrong rack. See
 [health-checks.md#informational-checks](health-checks.md#informational-checks).
 

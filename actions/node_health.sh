@@ -168,7 +168,7 @@ valid_health="$VALID_CONFIG_DIR/default/"
 valid_real=$(readlink -f "$valid_health")
 node_real=$(readlink -f "$node_health")
 if [[ -n "$valid_real" && "$valid_real" == "$node_real" ]]; then
-    trace "EXIT: the baseline $valid_health resolves to this node's own log directory, so running the checks here would overwrite the thing they are judged against. Copy it out with 'bash set-valid-default.sh $HOSTNAME' -- that takes a copy rather than a pointer -- then re-run."
+    trace "EXIT: the baseline $valid_health resolves to this node's own log directory, so running the checks here would overwrite the thing they are judged against. Copy it out with 'bash admin_set-baseline.sh $HOSTNAME' -- that takes a copy rather than a pointer -- then re-run."
     exit 1
 fi
 
@@ -209,7 +209,7 @@ elif [[ "$FORCE" -eq 1 ]]; then
 elif [[ "$last_epoch" -eq 0 ]]; then
     trace "no ${stamp##*/} -- the checks have not run here since this cadence was deployed; running them now"
 elif [[ "$interval_hours" -eq 0 ]]; then
-    trace "EXIT: HEALTH_INTERVAL_HOURS=$HEALTH_INTERVAL_HOURS and HEALTH_RETRY_INTERVAL_HOURS=$HEALTH_RETRY_INTERVAL_HOURS in ${SETTINGS_FILE:-<none>} -- the cadence is off, so the checks re-run only when 'health-check.sh --refresh' asks. Last run ${age}s ago: ${last_status:-unknown}."
+    trace "EXIT: HEALTH_INTERVAL_HOURS=$HEALTH_INTERVAL_HOURS and HEALTH_RETRY_INTERVAL_HOURS=$HEALTH_RETRY_INTERVAL_HOURS in ${SETTINGS_FILE:-<none>} -- the cadence is off, so the checks re-run only when 'report_health.sh --refresh' asks. Last run ${age}s ago: ${last_status:-unknown}."
     exit 0
 elif [[ "$age" -lt $(( interval_hours * 3600 )) ]]; then
     trace "EXIT: last run ${age}s ago was ${last_status:-unknown}, and a ${last_status:-clean} run is re-checked every ${interval_hours}h -- next due in $(( interval_hours * 3600 - age ))s"

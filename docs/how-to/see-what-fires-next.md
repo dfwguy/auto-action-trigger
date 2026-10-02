@@ -1,20 +1,20 @@
 # See what fires next
 
-`trigger-log.sh` answers "why did nothing happen?" from what the chain already
-wrote. `next-run.sh` answers the other half — "when will something happen?" —
+`check_trigger-log.sh` answers "why did nothing happen?" from what the chain already
+wrote. `check_next-run.sh` answers the other half — "when will something happen?" —
 by doing the cadence arithmetic the gates on each node are about to do, over
 the same files, and grouping the fleet by the answer.
 
 Read-only. It submits nothing, drains nothing and writes nothing.
 
 ```bash
-bash next-run.sh                    # both sections, whole fleet
-bash next-run.sh --tests            # benchmark submissions only
-bash next-run.sh --healthchecks     # health checks only
-bash next-run.sh -t ink50-dh01      # one rack, benchmarks only
+bash check_next-run.sh                    # both sections, whole fleet
+bash check_next-run.sh --tests            # benchmark submissions only
+bash check_next-run.sh --healthchecks     # health checks only
+bash check_next-run.sh -t ink50-dh01      # one rack, benchmarks only
 ```
 
-The node pattern takes the same rules as `status-check.sh`: a bare string
+The node pattern takes the same rules as `report_job-status.sh`: a bare string
 matches by prefix, a glob is honoured as written.
 
 ## What it prints
@@ -60,7 +60,7 @@ The health section reads `logs/<node>/.last-check`, whose second field picks the
 interval: `HEALTH_RETRY_INTERVAL_HOURS` after a run that found something,
 `HEALTH_INTERVAL_HOURS` after one that did not. A queued `refresh` sentinel and
 a node that has never run the checks are both due now; `HEALTH_INTERVAL_HOURS=0`
-is `nothing due`, because only `health-check.sh --refresh` re-runs them then.
+is `nothing due`, because only `report_health.sh --refresh` re-runs them then.
 
 `soon` is anything already due or due inside one agent tick — the calendar
 interval plus its spread, so `AGENT_INTERVAL_MINUTES` × 1.5. Everything else
@@ -72,7 +72,7 @@ lets a rack that was armed together print as one line.
 
 | Group | What it means |
 |---|---|
-| `not cycling` | The heartbeat is stale. No gate on that node is being reached at all, so nothing below it fires and no time would mean anything. Take this one first — `trigger-log.sh` section 0 and `results/<node>/arm.log` are the next reads |
+| `not cycling` | The heartbeat is stale. No gate on that node is being reached at all, so nothing below it fires and no time would mean anything. Take this one first — `check_trigger-log.sh` section 0 and `results/<node>/arm.log` are the next reads |
 | `waiting` | A job of ours is out under `results/<node>/.in-flight`. One job at a time per node, so nothing more is submitted until it finishes — see [explanation/sequencing.md#one-job-at-a-time](../explanation/sequencing.md#one-job-at-a-time) |
 | `nothing due` | Every benchmark passes, or the health cadence is switched off. Not a fault |
 

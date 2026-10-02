@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: next-run.sh [--tests] [--healthchecks] [node-pattern]
+# Usage: check_next-run.sh [--tests] [--healthchecks] [node-pattern]
 #
 # When the fleet next does something. Each node is placed in a bucket by how
 # long it is until its next benchmark submission and its next health check --
@@ -12,10 +12,10 @@
 #                        With neither, both sections are printed.
 #
 #   --no-cache           judge every node from its files, ignoring
-#                        results/.result_cache.*, exactly as status-check.sh
+#                        results/.result_cache.*, exactly as report_job-status.sh
 #                        means it.
 #
-#   pattern              node filter, same rules as status-check.sh: a bare
+#   pattern              node filter, same rules as report_job-status.sh: a bare
 #                        string matches by prefix, globs are honored as
 #                        written.
 #
@@ -340,7 +340,7 @@ health_section() {
         [[ "$interval" =~ ^[0-9]+$ ]] || interval=0
         if [[ "$interval" -eq 0 ]]; then
             row "$KEY_NEVER" "$node" \
-                "nothing due — the cadence is off, so only 'health-check.sh --refresh' re-runs them" >> "$tmp/health"
+                "nothing due — the cadence is off, so only 'report_health.sh --refresh' re-runs them" >> "$tmp/health"
             continue
         fi
         due=$(( epoch + interval * 3600 - now ))

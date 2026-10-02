@@ -15,8 +15,8 @@ It fires on every agent cycle and re-checks on a cadence:
 `HEALTH_INTERVAL_HOURS` after a clean run, `HEALTH_RETRY_INTERVAL_HOURS` after
 one that found something. A `refresh` sentinel file in
 `$HEALTH_LOG_DIR/<node>/` jumps the
-queue — `health-check.sh --refresh` sets it. Every cycle writes what it decided
-to `$HEALTH_LOG_DIR/<node>/health.log`, and `health-check.sh --explain` reports when each
+queue — `report_health.sh --refresh` sets it. Every cycle writes what it decided
+to `$HEALTH_LOG_DIR/<node>/health.log`, and `report_health.sh --explain` reports when each
 node is next due. See
 [health-cadence.md](../explanation/health-cadence.md).
 
@@ -167,8 +167,8 @@ all rather than a script of its own is
 [explanation/node-inventory.md#it-rides-the-health-check-runner](../explanation/node-inventory.md#it-rides-the-health-check-runner).
 
 Read them with `less logs/<node>/<check>`, or across the fleet with
-`health-check.sh --individual <check>`. Not `--diff --all`: that widens the diff
-to every *gated* check, and `set-valid-default.sh` keeps the informational ones
+`report_health.sh --individual <check>`. Not `--diff --all`: that widens the diff
+to every *gated* check, and `admin_set-baseline.sh` keeps the informational ones
 out of the baseline, so there is nothing there to diff against — see
 [explanation/node-inventory.md#it-is-not-a-baseline](../explanation/node-inventory.md#it-is-not-a-baseline).
 
@@ -214,7 +214,7 @@ and used as filenames: `dmesg-xid` carries its own output into the reason
 checks moved into `health-checks/` also used hand-written headers that did not
 match the log file.
 
-`reason-map.sh` carries both cases and is used by `health-check.sh`.
+`reason-map.sh` carries both cases and is used by `report_health.sh`.
 Anything else reading the reason field needs to go through it
 too: rewrite the multi-word legacy names first, resolve the single-token
 renames, then keep only tokens that name a check that exists — everything else
@@ -232,5 +232,5 @@ into the reason, and the check name is the filename, so the two cannot diverge
 again. They stay parseable because a node drained before the `health-checks/`
 split keeps its old reason text in Slurm until something resumes it — which, for
 a node nobody has touched, may be a long time. Deleting the rewrites turns those
-nodes into a group of unrecognized operator drains in `health-check.sh`, which
+nodes into a group of unrecognized operator drains in `report_health.sh`, which
 is how a health drain stops being told apart from an operator's.

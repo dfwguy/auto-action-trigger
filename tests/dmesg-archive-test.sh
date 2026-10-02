@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Checks dmesg-archive.sh against a stubbed fan-out, scontrol and sinfo on PATH.
+# Checks check_dmesg.sh against a stubbed fan-out, scontrol and sinfo on PATH.
 #
 # This is the one script in the tree that destroys evidence on purpose, so the
 # assertions here are mostly about what it refuses to do: a node whose buffer
@@ -78,7 +78,7 @@ fail=0
 ok()  { printf '  ok   %s\n' "$*"; pass=$((pass + 1)); }
 bad() { printf '  FAIL %s\n' "$*"; fail=$((fail + 1)); }
 
-## One run: $1 name, rest are dmesg-archive.sh options. The nodelist is appended
+## One run: $1 name, rest are check_dmesg.sh options. The nodelist is appended
 ## here so no case can forget it and pass by hitting the "no node list" guard --
 ## which is how the first draft of this file scored seven green. The per-run
 ## directory carries the assertions: calls is the stub log, arch/ what was
@@ -95,7 +95,7 @@ run() {
         export STUB_NODES="${STUB_NODES:-n01 n02 n03}"
         export STUB_DMESG_NODES="${STUB_DMESG_NODES:-n01 n02}"
         : > "$RUN_DIR/calls"
-        "$home/dmesg-archive.sh" -o "$RUN_DIR/arch" "$@" 'n0[1-3]' > "$RUN_DIR/out" 2>&1
+        "$home/check_dmesg.sh" -o "$RUN_DIR/arch" "$@" 'n0[1-3]' > "$RUN_DIR/out" 2>&1
         printf '%s' "$?" > "$RUN_DIR/rc"
     )
     RUN_NAME="$name"
@@ -127,7 +127,7 @@ RUN_DIR="$work/run-noargs"; mkdir -p "$RUN_DIR"; : > "$RUN_DIR/calls"
 (
     export PATH="$stub:$PATH" STUB_CALLS="$RUN_DIR/calls"
     export STUB_NODES="n01 n02 n03" STUB_DMESG_NODES="n01"
-    "$home/dmesg-archive.sh" --clear > "$RUN_DIR/out" 2>&1
+    "$home/check_dmesg.sh" --clear > "$RUN_DIR/out" 2>&1
     printf '%s' "$?" > "$RUN_DIR/rc"
 )
 [[ "$(cat "$RUN_DIR/rc")" == "1" ]] &&

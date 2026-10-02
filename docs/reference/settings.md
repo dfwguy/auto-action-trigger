@@ -143,7 +143,7 @@ run. See
 [explanation/llmb.md#a-run-that-stopped-early](../explanation/llmb.md#a-run-that-stopped-early).
 
 All five bandwidth floors read out-of-place busbw at the largest message size actually run, which
-is also what `daily-report.sh` prints in those columns, so a cell and a floor
+is also what `report_benchmarks.sh` prints in those columns, so a cell and a floor
 compare directly. The `-nonvlink` pair is measured on a **100 GB/s compute
 plane**; a site on a different link speed has different numbers.
 
@@ -261,11 +261,11 @@ against — see
 | `HEALTH_LOG_DIR` | `$BRINGUP_DATA/logs` | Shared, compute-facing root for per-node check output, cadence state and health trace — see [#accounts-and-paths](#accounts-and-paths) |
 
 Whole hours, and `0` on either disables the cadence in the state it applies to —
-the checks then re-run only when `health-check.sh --refresh` sets the sentinel,
+the checks then re-run only when `report_health.sh --refresh` sets the sentinel,
 which is how this tree behaved before the cadence existed.
 
 The interval is measured from `$HEALTH_LOG_DIR/<node>/.last-check`, which also records
-which of the two applies. `health-check.sh --explain` prints the resulting due
+which of the two applies. `report_health.sh --explain` prints the resulting due
 times across the fleet. Why two intervals and no backoff:
 [explanation/health-cadence.md#choosing-the-two-intervals](../explanation/health-cadence.md#choosing-the-two-intervals).
 
@@ -377,8 +377,8 @@ cluster that does not use BCM should leave the switch off.
 `--explain` is stopped by none of them, and neither is the heartbeat: all five
 are read deep inside a cycle, after `results/<node>/.heartbeat` is already
 touched, so a node with any of them set to `no` still reads fresh in
-`overall_report.sh`. A node reading DOWN is its *timer* that stopped, which
-none of these switches touch — that is `pause-agents.sh`, a different
+`report_overall.sh`. A node reading DOWN is its *timer* that stopped, which
+none of these switches touch — that is `admin_pause-agents.sh`, a different
 mechanism entirely. See
 [explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means](../explanation/the-agent-and-the-watchdog.md#what-the-heartbeat-means).
 The reasoning for all of them is in
@@ -514,8 +514,8 @@ alone:
 |---|---|---|
 | Benchmarks and burn-in | not submitted | not submitted |
 | Health checks | still run | not run |
-| `status-check.sh`, `daily-report.sh` | still reported | no row |
-| `trigger-log.sh`, `trigger-debug.sh` | still read | skipped, and counted |
+| `report_job-status.sh`, `report_benchmarks.sh` | still reported | no row |
+| `check_trigger-log.sh`, `check_trigger-debug.sh` | still read | skipped, and counted |
 | `--test` / `--force` | `--test` opens it | neither opens it |
 
 A host that matches never needed to be listed for the exclusion to happen: on
@@ -617,7 +617,7 @@ including what counts as somebody waiting, is
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `SCAN_JOBS` | empty | Worker processes `status-check.sh` and `daily-report.sh` judge the fleet with. Empty or `0` means one per core |
+| `SCAN_JOBS` | empty | Worker processes `report_job-status.sh` and `report_benchmarks.sh` judge the fleet with. Empty or `0` means one per core |
 
 It changes nothing about what is reported: the scan's output is folded and
 sorted before it is printed, so two runs at different `SCAN_JOBS` produce
@@ -662,7 +662,7 @@ reason: `--export` is itself comma-separated, so a value carrying one would
 silently split into two entries. A value that genuinely needs a comma or a space
 belongs in the `.sbatch`, which is a file rather than a list.
 
-`trigger-debug.sh` section 0 reports the effective list and names any entry that
+`check_trigger-debug.sh` section 0 reports the effective list and names any entry that
 will be dropped.
 
 ## Accounts and paths
@@ -701,7 +701,7 @@ deployed one. See
 |---------|---------|---------|
 | `RESULTS_DIR` | `$BRINGUP_DATA/results` | Per-node benchmark and agent output — see [layout.md#runtime-paths](layout.md#runtime-paths) |
 | `HEALTH_LOG_DIR` | `$BRINGUP_DATA/logs` | Per-node health check output |
-| `VALID_CONFIG_DIR` | `$BRINGUP_DATA/valid-config` | The health baseline `set-valid-default.sh` writes and every check is judged against |
+| `VALID_CONFIG_DIR` | `$BRINGUP_DATA/valid-config` | The health baseline `admin_set-baseline.sh` writes and every check is judged against |
 
 Each defaults under `BRINGUP_DATA` but is independently overridable — a site
 can put `RESULTS_DIR` on a compute-facing share while leaving `HEALTH_LOG_DIR`

@@ -81,8 +81,8 @@ command and want to see it fail loudly if a path is wrong.
 
   A unit installed before that change runs the script directly; re-run
   `agent/install-agent.sh` to pick the new one up.
-- **Anything reading a report over `clush` or `pdsh`.** `status-check.sh`,
-  `health-check.sh`, `daily-report.sh`, `overall_report.sh` and `kill-jobs.sh`
+- **Anything reading a report over `clush` or `pdsh`.** `report_job-status.sh`,
+  `report_health.sh`, `report_benchmarks.sh`, `report_overall.sh` and `admin_kill-jobs.sh`
   all call `module load slurm` themselves and say so when it did not help — that
   message means this page, not a broken controller.
 - **`squeue -O` field widths.** Unrelated to the shell, but it bites in the same

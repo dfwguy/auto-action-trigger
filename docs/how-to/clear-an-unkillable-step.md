@@ -111,7 +111,7 @@ that comes back with NVLink still short should not be resumed:
 ```bash
 clush -w <node> '/cluster/bringup/actions/node_health.sh'
 pdsh -R ssh -w <node> '/cluster/bringup/actions/node_health.sh'
-./health-check.sh --diff <node>
+./report_health.sh --diff <node>
 scontrol update nodename=<node> state=RESUME
 ```
 
@@ -146,7 +146,7 @@ Twenty nodes wedged in tight time clusters is one fault, not twenty. Stop
 feeding the sweep into it before you work through them:
 
 ```bash
-./kill-jobs.sh -p                      # pause fleet-wide, cancel our queued work
+./admin_kill-jobs.sh -p                      # pause fleet-wide, cancel our queued work
 sinfo -R | grep -i 'kill task failed'  # the full list, with timestamps
 ```
 

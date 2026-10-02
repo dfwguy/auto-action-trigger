@@ -232,8 +232,8 @@ Ask whoever runs the bringup; these change fleet state and are not yours to run
 casually. The framework can be stopped in two ways, and the difference matters:
 
 ```bash
-bash kill-jobs.sh -n <node-pattern>    # what would be cancelled, changes nothing
-bash kill-jobs.sh -p <node-pattern>    # pause, then cancel
+bash admin_kill-jobs.sh -n <node-pattern>    # what would be cancelled, changes nothing
+bash admin_kill-jobs.sh -p <node-pattern>    # pause, then cancel
 ```
 
 **Cancelling alone buys about one agent cycle.** The sequencer fires every

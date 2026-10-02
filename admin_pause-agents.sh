@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: pause-agents.sh [--resume] [--status] [--sudo] [-n] [node-pattern]
+# Usage: admin_pause-agents.sh [--resume] [--status] [--sudo] [-n] [node-pattern]
 #
 # Stop every agent timer in the fleet, so the exported tree can be replaced
 # without cycles running out of it, and start them again afterwards. Run it on
@@ -18,7 +18,7 @@
 #   --sudo      re-run explicitly as the JOB_USER configured in SETTINGS.
 #               Without this switch, running as another user is refused.
 #   -n, --dry-run  print what would be stopped or started, and do neither.
-#   pattern     node filter, same rules as status-check.sh: a bare string
+#   pattern     node filter, same rules as report_job-status.sh: a bare string
 #               matches by prefix, globs are honored as written.
 #
 # Both fan-outs give up on a node after FANOUT_COMMAND_TIMEOUT and name it. On
@@ -63,10 +63,10 @@ if [[ "$me" != "$JOB_USER" ]]; then
             exit 1
         }
         echo "switching from $me to configured JOB_USER $JOB_USER through sudo"
-        exec sudo -iu "$JOB_USER" bash "$home/pause-agents.sh" "${forward_args[@]}"
+        exec sudo -iu "$JOB_USER" bash "$home/admin_pause-agents.sh" "${forward_args[@]}"
     fi
     echo "ERROR: running as $me, but the agents run as JOB_USER=$JOB_USER." >&2
-    printf '       Re-run explicitly as that account: %q --sudo' "$home/pause-agents.sh" >&2
+    printf '       Re-run explicitly as that account: %q --sudo' "$home/admin_pause-agents.sh" >&2
     [[ "${#forward_args[@]}" -gt 0 ]] && printf ' %q' "${forward_args[@]}" >&2
     printf '\n' >&2
     exit 1
@@ -148,7 +148,7 @@ status)
             "$quiet_after" "$([[ "$newest" -ge 0 ]] && echo "$newest" || echo "never")"
     fi
     [[ "$stale" -gt 0 || "$never" -gt 0 ]] &&
-        echo "  ./trigger-log.sh section 0 names the stale and never-armed ones"
+        echo "  ./check_trigger-log.sh section 0 names the stale and never-armed ones"
     exit 0
     ;;
 stop)
@@ -229,7 +229,7 @@ resume)
         echo "  no answer within ${FANOUT_COMMAND_TIMEOUT}s: $silent_list"
     fi
     [[ "$failed" -gt 0 || "${#quiet_nodes[@]}" -gt 0 ]] &&
-        echo "  The watchdog re-arms whatever is still stale, ARM_BATCH per cycle. Leave them to it, or ./trigger-log.sh once it has had a cycle."
+        echo "  The watchdog re-arms whatever is still stale, ARM_BATCH per cycle. Leave them to it, or ./check_trigger-log.sh once it has had a cycle."
     ## Last, so it does not arm nodes while the pass above is still going.
     echo "step 2/2: starting the watchdog on $HOSTNAME"
     out=$(local_timer start)

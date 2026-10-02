@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Checks the one-line report overall_report.sh prints by default: one line per
+# Checks the one-line report report_overall.sh prints by default: one line per
 # node saying whether it is cycling, what Slurm calls it, and what is not
 # passing on it -- with PASS under a half that has nothing outstanding.
 #
@@ -15,7 +15,7 @@
 # sixty into six of ten, which is the ungrouped report with extra furniture.
 #
 # The real script is run against a stub tree, not a copy of its logic.
-# See docs/reference/scripts.md#overall_reportsh--the-fleet-in-one-line-per-node.
+# See docs/reference/scripts.md#report_overallsh--the-fleet-in-one-line-per-node.
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -43,7 +43,7 @@ absent() {
 }
 
 for f in settings.sh report-format.sh reason-map.sh health-scan.sh \
-         verdict-scan.sh fanout.sh overall_report.sh; do
+         verdict-scan.sh fanout.sh report_overall.sh; do
     cp "$home/$f" "$work/$f"
 done
 mkdir -p "$work"/{jobs/j,parsers/p,health-checks/c,valid-config/baseline,results,logs}
@@ -112,7 +112,7 @@ export BRINGUP_DATA="$work"
 ## Ungrouped: clubak is not installable in CI, and what this suite asserts is
 ## the content of each line rather than how the grouping tool folds them. The
 ## fallback is exercised by construction, and it is the same lines either way.
-out=$(bash overall_report.sh 2>&1)
+out=$(bash report_overall.sh 2>&1)
 
 check "a clean node says so under each half" \
       'node01: UP **** IDLE **** tests - PASS **** healthchecks - PASS' "$out"
@@ -142,7 +142,7 @@ absent "no NODES section by default"       '── NODES'         "$out"
 
 ## Column order, not the order the workers happened to finish in, so the same
 ## two failures are the same string on every node and fold into one group.
-mixed=$(cd "$work" && rm -f results/node02/allreduce.txt && bash overall_report.sh 2>&1)
+mixed=$(cd "$work" && rm -f results/node02/allreduce.txt && bash report_overall.sh 2>&1)
 check "columns are named in column order" \
       'node02: UP **** MIXED **** tests - allreduce hpl' "$mixed"
 echo PASS > "$work/results/node02/allreduce.txt"
@@ -156,14 +156,14 @@ check "a never-checked node names every check" \
 ## Whether the node is still cycling comes first, because everything after it
 ## on the line is the last thing written rather than what is true now.
 touch -d '2 hours ago' "$work/results/node04/.heartbeat"
-down=$(cd "$work" && bash overall_report.sh 2>&1)
+down=$(cd "$work" && bash report_overall.sh 2>&1)
 check "a stale heartbeat reads DOWN"      'node04: DOWN **** UNKNOWN' "$down"
 check "a cycling node still reads UP"     'node01: UP **** IDLE'      "$down"
 check "and the count is above the groups" 'written no heartbeat'     "$down"
 touch "$work/results/node04/.heartbeat"
 
 rm -f "$work/valid-config/default"
-nobase=$(cd "$work" && bash overall_report.sh 2>&1)
+nobase=$(cd "$work" && bash report_overall.sh 2>&1)
 check "no baseline names every check, on every node" \
       'node01: UP **** IDLE **** tests - PASS **** healthchecks - bios kernel' "$nobase"
 absent "no baseline never reads as a pass" 'healthchecks - PASS' "$nobase"
@@ -176,25 +176,25 @@ ln -sfn baseline "$work/valid-config/default"
 ## node-local BCM log again.
 printf '%s\tmoment\tmachine\tdrained\tslurm\tProlog error\tdmesg\n' "$(date +%s)" \
     > results/node03/recover.log
-det=$(cd "$work" && bash overall_report.sh --details 2>&1)
+det=$(cd "$work" && bash report_overall.sh --details 2>&1)
 check "--details prints the long report"   '── BENCHMARKS'    "$det"
 check "--details prints the node blocks"   '── NODES'         "$det"
 absent "--details is not the one-line one" ' **** '           "$det"
 check "--details retains a prolog cause from recovery" \
       'prolog   the pre-job check failed on [dmesg] (results/node03/recover.log)' "$det"
 
-fullo=$(cd "$work" && bash overall_report.sh --full 2>&1)
+fullo=$(cd "$work" && bash report_overall.sh --full 2>&1)
 check "--full implies --details" '── NODES' "$fullo"
 
 ## A pattern narrows the fleet here the same way it does everywhere else.
-one=$(cd "$work" && bash overall_report.sh node02 2>&1)
+one=$(cd "$work" && bash report_overall.sh node02 2>&1)
 check "a pattern narrows the report" 'node02: UP **** MIXED **** tests - hpl' "$one"
 absent "a pattern excludes the rest"  'node01:'                "$one"
 
 ## --csv is the same four fields as columns, for the nodes that are not fine.
 ## A node that is UP, idle or allocated and passing both halves is off it: the
 ## point of the format is that what is left is what has to be acted on.
-csv=$(cd "$work" && bash overall_report.sh --csv 2>&1)
+csv=$(cd "$work" && bash report_overall.sh --csv 2>&1)
 check "--csv names its columns"          'node,heartbeat,slurm,tests,healthchecks' "$csv"
 check "--csv is comma separated"         'node02,UP,MIXED,hpl,bios'                "$csv"
 check "--csv keeps a list space separated" 'node04,UP,UNKNOWN,allreduce hpl,bios kernel' "$csv"
@@ -211,20 +211,20 @@ cat > "$work/bin/sinfo" <<'EOF'
 printf '%s\n' 'node01|allocated|none|Unknown|' 'node02|mixed|none|Unknown|' \
                'node03|drained|root|2026-08-10T09:00:00|Prolog error'
 EOF
-alloc=$(cd "$work" && bash overall_report.sh --csv 2>&1)
+alloc=$(cd "$work" && bash report_overall.sh --csv 2>&1)
 absent "--csv drops a passing allocated node" 'node01' "$alloc"
 check  "--csv keeps the rest"                 'node02,UP,MIXED'  "$alloc"
 
 ## A node that is passing but not cycling stays on: everything after the first
 ## field is the last thing written rather than what is true now.
 touch -d '2 hours ago' "$work/results/node01/.heartbeat"
-stale=$(cd "$work" && bash overall_report.sh --csv 2>&1)
+stale=$(cd "$work" && bash report_overall.sh --csv 2>&1)
 check "--csv keeps a DOWN node that passes" 'node01,DOWN,ALLOCATED,PASS,PASS' "$stale"
 touch "$work/results/node01/.heartbeat"
 
 ## The two reports are different shapes of the same scan, and asking for both
 ## is asking for neither.
-both=$(cd "$work" && bash overall_report.sh --csv --details 2>&1)
+both=$(cd "$work" && bash report_overall.sh --csv --details 2>&1)
 check "--csv and --details refuse together" 'ERROR:' "$both"
 
 echo

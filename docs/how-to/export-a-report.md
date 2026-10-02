@@ -1,19 +1,19 @@
 # Get a report into a spreadsheet
 
 ```bash
-bash daily-report.sh -c -o ~/report-$(date '+%F').csv
+bash report_benchmarks.sh -c -o ~/report-$(date '+%F').csv
 ```
 
 Use `-c` and split on the delimiter. That gives comma separated rows for the
 table *and* the summary, so a paste of the whole screen imports in one pass.
-`daily-report.sh | cat` is the same thing with tabs, which most spreadsheets
+`report_benchmarks.sh | cat` is the same thing with tabs, which most spreadsheets
 split on paste without a dialog at all.
 
 The summary goes to stderr, so `-o` and a redirect both capture the table alone.
 To keep both in one file:
 
 ```bash
-bash daily-report.sh -c > report.csv 2>&1
+bash report_benchmarks.sh -c > report.csv 2>&1
 ```
 
 ## Where the file goes is yours to say
@@ -29,7 +29,7 @@ that nothing read, that got copied between deployments, and that had to be
 explained. A report is a thing you asked for once; where you keep it is not the
 framework's business.
 
-`overall_report.sh -o` behaves the same way.
+`report_overall.sh -o` behaves the same way.
 
 ## Do not import the aligned form
 
@@ -43,7 +43,7 @@ The aligned form is for reading on screen. The rule the report follows is that
 **TSV at a terminal** is column-aligned, and **anything else** — a pipe, a
 redirect, `-o`, or `-c` — is the raw separated rows. It is asked of each stream
 on its own, since the table is on stdout and the summary on stderr and the two
-never land in the same place: `daily-report.sh > out.tsv` writes raw rows to the
+never land in the same place: `report_benchmarks.sh > out.tsv` writes raw rows to the
 file and prints the summary aligned, which is the pair you want. Send both to
 one destination (`&> out.tsv`, `2>&1 | less`) and both come back raw.
 
@@ -61,8 +61,8 @@ report's `median` is that rack's median rather than the fleet's — the `nodes`
 count in the first summary block is what says how many nodes it was taken over.
 
 ```bash
-bash daily-report.sh ink50-dh01-h20 -c -o ~/rack-h20.csv
+bash report_benchmarks.sh ink50-dh01-h20 -c -o ~/rack-h20.csv
 ```
 
 What each column and summary block means is
-[reference/scripts.md#daily-reportsh--per-node-table-with-metrics](../reference/scripts.md#daily-reportsh--per-node-table-with-metrics).
+[reference/scripts.md#report_benchmarkssh--per-node-table-with-metrics](../reference/scripts.md#report_benchmarkssh--per-node-table-with-metrics).

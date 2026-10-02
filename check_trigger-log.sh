@@ -1,15 +1,15 @@
 #!/bin/bash
 #
-# Usage: trigger-log.sh [-w hours] [-s minutes] [-t lines] [node-pattern]
+# Usage: check_trigger-log.sh [-w hours] [-s minutes] [-t lines] [node-pattern]
 #
 # Answers "why is nothing running?" from the written record rather than from
 # the configuration: the heartbeat every node writes, and what the steps under
 # the agent wrote at results/<node>/trigger.log and
 # $HEALTH_LOG_DIR/<node>/health.log, summarized
-# fleet-wide. Run this one FIRST; trigger-debug.sh is for when the traces turn
+# fleet-wide. Run this one FIRST; check_trigger-debug.sh is for when the traces turn
 # out to be stale.
 #
-#   Logs stale or missing  -> nothing is running the script. trigger-debug.sh.
+#   Logs stale or missing  -> nothing is running the script. check_trigger-debug.sh.
 #   Logs fresh, no submits -> the script is running and every gate is closed.
 #                             The reason is in section 2, already written down.
 #
@@ -27,7 +27,7 @@
 #                          a single node, where a histogram of one is useless.
 #   --include-excluded     read the hosts the reports leave out as well -- the
 #                          head node. Their traces say why they were excluded.
-#   pattern                node filter, same rules as status-check.sh: a bare
+#   pattern                node filter, same rules as report_job-status.sh: a bare
 #                          string matches by prefix, globs are honored as
 #                          written.
 #
@@ -360,7 +360,7 @@ hdr "1. Is the sequencer running? (${#node_dirs[@]} node dir(s), stale = no writ
 if [[ "$fresh" -eq 0 && "${#stale_log[@]}" -gt 0 ]]; then
     bad "NO node has written a trigger.log in ${stale_minutes}m -- the sequencer is not running anywhere"
     note "the decisions in section 2 are stale; they are what the nodes last thought, not what is true now"
-    note "section 0 says whether the agents are firing at all: run ./trigger-debug.sh"
+    note "section 0 says whether the agents are firing at all: run ./check_trigger-debug.sh"
 elif [[ "${#stale_log[@]}" -gt 0 ]]; then
     bad "${#stale_log[@]} node(s) stale, $fresh fresh -- the agent is firing, but the sequencer is not writing on these"
     printf '     %s\n' "${stale_log[@]:0:10}"
@@ -505,7 +505,7 @@ if [[ "${#health_missing[@]}" -gt 0 ]]; then
     [[ "${#health_missing[@]}" -gt 10 ]] && note "   ... and $(( ${#health_missing[@]} - 10 )) more"
 fi
 if [[ "${#health_stale[@]}" -gt 0 ]]; then
-    bad "${#health_stale[@]} health.log(s) older than ${stale_minutes}m -- NodeHealthTrigger is not firing there. trigger-debug.sh."
+    bad "${#health_stale[@]} health.log(s) older than ${stale_minutes}m -- NodeHealthTrigger is not firing there. check_trigger-debug.sh."
     printf '     %s\n' "${health_stale[@]:0:10}"
 fi
 [[ "$health_fresh" -gt 0 ]] && note "$health_fresh health.log(s) written within ${stale_minutes}m"
@@ -521,7 +521,7 @@ if [[ "${#health_reason_count[@]}" -gt 0 ]]; then
         [[ "$count" -gt 1 ]] && printf '            (e.g. %s)\n' "$node"
     done
     echo
-    note "when a node is due to re-check: bash health-check.sh --explain"
+    note "when a node is due to re-check: bash report_health.sh --explain"
 fi
 
 ##############################################################################
@@ -549,8 +549,8 @@ else
 fi
 cat <<EOF
 
-  Heartbeat stale (section 0)         -> ./trigger-debug.sh
-  Logs stale or missing (section 1)   -> ./trigger-debug.sh
+  Heartbeat stale (section 0)         -> ./check_trigger-debug.sh
+  Logs stale or missing (section 1)   -> ./check_trigger-debug.sh
   Logs fresh, gate closed (section 2) -> ask the node itself, no waiting:
       clush -w <node> '$BRINGUP_HOME/agent/node-agent.sh --explain'
       pdsh -R ssh -w <node> '$BRINGUP_HOME/agent/node-agent.sh --explain'

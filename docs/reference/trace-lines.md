@@ -11,7 +11,7 @@ Four files, one timestamped line per decision, appending rather than truncating
 | `$HEALTH_LOG_DIR/<node>/health.log` | `actions/node_health.sh` — [the health trace](#the-health-trace) |
 | `results/supervisor.log` | `agent/supervisor.sh` — [the watchdog trace](#the-watchdog-trace) |
 
-Reading them across the cluster is `trigger-log.sh`, in
+Reading them across the cluster is `check_trigger-log.sh`, in
 [how-to/diagnose-nothing-running.md](../how-to/diagnose-nothing-running.md);
 this page is what the lines mean.
 

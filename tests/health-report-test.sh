@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Checks how health-check.sh sorts a node once it has the verdict: failing,
+# Checks how report_health.sh sorts a node once it has the verdict: failing,
 # passing, never checked, or drained for something else. Every one of those is a
 # node somebody acts on, and putting a node in the wrong one is silent -- the
 # report still reads as a report.
@@ -9,7 +9,7 @@
 # node, and counting it in both places inflates every total on the page.
 #
 # The real script is run against a stub tree, not a copy of its logic.
-# See docs/reference/scripts.md#health-checksh--cluster-wide-health-summary.
+# See docs/reference/scripts.md#report_healthsh--cluster-wide-health-summary.
 
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -37,7 +37,7 @@ absent() {
 }
 
 mkdir -p "$work"/{bin,checks,valid-config/baseline,logs}
-for f in settings.sh report-format.sh reason-map.sh health-scan.sh health-check.sh; do
+for f in settings.sh report-format.sh reason-map.sh health-scan.sh report_health.sh; do
     cp "$home/$f" "$work/$f"
 done
 cat > "$work/SETTINGS" <<EOF
@@ -99,7 +99,7 @@ done
 EOF
 chmod 755 "$work/bin/scontrol"
 
-run() { ( cd "$work" && PATH="$work/bin:$PATH" COLUMNS=100 BRINGUP_DATA="$work" bash health-check.sh "$@" 2>&1 ); }
+run() { ( cd "$work" && PATH="$work/bin:$PATH" COLUMNS=100 BRINGUP_DATA="$work" bash report_health.sh "$@" 2>&1 ); }
 
 ## ── The default report ────────────────────────────────────────────────────
 
