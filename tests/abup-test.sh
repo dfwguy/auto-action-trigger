@@ -55,7 +55,7 @@ else
     bad "exec, not a subshell -- the target's own exit code survives" "got $?"
 fi
 
-echo "== unknown command names what was tried and lists what exists =="
+echo "== unknown command names what was tried and lists its own group =="
 
 out=$("$tree/abup" report nowhere 2>&1); rc=$?
 if [[ "$rc" -ne 0 ]]; then
@@ -68,10 +68,46 @@ if [[ "$out" == *"report nowhere"* ]]; then
 else
     bad "names the command that was not found" "$out"
 fi
-if [[ "$out" == *"check stub"* ]]; then
-    ok "lists what does exist alongside the error" "check stub present"
+if [[ "$out" == *"report fails"* ]]; then
+    ok "lists the rest of its own group alongside the error" "report fails present"
 else
-    bad "lists what does exist alongside the error" "$out"
+    bad "lists the rest of its own group alongside the error" "$out"
+fi
+if [[ "$out" != *"check stub"* ]]; then
+    ok "does not list a different group's commands" "check stub absent"
+else
+    bad "does not list a different group's commands" "check stub leaked in: $out"
+fi
+
+echo "== <group> -h narrows the listing to that group =="
+
+out=$("$tree/abup" check -h 2>&1); rc=$?
+if [[ "$rc" -eq 0 ]]; then
+    ok "<group> -h exits clean" "yes"
+else
+    bad "<group> -h exits clean" "got $rc"
+fi
+if [[ "$out" == *"check stub"* ]]; then
+    ok "lists that group's commands" "check stub present"
+else
+    bad "lists that group's commands" "$out"
+fi
+if [[ "$out" != *"report fails"* ]]; then
+    ok "leaves out every other group" "report fails absent"
+else
+    bad "leaves out every other group" "report fails leaked in: $out"
+fi
+
+out=$("$tree/abup" check 2>&1); rc=$?
+if [[ "$rc" -ne 0 ]]; then
+    ok "<group> alone (no name, no -h) is a non-zero exit" "$rc"
+else
+    bad "<group> alone (no name, no -h) is a non-zero exit" "exit 0"
+fi
+if [[ "$out" == *"check stub"* && "$out" != *"report fails"* ]]; then
+    ok "but still shows the same narrowed list" "check stub only"
+else
+    bad "but still shows the same narrowed list" "$out"
 fi
 
 echo "== the command list is derived, not written down here =="
