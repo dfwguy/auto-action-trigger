@@ -21,6 +21,7 @@ abup --help
 
 lists every `<group> <name>` pair actually in the tree — not a maintained
 list, so a script added later shows up without anyone updating this page.
+`abup check -h` (or just `abup check`) narrows that to one group.
 
 ## A detached copy, with no symlink
 
