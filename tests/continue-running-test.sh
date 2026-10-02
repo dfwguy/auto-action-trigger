@@ -63,7 +63,7 @@ tree="$work/tree"
 mkdir -p "$tree/jobs/nvl72" "$tree/parsers/nvl72" "$tree/results/$NODE"
 cp "$repo/settings.sh" "$repo/reason-map.sh" "$repo/slurm-recovery.sh" \
    "$repo/slurm-snapshot.sh" "$repo/fanout.sh" "$repo/verdict-scan.sh" \
-   "$repo/status-check.sh" "$tree/"
+   "$repo/report_job-status.sh" "$tree/"
 cp "$repo/parsers/nvl72/verdict.sh" "$tree/parsers/nvl72/"
 
 cat > "$tree/jobs/nvl72/test1.sbatch" <<'EOF'

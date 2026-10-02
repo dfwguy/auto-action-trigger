@@ -154,7 +154,7 @@ out=$(run "$both" auto 'FANOUT_COMMAND_TIMEOUT=0 fanout n1 "hostname"')
 echo "== the example an operator is given =="
 
 ## Both spellings, always: a site has one of the two and nobody should have to
-## translate. This is the line trigger-debug.sh and dmesg-archive.sh print.
+## translate. This is the line check_trigger-debug.sh and check_dmesg.sh print.
 out=$(run "$both" auto "fanout_example 'n[1-4]' 'dmesg | tail -5'")
 if grep -q "clush -w n\[1-4\] 'dmesg | tail -5'" <<<"$out" &&
    grep -q "pdsh -R ssh -w n\[1-4\] 'dmesg | tail -5'" <<<"$out"; then

@@ -36,7 +36,7 @@ echo "== the account name appears only where it is defined =="
 
 ## The shipped account is a value in two files and a literal in none. Anything
 ## else that names it is a path or a comparison that a site changing JOB_USER
-## would not change with it -- which is how the trigger-debug.sh ownership check
+## would not change with it -- which is how the check_trigger-debug.sh ownership check
 ## came to pass on the prefix and fail on the exact match at the same time.
 ## See docs/reference/settings.md#accounts-and-paths.
 allowed='^settings\.sh:: "\$\{JOB_USER:=cmods\}"$|^SETTINGS\.default:JOB_USER=cmods$'
@@ -141,7 +141,7 @@ build_tree() {
     mkdir -p "$tree/actions" "$tree/jobs/nvl72" "$tree/parsers/nvl72" \
              "$tree/results/$NODE" "$tree/containers"
     cp "$repo/settings.sh" "$repo/reason-map.sh" "$repo/slurm-recovery.sh" \
-       "$repo/slurm-snapshot.sh" "$repo/trigger-debug.sh" "$tree/"
+       "$repo/slurm-snapshot.sh" "$repo/check_trigger-debug.sh" "$tree/"
     cp "$repo/actions/launch_job.sh" "$repo/actions/file_copy.sh" "$tree/actions/"
     cp "$repo/parsers/nvl72/verdict.sh" "$tree/parsers/nvl72/"
 
@@ -210,7 +210,7 @@ run_account() {
         "$tree/actions/file_copy.sh"
         cat "$work/home/$user/rsync.calls" 2>/dev/null
         echo "--- trigger-debug ---"
-        "$tree/trigger-debug.sh" "$NODE"
+        "$tree/check_trigger-debug.sh" "$NODE"
     ) > "$out" 2>&1
     printf '%s\n' "$out"
 }

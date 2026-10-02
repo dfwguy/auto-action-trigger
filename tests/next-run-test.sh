@@ -2,7 +2,7 @@
 #
 # Usage: tests/next-run-test.sh
 #
-# Checks the buckets next-run.sh puts nodes in: the retry window and its
+# Checks the buckets check_next-run.sh puts nodes in: the retry window and its
 # backoff, the health cadence and its two intervals, the three answers that are
 # not times, and the order the groups come out in.
 #
@@ -27,9 +27,9 @@ tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 ## The scripts under test, not a copy of them: a copy is a second thing to keep
-## in step. next-run.sh resolves its home from the path it was invoked by, so
+## in step. check_next-run.sh resolves its home from the path it was invoked by, so
 ## results/ and logs/ are the fixture's and everything else is the tree's.
-for f in next-run.sh settings.sh fanout.sh verdict-scan.sh jobs parsers; do
+for f in check_next-run.sh settings.sh fanout.sh verdict-scan.sh jobs parsers; do
     ln -s "$home/$f" "$tmp/$f"
 done
 mkdir -p "$tmp/results" "$tmp/logs"
@@ -107,7 +107,7 @@ printf '%s\tfailed\n' "$((now - 600))"  > "$tmp/logs/n04/.last-check"
 touch "$tmp/logs/n05/refresh"
 printf '%s\tclean\n'  "$((now - 100))"  > "$tmp/logs/n06/.last-check"
 
-run() { SCAN_CACHE=0 bash "$tmp/next-run.sh" "$@" 2>"$tmp/err"; }
+run() { SCAN_CACHE=0 bash "$tmp/check_next-run.sh" "$@" 2>"$tmp/err"; }
 
 has() {
     local label="$1" want="$2" out="$3"
@@ -165,7 +165,7 @@ grep -q 'TESTS —' <<<"$out" &&
 settings yes 0
 out=$(run --healthchecks)
 has "HEALTH_INTERVAL_HOURS=0 is nothing due" \
-    'n03,n06|nothing due — the cadence is off, so only '"'"'health-check.sh --refresh'"'"' re-runs them' "$out"
+    'n03,n06|nothing due — the cadence is off, so only '"'"'report_health.sh --refresh'"'"' re-runs them' "$out"
 settings
 
 # ── A paused fleet says so, and not in the report ─────────────────────────────
