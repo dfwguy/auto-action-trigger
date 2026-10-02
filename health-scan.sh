@@ -1,7 +1,7 @@
 #!/bin/bash
 # Sourced library: the health verdict, read from logs/<node>/<check> against the
-# baseline rather than from the Slurm drain reason. Shared by overall_report.sh
-# and health-check.sh so the two cannot disagree about which nodes are failing.
+# baseline rather than from the Slurm drain reason. Shared by report_overall.sh
+# and report_health.sh so the two cannot disagree about which nodes are failing.
 # See docs/explanation/reading-the-whole-fleet.md#health-read-from-the-files.
 #
 # Reads $logs_dir, $valid_dir and $HEALTHCHECKS_DIR; call health_scan once, then
@@ -49,7 +49,7 @@ health_scan_checks() {
     elif [[ ! -d "$valid_dir" ]]; then
         dangling=""
         [[ -L "$valid_dir" ]] && dangling=" (the symlink points at $(readlink "$valid_dir"), which does not exist)"
-        health_scan_note "No baseline: $valid_dir does not resolve$dangling. Every check would diff against a missing file, so the health verdict would be an artifact of the baseline rather than a description of the cluster, and is left out. Fix it first: rm -f $valid_dir && bash set-valid-default.sh <validated-node>"
+        health_scan_note "No baseline: $valid_dir does not resolve$dangling. Every check would diff against a missing file, so the health verdict would be an artifact of the baseline rather than a description of the cluster, and is left out. Fix it first: rm -f $valid_dir && bash admin_set-baseline.sh <validated-node>"
     else
         have_baseline=1
         while read -r h f; do base_hash["${f##*/}"]="$h"; done < <(md5sum "$valid_dir"/* 2>/dev/null)
@@ -88,7 +88,7 @@ health_scan_filter() {
 # The comparison is over one checksum per log file -- 21,888 of them on a
 # 576-node fleet -- and a `while read` around that is the single most expensive
 # thing a report can do: bash reads a pipe a byte at a time, which cost 5.3s of
-# an 8.5s overall_report.sh run before this was moved out. awk returns the two
+# an 8.5s report_overall.sh run before this was moved out. awk returns the two
 # aggregates already built, so bash only ever reads the failures, which are few.
 # See docs/explanation/reading-the-whole-fleet.md#health-read-from-the-files.
 health_scan() {

@@ -515,7 +515,7 @@ result_complete() {
 }
 
 ## Move a result aside so the slot is free for the next attempt; the archives
-## double as the attempt history. Two suffixes because status-check.sh reads the
+## double as the attempt history. Two suffixes because report_job-status.sh reads the
 ## name as a verdict -- it counts .fail<N> as rejections, and a pass that --all
 ## re-runs is not one. See docs/explanation/sequencing.md.
 archive_result() {
@@ -1453,7 +1453,7 @@ elif [[ "$burnin_eligible" -eq 1 && "$burnin_hours_still_open" -eq 1 ]] && next_
     submit_target=burnin
 ## Reuses the bench Slurm job name (jname below defaults to it) rather than
 ## naming a third one -- everything that already matches bringup-<node>
-## (RUN_JOBS=no and kill-jobs.sh) covers a continuous re-run
+## (RUN_JOBS=no and admin_kill-jobs.sh) covers a continuous re-run
 ## for free this way. See docs/explanation/sequencing.md#continuous-re-runs.
 elif [[ "$continue_running_eligible" -eq 1 ]] && continue_running_next; then
     # shellcheck disable=SC2209  # the literal string "continue", not the shell keyword

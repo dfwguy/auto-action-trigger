@@ -242,7 +242,7 @@ yield_scan() {
                 break
             fi
             ## scancel reports a refused kill on stdout and can still exit 0, so
-            ## the output is the report and not the status -- as in kill-jobs.sh.
+            ## the output is the report and not the status -- as in admin_kill-jobs.sh.
             out=$(_yield_cancel "$id" "$name")
             if [[ -n "$out" ]]; then
                 yield_log "WARNING: scancel $id said '$out' -- $n was not given up, and ${wanted_by[$n]} is still waiting"

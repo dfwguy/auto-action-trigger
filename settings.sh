@@ -221,7 +221,7 @@ fi
 : "${CONTAINER_STAGE_DIR_HEAD:=$CONTAINER_STAGE_DIR}"
 ## Node-local cache file_copy.sh rsyncs CONTAINER_DIR into. See docs/explanation/containers.md#one-share-two-mount-points.
 : "${NODE_CONTAINER_DIR:=/opt/containers}"
-## The health baseline captured by set-valid-default.sh. See
+## The health baseline captured by admin_set-baseline.sh. See
 ## docs/reference/settings.md#accounts-and-paths.
 : "${VALID_CONFIG_DIR:=$BRINGUP_DATA/valid-config}"
 : "${LLM_HF_HOME=}"

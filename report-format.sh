@@ -2,7 +2,7 @@
 #
 # Shared presentation helpers for the fleet reports: node-list compression,
 # unwrapped copyable node lists, prose wrapping, elision and pluralisation. Sourced by
-# health-check.sh and overall_report.sh -- never executed.
+# report_health.sh and report_overall.sh -- never executed.
 #
 # One copy, because the two drifting apart is how a node list stops pasting
 # into scontrol. See docs/reference/scripts.md.
@@ -162,7 +162,7 @@ print_wrapped() {
     [[ "$REPORT_FULL" -eq 1 ]] && max_lines=0
     ## Already one line: wrap_list would return it unchanged, so this is the
     ## same output without the awk -- which is otherwise a fork per call, and
-    ## overall_report.sh --full makes three per node. Guarded on a leading
+    ## report_overall.sh --full makes three per node. Guarded on a leading
     ## space because that is the one thing wrap_list would have stripped.
     if (( ${#label} + ${#text} <= REPORT_WIDTH )) && [[ "$text" != " "* ]]; then
         printf '%s%s\n' "$label" "$text"
@@ -185,7 +185,7 @@ print_wrapped() {
 }
 
 # Print one compressed node list as one physical line. These lists are meant
-# to be copied into scontrol, clush, or health-check.sh --refresh, so terminal
+# to be copied into scontrol, clush, or report_health.sh --refresh, so terminal
 # width must never insert a newline into one. The terminal can scroll; a shell
 # cannot infer that an indented continuation belongs to the preceding argument.
 print_node_list() {

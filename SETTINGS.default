@@ -71,7 +71,7 @@ MNUBERGEMM_VERSION=26.03-v1.17
 NEMO_TAG=26.04.01
 
 ## ── Health-check cadence ──────────────────────────────────────────────────
-## 0 re-runs only when 'health-check.sh --refresh' asks. See
+## 0 re-runs only when 'report_health.sh --refresh' asks. See
 ## docs/explanation/health-cadence.md#choosing-the-two-intervals.
 HEALTH_INTERVAL_HOURS=4
 HEALTH_RETRY_INTERVAL_HOURS=1
@@ -191,7 +191,7 @@ CONTAINER_STAGE_DIR_HEAD=$CONTAINER_STAGE_DIR
 ## Where file_copy.sh caches images on each node. /opt survives a reboot, so
 ## the cache does not refill over NFS every time a tray comes back.
 NODE_CONTAINER_DIR=/opt/containers
-## The health baseline captured by set-valid-default.sh.
+## The health baseline captured by admin_set-baseline.sh.
 VALID_CONFIG_DIR=$BRINGUP_DATA/valid-config
 LLM_HF_HOME=
 LLMB_INSTALL=/home/$JOB_USER/llmb
