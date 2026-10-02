@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: set-valid-default.sh <node>
+# Usage: admin_set-baseline.sh <node>
 #
 # Promote one node's health log to the cluster baseline. Validate the node by
 # hand first. See docs/how-to/add-a-health-check-set.md#set-the-baseline-first.
@@ -52,4 +52,4 @@ ln -s "$node" "$valid/default"
 
 echo "Baseline set to $node ($(find -L "$valid/default" -maxdepth 1 -type f | wc -l) checks)"
 echo "Re-run the checks to clear the old failures:"
-echo "    bash health-check.sh --refresh <node|nodelist>"
+echo "    bash report_health.sh --refresh <node|nodelist>"

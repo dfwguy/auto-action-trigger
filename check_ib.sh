@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: ib-visibility.sh <node> [container]
+# Usage: check_ib.sh <node> [container]
 #
 # Does the container see the same HCAs the host does, and will NCCL use them?
 # The four failure modes and the case numbers printed below are documented in
@@ -216,4 +216,4 @@ fi
 echo
 echo "=== Read the sections in order. The first one that is wrong is the cause;"
 echo "=== everything after it is a consequence. Case numbers above map to the"
-echo "=== reasons verdict.sh reports in status-check.sh."
+echo "=== reasons verdict.sh reports in report_job-status.sh."

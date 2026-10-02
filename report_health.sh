@@ -1,10 +1,10 @@
 #!/bin/bash
 #
-# Usage: health-check.sh [--drained] [--summary [--by-state]] [<nodes> ...]
-#        health-check.sh --individual|-i <check> [<nodes> ...]
-#        health-check.sh --diff|-D [--all] <nodes> ...
-#        health-check.sh --explain [<nodes> ...]
-#        health-check.sh --refresh <node|nodelist> [...]
+# Usage: report_health.sh [--drained] [--summary [--by-state]] [<nodes> ...]
+#        report_health.sh --individual|-i <check> [<nodes> ...]
+#        report_health.sh --diff|-D [--all] <nodes> ...
+#        report_health.sh --explain [<nodes> ...]
+#        report_health.sh --refresh <node|nodelist> [...]
 #
 #   <nodes>  optional node filter, repeatable, and the same three spellings in
 #            every mode above. A Slurm nodelist (dh01-h02-[11-14], or a comma
@@ -19,8 +19,8 @@
 #            Several arguments are one report over all of them, so a list from
 #            another tool composes directly rather than through a loop that
 #            prints one report per node:
-#                bash health-check.sh $(nodeset -e @IDLE)
-#                bash health-check.sh "$(sinfo -h -t drain -o %N)"
+#                bash report_health.sh $(nodeset -e @IDLE)
+#                bash report_health.sh "$(sinfo -h -t drain -o %N)"
 #            A name nothing matches is named rather than dropped. With no
 #            argument, every node Slurm knows about is reported.
 #
@@ -35,7 +35,7 @@
 #            the per-check roll-up instead of the grouped report: one line per
 #            failing check with every node under it, the checks with no baseline
 #            entry, and the nodes that have never been checked. The same block
-#            overall_report.sh prints, from the same numbers.
+#            report_overall.sh prints, from the same numbers.
 #
 #   --by-state
 #            --summary split into one block per Slurm state, each with its own
@@ -183,7 +183,7 @@ report_unmatched() {
 if [[ "$refresh" -eq 1 ]]; then
     if [[ "${#args[@]}" -eq 0 ]]; then
         echo "ERROR: --refresh needs at least one node or nodelist -- nothing was queued." >&2
-        echo "       bash health-check.sh --refresh node001 'node00[2-9]'" >&2
+        echo "       bash report_health.sh --refresh node001 'node00[2-9]'" >&2
         exit 2
     fi
     ## Every other mode takes a glob and this one does not, so an unquoted
@@ -203,17 +203,17 @@ if [[ "$refresh" -eq 1 ]]; then
         echo "       writes a sentinel per node, so the set is spelled out -- by a" >&2
         echo "       tool that expands one, or as a quoted nodeset:" >&2
         ## Single-quoted: these are examples to read, not commands to run here.
-        echo '           bash health-check.sh --refresh $(nodeset -e @IDLE)' >&2
-        echo '           bash health-check.sh --refresh "$(sinfo -h -t idle -o %N)"' >&2
+        echo '           bash report_health.sh --refresh $(nodeset -e @IDLE)' >&2
+        echo '           bash report_health.sh --refresh "$(sinfo -h -t idle -o %N)"' >&2
         if [[ -n "$matched" ]]; then
             n_matched=$(count_list "$matched")
             echo "       $n_matched $(plural "$n_matched") under $logs_dir match it, as a" >&2
             echo "       nodeset -- quoted, or the shell expands the brackets:" >&2
-            print_wrapped "           bash health-check.sh --refresh " \
+            print_wrapped "           bash report_health.sh --refresh " \
                 "'$(compress "$matched")'" >&2
         else
             echo "       Nothing under $logs_dir matches it either --" >&2
-            echo "       bash health-check.sh --explain '$arg' lists what does." >&2
+            echo "       bash report_health.sh --explain '$arg' lists what does." >&2
         fi
         exit 2
     done
@@ -225,7 +225,7 @@ if [[ "$refresh" -eq 1 ]]; then
                     ## The sentinel is consumed by the node, so queueing one on a
                     ## node that has stopped cycling succeeds and does nothing.
                     if heartbeat_stale "$results_dir" "$node"; then
-                        echo "Refresh queued for $node -- but it has not cycled in ${HEARTBEAT_STALE_MINUTES}m, so nothing there will pick it up. ./trigger-log.sh section 0."
+                        echo "Refresh queued for $node -- but it has not cycled in ${HEARTBEAT_STALE_MINUTES}m, so nothing there will pick it up. ./check_trigger-log.sh section 0."
                     else
                         echo "Refresh queued for $node"
                     fi
@@ -305,7 +305,7 @@ if [[ "$explain" -eq 1 ]]; then
     report_unmatched
     echo "Why a run stopped:  tail $HEALTH_LOG_DIR/<node>/health.log"
     [[ "$not_cycling" -gt 0 ]] &&
-        echo "Not cycling:        $not_cycling of $shown node(s) have written no heartbeat in ${HEARTBEAT_STALE_MINUTES}m -- ./trigger-log.sh section 0"
+        echo "Not cycling:        $not_cycling of $shown node(s) have written no heartbeat in ${HEARTBEAT_STALE_MINUTES}m -- ./check_trigger-log.sh section 0"
     exit 0
 fi
 
@@ -324,7 +324,7 @@ fi
 if [[ "$individual" -eq 1 ]]; then
     check="${args[0]}"
     if [[ -z "$check" ]]; then
-        echo "ERROR: --individual needs a check name -- e.g. bash health-check.sh --individual ib-firmware" >&2
+        echo "ERROR: --individual needs a check name -- e.g. bash report_health.sh --individual ib-firmware" >&2
         exit 2
     fi
     ## The check name is args[0]; everything after it is the node filter.
@@ -347,8 +347,8 @@ if [[ "$individual" -eq 1 ]]; then
         if [[ -d "$logs_dir/$check" ]]; then
             echo "ERROR: '$check' is a node, and --individual takes a check name --" >&2
             echo "       one check across the fleet. For one node's checks:" >&2
-            echo "           bash health-check.sh --diff $check" >&2
-            echo "       For a check on that node:  bash health-check.sh -i <check> $check" >&2
+            echo "           bash report_health.sh --diff $check" >&2
+            echo "       For a check on that node:  bash report_health.sh -i <check> $check" >&2
             exit 2
         fi
         echo "No logs/<node>/$check found for '$(filter_desc)'" >&2
@@ -381,7 +381,7 @@ is_not_a_check() {
 }
 
 # Valid check names: the baseline, widened with logs/ -- a check newer than the
-# last set-valid-default.sh run has no baseline entry yet and would otherwise be
+# last admin_set-baseline.sh run has no baseline entry yet and would otherwise be
 # dismissed as operator text. See docs/how-to/add-a-health-check-set.md#set-the-baseline-first.
 declare -A known_check
 if [[ -d "$valid_dir" ]]; then
@@ -401,12 +401,12 @@ if [[ "${#known_check[@]}" -eq 0 ]]; then
     echo "ERROR: no check names found in $valid_dir or $logs_dir" >&2
     echo "       Without them every drain looks like an operator drain, so this" >&2
     echo "       script would report nothing rather than report wrongly. Run" >&2
-    echo "       set-valid-default.sh against a validated node first." >&2
+    echo "       admin_set-baseline.sh against a validated node first." >&2
     exit 1
 fi
 
 # node_health.sh's reason headers do not all match the log file they came from.
-# Shared with overall_report.sh so the two cannot drift.
+# Shared with report_overall.sh so the two cannot drift.
 if [[ ! -f "$home/reason-map.sh" ]]; then
     echo "ERROR: $home/reason-map.sh is missing -- it carries the reason-to-check" >&2
     echo "       name mapping and without it every drain reason parses as text." >&2
@@ -415,7 +415,7 @@ fi
 source "$home/reason-map.sh"
 
 # Which nodes are failing, from the log files -- not from the drain reason.
-# Shared with overall_report.sh. See docs/explanation/reading-the-whole-fleet.md#health-read-from-the-files.
+# Shared with report_overall.sh. See docs/explanation/reading-the-whole-fleet.md#health-read-from-the-files.
 if [[ ! -f "$home/health-scan.sh" ]]; then
     echo "ERROR: $home/health-scan.sh is missing -- it carries the comparison" >&2
     echo "       every failure below is derived from." >&2
@@ -606,7 +606,7 @@ if [[ "$drained" -eq 1 ]]; then
     echo
     [[ "$stale" -gt 0 ]] &&
         echo "Marked lines are drains nothing supports any more — the checks pass now."
-    echo "Why a node failed:  bash health-check.sh --diff <node>"
+    echo "Why a node failed:  bash report_health.sh --diff <node>"
     echo "Resume by hand:     scontrol update NodeName=<node|nodelist> State=RESUME"
     exit 0
 fi
@@ -643,7 +643,7 @@ printf '%d %s — %d failing, %d passing, %d never checked, %d other %s\n\n' \
     "$total" "$(plural "$total")" "$failing" "$passing" "$unchecked" "$other" \
     "$([[ "$other" -eq 1 ]] && echo drain || echo drains)"
 
-# --summary: the HEALTH block overall_report.sh prints, from the same numbers.
+# --summary: the HEALTH block report_overall.sh prints, from the same numbers.
 # See docs/reference/scripts.md#--summary.
 if [[ "$summary" -eq 1 ]]; then
     health_section "$max_checks" "${unchecked_nodes%,}" --summary "$by_state"
@@ -756,10 +756,10 @@ if [[ "$failing" -gt 0 ]]; then
     # and 60 copies of one diff buries the answer.
     first_sig="${groups[0]#*|}"
     first_node="${sig_nodes[$first_sig]%%,*}"
-    echo "Why a node failed:  bash health-check.sh --diff $first_node"
+    echo "Why a node failed:  bash report_health.sh --diff $first_node"
     [[ "${#groups[@]}" -gt 1 ]] && echo "                    (one node from pattern 1; each pattern needs its own diff)"
-    echo "Per check, in full: bash health-check.sh --summary"
-    echo "Re-run the checks:  bash health-check.sh --refresh <node|nodelist>"
+    echo "Per check, in full: bash report_health.sh --summary"
+    echo "Re-run the checks:  bash report_health.sh --refresh <node|nodelist>"
 fi
 [[ "$out" -gt 0 ]] &&
-    echo "Everything drained: bash health-check.sh --drained"
+    echo "Everything drained: bash report_health.sh --drained"

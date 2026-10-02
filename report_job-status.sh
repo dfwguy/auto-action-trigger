@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: status-check.sh [-t test] [-s] [--sort-by-hostname] [pattern]
+# Usage: report_job-status.sh [-t test] [-s] [--sort-by-hostname] [pattern]
 #
 #   pattern  optional node-name filter. A bare string matches every node whose
 #            name starts with it, so a rack prefix (dh01-rack01) covers the
@@ -223,7 +223,7 @@ for node in "${nodes[@]}"; do
 done
 if [[ ${#silent[@]} -gt 0 ]]; then
     echo "NOTE: ${#silent[@]} node(s) have not cycled in ${HEARTBEAT_STALE_MINUTES}m, so their rows are the last thing written rather than what is true now: ${silent[*]}" >&2
-    echo "      Their timers are not firing. ./trigger-log.sh section 0 is the fleet view;" >&2
+    echo "      Their timers are not firing. ./check_trigger-log.sh section 0 is the fleet view;" >&2
     echo "      results/<node>/arm.log is what the watchdog heard back from each." >&2
 fi
 

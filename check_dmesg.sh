@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: dmesg-archive.sh [-n] [--clear] [--resume] [--force] [-s glob] [-o dir] <nodelist> ...
+# Usage: check_dmesg.sh [-n] [--clear] [--resume] [--force] [-s glob] [-o dir] <nodelist> ...
 #
 # Saves each node's kernel ring buffer into the tree, and optionally clears it
 # and resumes the node. For the one drain the recovery cannot argue its way out
@@ -49,7 +49,7 @@
 #
 #   -o, --archive-dir <dir>
 #                where to write. Default $BRINGUP_HOME/dmesg-archive, which is
-#                outside results/ on purpose -- single-node-purge.sh removes
+#                outside results/ on purpose -- admin_purge-node-benchmarks.sh removes
 #                results/<node> outright, and a kernel log should outlive that.
 #
 #   -n, --dry-run
@@ -225,4 +225,4 @@ if [[ "$resume" -eq 1 ]]; then
     echo "   resumed      ${#saved[@]} node(s)"
 fi
 
-echo "== archive kept at $archive; it is not touched by single-node-purge.sh"
+echo "== archive kept at $archive; it is not touched by admin_purge-node-benchmarks.sh"

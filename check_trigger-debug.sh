@@ -1,13 +1,13 @@
 #!/bin/bash
 #
-# Usage: trigger-debug.sh [node-pattern] [--ask-nodes]
+# Usage: check_trigger-debug.sh [node-pattern] [--ask-nodes]
 #
 # Walks the watchdog -> agent -> sbatch chain and names the broken link.
-# Read-only. Run trigger-log.sh first: fresh traces mean every link is intact by
+# Read-only. Run check_trigger-log.sh first: fresh traces mean every link is intact by
 # definition.
 # See docs/how-to/diagnose-nothing-running.md#2-if-the-traces-are-stale-walk-the-chain.
 #
-#   pattern     node filter, same rules as status-check.sh: bare string matches
+#   pattern     node filter, same rules as report_job-status.sh: bare string matches
 #               by prefix, globs honored as written. Per-node sections only.
 #   --ask-nodes fan out to the matching nodes for their timer and sudo state,
 #               over clush or pdsh. Off by default: links 1-2 are answered from
@@ -87,7 +87,7 @@ else
     ## See docs/explanation/sequencing.md#getting-out-of-the-way.
     if setting_enabled "$GET_OUT_OF_THE_WAY"; then
         if [[ -f "$home/get-out-of-the-way.sh" ]]; then
-            note "GET_OUT_OF_THE_WAY=$GET_OUT_OF_THE_WAY (experimental) -- the head-node watchdog cancels our running job on a wanted node for anyone else queued ${GET_OUT_OF_THE_WAY_AFTER_MINUTES}m for it, scanning the fleet every ${GET_OUT_OF_THE_WAY_POLL_MINUTES}m; trigger-log.sh says when it did"
+            note "GET_OUT_OF_THE_WAY=$GET_OUT_OF_THE_WAY (experimental) -- the head-node watchdog cancels our running job on a wanted node for anyone else queued ${GET_OUT_OF_THE_WAY_AFTER_MINUTES}m for it, scanning the fleet every ${GET_OUT_OF_THE_WAY_POLL_MINUTES}m; check_trigger-log.sh says when it did"
         else
             bad "GET_OUT_OF_THE_WAY=$GET_OUT_OF_THE_WAY but get-out-of-the-way.sh is missing from $home -- this tree predates it, and the watchdog cannot give any node back"
         fi
@@ -311,7 +311,7 @@ else
             silent=$((silent + 1))
         fi
     done
-    [[ "$skipped" -gt 0 ]] && note "$skipped host(s) skipped as not compute nodes -- 'trigger-log.sh --include-excluded' reads them"
+    [[ "$skipped" -gt 0 ]] && note "$skipped host(s) skipped as not compute nodes -- 'check_trigger-log.sh --include-excluded' reads them"
     [[ "$silent" -gt 0 ]] && bad "$silent node dir(s) have no trigger.log -- the sequencer is not running there"
 fi
 

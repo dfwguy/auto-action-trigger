@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: daily-report.sh [-c] [-o file] [pattern]
+# Usage: report_benchmarks.sh [-c] [-o file] [pattern]
 #
 # Reports per-node benchmark status and performance metrics.
 # Rows: nodes  |  Columns: slurm state, then per-job status + extracted metric
@@ -19,7 +19,7 @@
 #                     See docs/explanation/verdicts-and-the-cache.md#the-verdict-cache.
 #
 #   pattern           optional node-name filter, read the same way as
-#                     status-check.sh's: a bare string matches every node whose
+#                     report_job-status.sh's: a bare string matches every node whose
 #                     name starts with it, so a rack prefix (dh01-rack01) covers
 #                     the whole rack, while a shell glob (dh01-rack0[12]*,
 #                     *node05) is honored as written and can match anywhere in
@@ -46,7 +46,7 @@
 #                        the grid below -- for reading on screen.
 #   anything else        the raw separated rows. A pipe, a redirect, -o, or -c.
 #
-# So `daily-report.sh > /dev/null` still reads aligned -- the table went to the
+# So `report_benchmarks.sh > /dev/null` still reads aligned -- the table went to the
 # redirect, the summary is still at a terminal -- and -c gives comma separated
 # rows for the table AND the summary, the form to use for a spreadsheet: paste
 # it and split on the delimiter. Aligned text is for reading, not importing --
@@ -54,7 +54,7 @@
 # whatever was selected, so pasting part of a report gets different break
 # points than pasting all of it. Splitting on a separator has nothing to guess.
 #
-# `daily-report.sh | cat` is the table with tabs, which a spreadsheet splits.
+# `report_benchmarks.sh | cat` is the table with tabs, which a spreadsheet splits.
 #
 # Read-only apart from -o. It submits nothing and drains nothing.
 # --- end of --help text; tests/help-text-test.sh keeps the -h range in step ---
@@ -90,7 +90,7 @@ if [[ ${#args[@]} -gt 1 ]]; then
     exit 1
 fi
 
-## Same rule as status-check.sh: a bare string is a prefix, anything with glob
+## Same rule as report_job-status.sh: a bare string is a prefix, anything with glob
 ## characters is used as written.
 pattern="${args[0]}"
 if [[ -z "$pattern" ]]; then
@@ -175,7 +175,7 @@ for node in "${nodes[@]}"; do
 done
 if [[ ${#silent[@]} -gt 0 ]]; then
     echo "NOTE: ${#silent[@]} node(s) have not cycled in ${HEARTBEAT_STALE_MINUTES}m, so their rows are the last thing written rather than what is true now: ${silent[*]}" >&2
-    echo "      Their timers are not firing. ./trigger-log.sh section 0 is the fleet view;" >&2
+    echo "      Their timers are not firing. ./check_trigger-log.sh section 0 is the fleet view;" >&2
     echo "      results/<node>/arm.log is what the watchdog heard back from each." >&2
 fi
 
