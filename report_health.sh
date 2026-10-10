@@ -373,9 +373,11 @@ if [[ "$individual" -eq 1 ]]; then
 fi
 
 # Files node_health.sh writes into logs/<node>/ that are not checks.
+## service.log is the agent's own output (agent/cycle.sh writes it into the node's
+## health-log directory); it is no more a check than health.log is.
 is_not_a_check() {
     case "$1" in
-        refresh|script-env|.last-check|health.log|stderr.log) return 0 ;;
+        refresh|script-env|.last-check|health.log|stderr.log|service.log) return 0 ;;
         *)                              return 1 ;;
     esac
 }

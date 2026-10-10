@@ -63,22 +63,30 @@ would otherwise have to be built and then kept correct:
 
 ## It is not a baseline
 
-`admin_set-baseline.sh` deletes `nodeinfo` from the copy it promotes, alongside
-`refresh` and `.last-check`. Nothing diffs the file, so leaving it would be
-inert rather than harmful — but `valid-config/default` is the tree's statement
-of what correct looks like, and a reader who opens it should not find one
-particular node's GPU serials and BMC address sitting there presented as the
-answer.
+`admin_set-baseline.sh` leaves `nodeinfo` out of the copy it promotes. Nothing
+diffs the file, so including it would be inert rather than harmful — but
+`valid-config/default` is the tree's statement of what correct looks like, and a
+reader who opens it should not find one particular node's GPU serials and BMC
+address sitting there presented as the answer.
 
-It strips them by the `# informational: yes` line rather than by the name
-`nodeinfo`, because the argument is not about inventory: the three per-rack
-checks are equally undiffed and equally not an answer, and a baseline that
-carries one rack's `imex-status` presents a membership matrix that was true for
-one rack for one minute. Reading the property is also what keeps the next
-informational check from landing in the baseline unnoticed — a named file only
-covers the file that was named. `report_health.sh` and `node_health.sh` read the
-same line from the same place, so the three agree on which checks are gated
-without any of them holding a list.
+It goes by the `# informational: yes` line rather than by the name `nodeinfo`,
+because the argument is not about inventory: the three per-rack checks are
+equally undiffed and equally not an answer, and a baseline that carries one
+rack's `imex-status` presents a membership matrix that was true for one rack for
+one minute. Reading the property is also what keeps the next informational check
+from landing in the baseline unnoticed — a named file only covers the file that
+was named. `report_health.sh` and `node_health.sh` read the same line from the
+same place, so the three agree on which checks are gated without any of them
+holding a list.
+
+The same argument decides everything else in the node's log directory. The copy
+is not the directory minus a list of things that are not checks; it is the gated
+checks, by name, from `health_check_names` in `health-scan.sh` — the function
+the reports judge with. The earlier form copied the whole directory and deleted
+`refresh`, `.last-check`, `health.log` and `stderr.log`, and so promoted every
+file nobody had listed: the agent's own `service.log`, written beside the check
+output, arrived in the baseline as a "check" that matched no other node's log.
+An allow-list cannot take in a file it was never told about.
 
 One consequence worth expecting: the count `admin_set-baseline.sh` prints is now
 the gated set, and matches the `N of M checks differ` that `--diff` prints. It
