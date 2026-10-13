@@ -155,13 +155,13 @@ Both paths must resolve for the comparison to fire. `readlink -f` prints nothing
 when a parent directory is missing, and two empty strings compare equal, which
 would take the whole fleet out over a missing `valid-config/`.
 
-`admin_set-baseline.sh` also strips `refresh` and `.last-check` out of the copy.
-Neither is a check, and a `.last-check` sitting in the baseline directory reads
-as a check name to every consumer that lists it —
-`report_health.sh` filters it as well, because a baseline taken before this
-change still has one. The informational checks go the same way and for a
-related reason: nothing diffs them, so a copy in the baseline is an answer
-nobody asked for. See
+`admin_set-baseline.sh` copies only the gated checks, so `refresh`,
+`.last-check`, the traces and the agent's `service.log` never reach the
+baseline. None is a check, and a file sitting in the baseline directory reads
+as a check name to every consumer that lists it — `report_health.sh` filters
+them as well, because a baseline taken before this change can still hold one.
+The informational checks stay out for a related reason: nothing diffs them, so
+a copy in the baseline is an answer nobody asked for. See
 [node-inventory.md#it-is-not-a-baseline](node-inventory.md#it-is-not-a-baseline).
 
 ## Every cycle says what it decided

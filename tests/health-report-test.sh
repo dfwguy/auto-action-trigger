@@ -361,6 +361,18 @@ absent "and nothing else"               "node03" "$(run --explain node01 node05)
 check "--individual takes it after the check" "beta — 2 nodes" \
     "$(run --individual beta node01 node05)"
 
+## The agent writes service.log into the same directory as the check output. It is
+## a log, not a check: a drain whose reason names it is an operator's drain, never a
+## health drain whose logs now match (which is what a check name would make it).
+## Last, with its own sinfo, so the counts above are untouched.
+mkdir -p "$work/logs/node09"
+for c in alpha beta; do printf 'b\ngood\n' > "$work/logs/node09/$c"; done
+printf 'NODE-AGENT cycle\n' > "$work/logs/node09/service.log"
+printf '#!/bin/bash\necho "node09|drained|service.log"\n' > "$work/bin/sinfo"
+svc=$(run node09)
+absent "service.log is not read as a check" "(logs now match) service.log" "$svc"
+check "its drain is an operator drain" "service.log" "$svc"
+
 echo
 if [[ "$fails" -eq 0 ]]; then
     echo "all checks passed"

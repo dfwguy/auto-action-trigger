@@ -227,6 +227,14 @@ health-report:
   script:
     - ./tests/health-report-test.sh
 
+# What admin_set-baseline.sh promotes: the gated checks by name, never the logs
+# that sit beside them (service.log, the traces, the stamps).
+set-baseline:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/set-baseline-test.sh
+
 # The default report's one line per node. Nothing may read PASS that was not
 # judged, and three states print no failure without being a pass.
 brief-report:

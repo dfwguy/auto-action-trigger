@@ -1,8 +1,9 @@
 #!/bin/bash
 # Sourced library: the health verdict, read from logs/<node>/<check> against the
 # baseline rather than from the Slurm drain reason. Shared by report_overall.sh
-# and report_health.sh so the two cannot disagree about which nodes are failing.
-# See docs/explanation/reading-the-whole-fleet.md#health-read-from-the-files.
+# and report_health.sh so the two cannot disagree about which nodes are failing,
+# and by admin_set-baseline.sh (health_check_names) so the baseline holds exactly
+# the checks they judge. See docs/explanation/reading-the-whole-fleet.md#health-read-from-the-files.
 #
 # Reads $logs_dir, $valid_dir and $HEALTHCHECKS_DIR; call health_scan once, then
 # read: have_baseline, gated_check, health_fail_count/health_fail_list per node,
@@ -23,10 +24,17 @@ have_baseline=0
 
 health_scan_note() { health_scan_notes+=("$1"); }
 
+## The gated checks, one name per line: every check file in $HEALTHCHECKS_DIR
+## except the informational ones. This is what a node is judged on, and so what a
+## baseline has to hold -- admin_set-baseline.sh keeps exactly these names and
+## nothing else, so a log the agent writes beside the check output (service.log)
+## never ends up in the baseline. One definition, so the scan and the baseline
+## cannot disagree about what a check is.
+##
 ## One awk for the set, not three processes per check file. The FNR window is
 ## node_health.sh's own: a whole-file match would catch a check that greps for
 ## the same words. See docs/reference/health-checks.md#the-check-file-format.
-health_scan_checks() {
+health_check_names() {
     local f name
     declare -A informational
     while IFS= read -r f; do
@@ -40,8 +48,15 @@ health_scan_checks() {
         ## Recorded and never drained on -- per-rack values cannot match one
         ## cluster-wide baseline. See docs/reference/health-checks.md#informational-checks.
         [[ -n "${informational[$name]}" ]] && continue
-        gated_check["$name"]=1
+        printf '%s\n' "$name"
     done
+}
+
+health_scan_checks() {
+    local f name
+    while IFS= read -r name; do
+        gated_check["$name"]=1
+    done < <(health_check_names)
 
     local dangling h
     if [[ ${#gated_check[@]} -eq 0 ]]; then
