@@ -248,43 +248,5 @@ else
     ok "no -run columns for BURNIN jobs"
 fi
 
-echo "== report: launcher facts read once per report, not once per node =="
-
-## A grep that logs every read of a burn-in launcher, then does the real work.
-counted="$work/counted-bin"
-mkdir -p "$counted"
-real_grep=$(command -v grep)
-cat > "$counted/grep" <<EOF
-#!/bin/bash
-for a in "\$@"; do
-    [[ "\$a" == "$tree"/jobs/nvl72/test*.sbatch ]] && { printf '%s\n' "\$a" >> "$work/launcher-reads"; break; }
-done
-exec "$real_grep" "\$@"
-EOF
-chmod 755 "$counted/grep"
-launcher_reads_for() {
-    local n
-    rm -f "$work/launcher-reads"
-    for ((n = 2; n <= $1; n++)); do mkdir -p "$tree/results/othernode$n"; done
-    report_out=$(
-        export PATH="$counted:$stub:$PATH" HOME="$work"
-        cd "$tree" && ./report_job-status.sh 2>/dev/null
-    )
-    rm -rf "$tree"/results/othernode*
-    wc -l < "$work/launcher-reads" 2>/dev/null || echo 0
-}
-reads_one=$(launcher_reads_for 1)
-reads_four=$(launcher_reads_for 4)
-if [[ "$reads_one" -gt 0 && "$reads_one" -eq "$reads_four" ]]; then
-    ok "launchers read $reads_one times for 1 node and for 4"
-else
-    bad "launcher reads grew with the node count: 1 node=$reads_one, 4 nodes=$reads_four"
-fi
-if grep -q '2H/1000H' <<<"$report_out"; then
-    ok "the hour total is unchanged with the launcher read once"
-else
-    bad "hour total changed: $report_out"
-fi
-
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

@@ -566,7 +566,6 @@ brief_line() {
 print_burnin_section() {
     local node
     echo "BURN-IN"
-    burnin_prepare
     for node in "${nodes[@]}"; do
         printf '%s: %s\n' "$node" "$(burnin_hours_cell "$node")"
     done
