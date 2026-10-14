@@ -163,23 +163,3 @@ that tag ever moves to a 2.x build, every argument in both files stops parsing
 on the same day, and the pulse job's banner gate is what will say so first —
 the steady job would report a `FAIL` with no cause. Moving the version is a
 job-file change, not just a settings change.
-
-## Reading the launcher once
-
-The burn-in cell a report prints for each node, `<N>H/<BURNIN_HOURS>H`, needs
-three facts about every job in `BURNIN`: which launcher file it uses, its
-`totalRuns`, and how long one run lasts (`--time_to_run`, else
-`STEP_TIMELIMIT`). None of them depends on the node. Reading them inside the
-per-node loop cost a handful of `grep | head | awk | tr` forks per job per run
-per node -- on a 4,608-node fleet with five runs of `mnubergemm`, about 70 s of
-a 150 s `report_job-status.sh`, which pushed callers with a fixed timeout past
-it.
-
-`burnin_prepare` reads them once into `_BURNIN_META` and `burnin_hours_cell`
-reuses them. The cell is called as `$(burnin_hours_cell "$node")`, a subshell,
-so whatever it learned on its own would be thrown away on return: each report
-calls `burnin_prepare` in its own shell before the loop. A caller that does not
-still gets the right answer, just at the old per-node cost. Only the launcher
-facts are kept; each node's result files are still judged on every report, so
-the hours are as current as before.
-
