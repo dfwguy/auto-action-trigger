@@ -274,6 +274,7 @@ worst_per_node() {
 # docs/explanation/burn-in-waveform.md.
 print_burnin_lines() {
     local node
+    burnin_prepare
     for node in "${nodes[@]}"; do
         printf '%s: burn-in: %s\n' "$node" "$(burnin_hours_cell "$node")"
     done
@@ -377,6 +378,7 @@ bucket DONE       "every selected test passes the current gate"
 # by identical fraction is still one compressed list per value, same as above.
 if [[ "$show_burnin" -eq 1 ]]; then
     declare -A burnin_bucket_nodes
+    burnin_prepare
     for node in "${nodes[@]}"; do
         v=$(burnin_hours_cell "$node")
         burnin_bucket_nodes["$v"]+="${burnin_bucket_nodes[$v]:+,}$node"

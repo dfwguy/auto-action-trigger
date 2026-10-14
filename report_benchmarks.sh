@@ -313,6 +313,7 @@ done < <(scan_fleet "${nodes[@]}")
 ## target it is judged against means it must not be cached either.
 ## See docs/explanation/burn-in-waveform.md.
 if [[ "$show_burnin" -eq 1 ]]; then
+    burnin_prepare
     for node in "${nodes[@]}"; do
         cells["$node,burnin_hours"]=$(burnin_hours_cell "$node")
     done

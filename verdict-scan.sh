@@ -111,12 +111,26 @@ _scan_job_run_seconds() {
 ## through scan_fleet/_scan_node) -- correctly, since the value depends on
 ## BURNIN_HOURS too, not just one result file and one gate.
 ## See docs/explanation/burn-in-waveform.md.
-burnin_hours_cell() {
-    local node="$1" job launch total secs r file hours=0
+## Each BURNIN job's run count and run length, read once per report rather than once per node.
+## See docs/explanation/burn-in-waveform.md#reading-the-launcher-once.
+declare -gA _BURNIN_META=()
+_BURNIN_PREPARED=""
+burnin_prepare() {
+    local job launch
+    _BURNIN_META=()
     for job in $BURNIN; do
         launch=$(_scan_job_launcher "$job") || continue
-        total=$(_scan_job_total_runs "$launch")
-        secs=$(_scan_job_run_seconds "$launch")
+        _BURNIN_META[$job]="$(_scan_job_total_runs "$launch") $(_scan_job_run_seconds "$launch")"
+    done
+    _BURNIN_PREPARED=1
+}
+
+burnin_hours_cell() {
+    local node="$1" job total secs r file hours=0
+    [[ -n "$_BURNIN_PREPARED" ]] || burnin_prepare
+    for job in $BURNIN; do
+        [[ -n "${_BURNIN_META[$job]:-}" ]] || continue
+        read -r total secs <<< "${_BURNIN_META[$job]}"
         for ((r = 1; r <= total; r++)); do
             if [[ "$total" -eq 1 ]]; then
                 file="$SCAN_RESULTS_DIR/$node/$job.txt"
