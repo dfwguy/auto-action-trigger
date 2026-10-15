@@ -227,6 +227,24 @@ touch "$work/results/node01/.heartbeat"
 both=$(cd "$work" && bash report_overall.sh --csv --details 2>&1)
 check "--csv and --details refuse together" 'ERROR:' "$both"
 
+## The burn-in section goes through the same grouping tool as the main block,
+## in both reports. A stub clubak marks the output, since the real one is not
+## installable in CI. See docs/explanation/burn-in-waveform.md.
+printf 'totalRuns=1\nSTEP_TIMELIMIT=02:00:00\n' > "$work/jobs/j/burn.sbatch"
+printf '#!/bin/bash\necho GROUPED\ncat\n' > "$work/bin/clubak"
+chmod 755 "$work/bin/clubak"
+echo DONE > "$work/results/node01/burn.txt"
+sed -i 's/^BURNIN=.*/BURNIN="burn"/; s/^RUN_BURNIN=.*/RUN_BURNIN=yes/' "$work/SETTINGS"
+printf 'BURNIN_HOURS=48\n' >> "$work/SETTINGS"
+printf 'verdict() { if [[ -f "$2" ]] && grep -qE "PASS|DONE" "$2"; then VERDICT_STATUS=DONE; else VERDICT_STATUS=NOT_RUN; fi; VERDICT_REASON=""; }\nverdict_job_name() { printf %%s "${1%%-run[0-9]*}"; }\n' \
+    > "$work/parsers/p/verdict.sh"
+burn=$(cd "$work" && bash report_overall.sh 2>&1)
+check "brief burn-in is grouped"   $'BURN-IN\nGROUPED'     "$burn"
+check "brief burn-in carries hours" 'node01: 2H/48H'         "$burn"
+burn=$(cd "$work" && bash report_overall.sh --details 2>&1)
+check "details burn-in is grouped" $'BURN-IN\nGROUPED'     "$burn"
+rm -f "$work/bin/clubak"
+
 echo
 if [[ "$fails" -eq 0 ]]; then
     echo "all checks passed"
