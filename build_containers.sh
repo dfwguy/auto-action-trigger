@@ -94,7 +94,7 @@ UBUNTU_MIRROR_arm64=http://ports.ubuntu.com/ubuntu-ports
 HELPER_URI=docker://ubuntu:24.04
 
 ## Every image this script knows how to produce. -A is this list.
-ALL_IMAGES="hpc-benchmarks nvbandwidth nvloom mnubergemm nemo"
+ALL_IMAGES="hpc-benchmarks nvbandwidth nvloom mnubergemm nemo pytorch"
 
 usage() {
     awk 'NR > 2 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
@@ -118,6 +118,7 @@ image_file() {
         nvloom)         echo "nvloom-${NVLOOM_VERSION}-${arch}.sqsh" ;;
         mnubergemm)     echo "mnubergemm-${MNUBERGEMM_VERSION}-${arch}.sqsh" ;;
         nemo)           echo "nvidia+nemo+${NEMO_TAG}-${arch}.sqsh" ;;
+        pytorch)        echo "nvidia+pytorch+${PYTORCH_TAG}-${arch}.sqsh" ;;
         *)              return 1 ;;
     esac
 }
@@ -456,6 +457,16 @@ build_hpc_benchmarks() {
     [[ "$MODE" == build ]] && return 0
     log "hpc-benchmarks: importing nvcr.io#nvidia/hpc-benchmarks:${HPC_BENCHMARKS_TAG} ($arch)"
     import "$out" "docker://nvcr.io#nvidia/hpc-benchmarks:${HPC_BENCHMARKS_TAG}"
+}
+
+## ── pytorch ───────────────────────────────────────────────────────────────
+## Public NGC image carrying nccl-tests and a newer NCCL than hpc-benchmarks.
+## See docs/how-to/build-containers.md#pytorch.
+build_pytorch() {
+    local out="$1"
+    [[ "$MODE" == build ]] && return 0
+    log "pytorch: importing nvcr.io#nvidia/pytorch:${PYTORCH_TAG}-py3 ($arch)"
+    import "$out" "docker://nvcr.io#nvidia/pytorch:${PYTORCH_TAG}-py3"
 }
 
 ## ── nemo ──────────────────────────────────────────────────────────────────

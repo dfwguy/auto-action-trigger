@@ -77,6 +77,7 @@ fi
 : "${NVLOOM_VERSION:=v2.0.0}"
 : "${MNUBERGEMM_VERSION:=26.03-v1.17}"
 : "${NEMO_TAG:=26.04.01}"
+: "${PYTORCH_TAG:=26.08}"
 ## 0 disables the cadence. See docs/explanation/health-cadence.md.
 : "${HEALTH_INTERVAL_HOURS:=4}"
 : "${HEALTH_RETRY_INTERVAL_HOURS:=1}"
