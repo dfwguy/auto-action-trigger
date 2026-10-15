@@ -13,6 +13,13 @@ trap 'rm -rf "$work"' EXIT
 both="$work/both"; only_pdsh="$work/only-pdsh"; only_clush="$work/only-clush"; neither="$work/neither"
 mkdir -p "$both" "$only_pdsh" "$only_clush" "$neither"
 
+## Coreutils only. /usr/bin would carry a real clush or pdsh into the cases that
+## say neither is installed.
+sys="$work/sys"; mkdir -p "$sys"
+for t in bash env cat tr sed grep awk sort head tail cut wc date dirname basename; do
+    ln -s "$(command -v "$t")" "$sys/$t"
+done
+
 pass=0; fail=0
 ok()  { printf '  ok   %s\n' "$*"; pass=$((pass + 1)); }
 bad() { printf '  FAIL %s\n' "$*"; fail=$((fail + 1)); }
@@ -36,7 +43,7 @@ done
 ## answering about the stubs rather than about this machine.
 run() {
     local dir="$1" tool="$2" script="$3"
-    ( export PATH="$dir:/usr/bin:/bin" FANOUT_TOOL="$tool"
+    ( export PATH="$dir:$sys" FANOUT_TOOL="$tool"
       # shellcheck source=/dev/null
       source "$home/fanout.sh"
       eval "$script" )
