@@ -53,16 +53,19 @@ CONT=${NODE_CONTAINER_DIR:-/opt/containers}/$IMG
 #CONT=docker://nvcr.io#nvidia/pytorch:26.08-py3
 
 ## Everything the step needs, exported below and named in --container-env so the
-## image's own values do not win. The PMIx/MPI lines are new against hpc-benchmarks.
+## image's own values do not win.
 env_pairs=(
-    PMIX_MCA_psec=native
-    PMIX_MCA_gds=hash
-    OMPI_MCA_pml=ob1
-    "OMPI_MCA_btl=tcp,self,vader"
-    OMPI_MCA_btl_tcp_if_include=bond0
-    OMPI_MCA_oob_tcp_if_include=bond0
-    OMPI_MCA_coll_ucc_enable=0
-    OMPI_MCA_coll_hcoll_enable=0
+    ## The PMIx/MPI lines may be needed in this image -- the capture in issue #21
+    ## carried them. Left off until a run shows it; if the job passes without
+    ## them, delete the block.
+    #PMIX_MCA_psec=native
+    #PMIX_MCA_gds=hash
+    #OMPI_MCA_pml=ob1
+    #"OMPI_MCA_btl=tcp,self,vader"
+    #OMPI_MCA_btl_tcp_if_include=bond0
+    #OMPI_MCA_oob_tcp_if_include=bond0
+    #OMPI_MCA_coll_ucc_enable=0
+    #OMPI_MCA_coll_hcoll_enable=0
     NCCL_SOCKET_IFNAME=bond0
     NCCL_DEBUG=INFO
     NCCL_P2P_DISABLE=1

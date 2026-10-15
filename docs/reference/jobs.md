@@ -39,7 +39,7 @@ What differs from the twin, besides the image:
 
 | Change | Applies to | Why |
 |---|---|---|
-| `PMIX_MCA_*` and `OMPI_MCA_*` (ob1, tcp over bond0, UCC and HCOLL off) | all four | the image's launch does not work without them |
+| `PMIX_MCA_*` and `OMPI_MCA_*` (ob1, tcp over bond0, UCC and HCOLL off), **commented out** | all four | the capture in issue #21 carried them; they stay off until a run shows the image needs them, and are deleted if it does not |
 | one `env_pairs` array feeds both `export` and `--container-env` | all four | the image sets its own values, so an exported name not listed in `--container-env` is overridden |
 | `NCCL_NET_PLUGIN=spcx`, no `NCCL_PLUGIN_PATH` or `LD_LIBRARY_PATH` | `-nonvlink` | the plugin is found by name here rather than under `/opt/hpcx` |
 | `NCCL_PXN_DISABLE`, `NCCL_IB_QPS_PER_CONNECTION=2`, `NCCL_NCHANNELS_PER_NET_PEER=1`, `NCCL_MAX_P2P_NCHANNELS=16`, `NCCL_GDRCOPY_ENABLE=1` | `-nonvlink` | tuning carried from the capture in issue #21; not yet validated against the twin |
