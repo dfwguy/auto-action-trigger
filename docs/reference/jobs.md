@@ -31,7 +31,9 @@ fabric instead of Spectrum-X — the DCGM gates, both NCCL scopes,
 
 `<job>-pytorch` is `<job>` with `nvidia+pytorch+<PYTORCH_TAG>-<arch>.sqsh` as the
 image, for a newer NCCL than `hpc-benchmarks` carries. They sit beside the
-originals; nothing is replaced. Each is judged by its twin's gate and floor, so
+originals; nothing is replaced. In `nvl72/` and `b300/` the env is the twin's,
+unchanged (`NCCL_NET=IB`, no plugin); in the `-spx` directories it is the SPCX
+set below. Each is judged by its twin's gate and floor, so
 `VERDICT_MIN_PEAK_BW_*` applies unchanged. Build the image with
 [`build_containers.sh pytorch`](../how-to/build-containers.md#pytorch).
 
@@ -41,8 +43,8 @@ What differs from the twin, besides the image:
 |---|---|---|
 | `PMIX_MCA_*` and `OMPI_MCA_*` (ob1, tcp over bond0, UCC and HCOLL off), **commented out** | all four | the capture in issue #21 carried them; they stay off until a run shows the image needs them, and are deleted if it does not |
 | one `env_pairs` array feeds both `export` and `--container-env` | all four | the image sets its own values, so an exported name not listed in `--container-env` is overridden |
-| `NCCL_NET_PLUGIN=spcx`, no `NCCL_PLUGIN_PATH` or `LD_LIBRARY_PATH` | `-nonvlink` | the plugin is found by name here rather than under `/opt/hpcx` |
-| `NCCL_PXN_DISABLE`, `NCCL_IB_QPS_PER_CONNECTION=2`, `NCCL_NCHANNELS_PER_NET_PEER=1`, `NCCL_MAX_P2P_NCHANNELS=16`, `NCCL_GDRCOPY_ENABLE=1` | `-nonvlink` | tuning carried from the capture in issue #21; not yet validated against the twin |
+| `NCCL_NET_PLUGIN=spcx`, no `NCCL_PLUGIN_PATH` or `LD_LIBRARY_PATH` | `-nonvlink`, `-spx` only | the plugin is found by name here rather than under `/opt/hpcx` |
+| `NCCL_PXN_DISABLE`, `NCCL_IB_QPS_PER_CONNECTION=2`, `NCCL_NCHANNELS_PER_NET_PEER=1`, `NCCL_MAX_P2P_NCHANNELS=16`, `NCCL_GDRCOPY_ENABLE=1` | `-nonvlink`, `-spx` only | tuning carried from the capture in issue #21; not yet validated against the twin |
 
 `NCCL_DEBUG=INFO` stays: the gates read `via NET/` and `Using network SPCX`,
 which `WARN` does not print. The tuning row and the plugin row are the ones to
@@ -60,7 +62,7 @@ re-check on a node.
 | `allreduce` `alltoall` | NCCL single-node, NVLink scope | Hybrid / Exhaustive | NCCL Single Node, NVLink |
 | `allreduce-forcesharp` | NCCL all-reduce, NVLink scope, NVLS/SHARP required | Hybrid / Exhaustive | NCCL, SHARP required |
 | `allreduce-nonvlink` `alltoall-nonvlink` | NCCL single-node, no NVLink (HCA loopback) | Hybrid / Exhaustive | NCCL Single Node, No NVLink |
-| `allreduce-pytorch` `alltoall-pytorch` `allreduce-nonvlink-pytorch` `alltoall-nonvlink-pytorch` | The four NCCL jobs above, run in the `pytorch` image — `b300-spx/` and `nvl72-spx/` only. See [The pytorch NCCL jobs](#the-pytorch-nccl-jobs) | Hybrid / Exhaustive | same as the twin |
+| `allreduce-pytorch` `alltoall-pytorch` `allreduce-nonvlink-pytorch` `alltoall-nonvlink-pytorch` | The four NCCL jobs above, run in the `pytorch` image, in all four platform directories. See [The pytorch NCCL jobs](#the-pytorch-nccl-jobs) | Hybrid / Exhaustive | same as the twin |
 | `nvsm` | NVSM stress — **DGX only** | Hybrid / Exhaustive | NVSM Stress Test |
 | `stream` `memtester` | CPU memory bandwidth + DRAM integrity | Exhaustive | STREAM + Memtester |
 | `stress-ng` | CPU stress | Exhaustive | stress-ng |
