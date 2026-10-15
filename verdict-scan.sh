@@ -24,7 +24,7 @@ extract_metric() {
             # WC summary line: T/V N NB P Q Time Gflops (per_GPU)
             awk '/^WC/ { print $7; exit }' "$file" 2>/dev/null
             ;;
-        allreduce|alltoall|allreduce-nonvlink|alltoall-nonvlink|allreduce-forcesharp)
+        allreduce|alltoall|allreduce-nonvlink|alltoall-nonvlink|allreduce-forcesharp|*-pytorch)
             # Out-of-place busbw at the largest size run, so the column reads
             # against VERDICT_MIN_PEAK_BW_* directly. Max tracked in the pass:
             # nccl-tests does not guarantee the largest size is printed last.
@@ -57,7 +57,7 @@ extract_metric() {
 metric_label() {
     case "$1" in
         hpl)                echo "gflops"      ;;
-        allreduce|alltoall|allreduce-nonvlink|alltoall-nonvlink|allreduce-forcesharp)
+        allreduce|alltoall|allreduce-nonvlink|alltoall-nonvlink|allreduce-forcesharp|*-pytorch)
                             echo "busbw_GBs"   ;;
         nvbandwidth)        echo "min_GBs"     ;;
         stream)             echo "triad_MBs"   ;;
