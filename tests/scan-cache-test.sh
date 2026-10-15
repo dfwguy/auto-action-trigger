@@ -68,6 +68,13 @@ rewrite() {
     touch -d "$(date -d '+1 hour')" "$2"
 }
 
+## A pass-through clubak, so a real one on the developer's PATH cannot group the
+## one-line-per-node rows these cases grep.
+mkdir -p "$tmp/stub"
+printf '#!/bin/bash\ncat\n' > "$tmp/stub/clubak"
+chmod 755 "$tmp/stub/clubak"
+export PATH="$tmp/stub:$PATH"
+
 run()  { ( cd "$tree" && ./report_job-status.sh "$@" 2>/dev/null ); }
 
 cached_run_count() {

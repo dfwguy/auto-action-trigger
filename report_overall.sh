@@ -559,7 +559,7 @@ brief_line() {
     BRIEF_LINE="$BRIEF_REACH **** $BRIEF_STATE **** tests - $BRIEF_TESTS **** healthchecks - $BRIEF_HEALTH"
 }
 
-## One line per node: "<node>: <N>H/<BURNIN_HOURS>H". Not part of the
+## "<node>: <N>H/<BURNIN_HOURS>H", grouped by hours. Not part of the
 ## outstanding-cells grouping above -- a burn-in job mid-campaign is not a
 ## failure, so it has no place among reasons a column is not passing.
 ## See docs/explanation/burn-in-waveform.md.
@@ -568,7 +568,7 @@ print_burnin_section() {
     echo "BURN-IN"
     for node in "${nodes[@]}"; do
         printf '%s: %s\n' "$node" "$(burnin_hours_cell "$node")"
-    done
+    done | if bak_resolve; then bak; else cat; fi
     echo
 }
 

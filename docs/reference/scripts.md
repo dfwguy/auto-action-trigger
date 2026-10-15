@@ -260,6 +260,10 @@ it does not need.
 | `tests - ` | every benchmark column with no passing result, or `PASS` |
 | `healthchecks - ` | every check whose `logs/<node>/<check>` differs from `valid-config/default`, or `PASS` |
 
+When `RUN_BURNIN` is on, a `BURN-IN` section follows the groups, in both the one-line
+and the `--details` report: `<node>: <N>H/<BURNIN_HOURS>H`, grouped by the same tool so
+nodes at the same hours are one entry. Without `clubak`/`dshbak` it is one line per node.
+
 The first two fields are the node rather than the work on it, and they come
 first because everything after them is read from files: a `DOWN` node's two
 halves are the last thing written rather than what is true now, and the count of
