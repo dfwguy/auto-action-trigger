@@ -521,7 +521,7 @@ _v_llm_step_median() {
 ## Two formats: Megatron-Bridge prints `elapsed time per iteration`, NeMo prints
 ## `train_step_timing`. See docs/explanation/llmb.md#two-step-timing-formats.
 _v_gate_llm_pretrain() {
-    local file="$1"
+    local file="$1" max="${2-$VERDICT_MAX_STEP_MS_LLM_PRETRAIN}"
     _v_require  "$file" "training step timings" "$VERDICT_STEP_TIMING" || return 1
     ## Separate from the line above: nothing at all and a run that stopped after
     ## ten iterations are different faults and group separately.
@@ -529,7 +529,7 @@ _v_gate_llm_pretrain() {
         "$VERDICT_MIN_LLM_ITERATIONS" || return 1
     _v_forbid   "$file" "run error"             "$VERDICT_RUN_ERRORS" || return 1
     _v_forbid_i "$file" "training aborted"      'traceback|cuda error|nccl error|out of memory' || return 1
-    _v_llm_step_median "$file" "$VERDICT_MAX_STEP_MS_LLM_PRETRAIN" || return 1
+    _v_llm_step_median "$file" "$max" || return 1
     return 0
 }
 
@@ -756,6 +756,8 @@ _v_dispatch_gate() {
             _v_gate_hpl "$file" ;;
         llm-pretrain)
             _v_gate_llm_pretrain "$file" ;;
+        deepseek-v3-proxy)
+            _v_gate_llm_pretrain "$file" "$VERDICT_MAX_STEP_MS_DEEPSEEK_V3_PROXY" ;;
         llm-pretrain-solo)
             _v_gate_llm_pretrain_solo "$file" ;;
         mnubergemm)

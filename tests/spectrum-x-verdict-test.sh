@@ -23,10 +23,19 @@ VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK=90
 # shellcheck disable=SC2034
 VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK=90
 
+# shellcheck disable=SC2034
+VERDICT_MAX_STEP_MS_DEEPSEEK_V3_PROXY=0
+
 source "$home/parsers/spectrum-x/verdict.sh"
 
 ## fixture | expected status | expected reason (empty for DONE)
 cases=(
+  ## NC job 207418; config/startup and training retained, parameter listing trimmed.
+  "deepseek-v3-proxy__good|DONE|"
+  "deepseek-v3-proxy__short-run|FAIL|fewer than 50 training step timings"
+  "deepseek-v3-proxy__runtime-error|FAIL|run error"
+  "deepseek-v3-proxy__missing-config|FAIL|run error"
+  "deepseek-v3-proxy__incomplete|INCOMPLETE|no end marker -- job died before finishing"
   ## Real br-msp2-b300-td1-su1-01, trimmed to rank 0. The capture that
   ## motivated this parser: nvl72's verdict.sh required `Using network IB`,
   ## which a spectrum-x log never prints.
@@ -78,6 +87,26 @@ if [[ "$VERDICT_STATUS" == "FAIL" && "$VERDICT_REASON" == "SPCX plugin failed to
 else
     printf 'FAIL     %-42s want FAIL naming SPCX, got %s / %s\n' \
         "(alltoall-nonvlink routes to the gate)" "$VERDICT_STATUS" "$VERDICT_REASON"
+    ((fail++))
+fi
+
+VERDICT_MAX_STEP_MS_DEEPSEEK_V3_PROXY=100
+verdict deepseek-v3-proxy "$home/tests/fixtures/deepseek-v3-proxy__good.txt"
+if [[ "$VERDICT_STATUS" == FAIL && "$VERDICT_REASON" == "step time above 100 ms" ]]; then
+    printf 'ok       %-42s FAIL -- %s\n' "(DeepSeek uses its own ceiling)" "$VERDICT_REASON"
+    ((pass++))
+else
+    printf 'FAIL     %-42s %s / %s\n' "(DeepSeek uses its own ceiling)" "$VERDICT_STATUS" "$VERDICT_REASON"
+    ((fail++))
+fi
+
+VERDICT_MAX_STEP_MS_DEEPSEEK_V3_PROXY=""
+verdict deepseek-v3-proxy "$home/tests/fixtures/deepseek-v3-proxy__good.txt"
+if [[ "$VERDICT_STATUS" == DONE ]]; then
+    printf 'ok       %-42s DONE\n' "(empty DeepSeek ceiling disables band)"
+    ((pass++))
+else
+    printf 'FAIL     %-42s %s / %s\n' "(empty DeepSeek ceiling disables band)" "$VERDICT_STATUS" "$VERDICT_REASON"
     ((fail++))
 fi
 

@@ -29,6 +29,8 @@ VERDICT_MIN_PEAK_BW_ALLTOALL=623
 VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK=93
 # shellcheck disable=SC2034
 VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK=83
+# shellcheck disable=SC2034
+VERDICT_MAX_STEP_MS_DEEPSEEK_V3_PROXY=0
 
 source "$home/parsers/nvl72/verdict.sh"
 
@@ -82,6 +84,12 @@ cases=(
   ## A run that stopped part-way has a healthy-looking median over the part that
   ## ran, so the ceiling passes it. See docs/explanation/llmb.md#a-run-that-stopped-early.
   "llm-pretrain__short-run|FAIL|fewer than 50 training step timings"
+  ## NC job 207418; config/startup and training retained, parameter listing trimmed.
+  "deepseek-v3-proxy__good|DONE|"
+  "deepseek-v3-proxy__short-run|FAIL|fewer than 50 training step timings"
+  "deepseek-v3-proxy__runtime-error|FAIL|run error"
+  "deepseek-v3-proxy__missing-config|FAIL|run error"
+  "deepseek-v3-proxy__incomplete|INCOMPLETE|no end marker -- job died before finishing"
   "llm-pretrain-solo__short-run|FAIL|a GPU reported fewer than 50 step timings"
   ## Caught by the SHIPPED floor, which was 0 -- check skipped -- until a healthy
   ## tray gave one. See docs/explanation/llmb.md#judging-the-four-step-times.
@@ -204,7 +212,8 @@ VERDICT_MAX_STEP_MS_LLM_PRETRAIN="$_pre_step_saved"
 source "$home/verdict-scan.sh"
 _metric=$(extract_metric llm-pretrain-solo "$home/tests/fixtures/llm-pretrain-solo__good.txt")
 if [[ -n "$_metric" && "$VERDICT_DETAIL" == *"median $_metric ms"* &&
-      "$(metric_label llm-pretrain)" == "step_ms" ]]; then
+      "$(metric_label llm-pretrain)" == "step_ms" &&
+      "$(metric_label deepseek-v3-proxy)" == "step_ms" ]]; then
     printf 'ok       %-42s %s ms\n' "(llm metric matches the gate)" "$_metric"
     ((pass++))
 else
@@ -212,6 +221,30 @@ else
         "(llm metric matches the gate)" "${_metric:-<none>}" "$VERDICT_DETAIL"
     ((fail++))
 fi
+
+## The DeepSeek proxy shares the timing/completion gate but has its own ceiling;
+## a Llama baseline must never judge a different model.
+_deepseek_step_saved="$VERDICT_MAX_STEP_MS_DEEPSEEK_V3_PROXY"
+VERDICT_MAX_STEP_MS_DEEPSEEK_V3_PROXY=100
+verdict "deepseek-v3-proxy" "$home/tests/fixtures/deepseek-v3-proxy__good.txt"
+if [[ "$VERDICT_STATUS" == "FAIL" && "$VERDICT_REASON" == "step time above 100 ms" ]]; then
+    printf 'ok       %-42s FAIL -- %s\n' "(deepseek proxy uses own ceiling)" "$VERDICT_DETAIL"
+    ((pass++))
+else
+    printf 'FAIL     %-42s want FAIL on its own ceiling, got %s / %s\n' \
+        "(deepseek proxy uses own ceiling)" "$VERDICT_STATUS" "$VERDICT_REASON"
+    ((fail++))
+fi
+VERDICT_MAX_STEP_MS_DEEPSEEK_V3_PROXY=""
+verdict deepseek-v3-proxy "$home/tests/fixtures/deepseek-v3-proxy__good.txt"
+if [[ "$VERDICT_STATUS" == DONE ]]; then
+    printf 'ok       %-42s DONE\n' "(empty DeepSeek ceiling disables band)"
+    ((pass++))
+else
+    printf 'FAIL     %-42s %s / %s\n' "(empty DeepSeek ceiling disables band)" "$VERDICT_STATUS" "$VERDICT_REASON"
+    ((fail++))
+fi
+VERDICT_MAX_STEP_MS_DEEPSEEK_V3_PROXY="$_deepseek_step_saved"
 
 ## An empty floor used to skip the bandwidth check -- a silent pass on a
 ## fixture that clears every other one.

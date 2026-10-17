@@ -180,6 +180,7 @@ verdict:
   stage: test
   script:
     - ./tests/verdict-test.sh
+    - ./tests/spectrum-x-verdict-test.sh
 
 health-runner:
   extends: .base

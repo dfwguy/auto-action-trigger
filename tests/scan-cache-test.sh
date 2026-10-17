@@ -143,6 +143,24 @@ else
     bad "restoring the gate restores the report" "the report did not come back"
 fi
 
+cp "$F/deepseek-v3-proxy__good.txt" "$tree/results/node01/deepseek-v3-proxy.txt"
+printf 'BENCHMARKS="deepseek-v3-proxy"\nVERDICT_MAX_STEP_MS_DEEPSEEK_V3_PROXY=0\n' >> "$sf"
+proxy_cold=$(run)
+proxy_warm=$(run)
+printf 'VERDICT_MAX_STEP_MS_DEEPSEEK_V3_PROXY=100\n' >> "$sf"
+proxy_rejected=$(run)
+if [[ "$proxy_cold" == "$proxy_warm" ]] &&
+   grep -q '^node01: deepseek-v3-proxy: DONE' <<<"$proxy_warm" &&
+   grep -q '^node01: deepseek-v3-proxy: FAIL -- step time above 100 ms' <<<"$proxy_rejected" &&
+   [[ "$proxy_rejected" == "$(run --no-cache)" ]]; then
+    ok "DeepSeek ceiling invalidates warm cache" "unchanged result re-judged after threshold edit"
+else
+    bad "DeepSeek ceiling invalidates warm cache" "$proxy_warm -> $proxy_rejected"
+fi
+cp "$tmp/settings.orig" "$sf"
+rm "$tree/results/node01/deepseek-v3-proxy.txt"
+warm=$(run)
+
 # ── The key covers each result file ───────────────────────────────────────────
 
 rewrite "$F/allreduce__fell-to-socket.txt" "$tree/results/node02/allreduce.txt"
