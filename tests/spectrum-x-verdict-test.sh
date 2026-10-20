@@ -110,6 +110,31 @@ else
     ((fail++))
 fi
 
+## The -pytorch jobs run the same nccl-tests in a different image, so each name
+## must reach the gate of its hpc-benchmarks twin and not a default that passes.
+for job in allreduce-nonvlink alltoall-nonvlink; do
+    verdict "$job-pytorch" "$home/tests/fixtures/allreduce-nonvlink__spcx-plugin-failed.txt"
+    if [[ "$VERDICT_STATUS" == "FAIL" && "$VERDICT_REASON" == "SPCX plugin failed to load" ]]; then
+        printf 'ok       %-42s FAIL -- %s\n' "($job-pytorch routes to the gate)" "$VERDICT_REASON"
+        ((pass++))
+    else
+        printf 'FAIL     %-42s want FAIL naming SPCX, got %s / %s\n' \
+            "($job-pytorch routes to the gate)" "$VERDICT_STATUS" "$VERDICT_REASON"
+        ((fail++))
+    fi
+done
+for job in allreduce-pytorch alltoall-pytorch; do
+    verdict "$job" "$home/tests/fixtures/allreduce-nonvlink__spcx-good.txt"
+    if [[ "$VERDICT_STATUS" == "FAIL" && "$VERDICT_REASON" == *"network"* ]]; then
+        printf 'ok       %-42s FAIL -- %s\n' "($job routes to the NVLink gate)" "$VERDICT_REASON"
+        ((pass++))
+    else
+        printf 'FAIL     %-42s want the NVLink gate to refuse a net run, got %s / %s\n' \
+            "($job routes to the NVLink gate)" "$VERDICT_STATUS" "$VERDICT_REASON"
+        ((fail++))
+    fi
+done
+
 echo
 echo "$pass passed, $fail failed"
 [[ "$fail" -eq 0 ]]

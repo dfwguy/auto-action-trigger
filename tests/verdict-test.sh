@@ -289,6 +289,24 @@ else
     ((fail++))
 fi
 
+## The -pytorch jobs must reach their twin's gate, not a default that passes.
+verdict "alltoall-nonvlink-pytorch" "$home/tests/fixtures/alltoall-nonvlink__container-blind.txt"
+if [[ "$VERDICT_STATUS" == "FAIL" && "$VERDICT_REASON" == "no HCA visible inside the container" ]]; then
+    printf 'ok       %-42s FAIL -- %s\n' "(alltoall-nonvlink-pytorch routes)" "$VERDICT_REASON"
+    ((pass++))
+else
+    printf 'FAIL     %-42s got %s / %s\n' "(alltoall-nonvlink-pytorch routes)" "$VERDICT_STATUS" "$VERDICT_REASON"
+    ((fail++))
+fi
+verdict "allreduce-pytorch" "$home/tests/fixtures/allreduce__fell-to-socket.txt"
+if [[ "$VERDICT_STATUS" == "FAIL" && "$VERDICT_REASON" == "collective left NVLink for the network" ]]; then
+    printf 'ok       %-42s FAIL -- %s\n' "(allreduce-pytorch routes)" "$VERDICT_REASON"
+    ((pass++))
+else
+    printf 'FAIL     %-42s got %s / %s\n' "(allreduce-pytorch routes)" "$VERDICT_STATUS" "$VERDICT_REASON"
+    ((fail++))
+fi
+
 echo
 echo "$pass passed, $fail failed"
 [[ "$fail" -eq 0 ]]

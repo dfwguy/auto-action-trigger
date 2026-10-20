@@ -218,6 +218,21 @@ silently produce the wrong image. Update `IMG` in
 `RUN_BURNIN` is turned on. See
 [enable-a-benchmark.md#turn-burn-in-on](enable-a-benchmark.md#turn-burn-in-on).
 
+### pytorch
+
+Public NGC catalog image, no credentials needed, imported like `hpc-benchmarks`;
+name the architecture the same way. It carries `nccl-tests` and a newer NCCL than
+`hpc-benchmarks` does, and is what the `-pytorch` NCCL jobs run. It sits beside
+`hpc-benchmarks` rather than replacing it, which `hpl`, `cublasmatmul` and
+`stream` still need.
+
+```bash
+./build_containers.sh -a x86 pytorch
+```
+
+`PYTORCH_TAG` is the release (`26.08`); the script appends `-py3` for the
+registry tag, so the file is `nvidia+pytorch+26.08-<arch>.sqsh`.
+
 ### nemo
 
 Public NGC catalog image, imported like `hpc-benchmarks`. **Name the

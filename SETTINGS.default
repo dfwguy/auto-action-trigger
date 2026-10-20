@@ -71,6 +71,7 @@ NVBANDWIDTH_VERSION=v0.9
 NVLOOM_VERSION=v2.0.0
 MNUBERGEMM_VERSION=26.03-v1.17
 NEMO_TAG=26.04.01
+PYTORCH_TAG=26.08
 
 ## ── Health-check cadence ──────────────────────────────────────────────────
 ## 0 re-runs only when 'report_health.sh --refresh' asks. See
