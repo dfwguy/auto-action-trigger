@@ -62,6 +62,10 @@ pieces fit together this way is
 │       ├── alltoall.sbatch            # NCCL all-to-all, NVLink scope
 │       ├── allreduce-nonvlink.sbatch  # NCCL all-reduce over HCAs (NVLink excluded)
 │       ├── alltoall-nonvlink.sbatch   # NCCL all-to-all over HCAs (NVLink excluded)
+│       ├── allreduce-pytorch.sbatch   # allreduce in the pytorch image
+│       ├── alltoall-pytorch.sbatch    # alltoall in the pytorch image
+│       ├── allreduce-nonvlink-pytorch.sbatch # allreduce-nonvlink in the pytorch image
+│       ├── alltoall-nonvlink-pytorch.sbatch  # alltoall-nonvlink in the pytorch image
 │       ├── nvsm.sbatch                # NVSM stress test
 │       ├── stream.sbatch              # STREAM CPU memory bandwidth
 │       ├── memtester.sbatch           # DRAM integrity
@@ -89,6 +93,10 @@ pieces fit together this way is
 │       ├── alltoall.sbatch            # NCCL all-to-all, NVLink scope
 │       ├── allreduce-nonvlink.sbatch  # NCCL all-reduce over the HCAs (NVLink excluded)
 │       ├── alltoall-nonvlink.sbatch   # NCCL all-to-all over the HCAs (NVLink excluded)
+│       ├── allreduce-pytorch.sbatch   # allreduce in the pytorch image
+│       ├── alltoall-pytorch.sbatch    # alltoall in the pytorch image
+│       ├── allreduce-nonvlink-pytorch.sbatch # allreduce-nonvlink in the pytorch image
+│       ├── alltoall-nonvlink-pytorch.sbatch  # alltoall-nonvlink in the pytorch image
 │       ├── mnubergemm.sbatch          # GPU burn-in, steady load (single node per the plan)
 │       └── nccl-hca.sh                # Compute-plane HCA discovery, drops the NVSwitch HCA and bond0
 │   ├── b300-spx/                  # GB300 NVL72, Spectrum-X (RoCEv2) fabric; pair with PARSERS=spectrum-x
@@ -100,6 +108,10 @@ pieces fit together this way is
 │       ├── alltoall.sbatch            # NCCL all-to-all, NVLink scope
 │       ├── allreduce-nonvlink.sbatch  # NCCL all-reduce over the HCAs, SPCX plugin (NVLink excluded)
 │       ├── alltoall-nonvlink.sbatch   # NCCL all-to-all over the HCAs, SPCX plugin (NVLink excluded)
+│       ├── allreduce-pytorch.sbatch   # allreduce in the pytorch image
+│       ├── alltoall-pytorch.sbatch    # alltoall in the pytorch image
+│       ├── allreduce-nonvlink-pytorch.sbatch # allreduce-nonvlink in the pytorch image
+│       ├── alltoall-nonvlink-pytorch.sbatch  # alltoall-nonvlink in the pytorch image
 │       ├── mnubergemm.sbatch          # GPU burn-in, steady load (single node per the plan)
 │       └── nccl-hca.sh                # Compute-plane HCA discovery, Spectrum-X rail HCAs
 │   └── nvl72-spx/                 # nvl72's node shape, Spectrum-X fabric; pair with PARSERS=spectrum-x
@@ -113,6 +125,10 @@ pieces fit together this way is
 │       ├── alltoall.sbatch            # NCCL all-to-all, NVLink scope
 │       ├── allreduce-nonvlink.sbatch  # NCCL all-reduce over the HCAs, SPCX plugin (NVLink excluded)
 │       ├── alltoall-nonvlink.sbatch   # NCCL all-to-all over the HCAs, SPCX plugin (NVLink excluded)
+│       ├── allreduce-pytorch.sbatch   # allreduce in the pytorch image
+│       ├── alltoall-pytorch.sbatch    # alltoall in the pytorch image
+│       ├── allreduce-nonvlink-pytorch.sbatch # allreduce-nonvlink in the pytorch image
+│       ├── alltoall-nonvlink-pytorch.sbatch  # alltoall-nonvlink in the pytorch image
 │       ├── nvsm.sbatch                # NVSM stress test
 │       ├── stream.sbatch              # STREAM CPU memory bandwidth
 │       ├── memtester.sbatch           # DRAM integrity

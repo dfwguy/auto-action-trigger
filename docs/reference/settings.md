@@ -226,6 +226,7 @@ every node — one place decides, and the copy has no opinion. Why, and what the
 | `nvbandwidth` | `nvbandwidth` | Private NGC org (needs a login); source build only with `-S` |
 | `nvloom` | `nvloom` | No published image; two-pass source build, and only with `-S` |
 | `mnubergemm` | `mnubergemm` | Private NGC org (needs a login); NVIDIA-internal, no source build exists |
+| `pytorch` | the `-pytorch` NCCL jobs | Public NGC image, newer NCCL than `hpc-benchmarks` — see [how-to/build-containers.md#pytorch](../how-to/build-containers.md#pytorch) |
 | `nemo` | `llm-pretrain`, `llm-pretrain-solo` | Public NGC image. The llmb installer imports the same one — see [how-to/build-containers.md#nemo](../how-to/build-containers.md#nemo) |
 
 `dcgmi-r*` and `nvsm` are not in this table — they run host binaries and need no
@@ -240,6 +241,7 @@ image.
 | `NVLOOM_VERSION` | `v2.0.0` | the git ref; there is no published image |
 | `MNUBERGEMM_VERSION` | `26.03-v1.17` | the org image's tag, after its `tensorrt-` prefix |
 | `NEMO_TAG` | `26.04.01` | the NGC tag for both LLM jobs' image |
+| `PYTORCH_TAG` | `26.08` | the NGC release, less its `-py3` suffix, and the `nvidia+pytorch+<tag>-<arch>.sqsh` filename |
 
 These were literals in `build_containers.sh` until a site needed a different
 one. Bumping one changes the **filename** the build produces, and the job files

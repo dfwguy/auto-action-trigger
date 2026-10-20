@@ -722,15 +722,15 @@ _v_last_line() {
 _v_dispatch_gate() {
     local job="$1" file="$2"
     case "$job" in
-        allreduce)
+        allreduce|allreduce-pytorch)
             _v_gate_nccl "$file" nvlink "$VERDICT_MIN_PEAK_BW_ALLREDUCE" ;;
         allreduce-forcesharp)
             _v_gate_nccl "$file" nvlink "$VERDICT_MIN_PEAK_BW_ALLREDUCE_FORCESHARP" ;;
-        alltoall)
+        alltoall|alltoall-pytorch)
             _v_gate_nccl "$file" nvlink "$VERDICT_MIN_PEAK_BW_ALLTOALL" ;;
-        allreduce-nonvlink)
+        allreduce-nonvlink|allreduce-nonvlink-pytorch)
             _v_gate_nccl "$file" ib "$VERDICT_MIN_PEAK_BW_ALLREDUCE_NONVLINK" ;;
-        alltoall-nonvlink)
+        alltoall-nonvlink|alltoall-nonvlink-pytorch)
             _v_gate_nccl "$file" ib "$VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK" ;;
         dcgmi-r1|dcgmi-r2|dcgmi-r3|dcgmi-r4)
             _v_gate_dcgmi "$file" ;;

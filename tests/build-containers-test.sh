@@ -119,6 +119,15 @@ else
     ok "hpc-benchmarks: the login gate never fired"
 fi
 
+out=$(run -a x86 pytorch 2>&1)
+if grep -q 'not logged in to nvcr.io' <<<"$out"; then
+    bad "pytorch was gated on a login it does not need: $out"
+elif past_the_gates "$out"; then
+    ok "pytorch: a known image, and the login gate never fired"
+else
+    bad "pytorch: not accepted as an image: $out"
+fi
+
 echo "== --no-login bypasses the gate =="
 
 out=$(run -a arm --no-login nvbandwidth 2>&1)
