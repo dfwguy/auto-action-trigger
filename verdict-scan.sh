@@ -45,7 +45,7 @@ extract_metric() {
             # because these carry K/M/G suffixes, which awk cannot order.
             grep -oE 'bw=[0-9.]+[KMG]?i?B/s' "$file" 2>/dev/null | sed 's/bw=//' | sort -h | tail -1
             ;;
-        llm-pretrain|llm-pretrain-solo)
+        llm-pretrain|llm-pretrain-solo|deepseek-v3-proxy)
             # Median step time in ms, from the gate's own helper rather than a
             # second copy of it, so the column reads against
             # VERDICT_MAX_STEP_MS_LLM_* directly.
@@ -62,7 +62,7 @@ metric_label() {
         nvbandwidth)        echo "min_GBs"     ;;
         stream)             echo "triad_MBs"   ;;
         fio)                echo "bw"          ;;
-        llm-pretrain|llm-pretrain-solo)
+        llm-pretrain|llm-pretrain-solo|deepseek-v3-proxy)
                             echo "step_ms"     ;;
     esac
 }
@@ -341,7 +341,7 @@ _scan_cache_file() {
 _scan_cache_key() {
     local v
     { cat "$PARSERS_DIR/verdict.sh" "$SCAN_LIB" 2>/dev/null
-      for v in "${!VERDICT_MIN_PEAK_BW_@}"; do printf '%s=%s\n' "$v" "${!v}"; done
+      for v in "${!VERDICT_MIN_PEAK_BW_@}" "${!VERDICT_MAX_STEP_MS_@}"; do printf '%s=%s\n' "$v" "${!v}"; done
       printf '%s' "$SCAN_COLUMNS"
     } | md5sum | cut -d' ' -f1
 }

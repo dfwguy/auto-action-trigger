@@ -1,0 +1,71 @@
+0: INFO:utils.utils:Imported module 'configs.deepseek'.
+0: INFO:utils.utils:Loaded config: DEEPSEEK_V3_PRETRAIN_CONFIG_GB300_FP8_MX_V2
+0: INFO:utils.utils:WorkloadBaseConfig(num_gpus=256, tensor_model_parallel_size=1, pipeline_model_parallel_size=2, context_parallel_size=1, virtual_pipeline_model_parallel_size=8, expert_model_parallel_size=32, expert_tensor_parallel_size=1, global_batch_size=4096, micro_batch_size=2, use_megatron_fsdp=None, nccl_ub=None, cuda_graph_impl=None, cuda_graph_scope=[], cpu_offloading_num_layers=None, recompute_num_layers=None, recompute_modules=['mla_up_proj'], moe_flex_dispatcher_backend='hybridep', moe_a2a_overlap=False, peft=None, pp_layout='Et*4|(t*4|)*14tmL')
+0: Traceback (most recent call last):
+0:   File "/opt/venv/lib/python3.12/site-packages/transformers/utils/hub.py", line 420, in cached_files
+0:     hf_hub_download(
+0:   File "/opt/venv/lib/python3.12/site-packages/huggingface_hub/utils/_validators.py", line 88, in _inner_fn
+0:     return fn(*args, **kwargs)
+0:            ^^^^^^^^^^^^^^^^^^^
+0:   File "/opt/venv/lib/python3.12/site-packages/huggingface_hub/file_download.py", line 1010, in hf_hub_download
+0:     return _hf_hub_download_to_cache_dir(
+0:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+0:   File "/opt/venv/lib/python3.12/site-packages/huggingface_hub/file_download.py", line 1161, in _hf_hub_download_to_cache_dir
+0:     _raise_on_head_call_error(head_call_error, force_download, local_files_only)
+0:   File "/opt/venv/lib/python3.12/site-packages/huggingface_hub/file_download.py", line 1786, in _raise_on_head_call_error
+0:     raise LocalEntryNotFoundError(
+0: huggingface_hub.errors.LocalEntryNotFoundError: Cannot find the requested files in the disk cache and outgoing traffic has been disabled. To enable hf.co look-ups and downloads online, set 'local_files_only' to False.
+0:
+0: The above exception was the direct cause of the following exception:
+0:
+0: Traceback (most recent call last):
+0:   File "/opt/Megatron-Bridge/src/megatron/bridge/models/hf_pretrained/safe_config_loader.py", line 101, in safe_load_config_with_retry
+0:     return AutoConfig.from_pretrained(path, trust_remote_code=trust_remote_code, **kwargs)
+0:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+0:   File "/opt/venv/lib/python3.12/site-packages/transformers/models/auto/configuration_auto.py", line 1429, in from_pretrained
+0:     config_dict, unused_kwargs = PreTrainedConfig.get_config_dict(pretrained_model_name_or_path, **kwargs)
+0:                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+0:   File "/opt/venv/lib/python3.12/site-packages/transformers/configuration_utils.py", line 574, in get_config_dict
+0:     config_dict, kwargs = cls._get_config_dict(pretrained_model_name_or_path, **kwargs)
+0:                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+0:   File "/opt/venv/lib/python3.12/site-packages/transformers/configuration_utils.py", line 629, in _get_config_dict
+0:     resolved_config_file = cached_file(
+0:                            ^^^^^^^^^^^^
+0:   File "/opt/venv/lib/python3.12/site-packages/transformers/utils/hub.py", line 277, in cached_file
+0:     file = cached_files(path_or_repo_id=path_or_repo_id, filenames=[filename], **kwargs)
+0:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+0:   File "/opt/venv/lib/python3.12/site-packages/transformers/utils/hub.py", line 494, in cached_files
+0:     raise OSError(
+0: OSError: We couldn't connect to 'https://huggingface.co' to load the files, and couldn't find them in the cached files.
+0: Check your internet connection or see how to run the library in offline mode at 'https://huggingface.co/docs/transformers/installation#offline-mode'.
+0:
+0: The above exception was the direct cause of the following exception:
+0:
+0: Traceback (most recent call last):
+0:   File "/opt/Megatron-Bridge/scripts/performance/run_script.py", line 122, in <module>
+0:     main()
+0:   File "/opt/Megatron-Bridge/scripts/performance/run_script.py", line 74, in main
+0:     recipe = get_perf_optimized_recipe(
+0:              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+0:   File "/opt/Megatron-Bridge/scripts/performance/utils/utils.py", line 261, in get_perf_optimized_recipe
+0:     return recipe_builder(**kwargs)
+0:            ^^^^^^^^^^^^^^^^^^^^^^^^
+0:   File "/opt/Megatron-Bridge/scripts/performance/configs/deepseek/deepseek_llm_pretrain.py", line 62, in deepseek_v3_pretrain_config_gb300
+0:     cfg = pretrain_config()
+0:           ^^^^^^^^^^^^^^^^^
+0:   File "/opt/Megatron-Bridge/src/megatron/bridge/recipes/deepseek/deepseek_v3.py", line 60, in deepseek_v3_pretrain_config
+0:     cfg.model = AutoBridge.from_hf_pretrained("deepseek-ai/DeepSeek-V3").to_megatron_provider(load_weights=False)
+0:                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+0:   File "/opt/Megatron-Bridge/src/megatron/bridge/models/conversion/auto_bridge.py", line 262, in from_hf_pretrained
+0:     config = safe_load_config_with_retry(path, trust_remote_code=trust_remote_code, **config_kwargs)
+0:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+0:   File "/opt/Megatron-Bridge/src/megatron/bridge/models/hf_pretrained/safe_config_loader.py", line 134, in safe_load_config_with_retry
+0:     raise ValueError(
+0: ValueError: Failed to load configuration from deepseek-ai/DeepSeek-V3 after 4 attempts. This might be due to network issues or concurrent access conflicts. Last error: We couldn't connect to 'https://huggingface.co' to load the files, and couldn't find them in the cached files.
+0: Check your internet connection or see how to run the library in offline mode at 'https://huggingface.co/docs/transformers/installation#offline-mode'.
+srun: error: sys1-gso1-p-phy-gpu1-su20: tasks 0,2-3: Exited with exit code 1
+srun: Terminating StepId=207416.1
+0: [2026-10-17T00:42:40.968] error: *** STEP 207416.1 ON sys1-gso1-p-phy-gpu1-su20 CANCELLED AT 2026-10-17T00:42:40 DUE TO TASK FAILURE ***
+srun: error: sys1-gso1-p-phy-gpu1-su20: task 1: Exited with exit code 1
+exit status: 1
+FAIL

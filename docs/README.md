@@ -59,6 +59,7 @@ Task-oriented, for someone who already knows the system.
 | [build-containers.md](how-to/build-containers.md) | `build_containers.sh`, the NGC login, cross-building for ARM |
 | [add-a-health-check-set.md](how-to/add-a-health-check-set.md) | The baseline, adding a check, a set for another platform |
 | [enable-llm-pretrain.md](how-to/enable-llm-pretrain.md) | Stage the NeMo image and standalone Llama cache, then run both LLM jobs |
+| [run-deepseek-v3-proxy.md](how-to/run-deepseek-v3-proxy.md) | Validate a standalone four-GPU DeepSeek proxy before automation rollout |
 | [capture-an-sbatch-from-llmb-run.md](how-to/capture-an-sbatch-from-llmb-run.md) | Getting the batch script `llmb-run` generates out of a cluster, and what to keep from it |
 | [enable-nvsm.md](how-to/enable-nvsm.md) | The sudoers grant and platform definition files NVSM needs (DGX only) |
 | [configure-slurm-submission-limits.md](how-to/configure-slurm-submission-limits.md) | Set and verify the `MaxSubmitJobs` association limit and the controller enforcement it requires |

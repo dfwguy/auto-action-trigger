@@ -125,18 +125,20 @@ The five NCCL bandwidth gates, in GB/s:
 |---------|---------|-----|
 | `VERDICT_MAX_STEP_MS_LLM_PRETRAIN` | `3480` | `llm-pretrain` |
 | `VERDICT_MAX_STEP_MS_LLM_SOLO` | `3510` | `llm-pretrain-solo`, across all four copies |
+| `VERDICT_MAX_STEP_MS_DEEPSEEK_V3_PROXY` | `0` | `deepseek-v3-proxy`; no performance ceiling until healthy runs establish one |
 
 Milliseconds, compared against the **median** iteration of the run, so the
-init and CUDA-graph-capture iterations do not move it. `0` skips the check.
+init and CUDA-graph-capture iterations do not move it. `0` or an empty value
+skips the check.
 
-Both started as **estimates**: +5% of a single healthy GB300 tray, which
+The two Llama ceilings started as **estimates**: +5% of a single healthy GB300 tray, which
 measured 3310 ms at four GPUs and 3341 ms per solo copy. A 2,013-node fleet has
 since put the median at 3320 ms and 3355 ms — within 0.5% of that one tray — so
 they are now an observed band rather than a guess, and the shipped values stand.
 See
 [explanation/llmb.md#judging-the-step-time](../explanation/llmb.md#judging-the-step-time).
 
-Neither is what catches a run that stopped part-way, which has a healthy median
+The timing ceiling does not catch a run that stopped part-way, which has a healthy median
 over the iterations it managed. `VERDICT_MIN_LLM_ITERATIONS` in
 `parsers/$PARSERS/verdict.sh` does that, and ships as `50` — the recipe's whole
 run. See

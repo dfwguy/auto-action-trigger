@@ -65,7 +65,7 @@ This is the only thing in the tree that comes near storing a judgement, and what
 makes it legitimate is what is in the key:
 
 - **The gate.** `verdict.sh` and `verdict-scan.sh` are hashed in, and every
-  `VERDICT_MIN_PEAK_BW_*` is added by name and value, so editing a floor
+  `VERDICT_MIN_PEAK_BW_*` and `VERDICT_MAX_STEP_MS_*` is added by name and value, so editing a floor
   invalidates every entry at once and the fleet is re-judged. Floors move as the
   platform is learned, and the bandwidth ones live in `SETTINGS`
   ([reference/settings.md#benchmark-pass-floors](../reference/settings.md#benchmark-pass-floors))

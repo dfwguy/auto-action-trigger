@@ -37,6 +37,8 @@ VERDICT_MIN_PEAK_BW_ALLTOALL_NONVLINK=83
 ## See docs/explanation/llmb.md#judging-the-step-time.
 VERDICT_MAX_STEP_MS_LLM_PRETRAIN=3480
 VERDICT_MAX_STEP_MS_LLM_SOLO=3510
+## 0 disables the ceiling until healthy GB300 runs establish a baseline.
+VERDICT_MAX_STEP_MS_DEEPSEEK_V3_PROXY=0
 
 ## ── Burn-in ───────────────────────────────────────────────────────────────
 ## RUN_BURNIN is set in Run switches, below, next to the rest -- see

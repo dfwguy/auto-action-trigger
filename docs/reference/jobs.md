@@ -73,6 +73,7 @@ re-check on a node.
 | `mnubergemm` | Burn-in — steady load | Hybrid / Exhaustive | MNUberGEMM Burn-In |
 | `mnubergemm-pulse` | Burn-in — pulsed load, off by default | Hybrid / Exhaustive | MNUberGEMM Burn-In |
 | `llm-pretrain` | Single-node LLM pre-training gate — frozen from an `llmb-run` capture | Hybrid / Exhaustive | Single-Node LLM Pre-Training |
+| `deepseek-v3-proxy` | Reduced DeepSeek-V3 FP8-MX training on one four-GPU GB300 node; manual opt-in | Exploratory | — |
 | `llm-pretrain-solo` | 4 independent 1-GPU pre-training copies; finds *which* GPU is slow | Hybrid / Exhaustive | — |
 | `hpl` `cublasmatmul` | Remediation-only single-node GEMM — run by hand | Remediation | HPL / cuBlasMatMul |
 
@@ -468,3 +469,19 @@ Slurm admin for: `LaunchParameters=srun_exclusive_allocation` (steps inherit the
 whole allocation), `DefMemPerNode=0` (removes the `--mem=0` requirement), and
 `OverSubscribe=EXCLUSIVE` (jobs get whole nodes without asking). The header is
 written not to depend on any of them.
+
+## DeepSeek-V3 proxy
+
+`jobs/nvl72/deepseek-v3-proxy.sbatch` and the identical `nvl72-spx` job
+follow Exemplar v26.06.01's
+four-GPU GB300 proxy: NeMo 26.04.01, FP8-MX, 24 layers, hidden size 1024,
+TP=1, PP=1, VP disabled, EP=4 and micro-batch size 4. It is a reduced
+training workload, not full-model inference or a distributed fabric test.
+The runner is inside the container; the only shared runtime input is the
+cache named by `LLM_HF_HOME`. Experiment files stay in the writable container.
+
+The parser requires 50 timing records and no recognized runtime errors. Its
+independent step-time ceiling defaults to zero, so a functional pass does not
+establish performance acceptance. The job is absent from `BENCHMARKS` until
+site validation justifies enabling it. See
+[the run procedure](../how-to/run-deepseek-v3-proxy.md).
