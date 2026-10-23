@@ -153,6 +153,11 @@ generic header would get wrong.
   allowed to use and the run dies in `CUDA_ERROR_NO_DEVICE` (MOP section 2.4).
   The allocation asks with `--gres` for that reason, and exports
   `NVIDIA_VISIBLE_DEVICES=all` so the Pyxis/Enroot hook bind-mounts every GPU.
+- **`nvloom-rack-nvlink` is submitted manually**, using
+  `jobs/nvl72/nvloom-rack-nvlink.sbatch` or
+  `jobs/nvl72-spx/nvloom-rack-nvlink.sbatch`. Explicitly select 18 four-GPU
+  nodes from one NVLink rack/domain with `sbatch -w <nodelist>`. Its preflight
+  checks GPU/CPU allocation, not rack membership.
 - **The `dcgmi-r*` jobs run `dcgmi` in the batch body, not in a step.** That is
   deliberate — it sees the job's GPUs without restating `--gres` — and it is why
   they bound their work with `timeout` rather than `srun --time`. The `--gres`
