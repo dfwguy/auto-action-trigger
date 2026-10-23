@@ -29,7 +29,7 @@ refs=$(mktemp) || exit 1
 trap 'rm -f "$anchors" "$refs"' EXIT
 
 ## Headings, skipping fenced blocks: docs/reference/health-checks.md documents a check
-## file whose own lines start with `#`, and CLAUDE.md quotes shell comments.
+## file whose own lines start with `#`, and contributor docs quote shell comments.
 ## Duplicate slugs in one file take the -1, -2 suffixes the renderers assign.
 ## No `{1,6}` here: mawk before 1.3.4-20240123 -- which is what Debian bookworm
 ## ships, and what CI runs -- takes an interval expression literally and matches
@@ -59,7 +59,8 @@ if [[ "${#pages[@]}" -eq 0 ]]; then
     echo "no pages under docs/ -- has the tree moved?" >&2
     exit 1
 fi
-find_headings "${pages[@]}" README.md CLAUDE.md | sort -u >"$anchors"
+mapfile -t root_pages < <(find . -maxdepth 1 -name '*.md' -printf '%f\n' | sort)
+find_headings "${pages[@]}" "${root_pages[@]}" | sort -u >"$anchors"
 
 ## Every anchored reference fails identically when this file comes out empty, so
 ## the one broken thing reads as several hundred broken things. Say which it is.

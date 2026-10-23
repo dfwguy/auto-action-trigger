@@ -177,7 +177,7 @@ So the heartbeat proves the timer fired, and each gate writes down why it
 stopped. Between them, a line written *this cycle* means the chain is intact by
 definition, and whatever is holding the node has already named itself.
 
-That is why the rule in `CLAUDE.md` says a new gate gets a trace line, and an
+That is why the rule in [AGENTS.md](../../AGENTS.md#runtime-constraints) says a new gate gets a trace line, and an
 `exit 0` with no explanation is a bug **even when the behaviour is correct**.
 
 ## 6. Why one step detaches its work

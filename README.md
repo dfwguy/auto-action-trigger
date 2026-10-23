@@ -49,6 +49,9 @@ is the compass; the four entry points are:
 | looking up a setting, a flag, or what a trace line means | [docs/reference/](docs/reference/) — `SETTINGS`, the job catalog, the 38 health checks, every operator script |
 | trying to understand why it works this way | [docs/explanation/](docs/explanation/) — the sequencer, derived verdicts, drain recovery, containers |
 
+Contributors and AI assistants: read [AGENTS.md](AGENTS.md) and follow the
+[contributor workflow](docs/how-to/contribute.md).
+
 ## Prerequisites
 
 ### The automation user

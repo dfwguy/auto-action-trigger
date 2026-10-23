@@ -71,6 +71,23 @@ The same principle shapes several decisions that look unrelated:
 - A drain that could not be issued says so, rather than leaving a node that
   looks fine.
 
+### No answer is not an answer
+
+Probes have three outcomes: success, definite failure, and no conclusive answer.
+An empty `systemctl show` response does not establish that a timer is broken;
+a failed `scontrol listjobs` does not establish that a node is idle. Report the
+actual response and withhold action when its prerequisites cannot be verified.
+Treating uncertainty as certainty once produced fleet-wide `FAILED` reports
+for timers that were firing correctly.
+
+### Verify the outcome, not the request
+
+An installer must verify what became true, not just the commands it issued.
+A successful request to start a timer says less than a scheduled timer and a
+heartbeat the node can write. The installer previously printed successful
+steps while leaving nodes unable to run a cycle; checking those outcomes
+exposed faults the individual command statuses did not.
+
 ## Reaching nodes is clush or pdsh
 
 Nothing in this tree, and nothing in these docs, reaches a node with a bare

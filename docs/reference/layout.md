@@ -148,10 +148,12 @@ pieces fit together this way is
 │           ├── hpl1N.dat              # HPL config for 1-node runs
 │           └── hpl2N.dat              # HPL config for 2-node runs
 │
+├── AGENTS.md                      # Shared instructions for all AI contributors
+├── CLAUDE.md                      # Claude entry point; imports AGENTS.md
 ├── README.md                      # Entry point: what the framework is and how to deploy it
 ├── docs/                          # This directory
 ├── tests/                         # Offline suites; stub Slurm, need no cluster
-├── .gitlab-ci.yml                 # CI: the tests, plus the conventions in CLAUDE.md
+├── .gitlab-ci.yml                 # CI: the tests, plus the conventions in AGENTS.md
 ├── build_containers.sh            # Build job container images into containers/
 ├── build_llmb.sh                  # Install/inspect the optional llmb-run capture workspace
 ├── llmb_check.py                  # Resolve and report an llmb install; run by build_llmb.sh
@@ -272,19 +274,24 @@ warns rather than failing silently when it finds one it cannot write.
 
 ## Executable bits
 
-The `755`/`644` split across the tree is deliberate and asymmetric. The table in
-`CLAUDE.md` says which a given file is and why, and the `permissions` CI job
-enforces it. The whole tree at once:
+The split is deliberate. Before changing a mode, work out which of these a file
+is:
+
+| Mode | What | Why |
+|------|------|-----|
+| `755` | Entry points — anything a human or a systemd unit invokes directly, `agent/*.sh` included | Must be `exec`able. The unit names a path and runs it; a `644` agent script installs fine and silently runs nothing, which is why `install-agent.sh` preflights the bit |
+| `644` | Sourced libraries: `settings.sh`, `priv.sh`, `fanout.sh`, `reason-map.sh`, `slurm-snapshot.sh`, `slurm-recovery.sh`, `get-out-of-the-way.sh`, `verdict-scan.sh`, `report-format.sh`, `health-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is also *run*, but as `bash verdict-scan.sh` from its own `xargs`, like the health checks below |
+| `644` | `agent/units/*.service`, `agent/units/*.timer`, `agent/sudoers.default` | Read, never run. `install-agent.sh` copies the units with `@BRINGUP_HOME@` and `@INTERVAL@` substituted; the sudoers file is a reference the site installs itself, at `0440` |
+| `644` | `llmb_check.py` | `build_llmb.sh` runs it as `python3 llmb_check.py`, like the health checks below |
+| `644` | `health-checks/*/NN-*.sh` | `node_health.sh` runs each as `bash "$check_file"` — deliberately, so one check's `exit 1` cannot truncate the set of 46 |
+| `644` | `jobs/*/*.sbatch`, including `example.sbatch` | `sbatch` reads them; it does not exec them. `example.sbatch` is a template that gets `cp`'d, so a stray `755` propagates into every new job |
+| `644` | `jobs/*/*.sh` — the sourced `nccl-hca.sh`, and any host launcher | `launch_job.sh` runs a host launcher as `bash "$launch"`, like the health checks. A launcher is told apart from a sourced helper by a `job_launch=host` line, not by its mode or name — see `docs/explanation/sequencing.md#host-launched-jobs`. No job ships as one today |
+
+Check the whole tree with:
 
 ```bash
 git ls-files -s | awk '{print $1, $4}' | sort
 ```
-
-The short version: entry points a human or a systemd unit invokes directly are
-`755`; sourced libraries, unit files, `.sbatch` files, health checks and host
-launchers are `644`, because each is run as `bash <file>`, read by `sbatch`, or
-read by systemd rather than executed. A `644` agent script installs happily and
-then never runs, which is why `install-agent.sh` preflights the bit.
 
 ## Slurm permissions
 
@@ -309,7 +316,8 @@ changes are limited to `root` and the `SlurmUser`.
 
 ## What CI gates on
 
-`.gitlab-ci.yml` runs the checks listed under "Before committing" in `CLAUDE.md`,
+`.gitlab-ci.yml` runs the checks listed in
+[the contributor reference](contributing.md#before-committing),
 and it is the last gate before a change reaches a cluster; there is no staging
 deployment behind it. Nothing in the pipeline talks to Slurm, BCM or a GPU — the
 suites stub those on `PATH` — so a job that needs cluster access does not belong
