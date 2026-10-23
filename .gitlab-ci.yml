@@ -1,4 +1,4 @@
-# Pipeline for the checks in "Before committing" (CLAUDE.md). Last gate before
+# Pipeline for the checks in docs/reference/contributing.md. Last gate before
 # a change reaches a cluster; there is no staging deployment behind it.
 #
 # Nothing here talks to Slurm, BCM or a GPU -- the suites stub those on PATH.
@@ -85,7 +85,7 @@ permissions:
   extends: .base
   stage: lint
   # The exec-bit split breaks silently in both directions and survives a tarball
-  # drop. See the mode table in CLAUDE.md.
+  # drop. See the mode table in docs/reference/layout.md.
   script:
     - |
       status=0
@@ -152,8 +152,23 @@ permissions:
       # abup has no .sh extension, so the glob above never finds it.
       check 100755 abup
 
-      [ "$status" -eq 0 ] && echo "modes match the table in CLAUDE.md"
+      [ "$status" -eq 0 ] && echo "modes match the table in docs/reference/layout.md"
       exit $status
+
+instruction-entrypoints:
+  extends: .base
+  stage: lint
+  script:
+    - test -s AGENTS.md
+    - test "$(wc -l < AGENTS.md)" -le 150
+    - |
+      awk '
+        /^# Repository instructions$/ || /^[[:space:]]*$/ { next }
+        /^@AGENTS[.]md$/ { imports++; next }
+        { print "policy belongs in AGENTS.md, not CLAUDE.md: " $0; bad=1 }
+        END { if (imports != 1 || bad) exit 1 }
+      ' CLAUDE.md
+    - echo "shared instructions present; Claude adapter contains only its import"
 
 layout-doc:
   extends: .base

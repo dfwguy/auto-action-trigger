@@ -47,8 +47,9 @@ would otherwise have to be built and then kept correct:
 - **The cadence gate.** Collection happens every `HEALTH_INTERVAL_HOURS`, below
   the gate rather than above it. A collector on the agent cycle instead would be
   a per-node inventory sweep every two minutes, which on 2,000 nodes is the
-  arithmetic in `CLAUDE.md` — work multiplied by the fleet, for an answer that
-  changes when somebody replaces a card.
+  [fleet cost arithmetic](the-agent-and-the-watchdog.md#what-a-cycle-costs-the-share):
+  work multiplied by the fleet, for an answer that changes when somebody
+  replaces a card.
 - **The sudo preflight.** `node_health.sh` discovers privileged commands by
   grepping `sudo -n <cmd>` out of the check set, so `dmidecode` and `ipmitool`
   in `45-nodeinfo.sh` are preflighted with everything else. Neither is a new
@@ -56,9 +57,9 @@ would otherwise have to be built and then kept correct:
   `37-dmesg-ipmi_ssif`.
 - **One writer per file.** Each node writes only its own `logs/<node>/nodeinfo`.
   A single fleet-wide inventory file would be 2,000 hosts writing one path on
-  NFS, which is the failure `CLAUDE.md` records under *a shared `$HOME` is a
-  shared everything* — hosts taking each other's file and leaving a zero-length
-  one behind. If a single file is wanted for something downstream, it is built
+  NFS, which is the failure described in
+  [shared units](the-agent-and-the-watchdog.md#one-unit-for-both-roles): hosts
+  taking each other's file and leaving a zero-length one behind. If a single file is wanted for something downstream, it is built
   on the head node by reading the 2,000, not written by them.
 
 ## It is not a baseline
@@ -99,9 +100,9 @@ Every key is always present. A node with no GPUs prints `gpu:` and the reason,
 not nothing; a refused `dmidecode` prints `not reported (dmidecode gave
 nothing)`, not an empty value.
 
-This is the rule in `CLAUDE.md` — *no answer is not an answer* — applied to
-inventory. The failure it guards against is specific: a refused `sudo` writes to
-stderr, which the runner discards, and leaves stdout empty. `node.serial:` with
+This applies the [inconclusive probe rule](architecture.md#no-answer-is-not-an-answer)
+to inventory. The failure it guards against is specific: a refused `sudo`
+writes to stderr, which the runner discards, and leaves stdout empty. `node.serial:` with
 nothing after it is then indistinguishable from a chassis that genuinely reports
 no serial, and the reader has no way to tell which they are looking at. Three
 outcomes, not two: the value, a definite absence, or *the tool did not say* —
@@ -111,7 +112,7 @@ The BMC is the sharpest case, and the only one with a timeout. A wedged BMC
 answers neither way, and `ipmitool` against one blocks rather than failing. Both
 `44-bmc-firmware` and the `bmc` section here run under `timeout`, because a
 check that hangs holds the whole health run and, through it, the agent cycle —
-`CLAUDE.md`, *nothing may depend on how long something else took*. A BMC that
+see [work that outlives a cycle](containers.md#the-copy-is-its-own-unit). A BMC that
 does not answer inside the timeout is reported as not having answered, which for
 `44-bmc-firmware` also means that check differs from its baseline. That is
 intended: a BMC nothing can reach is worth a line in a report.

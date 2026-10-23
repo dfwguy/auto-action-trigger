@@ -11,7 +11,8 @@ Four directories, four different jobs:
 | trying to understand why it works this way | [explanation/](#explanation) |
 
 The [root README](../README.md) covers prerequisites and what has to be in place
-before any of this.
+before any of this. Contributors and AI assistants start with the shared
+[instructions](../AGENTS.md) and [contributor workflow](how-to/contribute.md).
 
 ## Tutorials
 
@@ -50,6 +51,12 @@ Task-oriented, for someone who already knows the system.
 | [find-outlier-nodes.md](how-to/find-outlier-nodes.md) | Find the slow node when every benchmark is passing |
 | [export-a-report.md](how-to/export-a-report.md) | Getting `report_benchmarks.sh` into a spreadsheet |
 
+**Contributing**
+
+| Page | Covers |
+|------|--------|
+| [contribute.md](how-to/contribute.md) | Shared AI instructions, memory migration, fresh-session verification and preparing a change |
+
 **Setting it up**
 
 | Page | Covers |
@@ -82,6 +89,7 @@ Lookup-oriented. Dry, complete, scannable.
 
 | Page | Covers |
 |------|--------|
+| [contributing.md](reference/contributing.md) | Editing conventions, test selection and self-printing help headers |
 | [settings.md](reference/settings.md) | Every key in `SETTINGS`, its default and what a valid value looks like |
 | [scripts.md](reference/scripts.md) | Every operator script and what its output means |
 | [jobs.md](reference/jobs.md) | The `jobs/$JOBS/` catalog, allocation header, time limits, queue priority |
@@ -119,5 +127,5 @@ Understanding-oriented. Why it is like this, and what it cost to find out.
 A new page goes in exactly one of the four directories, and the split that gets
 got wrong is reference against explanation: a settings table is reference, *why
 that default* is explanation. A page that needs to be both is two pages. See the
-`docs/` section in `CLAUDE.md`, and run `./tests/doc-links-test.sh` after moving
-or retitling anything.
+[documentation conventions](reference/contributing.md#documentation-structure),
+and run `./tests/doc-links-test.sh` after moving or retitling anything.
