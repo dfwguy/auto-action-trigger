@@ -51,7 +51,7 @@ srun --time="$STEP_TIMELIMIT" \
   --container-image="${CONT}" \
   nvloom_cli \
     -r \
-    -s gpu-to-rack egm-gpu-to-rack fabric-stress multicast all-to-one \
+    -s gpu-to-rack egm-gpu-to-rack pairwise fabric-stress multicast all-to-one \
     --gpuToRackSamples ${RACK_SAMPLES}
 rc=$?
 
