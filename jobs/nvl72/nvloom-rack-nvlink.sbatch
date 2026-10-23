@@ -21,7 +21,7 @@ RACK_SAMPLES=${RACK_SAMPLES:-5}
 
 unset SLURM_CPUS_PER_TASK SLURM_TRES_PER_TASK SRUN_CPUS_PER_TASK
 
-srun --ntasks-per-node=1 bash -c '
+srun --nodes="$SLURM_NNODES" --ntasks="$SLURM_NNODES" --ntasks-per-node=1 bash -c '
     gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
     echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
     [[ "$gpus" -eq 4 && "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
@@ -35,6 +35,19 @@ CONT=${NODE_CONTAINER_DIR:-/opt/containers}/$IMG
 [[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}/$IMG
 
 export NVIDIA_VISIBLE_DEVICES=all
+
+## Open MPI otherwise considers the Spectrum-X rail/VRF interfaces, whose
+## addresses are not in the default namespace, and can abort MPI_Allgather
+## with EADDRNOTAVAIL. Use the routable host interface for MPI coordination.
+MPI_IFACE=${MPI_IFACE:-$(ip -4 route show default | awk 'NR == 1 { print $5 }')}
+[[ -n "$MPI_IFACE" ]] || {
+    echo "preflight: no default-route interface found for MPI coordination"
+    echo FAIL
+    exit 0
+}
+export OMPI_MCA_btl_tcp_if_include="$MPI_IFACE"
+export OMPI_MCA_oob_tcp_if_include="$MPI_IFACE"
+echo "MPI coordination interface: $MPI_IFACE"
 
 srun --time="$STEP_TIMELIMIT" \
   --container-image="${CONT}" \
