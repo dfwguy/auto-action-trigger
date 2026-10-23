@@ -3,8 +3,11 @@
 For running one of the `jobs/$JOBS/*.sbatch` files with `sbatch` yourself,
 rather than through `launch_job.sh`.
 
-**Try `--test` first.** `launch_job.sh -t <job>` runs any job in the directory,
-whether or not `BENCHMARKS` names it, and supplies everything below correctly:
+For rack-wide NVLoom, use [run NVLoom tests](run-nvloom-tests.md): it needs
+one explicitly selected 18-node rack allocation, submitted directly.
+
+**For single-node jobs, try `--test` first.** `launch_job.sh -t <job>` runs
+a job whether or not `BENCHMARKS` names it, and supplies everything below:
 
 ```bash
 clush -w ink50-dh01-h01-11 '/cluster/bringup/actions/launch_job.sh -t hpl -v'

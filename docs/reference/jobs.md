@@ -76,6 +76,7 @@ re-check on a node.
 | `fio` | Local NVMe / shared storage | Exhaustive | fio |
 | `ethr` | North-south management + storage NIC | Exhaustive | ethr |
 | `nvloom` | MNNVL fabric — optional / exploratory | Exhaustive | nvloom |
+| `nvloom-rack-nvlink` | Rack-wide NVLink validation on 18 four-GPU nodes; manually submitted only | Exploratory | — |
 | `mnubergemm` | Burn-in — steady load | Hybrid / Exhaustive | MNUberGEMM Burn-In |
 | `mnubergemm-pulse` | Burn-in — pulsed load, off by default | Hybrid / Exhaustive | MNUberGEMM Burn-In |
 | `llm-pretrain` | Single-node LLM pre-training gate — frozen from an `llmb-run` capture | Hybrid / Exhaustive | Single-Node LLM Pre-Training |
@@ -157,7 +158,8 @@ generic header would get wrong.
   `jobs/nvl72/nvloom-rack-nvlink.sbatch` or
   `jobs/nvl72-spx/nvloom-rack-nvlink.sbatch`. Explicitly select 18 four-GPU
   nodes from one NVLink rack/domain with `sbatch -w <nodelist>`. Its preflight
-  checks GPU/CPU allocation, not rack membership.
+  checks GPU/CPU allocation, not rack membership. See
+  [run NVLoom tests](../how-to/run-nvloom-tests.md).
 - **The `dcgmi-r*` jobs run `dcgmi` in the batch body, not in a step.** That is
   deliberate — it sees the job's GPUs without restating `--gres` — and it is why
   they bound their work with `timeout` rather than `srun --time`. The `--gres`
@@ -213,6 +215,38 @@ generic header would get wrong.
   passes), `ethr` (two per interface) and `nvsm` (stress, then health) set an
   aggregate that is only ever raised, so a later success cannot overwrite an
   earlier failure: any pass failing means the job did not run to completion.
+
+## NVLoom jobs
+
+Both job sets, `nvl72` and `nvl72-spx`, ship these files. The
+[run procedure](../how-to/run-nvloom-tests.md) covers prerequisites,
+submission and log inspection.
+
+| Job | Allocation | NVLoom suites |
+|-----|------------|---------------|
+| `nvloom` | 1 node, 4 GPUs, 4 MPI tasks | `pairwise fabric-stress all-to-one multicast` |
+| `nvloom-rack-nvlink` | 18 nodes in one NVLink rack/domain, 4 GPUs and 4 MPI tasks per node | `gpu-to-rack egm-gpu-to-rack pairwise fabric-stress multicast all-to-one`, with `-r` |
+
+Both jobs use `nvloom-v2.0.0-<arch>.sqsh`, preferring `NODE_CONTAINER_DIR`
+(default `/opt/containers`) over the required shared `CONTAINER_DIR`
+fallback. Both request exclusive nodes and all memory. The rack job is
+manually submitted and is not an automatic per-node benchmark.
+
+| Parameter | Applies to | Default / behavior |
+|-----------|------------|--------------------|
+| `RACK_SAMPLES` | Rack job | Environment override; defaults to `5`. The single-node job assigns `5` internally |
+| `MPI_IFACE` | Rack job | Environment override; otherwise the batch host's first IPv4 default-route interface. Exported through both `OMPI_MCA_btl_tcp_if_include` and `OMPI_MCA_oob_tcp_if_include` |
+| `NVIDIA_VISIBLE_DEVICES` | Both | Exported as `all`; do not add `--gpus-per-task` |
+
+The job files write `PENDING` after a zero workload exit and `FAIL` on a
+preflight or workload failure. `parsers/` is a directory in this repository:
+`PARSERS=nvl72` or `PARSERS=spectrum-x` selects the `verdict.sh` that derives
+the result status. The `nvloom` gate requires a rack GUID, rejects known
+run/CUDA/assertion/MPI errors and requires one distinct parsed rack GUID.
+`nvloom-rack-nvlink` currently falls through to the generic gate; it has no
+NVLoom-specific result validation. Neither gate validates bandwidth
+uniformity, and neither replaces selecting the correct rack/domain before
+submission.
 
 ## The allocation header
 
@@ -420,6 +454,7 @@ checked against how its neighbours were sized:
 | `dcgmi-r4` | `3h` (`timeout`) | `3:10:00` | 2× ~45–90 min, taking the upper end |
 | `nvbandwidth` | `0:30:00` | `0:40:00` | 2× ~15 min |
 | `nvloom` | `1:00:00` | `1:10:00` | 2× the plan's 30 min for the Scope 1 health check |
+| `nvloom-rack-nvlink` | `1:20:00` | `1:30:00` | Manually submitted 18-node rack test |
 | `nvsm` | `0:35:00` stress + `0:05:00` health | `0:50:00` | 2× ~20 min, which `STRESS_SECONDS=1200` matches; the two steps sum inside the walltime |
 | `stream`, `memtester` | `4:00:00` | `4:10:00` | 2× the ~1–2 hr STREAM + Memtester row, upper end |
 | `stress-ng` | `2:00:00` | `2:10:00` | 2× `TIMEOUT=3600`, which is the plan's ~1 hr |

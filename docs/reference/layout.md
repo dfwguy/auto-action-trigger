@@ -76,6 +76,7 @@ pieces fit together this way is
 │       ├── fio.sbatch                 # Local NVMe / shared storage I/O
 │       ├── ethr.sbatch                # North-south management + storage NIC
 │       ├── nvloom.sbatch              # MNNVL fabric health (optional/exploratory)
+│       ├── nvloom-rack-nvlink.sbatch  # Rack-wide NVLink validation; manually select 18 nodes
 │       ├── mnubergemm.sbatch          # GPU burn-in, steady load (single node per the plan)
 │       ├── mnubergemm-pulse.sbatch    # GPU burn-in, pulsed load; off unless named in BURNIN
 │       ├── llm-pretrain.sbatch        # Single-node LLM pre-training, 4-way DP; frozen llmb-run capture
@@ -139,6 +140,7 @@ pieces fit together this way is
 │       ├── fio.sbatch                 # Local NVMe / shared storage I/O
 │       ├── ethr.sbatch                # North-south management + storage NIC
 │       ├── nvloom.sbatch              # MNNVL fabric health (optional/exploratory)
+│       ├── nvloom-rack-nvlink.sbatch  # Rack-wide NVLink validation; manually select 18 nodes
 │       ├── mnubergemm.sbatch          # GPU burn-in, steady load (single node per the plan)
 │       ├── mnubergemm-pulse.sbatch    # GPU burn-in, pulsed load; off unless named in BURNIN
 │       ├── llm-pretrain.sbatch        # Single-node LLM pre-training, 4-way DP; frozen llmb-run capture

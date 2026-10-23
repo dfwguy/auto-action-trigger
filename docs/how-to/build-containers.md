@@ -194,6 +194,9 @@ Scope 1 (basic health, ~10 min) is what runs by default; the Scope 2 burn-in
 `srun` is present but commented, and needs `#SBATCH -t` raised above
 `BURN_IN_DURATION` before use.
 
+After building the image, follow [run NVLoom tests](run-nvloom-tests.md)
+for single-node and manually selected 18-node rack submissions.
+
 ### mnubergemm
 
 NVIDIA-internal and not buildable from anything we have, but it is published in
