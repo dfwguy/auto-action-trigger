@@ -14,8 +14,6 @@
 ## Submit with an explicit node list for one rack, for example:
 ##   sbatch -w node[01-18] jobs/nvl72/nvloom-rack-nvlink.sbatch
 
-job_name=nvloom-rack
-
 STEP_TIMELIMIT=1:20:00
 RACK_SAMPLES=${RACK_SAMPLES:-5}
 
