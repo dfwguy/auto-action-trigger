@@ -37,6 +37,28 @@ gated by `RUN_BURNIN`, off by default).
 
 ## Pick a list
 
+**Two-H200 starter profile.** This profile needs host-installed `dcgmi` or a
+`cuda-dcgm` environment module and no container images. It requests exactly two
+GPUs of Slurm type `h200`:
+
+The `h200x2` DCGM job is a basic auto-action-trigger validation for compatible
+Krusty clusters. It was validated on a `cod.gpu.h200.x2.64g8c` compute node
+with two H200 GPUs.
+
+```bash
+JOBS=h200x2
+PARSERS=nvl72
+BENCHMARKS="dcgmi-r1"
+RUN_CONTAINER_COPY=no
+RUN_HEALTH_CHECKS=no
+```
+
+Confirm `scontrol show node` reports `Gres=gpu:h200:2` before enabling it.
+Keep health checks disabled until the site has an H200-specific set and a
+known-good baseline. Add benchmarks to `jobs/h200x2/` one at a time after a
+manual [`--test` run](run-a-job-by-hand.md#running-a-job-that-is-not-in-the-list)
+succeeds.
+
 **Default — ships as written.** Assumes an NGC login for `nvbandwidth`, the
 staged NeMo image and a populated `LLM_HF_HOME`:
 

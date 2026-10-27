@@ -82,7 +82,7 @@ The container images do **not** have to live under that home directory: `CONTAIN
 | `lspci` | `node_health.sh` (PCIe checks) |
 | `numactl` | `node_health.sh` (NUMA checks) |
 | `dmidecode` | `node_health.sh` (BIOS/memory checks) |
-| `dcgmi` | `jobs/nvl72/dcgmi-r1.sbatch` … `jobs/nvl72/dcgmi-r4.sbatch` |
+| `dcgmi` | `jobs/h200x2/dcgmi-r1.sbatch`, `jobs/nvl72/dcgmi-r1.sbatch` … `jobs/nvl72/dcgmi-r4.sbatch` |
 | `nvsm` | `jobs/nvl72/nvsm.sbatch` (DGX only; runs on the host, no container, needs root — see [docs/how-to/enable-nvsm.md](docs/how-to/enable-nvsm.md)) |
 | `nvidia-imex-ctl` | `node_health.sh` (IMEX checks, GB series only) |
 | `enroot` | `build_containers.sh` (headnode for the fetch pass, compute nodes for the source-build pass; pyxis already needs it there) |
