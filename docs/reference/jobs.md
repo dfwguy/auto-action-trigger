@@ -5,6 +5,12 @@ selects which one `launch_job.sh` submits from. Everything below describes
 `jobs/nvl72/`; a second platform is a second directory, not a second copy of
 this framework.
 
+`jobs/h200x2/` is the starter profile for nodes with two H200 GPUs. It
+ships only `dcgmi-r1`, requests `gpu:h200:2`, needs no container, and pairs with
+`PARSERS=nvl72`. The job uses `dcgmi` from `PATH` or loads the `cuda-dcgm`
+module. Add jobs only after validating their allocation, dependencies, and
+verdict thresholds on that hardware.
+
 `jobs/nvl72/` covers the single-node (SNT) rows of the
 [AI Factory Testing Plan](https://gitlab-master.nvidia.com/nvis-npi/validation-mops/-/blob/main/ai_factory_testing_plan.md).
 

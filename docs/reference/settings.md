@@ -86,6 +86,10 @@ nothing else may rebuild one by hand. Why they are three variables rather than
 one `PLATFORM`, and what a name resolving to a missing directory does, is in
 [explanation/platform-sets.md](../explanation/platform-sets.md).
 
+`JOBS=h200x2` selects the two-H200 starter profile. Use it with
+`PARSERS=nvl72` and `BENCHMARKS="dcgmi-r1"`; it does not provide a health-check
+set, so leave `RUN_HEALTH_CHECKS=no` until the site adds and validates one.
+
 ## The benchmark list
 
 | Setting | Default | Meaning |

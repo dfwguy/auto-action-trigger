@@ -50,6 +50,8 @@ pieces fit together this way is
 │       └── verdict.sh             # Same rule; the -nonvlink pair requires SPCX, not IB, as the chosen network
 │
 ├── jobs/                          # One directory per platform; JOBS picks one
+│   ├── h200x2/                    # Two H200 GPUs; pair with PARSERS=nvl72
+│   │   └── dcgmi-r1.sbatch        # DCGM software and deployment checks
 │   ├── nvl72/
 │       ├── example.sbatch             # Annotated template for adding new benchmarks
 │       ├── dcgmi-r1.sbatch            # DCGM diagnostics (level 1, quick gate)
