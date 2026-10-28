@@ -70,6 +70,7 @@ node is next due. See
 | `bmc-firmware` | BMC firmware revision, manufacturer and product |
 | `nodeinfo` | Per-node inventory — serials, UUIDs, MACs, addresses — **informational** |
 | `slurm-env` | `SLURM_*`, `SBATCH_*`, `SRUN_*`, `SALLOC_*` in the agent's environment, a login shell and `/etc/environment` — see [jobs.md#the-step-environment](jobs.md#the-step-environment) |
+| `drive-encryption` | Counts of block-device types, filesystem types, verified LUKS headers and NVMe security-command support; excludes device identifiers |
 
 ## The check file format
 
@@ -97,7 +98,7 @@ Three things are load-bearing:
   what the log file, the baseline file and the drain reason all use.
   Renumbering a check does not invalidate a baseline; renaming one does.
 - **Each check runs in its own `bash`**, not sourced. One check that exits or
-  sets a shell option cannot truncate the other 45.
+  sets a shell option cannot truncate the other 46.
 
 The metadata block is read from the first 10 lines and nowhere else —
 `check_meta` in `node_health.sh` narrows to that range before matching, so a
@@ -115,7 +116,7 @@ which produces the check's stdout with no banner, no log file and no diff.
 
 The cycle runs as `$JOB_USER`, so a check that needs privilege says `sudo -n`
 inline — these files are read and run on their own, and a helper on `PATH`
-would break that. Thirteen of the 46 do:
+would break that. Fourteen of the 47 do:
 
 | Command | Checks |
 |---|---|
@@ -123,6 +124,7 @@ would break that. Thirteen of the 46 do:
 | `dmidecode` | `06-memory`, `45-nodeinfo` |
 | `lspci -vvv` | `20-pcie-lnk-stat`, `21-pcie-acs`, `22-pcie-mrrs` |
 | `ipmitool` | `37-dmesg-ipmi_ssif`, `44-bmc-firmware`, `45-nodeinfo` |
+| `cryptsetup isLuks`, `nvme id-ctrl` | `47-drive-encryption` |
 
 Neither `44-bmc-firmware` nor `45-nodeinfo` needs a new sudoers rule:
 `dmidecode` and `ipmitool` were already granted for `06-memory` and
@@ -133,13 +135,67 @@ wedged BMC blocks rather than failing and would hold the whole run — see
 `lspci` without `-vvv`, `nvidia-smi`, `ibstatus`, `systemctl is-active` and
 every `/sys` and `/proc` read are unprivileged.
 
-The rules for these come from `agent/sudoers.default`, installed by the site as
-`/etc/sudoers.d/50-bringup`. `node_health.sh` discovers the list by grepping
+The site installs rules as `/etc/sudoers.d/50-bringup`, using
+`agent/sudoers.default` as a reference. `node_health.sh` discovers the list by grepping
 `sudo -n <cmd>` out of the check set and preflights it before running anything,
 so **a new check that needs a new command needs no change anywhere else** — and
 a missing rule stops the whole run rather than producing output the baseline
 will not match. Why that is fatal where every other gate here carries on is
 [explanation/running-unprivileged.md#a-lost-rule-must-stop-the-run](../explanation/running-unprivileged.md#a-lost-rule-must-stop-the-run).
+
+`drive-encryption` needs new site-managed grants for `cryptsetup isLuks` and
+`nvme id-ctrl` on block devices. The shipped sudoers reference does not grant
+these tools. Limit the grants to these read operations; granting either whole
+executable would also permit destructive subcommands. The existing preflight
+asks `sudo -n -l -- <executable>` without arguments, so the site policy must
+also allow that no-argument query. See
+[the sudoers drop-in](../explanation/running-unprivileged.md#the-sudoers-drop-in).
+
+## Drive encryption
+
+`47-drive-encryption.sh` writes a sorted count of each combination of block
+device type, filesystem type and LUKS-header result, plus NVMe
+security-command capability counts. For example:
+
+```text
+block type=disk fstype=none luks=no count=1
+block type=part fstype=crypto_LUKS luks=yes count=1
+nvme security_commands=yes count=1
+```
+
+The check requests only `NAME,TYPE,FSTYPE` from `lsblk`, probes each distinct
+device with `cryptsetup isLuks`, and discards the name before producing output.
+Whole disks, partitions, RAID, LVM volumes and active `crypt` mappings are
+included. Loop devices, optical devices and RAM disks are excluded. An unopened
+LUKS volume still reports `luks=yes`; a `type=crypt` record separately shows an
+active mapping. `fstype=none` means `lsblk` reported no filesystem signature.
+
+Device paths, mapper names, UUIDs, serials, labels, mount points, capacity,
+space usage, MACs and addresses are absent from the comparison output. Counts
+are preserved, so a missing encrypted volume or a changed storage layout still
+differs from the baseline. Equivalent layouts with different device names and
+enumeration orders produce identical output. Swapping identically configured
+disks between roles cannot be detected by this aggregate comparison.
+
+Each NVMe disk namespace is queried with `nvme id-ctrl`; only bit 0 of `oacs`
+is retained as `security_commands=yes|no`. This reports support for Security
+Send/Receive, **not whether hardware encryption is enabled**. Hardware OPAL
+locking state, detached LUKS headers and filesystem-level encryption are not
+verified. A SATA-only inventory reports `nvme: none`.
+
+The tools required are `lsblk`, `cryptsetup`, `timeout`, and `nvme` when NVMe
+disks are present. Privileged probes use `sudo -n` and a 15-second timeout per
+device. Missing tools, failed or empty inventory, failed controller queries,
+unrecognised capability output and failed LUKS probes report `unknown` and
+return nonzero. A silent `isLuks` exit 1 means no LUKS header, except when it
+contradicts a `crypto_LUKS` signature from `lsblk`; that contradiction is
+unknown. Tool diagnostics go to stderr, outside the baseline comparison.
+
+The runner judges stdout against the baseline, so capture only a validated
+result with no `unknown` fields. After deploying the source and arranging the
+site's grants, refresh the validated node and recreate the baseline with
+`admin_set-baseline.sh` before enabling drains. See
+[add one check](../how-to/add-a-health-check-set.md#add-one-check).
 
 ## Informational checks
 

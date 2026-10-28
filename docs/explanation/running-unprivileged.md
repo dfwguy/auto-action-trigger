@@ -18,7 +18,7 @@ ask for exactly what they need, by path, from a file the site controls.
 
 ## What actually needs root
 
-Less than it looks. Of the 45 health checks, 32 need nothing.
+Less than it looks. Of the 47 health checks, 33 need nothing.
 
 | Command | Used by | Why |
 |---|---|---|
@@ -26,6 +26,7 @@ Less than it looks. Of the 45 health checks, 32 need nothing.
 | `dmidecode` | `06-memory.sh`, `45-nodeinfo.sh` | reads `/dev/mem` |
 | `lspci -vvv` | `20-pcie-lnk-stat`, `21-pcie-acs`, `22-pcie-mrrs` | extended config space; `LnkSta`, `ACSCtl` and `MaxReadReq` all live past the first 64 bytes |
 | `ipmitool` | `37-dmesg-ipmi_ssif.sh`, `44-bmc-firmware.sh`, `45-nodeinfo.sh` | `/dev/ipmi0` |
+| `cryptsetup isLuks`, `nvme id-ctrl` | `47-drive-encryption.sh` | reads LUKS headers and NVMe controller capabilities; requires site-managed read-only grants |
 | `systemctl restart slurmd` | `slurm-recovery.sh` | see [drain-recovery.md#restarting-slurmd](drain-recovery.md#restarting-slurmd) |
 | `scontrol update` | the drains and resumes | see [below](#draining-without-root) |
 | `loginctl enable-linger` | `install-agent.sh`, when polkit will not let the user do it themselves | see [the-agent-and-the-watchdog.md#why-lingering](the-agent-and-the-watchdog.md#why-lingering) |

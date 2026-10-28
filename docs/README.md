@@ -93,7 +93,7 @@ Lookup-oriented. Dry, complete, scannable.
 | [settings.md](reference/settings.md) | Every key in `SETTINGS`, its default and what a valid value looks like |
 | [scripts.md](reference/scripts.md) | Every operator script and what its output means |
 | [jobs.md](reference/jobs.md) | The `jobs/$JOBS/` catalog, allocation header, time limits, queue priority |
-| [health-checks.md](reference/health-checks.md) | All 46 checks, the check file format, the reason field |
+| [health-checks.md](reference/health-checks.md) | All 47 checks, the check file format, the reason field |
 | [node-inventory.md](reference/node-inventory.md) | Every key in `logs/<node>/nodeinfo` — serials, UUIDs, MACs, addresses — and where each comes from |
 | [trace-lines.md](reference/trace-lines.md) | Every line `trigger.log` can write |
 | [reasons.md](reference/reasons.md) | Status words, verdict reasons and drain reasons, and what each implicates |

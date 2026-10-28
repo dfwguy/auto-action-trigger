@@ -209,6 +209,12 @@ pcie-snapshot:
   script:
     - ./tests/pcie-snapshot-test.sh
 
+drive-encryption:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/drive-encryption-test.sh
+
 file-copy-disabled:
   extends: .base
   stage: test
