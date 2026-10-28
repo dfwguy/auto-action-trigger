@@ -120,6 +120,7 @@ awk '/^\+\+\+ /{f=$2} /^\+[^+]/{l=substr($0,2); sub(/^[ \t]+/,"",l);
 ```bash
 ./tests/verdict-test.sh        # parser gates against captured fixtures
 ./tests/health-runner-test.sh  # the health check runner loop
+./tests/nic-settings-test.sh   # NIC discovery, normalization and query failures
 ./tests/recover-test.sh        # drain classification in slurm-recovery.sh
 ./tests/dmesg-archive-test.sh  # what check_dmesg.sh refuses to clear, if you touched it
 ./tests/help-text-test.sh      # --help blocks, if you touched a header comment

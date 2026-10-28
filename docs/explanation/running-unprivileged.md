@@ -18,7 +18,7 @@ ask for exactly what they need, by path, from a file the site controls.
 
 ## What actually needs root
 
-Less than it looks. Of the 45 health checks, 32 need nothing.
+Most checks need no privilege. The commands that do are:
 
 | Command | Used by | Why |
 |---|---|---|
@@ -26,6 +26,7 @@ Less than it looks. Of the 45 health checks, 32 need nothing.
 | `dmidecode` | `06-memory.sh`, `45-nodeinfo.sh` | reads `/dev/mem` |
 | `lspci -vvv` | `20-pcie-lnk-stat`, `21-pcie-acs`, `22-pcie-mrrs` | extended config space; `LnkSta`, `ACSCtl` and `MaxReadReq` all live past the first 64 bytes |
 | `ipmitool` | `37-dmesg-ipmi_ssif.sh`, `44-bmc-firmware.sh`, `45-nodeinfo.sh` | `/dev/ipmi0` |
+| `ethtool`, `mlnx_qos`, `dcb` | `48-nic-settings.sh` | driver configuration and DCB queries; the check issues only read commands |
 | `systemctl restart slurmd` | `slurm-recovery.sh` | see [drain-recovery.md#restarting-slurmd](drain-recovery.md#restarting-slurmd) |
 | `scontrol update` | the drains and resumes | see [below](#draining-without-root) |
 | `loginctl enable-linger` | `install-agent.sh`, when polkit will not let the user do it themselves | see [the-agent-and-the-watchdog.md#why-lingering](the-agent-and-the-watchdog.md#why-lingering) |

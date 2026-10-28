@@ -79,6 +79,7 @@ The container images do **not** have to live under that home directory: `CONTAIN
 | Slurm (`sinfo`, `scontrol`, `sbatch`, `squeue`) | `node_health.sh`, `launch_job.sh`, all `.sbatch` jobs |
 | `nvidia-smi` | `node_health.sh` (GPU checks) |
 | `ibstatus`, `mlxlink`, `perfquery` | `node_health.sh` (InfiniBand checks) |
+| `ethtool`, `mlnx_qos`, `dcb` | `nic-settings` (all host-visible NICs, including BF3; `dcb` is used for non-Mellanox Ethernet PFC) |
 | `lspci` | `node_health.sh` (PCIe checks) |
 | `numactl` | `node_health.sh` (NUMA checks) |
 | `dmidecode` | `node_health.sh` (BIOS/memory checks) |

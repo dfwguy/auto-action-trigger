@@ -203,6 +203,12 @@ health-runner:
   script:
     - ./tests/health-runner-test.sh
 
+nic-settings:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/nic-settings-test.sh
+
 pcie-snapshot:
   extends: .base
   stage: test

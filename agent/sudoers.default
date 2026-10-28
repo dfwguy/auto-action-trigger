@@ -25,6 +25,12 @@ cmods ALL=(root) NOPASSWD: /usr/bin/dmesg, \
                            /usr/bin/lspci, \
                            /usr/sbin/lspci, \
                            /usr/bin/ipmitool, \
+                           /usr/bin/ethtool, \
+                           /usr/sbin/ethtool, \
+                           /usr/bin/mlnx_qos, \
+                           /usr/sbin/mlnx_qos, \
+                           /usr/bin/dcb, \
+                           /usr/sbin/dcb, \
                            /usr/bin/systemctl restart slurmd, \
                            /usr/bin/systemctl reset-failed slurmd, \
                            /usr/bin/loginctl enable-linger cmods, \

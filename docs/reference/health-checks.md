@@ -70,6 +70,63 @@ node is next due. See
 | `bmc-firmware` | BMC firmware revision, manufacturer and product |
 | `nodeinfo` | Per-node inventory — serials, UUIDs, MACs, addresses — **informational** |
 | `slurm-env` | `SLURM_*`, `SBATCH_*`, `SRUN_*`, `SALLOC_*` in the agent's environment, a login shell and `/etc/environment` — see [jobs.md#the-step-environment](jobs.md#the-step-environment) |
+| `nic-settings` | Physical NIC and RDMA port configuration, including BF3; PFC, trust, QoS mappings, pause, MTU, offloads, rings, channels and coalescing |
+
+## NIC settings
+
+`48-nic-settings.sh` discovers every host-visible `/sys/class/net/*` entry
+with a `device` directory, including every BlueField-3 physical port. It does
+not filter by name, default route, link state, vendor or compute-fabric role.
+Loopback, bonds and VLANs without a device directory are excluded; their
+physical members are checked. It also records every port under
+`/sys/class/infiniband`, including HCAs without a network interface.
+Interfaces visible only inside a DPU's own operating system require running
+the check there; a host check cannot query that separate operating system.
+
+| Source | Compared settings |
+|---|---|
+| NIC sysfs | Driver, interface type, MTU, transmit queue length |
+| `ethtool -k/-g/-l/-c/-a` | Offloads, maximum/current rings and channels, interrupt coalescing and adaptive mode, Ethernet pause and pause autonegotiation |
+| `mlnx_qos -i <interface>` | Mellanox Ethernet PFC per priority, DCBX mode, trust state, DSCP-to-priority and priority-to-TC mappings, TC rate limits, scheduling, bandwidth, cable length and reported receive-buffer settings |
+| `dcb pfc show dev <interface>` | PFC per priority and reported PFC capability, delay and MACsec bypass on other Ethernet drivers |
+| RDMA sysfs | Firmware version, port link layer and active MTU |
+
+The QoS query uses the read form documented in
+[NVIDIA's QoS reference](https://networking-docs.nvidia.com/mlnxofedswum/590560127/quality-of-service-qos).
+No setters run. Ethernet PFC is inapplicable to native InfiniBand interfaces.
+
+Output is a sorted collection of configuration records. Interface names, PCI
+addresses, MACs, IP addresses, GUIDs, serials, disk IDs, tool headers, link
+state and traffic/PFC counters do not enter it. DSCP lists and setting lines
+are normalized before sorting. Duplicate records remain, and interface and
+RDMA-port counts are printed, so a missing identical port still differs from
+the baseline. Record numbers are positions in that sorted collection, not
+hardware identities. Swapping configurations between otherwise identical
+ports produces the same collection; this check validates fleet configuration
+and counts, rather than the assignment of a configuration to a named port.
+
+Each tool query has a 15-second timeout. Unsupported optional ethtool/PFC
+queries get an explicit `unsupported` value. Failed, empty or unrecognized
+queries produce `ERROR` markers and a nonzero check exit; absent physical
+interfaces also produce an error. QoS output must include DCBX mode, trust
+state and all eight PFC priorities. Diagnostics name the local interface on
+stderr, which the runner keeps in `stderr.log` outside the compared output.
+The runner compares stdout; only capture a baseline from a validated node
+whose `nic-settings` output contains no errors.
+
+Install `ethtool`, `mlnx_qos` (OFED/DOCA tooling) and `dcb` (iproute2 for
+non-Mellanox Ethernet), and have the site grant the command paths in
+`agent/sudoers.default`. The runner discovers these `sudo -n` dependencies
+and stops before judging hardware if an installed command lacks permission.
+The reference lists common `/usr/bin` and `/usr/sbin` locations; use the
+actual paths installed by the site. The repository does not install rules.
+
+After deploying the source and site permissions, refresh the validated node,
+inspect its `nic-settings` output and recapture the baseline with
+`bash admin_set-baseline.sh <validated-node>` before evaluating the fleet.
+The [add-check procedure](../how-to/add-a-health-check-set.md#add-one-check)
+covers the required refresh and capture steps. Existing baselines have no
+`nic-settings` file and will fail this check until recaptured.
 
 ## The check file format
 
@@ -97,7 +154,7 @@ Three things are load-bearing:
   what the log file, the baseline file and the drain reason all use.
   Renumbering a check does not invalidate a baseline; renaming one does.
 - **Each check runs in its own `bash`**, not sourced. One check that exits or
-  sets a shell option cannot truncate the other 45.
+  sets a shell option cannot truncate the remaining checks.
 
 The metadata block is read from the first 10 lines and nowhere else —
 `check_meta` in `node_health.sh` narrows to that range before matching, so a
@@ -115,7 +172,7 @@ which produces the check's stdout with no banner, no log file and no diff.
 
 The cycle runs as `$JOB_USER`, so a check that needs privilege says `sudo -n`
 inline — these files are read and run on their own, and a helper on `PATH`
-would break that. Thirteen of the 46 do:
+would break that. The commands used are:
 
 | Command | Checks |
 |---|---|
@@ -123,6 +180,7 @@ would break that. Thirteen of the 46 do:
 | `dmidecode` | `06-memory`, `45-nodeinfo` |
 | `lspci -vvv` | `20-pcie-lnk-stat`, `21-pcie-acs`, `22-pcie-mrrs` |
 | `ipmitool` | `37-dmesg-ipmi_ssif`, `44-bmc-firmware`, `45-nodeinfo` |
+| `ethtool`, `mlnx_qos`, `dcb` | `48-nic-settings` |
 
 Neither `44-bmc-firmware` nor `45-nodeinfo` needs a new sudoers rule:
 `dmidecode` and `ipmitool` were already granted for `06-memory` and
