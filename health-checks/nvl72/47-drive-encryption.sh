@@ -1,6 +1,6 @@
 #!/bin/bash
 # banner: ########INFO: Check drive encryption (Expected: all nodes the same)
-# See docs/reference/health-checks.md#drive-encryption.
+# Resolves #13. See docs/reference/health-checks.md#drive-encryption.
 
 export LC_ALL=C
 
