@@ -1,10 +1,11 @@
 #!/bin/bash
 # banner: ########INFO: Check drive encryption (Expected: all nodes the same)
+# reason-detail: yes
 # See docs/reference/health-checks.md#drive-encryption.
 
 export LC_ALL=C
 
-if ! inventory=$(lsblk --list --noheadings --paths --raw --output NAME,TYPE,FSTYPE); then
+if ! inventory=$(lsblk --noheadings --paths --raw --output NAME,TYPE,FSTYPE); then
     echo 'inventory: unknown (lsblk failed)'
     exit 1
 fi
@@ -71,7 +72,11 @@ while read -r device type fstype extra; do
 done < <(sort -u <<< "$inventory")
 
 if [[ "$devices" -eq 0 ]]; then
-    echo 'inventory: unknown (no persistent block devices)'
+    if [[ "$failed" -eq 1 ]]; then
+        echo 'inventory: unknown (invalid lsblk record)'
+    else
+        echo 'inventory: unknown (no persistent block devices)'
+    fi
     exit 1
 fi
 [[ "$have_cryptsetup" -eq 1 ]] || echo 'luks: unknown (cryptsetup missing)'

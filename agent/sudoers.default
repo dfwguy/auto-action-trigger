@@ -17,6 +17,9 @@
 ## scontrol is here rather than a wildcard because state=DOWN and state=RESUME
 ## are the only updates issued; a site that gave cmods AdminLevel=Operator in
 ## Slurm sets PRIV_SCONTROL=direct and drops that line.
+##
+## cryptsetup and nvme are argument-limited; each "" entry answers the preflight's
+## no-argument query. See docs/explanation/running-unprivileged.md#the-sudoers-drop-in.
 
 Defaults:cmods !requiretty
 
@@ -28,4 +31,8 @@ cmods ALL=(root) NOPASSWD: /usr/bin/dmesg, \
                            /usr/bin/systemctl restart slurmd, \
                            /usr/bin/systemctl reset-failed slurmd, \
                            /usr/bin/loginctl enable-linger cmods, \
+                           /usr/sbin/cryptsetup isLuks /dev/*, \
+                           /usr/sbin/cryptsetup "", \
+                           /usr/sbin/nvme id-ctrl /dev/nvme*, \
+                           /usr/sbin/nvme "", \
                            /cm/local/apps/slurm/current/bin/scontrol

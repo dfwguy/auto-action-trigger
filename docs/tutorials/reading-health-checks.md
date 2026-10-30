@@ -19,7 +19,7 @@ cd /cluster/bringup
 
 ## What the checks are, in one paragraph
 
-Every node runs 46 checks on a timer and writes one file per check into
+Every node runs 47 checks on a timer and writes one file per check into
 `logs/<node>/`. A check "fails" when its file does not match
 `valid-config/default/<check>` byte for byte — the same comparison
 `node_health.sh` drains on. There is no cleverness in the verdict: it is a file

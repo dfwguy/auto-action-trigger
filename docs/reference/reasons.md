@@ -128,7 +128,7 @@ that never got far enough to have a performance. See
 they failed, and `report_health.sh --diff <node>` diffs one node against the baseline for
 each check it fails. One node per group is enough — the rest failed the same way.
 
-Broad mapping from the 46 checks:
+Broad mapping from the 47 checks:
 
 | Checks | Component |
 |--------|-----------|
@@ -141,6 +141,7 @@ Broad mapping from the 46 checks:
 | `iface`, `bond` | Host networking |
 | `imex-channels`, `imex-profile`, `imex-service`, `imex-readiness` | Node-local IMEX. These *do* drain |
 | `enroot` | Container runtime path not writable — will break every containerized job |
+| `drive-encryption` | Block-device, filesystem or LUKS-header counts, or NVMe security-command support, differ from the baseline. The reason carries the lines; `unknown` in them means a probe could not answer (tool missing, sudo refused, timeout) and drains too — it does not mean the drive is unencrypted. See [health-checks.md#drive-encryption](health-checks.md#drive-encryption) |
 | `dmesg-*` | Kernel-level evidence: `xid` for GPU faults, `hw_err` for machine checks, `mlx5_core` for HCA health, `knvlink` for NVLink discovery |
 
 Three checks — `nvidia-smi-cuuid`, `imex-node-config`, `imex-status` — are

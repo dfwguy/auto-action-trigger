@@ -385,8 +385,8 @@ bash report_health.sh --refresh node001    # queue a re-check ahead of the caden
 ```
 
 Groups nodes by the *set* of checks they failed, largest group first, so 60
-nodes failing the same 46 checks read as one incident with one fix rather than
-46 check lists over 60 node lists. Also separates the drains it cannot account
+nodes failing the same 47 checks read as one incident with one fix rather than
+47 check lists over 60 node lists. Also separates the drains it cannot account
 for from the health failures — grouped by reason, so a powered-off rack is one
 line — and flags any check with no entry in `valid-config/default/`, because
 those are never compared and so can never pass.

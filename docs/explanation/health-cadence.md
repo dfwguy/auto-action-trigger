@@ -82,7 +82,7 @@ worth asking about most often.
 
 Setting either to `0` disables the cadence and restores the old behaviour: the
 checks then re-run only when `report_health.sh --refresh` asks. That is the
-escape hatch for a site that finds 46 checks an hour too expensive, and it is a
+escape hatch for a site that finds 47 checks an hour too expensive, and it is a
 real answer rather than a mistake, so nothing warns about it.
 
 ## Asking for a re-check

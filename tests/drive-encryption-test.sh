@@ -9,9 +9,11 @@ for tool in bash awk sort timeout grep cat; do
     ln -s "$(command -v "$tool")" "$work/utils/$tool"
 done
 
+real_lsblk=$(command -v lsblk)
 cat > "$work/bin/lsblk" <<'EOF'
 #!/bin/bash
-[[ "$*" == '--list --noheadings --paths --raw --output NAME,TYPE,FSTYPE' ]] || exit 99
+printf '%s\n' "$@" > "$TEST_LSBLK_ARGS"
+[[ " $* " == *' --output NAME,TYPE,FSTYPE '* ]] || exit 99
 cat "$TEST_INVENTORY"
 exit "${TEST_LSBLK_STATUS:-0}"
 EOF
@@ -97,7 +99,7 @@ nvme security_commands=yes count=1
 EOF
 
 export TEST_INVENTORY="$work/node-a" TEST_LUKS="$work/luks-a" TEST_NODE=aaaaaaaa
-export TEST_CALLS="$work/calls"
+export TEST_CALLS="$work/calls" TEST_LSBLK_ARGS="$work/lsblk-args"
 export TEST_CRYPT_MODE=normal TEST_NVME_MODE=normal TEST_OACS=0x17
 export TEST_LSBLK_STATUS=0 TEST_SUDO_DENIED=0
 
@@ -127,6 +129,18 @@ else
     bad 'wrong number of read-only privileged probes'
 fi
 cp "$work/out" "$work/baseline"
+
+## The stub accepts whatever the check asks for, so hand the real arguments to
+## the real lsblk; only an option error counts, not a sandbox without sysfs.
+mapfile -t lsblk_args < "$work/lsblk-args"
+if [[ -z "$real_lsblk" ]]; then
+    echo 'skip: lsblk is not installed here, so its arguments were not exercised'
+elif err=$("$real_lsblk" "${lsblk_args[@]}" 2>&1 >/dev/null) ||
+     ! grep -Eqi 'mutually exclusive|unrecognized option|invalid option|unknown column' <<< "$err"; then
+    ok 'the installed lsblk accepts the arguments the check passes it'
+else
+    bad "the installed lsblk rejects the check's arguments: $err"
+fi
 
 TEST_INVENTORY="$work/node-b" TEST_LUKS="$work/luks-b" TEST_NODE=bbbbbbbb run_check
 if [[ "$status" -eq 0 ]] && cmp -s "$work/baseline" "$work/out"; then
@@ -194,6 +208,8 @@ TEST_LSBLK_STATUS=1 unknown 'failed inventory is unknown even with partial outpu
 TEST_INVENTORY="$work/empty" unknown 'empty successful inventory is unknown' 'inventory: unknown'
 printf '/dev/loop0 loop squashfs\n' > "$work/ephemeral"
 TEST_INVENTORY="$work/ephemeral" unknown 'ephemeral devices alone are inconclusive' 'inventory: unknown'
+printf '/dev/sda disk ext4 surplus\n' > "$work/malformed"
+TEST_INVENTORY="$work/malformed" unknown 'a malformed record is named, not reported as an empty inventory' 'invalid lsblk record'
 
 mv "$work/bin/lsblk" "$work/lsblk"
 unknown 'missing lsblk is explicit' 'inventory: unknown (lsblk failed)'

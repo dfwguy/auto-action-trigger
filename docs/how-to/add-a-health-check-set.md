@@ -32,6 +32,14 @@ banner when the link does not resolve, because nothing below it is real.
 **Without that third step the new check diffs against a missing file and fails
 on every node.**
 
+A check that runs a `sudo -n` command no node has a rule for needs more care.
+The runner preflights every command the check set names and skips **all** the
+checks on a node where one is refused, not only the new one. Install the rule
+everywhere first, set `DRAIN_AFTER_FAILED_HEALTH_CHECK=no` before the file lands,
+and turn it back on once step 3 is done and `report_health.sh --summary` reads
+clean. See
+[reference/health-checks.md#drive-encryption](../reference/health-checks.md#drive-encryption).
+
 ## Add a set for another platform
 
 Copy the directory and delete what does not apply — a check that is not there

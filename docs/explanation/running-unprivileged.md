@@ -56,7 +56,7 @@ pdsh -R ssh -w <nodes> 'sudo -n dmesg >/dev/null 2>&1 && echo sudo-ok || echo su
 on a node preflights every command the check set needs and names the missing
 ones.
 
-Two things about it are easy to get wrong:
+Three things about it are easy to get wrong:
 
 - **The paths must exist.** A rule naming `/usr/bin/scontrol` on a cluster where
   the Slurm client tools are under `/cm/local/apps/slurm/current/bin` is a rule
@@ -67,6 +67,10 @@ Two things about it are easy to get wrong:
   on it. So `priv()` resolves the command through the *caller's* `PATH` with
   `command -v` and hands `sudo` an absolute path. That is why a `module load
   slurm` upstream of a drain is load-bearing.
+- **A rule that names arguments needs a `""` entry beside it.** The preflight
+  asks `sudo -n -l -- <exe>` with no arguments, which `cryptsetup isLuks /dev/*`
+  does not match, so a correct rule reads as missing and stops the run.
+  `cryptsetup ""` answers that query without letting anything else run.
 
 ## A lost rule must stop the run
 

@@ -186,5 +186,21 @@ else
     fi
 fi
 
+echo "== the sudoers reference covers the check sets =="
+
+## The preflight asks `sudo -l` with no arguments, which a restricted rule does
+## not match: it needs a "" entry. See docs/explanation/running-unprivileged.md#the-sudoers-drop-in.
+priv_cmds=$(grep -hoE 'sudo -n [a-z0-9_.-]+' "$home"/health-checks/*/[0-9]*.sh | awk '{print $3}' | sort -u)
+if [[ -z "$priv_cmds" ]]; then
+    bad "no sudo -n command was found in the check sets, so the coverage below proves nothing"
+fi
+for cmd in $priv_cmds; do
+    if grep -Ev '^[[:space:]]*#' "$home/agent/sudoers.default" | grep -Eq "/s?bin/$cmd(,| \"\"|\$)"; then
+        ok "sudoers.default lets the preflight ask about $cmd"
+    else
+        bad "sudoers.default has no entry for $cmd that the no-argument preflight accepts"
+    fi
+done
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

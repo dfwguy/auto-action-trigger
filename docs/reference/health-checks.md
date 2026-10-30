@@ -135,20 +135,24 @@ wedged BMC blocks rather than failing and would hold the whole run — see
 `lspci` without `-vvv`, `nvidia-smi`, `ibstatus`, `systemctl is-active` and
 every `/sys` and `/proc` read are unprivileged.
 
-The site installs rules as `/etc/sudoers.d/50-bringup`, using
-`agent/sudoers.default` as a reference. `node_health.sh` discovers the list by grepping
+The rules for these come from `agent/sudoers.default`, installed by the site as
+`/etc/sudoers.d/50-bringup`. `node_health.sh` discovers the list by grepping
 `sudo -n <cmd>` out of the check set and preflights it before running anything,
 so **a new check that needs a new command needs no change anywhere else** — and
 a missing rule stops the whole run rather than producing output the baseline
 will not match. Why that is fatal where every other gate here carries on is
 [explanation/running-unprivileged.md#a-lost-rule-must-stop-the-run](../explanation/running-unprivileged.md#a-lost-rule-must-stop-the-run).
 
-`drive-encryption` needs new site-managed grants for `cryptsetup isLuks` and
-`nvme id-ctrl` on block devices. The shipped sudoers reference does not grant
-these tools. Limit the grants to these read operations; granting either whole
-executable would also permit destructive subcommands. The existing preflight
-asks `sudo -n -l -- <executable>` without arguments, so the site policy must
-also allow that no-argument query. See
+`drive-encryption` is the first check whose rules are restricted rather than a
+whole executable: `agent/sudoers.default` grants `cryptsetup isLuks /dev/*` and
+`nvme id-ctrl /dev/nvme*`, because either whole executable would also permit
+destructive subcommands. The preflight asks `sudo -n -l -- <executable>` with no
+arguments, which a restricted rule does not match, so each also carries an
+empty-argument (`""`) entry; without it the preflight stops the whole run on a
+node whose rule is correct. `tests/priv-test.sh` checks the reference has such
+an entry for every command a check runs. A sudoers `*` also matches whitespace,
+so these grants admit extra options to the read-only commands; a site whose sudo
+accepts regular-expression arguments can anchor them with `^...$`. See
 [the sudoers drop-in](../explanation/running-unprivileged.md#the-sudoers-drop-in).
 
 ## Drive encryption
@@ -186,15 +190,23 @@ verified. A SATA-only inventory reports `nvme: none`.
 The tools required are `lsblk`, `cryptsetup`, `timeout`, and `nvme` when NVMe
 disks are present. Privileged probes use `sudo -n` and a 15-second timeout per
 device. Missing tools, failed or empty inventory, failed controller queries,
-unrecognised capability output and failed LUKS probes report `unknown` and
-return nonzero. A silent `isLuks` exit 1 means no LUKS header, except when it
-contradicts a `crypto_LUKS` signature from `lsblk`; that contradiction is
-unknown. Tool diagnostics go to stderr, outside the baseline comparison.
+unrecognised capability output and failed LUKS probes report `unknown`, and a
+standalone run exits nonzero. A silent `isLuks` exit 1 means no LUKS header,
+except when it contradicts a `crypto_LUKS` signature from `lsblk`; that
+contradiction is unknown. Tool diagnostics go to stderr, outside the baseline
+comparison.
 
-The runner judges stdout against the baseline, so capture only a validated
-result with no `unknown` fields. After deploying the source and arranging the
-site's grants, refresh the validated node and recreate the baseline with
-`admin_set-baseline.sh` before enabling drains. See
+The runner judges stdout against the baseline and ignores the exit status, so an
+`unknown` field fails the comparison and drains the node like any other
+difference. The check sets `# reason-detail: yes`, which puts its lines in the
+drain reason: `unknown` there means a probe could not answer, not that a drive
+is unencrypted. Capture a baseline only from a result with no `unknown` field.
+
+Roll out in this order, because a node without a rule skips every check and a
+missing baseline entry fails this one everywhere: grants on every node, then
+`DRAIN_AFTER_FAILED_HEALTH_CHECK=no`, then the source, then refresh a validated
+node, confirm it has no `unknown` field and recreate the baseline with
+`admin_set-baseline.sh`, then drains back on. See
 [add one check](../how-to/add-a-health-check-set.md#add-one-check).
 
 ## Informational checks
