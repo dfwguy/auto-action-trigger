@@ -86,15 +86,18 @@ site's rack/domain inventory. Replace the example list with those nodes:
 rack_nodes='node[01-18]'
 scontrol show hostnames "$rack_nodes"
 sbatch -w "$rack_nodes" \
-    --export=ALL,CONTAINER_DIR="$CONTAINER_DIR",NODE_CONTAINER_DIR="$NODE_CONTAINER_DIR",RACK_SAMPLES=5 \
+    --export=ALL,BRINGUP_HOME="$BRINGUP_HOME",CONTAINER_DIR="$CONTAINER_DIR",NODE_CONTAINER_DIR="$NODE_CONTAINER_DIR",RACK_SAMPLES=5 \
     --output="$run_dir/nvloom-rack-nvlink-%j.txt" \
     "$JOBS_DIR/nvloom-rack-nvlink.sbatch"
 ```
 
 `scontrol show hostnames` only expands the list; it does not check rack or
-domain membership. The job's preflight checks the GPU/CPU allocation on
-each node, **not rack membership**. Node-name order and Slurm partition
-membership are not evidence that nodes share an NVLink domain.
+domain membership. Before NVLoom starts, the job runs the
+[rack preflight](../reference/jobs.md#nvloom-rack-preflight) through `srun`
+on every allocated node. It requires exactly 18 distinct nodes whose GPU
+ClusterUUID values identify one rack. Failed or inconclusive queries stop
+the job. Node-name order and Slurm partition membership are not evidence
+that nodes share an NVLink domain.
 
 Submit one `sbatch` for the whole rack. Keep this job out of `BENCHMARKS`,
 `BURNIN` and `CONTINUE_RUNNING_JOBS`, and do not fan out
@@ -143,9 +146,10 @@ The rack job currently has no dedicated parser dispatch: passing
 or acceptable bandwidth. Review rack logs manually and retain a real run
 for future parser validation.
 
-If preflight fails, read each node's `gpus=` and `cores=` line. For
-`MPI_Allgather` / `EADDRNOTAVAIL`, check the reported MPI coordination
-interface and its reachability on all selected nodes. For CUDA, IMEX or
+If rack preflight fails, read the node's `ClusterUUID=` line and the
+reported reason. For single-node allocation failures, read the `gpus=` and
+`cores=` line. For `MPI_Allgather` / `EADDRNOTAVAIL`, check the reported
+MPI coordination interface and its reachability on all selected nodes. For CUDA, IMEX or
 NVLink errors, retain the full log and investigate the named node or GPU
 before repeating the test. Do not add `--gpus-per-task`: NVLoom assigns
 GPUs by MPI local rank and needs all four GPUs visible to every rank.

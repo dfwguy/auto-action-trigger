@@ -158,7 +158,7 @@ generic header would get wrong.
   `jobs/nvl72/nvloom-rack-nvlink.sbatch` or
   `jobs/nvl72-spx/nvloom-rack-nvlink.sbatch`. Explicitly select 18 four-GPU
   nodes from one NVLink rack/domain with `sbatch -w <nodelist>`. Its preflight
-  checks GPU/CPU allocation, not rack membership. See
+  requires 18 distinct nodes with the same GPU ClusterUUID. See
   [run NVLoom tests](../how-to/run-nvloom-tests.md).
 - **The `dcgmi-r*` jobs run `dcgmi` in the batch body, not in a step.** That is
   deliberate — it sees the job's GPUs without restating `--gres` — and it is why
@@ -247,6 +247,26 @@ run/CUDA/assertion/MPI errors and requires one distinct parsed rack GUID.
 NVLoom-specific result validation. Neither gate validates bandwidth
 uniformity, and neither replaces selecting the correct rack/domain before
 submission.
+
+### NVLoom rack preflight
+
+Both rack job files use `jobs/nvl72/check-rack-membership.sh` before starting
+`nvloom_cli`. The helper is run on the host through `srun`, with one task
+per allocated node and a two-minute step limit. Each task requires an
+18-node allocation and queries `nvidia-smi -q`. All reported GPU
+`ClusterUUID` values on that node must be valid, nonzero UUIDs and agree.
+The `--validate` mode reads the step's node/UUID records from standard
+input, logs each node's UUID, and requires exactly 18 distinct nodes with
+one shared UUID. UUID comparison ignores letter case.
+
+A failed query, missing or invalid UUID, inconsistent GPU UUIDs, duplicate
+or missing node record, cross-rack allocation, or failed `srun` stops the
+job before the NVLoom container starts. The job logs the preflight reason
+and writes `FAIL`. This establishes rack membership from GPU fabric
+identity; it does not establish IMEX readiness or GPU/CPU allocation
+health. The single-node `nvloom` job keeps its separate allocation check.
+A bare `sbatch` submission must export `BRINGUP_HOME` so both the batch
+host and compute nodes can read the helper from the deployed tree.
 
 ## The allocation header
 

@@ -14,14 +14,22 @@
 ## Submit with an explicit node list for one rack, for example:
 ##   sbatch -w node[01-18] jobs/nvl72/nvloom-rack-nvlink.sbatch
 
-# If job is submitted with a node list spanning more than one rack, the job will fail.
-# nvloom_cli checks for clusterUuid inherently and will abort if it finds a mismatch.
-
 STEP_TIMELIMIT=1:20:00
 RACK_SAMPLES=${RACK_SAMPLES:-5}
 
 # remove inherited slurm CPU/task settings from job environment
 unset SLURM_CPUS_PER_TASK SLURM_TRES_PER_TASK SRUN_CPUS_PER_TASK
+
+RACK_CHECK=${BRINGUP_HOME:?not set -- launch_job.sh exports it; a bare sbatch must too}/jobs/nvl72/check-rack-membership.sh
+if ! (
+    set -o pipefail
+    srun --time=0:02:00 --ntasks="${SLURM_JOB_NUM_NODES:?not set}" --ntasks-per-node=1 \
+        bash "$RACK_CHECK" | bash "$RACK_CHECK" --validate
+); then
+    echo "preflight: rack membership could not be established -- see above"
+    echo FAIL
+    exit 0
+fi
 
 # select the correct nvloom container image and locate it (aarch64 vs x86_64)
 # Searches in NODE_CONTAINER_DIR and CONTAINER_DIR, in that order. If NODE_CONTAINER_DIR is not set,
