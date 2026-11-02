@@ -91,6 +91,13 @@ RUN_BURNIN=no
 REQUIRE_BCM_BOOTSTRAP_READY=no
 BCM_BOOTSTRAP_PROBE_TIMEOUT_SECS=5
 
+## ── Rack validation ──────────────────────────────────────────────────────
+RUN_RACK_JOBS=no
+RACK_ID=
+RACK_NODES=
+RACK_SAMPLES=5
+RACK_MEMBERSHIP_FILE=
+
 ## ── Drains ────────────────────────────────────────────────────────────────
 DRAIN_AFTER_FAILED_HEALTH_CHECK=no
 DRAIN_AFTER_FAILED_BENCHMARK=no

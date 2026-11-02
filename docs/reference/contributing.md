@@ -144,6 +144,7 @@ awk '/^\+\+\+ /{f=$2} /^\+[^+]/{l=substr($0,2); sub(/^[ \t]+/,"",l);
 ./tests/fanout-test.sh         # clush before pdsh, if you touched fanout.sh
 ./tests/next-run-test.sh       # the buckets, if you touched check_next-run.sh or either cadence
 ./tests/abup-test.sh           # the group/name dispatch, if you touched abup or added a <group>_<name>.sh
+./tests/rack-validation-test.sh # rack configuration, selection and read-only explanation
 ./tests/doc-links-test.sh      # every docs/ anchor the code points at, if you moved or retitled one
 bash -n <changed script>       # syntax check; no cluster access needed
 shellcheck -S warning <changed script>   # CI gates on this; see below

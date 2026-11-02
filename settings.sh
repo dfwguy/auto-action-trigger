@@ -82,10 +82,8 @@ fi
 ## 0 disables the cadence. See docs/explanation/health-cadence.md.
 : "${HEALTH_INTERVAL_HOURS:=4}"
 : "${HEALTH_RETRY_INTERVAL_HOURS:=1}"
-## Run and drain switches, all defaulting on (RUN_BURNIN is the one
-## exception, opt-in) so an empty or unreadable value carries on rather than
-## stopping the fleet or draining it. See docs/reference/settings.md#run-switches
-## and docs/reference/settings.md#drains.
+## RUN_BURNIN and RUN_RACK_JOBS are opt-in; other run switches default on.
+## See docs/reference/settings.md#run-switches and docs/reference/settings.md#drains.
 : "${RUN_JOBS:=yes}"
 : "${RUN_HEALTH_CHECKS:=yes}"
 : "${RUN_CONTAINER_COPY:=yes}"
@@ -96,6 +94,12 @@ fi
 ## See docs/reference/settings.md#run-switches.
 : "${RUN_ARMING:=yes}"
 : "${RUN_BURNIN:=no}"
+## Read-only rack validation. See docs/reference/settings.md#rack-validation.
+: "${RUN_RACK_JOBS:=no}"
+: "${RACK_ID=}"
+: "${RACK_NODES=}"
+: "${RACK_SAMPLES=5}"
+: "${RACK_MEMBERSHIP_FILE=}"
 ## BCM-specific: wait for the command daemon, Slurm daemon and job identity
 ## before submitting after a reboot. Off unless the site explicitly opts in.
 : "${REQUIRE_BCM_BOOTSTRAP_READY:=no}"

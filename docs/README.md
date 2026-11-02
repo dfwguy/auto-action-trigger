@@ -38,6 +38,7 @@ Task-oriented, for someone who already knows the system.
 |------|--------|
 | [run-a-job-by-hand.md](how-to/run-a-job-by-hand.md) | `launch_job.sh` flags, sweeping a rack over `clush -w`, and `--test` for a job outside the list |
 | [submit-a-job-file-directly.md](how-to/submit-a-job-file-directly.md) | Calling `sbatch` on a job file yourself: the site paths it needs on `--export`, and why `--test` is usually the answer instead |
+| [explain-nvloom-rack.md](how-to/explain-nvloom-rack.md) | Validate an explicit 18-node rack selection and inspect evidence and proposed arguments without submitting |
 | [run-nvloom-tests.md](how-to/run-nvloom-tests.md) | Prepare NVLoom, submit a single-node or manually selected 18-node NVLink rack test, and inspect its results |
 | [arm-a-node.md](how-to/arm-a-node.md) | Installing the timer, checking a node stayed armed, and what to do when one will not |
 | [install-abup.md](how-to/install-abup.md) | Symlinking `abup` onto `PATH`, the `BRINGUP_HOME` fallback for a detached copy, and what the "cannot find the tree" error means |

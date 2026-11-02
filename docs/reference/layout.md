@@ -21,11 +21,13 @@ pieces fit together this way is
 ├── actions/
 │   ├── node_health.sh             # Hardware/software health checks → Slurm node state
 │   ├── launch_job.sh              # Benchmark sequencer → Slurm job submissions
+│   ├── launch_rack_job.sh         # Read-only rack selection validation and explanation
 │   └── file_copy.sh               # Rsync containers to /tmp on each node (silent no-op if none)
 │
 ├── SETTINGS.default               # Shipped configuration; copy to SETTINGS to change anything
 ├── SETTINGS_HOME.default          # Where SETTINGS lives; copy to SETTINGS_HOME to relocate it
 ├── settings.sh                    # Loads SETTINGS, else SETTINGS.default; backfills unset keys
+├── rack-jobs.sh                   # Sourced read-only rack membership validation and explanation
 ├── priv.sh                        # The one place a command needing root is run from a cycle that is not
 ├── fanout.sh                      # The one place a command is run on more than one node: clush, else pdsh
 ├── reason-map.sh                  # Slurm drain reason → check names (report_health.sh)
@@ -284,7 +286,7 @@ is:
 | Mode | What | Why |
 |------|------|-----|
 | `755` | Entry points — anything a human or a systemd unit invokes directly, `agent/*.sh` included | Must be `exec`able. The unit names a path and runs it; a `644` agent script installs fine and silently runs nothing, which is why `install-agent.sh` preflights the bit |
-| `644` | Sourced libraries: `settings.sh`, `priv.sh`, `fanout.sh`, `reason-map.sh`, `slurm-snapshot.sh`, `slurm-recovery.sh`, `get-out-of-the-way.sh`, `verdict-scan.sh`, `report-format.sh`, `health-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is also *run*, but as `bash verdict-scan.sh` from its own `xargs`, like the health checks below |
+| `644` | Sourced libraries: `settings.sh`, `rack-jobs.sh`, `priv.sh`, `fanout.sh`, `reason-map.sh`, `slurm-snapshot.sh`, `slurm-recovery.sh`, `get-out-of-the-way.sh`, `verdict-scan.sh`, `report-format.sh`, `health-scan.sh`, `parsers/*/verdict.sh`, `jobs/*/nccl-hca.sh` | Never executed, only `source`d. `755` would invite running them directly, which does nothing useful. `verdict-scan.sh` is also *run*, but as `bash verdict-scan.sh` from its own `xargs`, like the health checks below |
 | `644` | `agent/units/*.service`, `agent/units/*.timer`, `agent/sudoers.default` | Read, never run. `install-agent.sh` copies the units with `@BRINGUP_HOME@` and `@INTERVAL@` substituted; the sudoers file is a reference the site installs itself, at `0440` |
 | `644` | `llmb_check.py` | `build_llmb.sh` runs it as `python3 llmb_check.py`, like the health checks below |
 | `644` | `health-checks/*/NN-*.sh` | `node_health.sh` runs each as `bash "$check_file"` — deliberately, so one check's `exit 1` cannot truncate the set of 46 |

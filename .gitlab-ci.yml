@@ -102,7 +102,7 @@ permissions:
 
       # Sourced libraries. verdict-scan.sh is also run, but as
       # `bash verdict-scan.sh` from xargs, like the health checks below.
-      for f in settings.sh priv.sh fanout.sh reason-map.sh slurm-recovery.sh verdict-scan.sh \
+      for f in settings.sh rack-jobs.sh priv.sh fanout.sh reason-map.sh slurm-recovery.sh verdict-scan.sh \
                get-out-of-the-way.sh report-format.sh health-scan.sh slurm-snapshot.sh \
                $(git ls-files 'parsers/*/verdict.sh'); do
         check 100644 "$f"
@@ -143,7 +143,7 @@ permissions:
       # handled above.
       for f in $(git ls-files -- '*.sh' | grep -v '/'); do
         case "$f" in
-          settings.sh|priv.sh|fanout.sh|reason-map.sh|slurm-recovery.sh|verdict-scan.sh) continue ;;
+          settings.sh|rack-jobs.sh|priv.sh|fanout.sh|reason-map.sh|slurm-recovery.sh|verdict-scan.sh) continue ;;
           get-out-of-the-way.sh|report-format.sh|health-scan.sh|slurm-snapshot.sh) continue ;;
         esac
         check 100755 "$f"
@@ -397,3 +397,9 @@ doc-links:
   stage: test
   script:
     - ./tests/doc-links-test.sh
+
+rack-validation:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/rack-validation-test.sh

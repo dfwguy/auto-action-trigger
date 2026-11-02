@@ -111,6 +111,29 @@ The catalog of what is available is
 [reference/jobs.md](jobs.md#the-job-catalog); choosing a list for a site is
 [how-to/enable-a-benchmark.md](../how-to/enable-a-benchmark.md).
 
+## Rack validation
+
+These settings are consumed only by the explicit
+[read-only rack explanation](../how-to/explain-nvloom-rack.md).
+They do not enable submissions or alter single-node scheduling.
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `RUN_RACK_JOBS` | `no` | Automatic rack scheduling opt-in for later steps; explanation remains available while disabled |
+| `RACK_ID` | empty | Required physical rack ID, distinct from the inventory's NVLink domain ID |
+| `RACK_NODES` | empty | Required explicit Slurm hostlist; exactly 18 distinct mapped members of one rack/domain |
+| `RACK_SAMPLES` | `5` | Positive integer passed to NVLoom's rack sampling option in the proposed command |
+| `RACK_MEMBERSHIP_FILE` | empty | Absolute readable path to a trusted site-owned TSV with header `node<TAB>rack_id<TAB>nvlink_domain_id` |
+
+Empty identity, selection, membership evidence or sample count blocks
+validation. Accepted switch spellings are `yes/no`, `true/false`, `on/off`
+and `1/0`, case insensitive. Rack validation requires an explicitly enabled
+`RUN_JOBS`; unknown switch values block a proposal. This stricter rack check
+does not change the existing single-node run-switch behavior. `RACK_ID` and
+`RACK_NODES` are never inferred from local hostname or Slurm partition.
+The TSV format and trust requirements are in the
+[explanation procedure](../how-to/explain-nvloom-rack.md#prepare-trusted-membership-evidence).
+
 ## Benchmark pass floors
 
 The five NCCL bandwidth gates, in GB/s:

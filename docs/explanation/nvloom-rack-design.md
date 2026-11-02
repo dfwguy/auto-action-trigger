@@ -1,6 +1,8 @@
 # Fixed 18-node NVLoom rack runs
 
-This is the Step 1 design for review, not implemented behavior. Existing
+This records the approved Step 1 design. Step 2 implements only
+[read-only configuration and membership explanation](../how-to/explain-nvloom-rack.md);
+coordination and submission below remain planned behavior. Existing
 [single-node sequencing](sequencing.md) stays unchanged when no rack request
 is active. The current [manual procedure](../how-to/run-nvloom-tests.md) still
 uses direct submission; the coordinated launcher described here will replace
@@ -90,10 +92,12 @@ name matching alone never proves ownership.
 No node agent submits a rack job and no per-node fan-out runs this launcher.
 
 Load configuration through `settings.sh`, including its existing site pointer
-resolution. Proposed settings are `RUN_RACK_JOBS=no`,
-`RACK_MEMBERSHIP_FILE` empty by default, and
+resolution. Step 2 adds `RUN_RACK_JOBS=no`, `RACK_ID` and `RACK_NODES` empty,
+`RACK_SAMPLES=5`, and `RACK_MEMBERSHIP_FILE` empty by default.
+`RACK_ID` selects the physical rack and the mapping supplies its domain.
+A later step will add
 `RACK_REQUEST_TIMEOUT_MINUTES=120` for preparation and pending time combined.
-These are design names/defaults for later implementation. Automatic scheduling
+The timeout remains a proposed default. Automatic scheduling
 requires explicit `RUN_RACK_JOBS=yes`; manual requests work with it set to
 `no`. Both require `RUN_JOBS=yes`, valid membership, all existing node selection
 restrictions and a usable configured launcher in `JOBS_DIR`. Missing launcher
