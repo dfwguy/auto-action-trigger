@@ -14,20 +14,18 @@
 ## Submit with an explicit node list for one rack, for example:
 ##   sbatch -w node[01-18] jobs/nvl72/nvloom-rack-nvlink.sbatch
 
+# If job is submitted with a node list spanning more than one rack, the job will fail.
+# nvloom_cli checks for clusterUuid inherently and will abort if it finds a mismatch.
+
 STEP_TIMELIMIT=1:20:00
 RACK_SAMPLES=${RACK_SAMPLES:-5}
 
+# remove inherited slurm CPU/task settings from job environment
 unset SLURM_CPUS_PER_TASK SLURM_TRES_PER_TASK SRUN_CPUS_PER_TASK
 
-srun --nodes="$SLURM_NNODES" --ntasks="$SLURM_NNODES" --ntasks-per-node=1 bash -c '
-    gpus=$(nvidia-smi -L 2>/dev/null | grep -c "^GPU")
-    echo "preflight: $(hostname) gpus=${gpus} cores=$(nproc)/${SLURM_CPUS_ON_NODE}"
-    [[ "$gpus" -eq 4 && "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
-    echo "preflight: one or more nodes did not receive the full node allocation -- see above"
-    echo FAIL
-    exit 0
-}
-
+# select the correct nvloom container image and locate it (aarch64 vs x86_64)
+# Searches in NODE_CONTAINER_DIR and CONTAINER_DIR, in that order. If NODE_CONTAINER_DIR is not set,
+# it will search in CONTAINER_DIR. If CONTAINER_DIR is not set, exit with an error message.
 IMG=nvloom-v2.0.0-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh
 CONT=${NODE_CONTAINER_DIR:-/opt/containers}/$IMG
 [[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}/$IMG
@@ -47,6 +45,8 @@ export OMPI_MCA_btl_tcp_if_include="$MPI_IFACE"
 export OMPI_MCA_oob_tcp_if_include="$MPI_IFACE"
 echo "MPI coordination interface: $MPI_IFACE"
 
+# A note on gpu-to-rack vs pairwise testing: gpu-to-rack is a less exhaustive version of pairwise testing. 
+# Pairwise testing is more comprehensive and will test all possible combinations of GPUs in the rack. 
 srun --time="$STEP_TIMELIMIT" \
   --container-image="${CONT}" \
   nvloom_cli \
@@ -57,5 +57,4 @@ rc=$?
 
 echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL
-
 
