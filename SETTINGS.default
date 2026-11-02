@@ -96,7 +96,6 @@ RUN_RACK_JOBS=no
 RACK_ID=
 RACK_NODES=
 RACK_SAMPLES=5
-RACK_MEMBERSHIP_FILE=
 
 ## ── Drains ────────────────────────────────────────────────────────────────
 DRAIN_AFTER_FAILED_HEALTH_CHECK=no

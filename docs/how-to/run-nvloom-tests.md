@@ -80,7 +80,10 @@ That path supplies the environment, archives previous results and lets
 ## 4. Submit one rack-wide NVLink test
 
 Select **exactly 18 four-GPU nodes from one NVLink rack/domain** using the
-site's rack/domain inventory. Replace the example list with those nodes:
+nodes' current ClusterUUID readings. First run the
+[read-only rack explanation](explain-nvloom-rack.md) for the exact selection;
+all 18 nodes must report the same valid UUID. No membership file is required.
+Replace the example list with those nodes:
 
 ```bash
 rack_nodes='node[01-18]'

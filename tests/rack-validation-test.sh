@@ -1,6 +1,6 @@
 #!/bin/bash
 
-## Fixture-based read-only rack validation. No cluster or real Slurm commands.
+## Live identity validation against synthetic nvidia-smi output and remote tools.
 ## See docs/how-to/explain-nvloom-rack.md.
 home="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 work=$(mktemp -d) || exit 1
@@ -16,7 +16,7 @@ check() {
 }
 mkdir -p "$work/bin" "$work/site"
 export SETTINGS_HOME="$work/site" RACK_TEST_FIXTURES="$home/tests/fixtures/rack"
-export FORBIDDEN_CALL="$work/forbidden"
+export FORBIDDEN_CALL="$work/forbidden" PROBE_CALLS="$work/probes"
 cat > "$work/bin/scontrol" <<'STUB'
 #!/bin/bash
 if [[ "$1 $2" != 'show hostnames' || $# -ne 3 ]]; then
@@ -45,6 +45,58 @@ case "${RACK_TEST_SLURM:-}" in
     *) cat "$RACK_TEST_FIXTURES/slurm-nodes.txt" ;;
 esac
 STUB
+cat > "$work/bin/nvidia-smi" <<'STUB'
+#!/bin/bash
+[[ "$*" == '-q' ]] || { touch "$FORBIDDEN_CALL"; exit 97; }
+fixture="$RACK_TEST_FIXTURES/nvidia-smi-q.txt"
+if [[ "$RACK_TEST_NODE" == node18 ]]; then
+    case "${RACK_TEST_PROBE:-}" in
+        failed) echo 'driver query failed' >&2; exit 9 ;;
+        empty) exit 0 ;;
+        mixed) sed 's/53a24e94/63a24e94/g' "$fixture"; exit ;;
+        within-node) sed '0,/53a24e94/s//63a24e94/' "$fixture"; exit ;;
+        missing-field) sed '0,/ClusterUUID/d' "$fixture"; exit ;;
+        na) sed 's/53a24e94-52fa-f566-aa13-60ef67933749/N\/A/g' "$fixture"; exit ;;
+        zero) sed 's/53a24e94-52fa-f566-aa13-60ef67933749/00000000-0000-0000-0000-000000000000/g' "$fixture"; exit ;;
+        malformed) sed 's/53a24e94-52fa-f566-aa13-60ef67933749/not-a-uuid/g' "$fixture"; exit ;;
+        upper) tr 'a-f' 'A-F' < "$fixture"; exit ;;
+        duplicate-field) cat "$fixture"; grep -m1 ClusterUUID "$fixture"; exit ;;
+    esac
+fi
+cat "$fixture"
+STUB
+cat > "$work/bin/clush" <<'STUB'
+#!/bin/bash
+printf '%s\n' "$*" >> "$PROBE_CALLS"
+[[ "$*" == *'-t 10 -u 60'* ]] || { touch "$FORBIDDEN_CALL"; exit 97; }
+nodes=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -w) nodes=$2; shift 2 ;;
+        --) shift; break ;;
+        -t|-u|-R) shift 2 ;;
+        *) break ;;
+    esac
+done
+command=$1
+[[ "$command" == *'nvidia-smi -q'* ]] || { touch "$FORBIDDEN_CALL"; exit 97; }
+[[ "${RACK_TEST_PROBE:-}" == timeout ]] && exit 124
+IFS=, read -r -a members <<< "$nodes"
+for node in "${members[@]}"; do
+    [[ "${RACK_TEST_PROBE:-}" == missing-node && "$node" == node18 ]] && continue
+    output=$(RACK_TEST_NODE="$node" bash -c "$command" 2>&1)
+    while IFS= read -r line; do
+        [[ "${RACK_TEST_PROBE:-}" == clipped && "$node" == node18 && "$line" == __NVLOOM_PROBE_EXIT__=* ]] && continue
+        printf '%s: %s\n' "$node" "$line"
+    done <<< "$output"
+    if [[ "${RACK_TEST_PROBE:-}" == duplicate-completion && "$node" == node18 ]]; then
+        printf '%s: __NVLOOM_PROBE_EXIT__=0\n' "$node"
+    fi
+done
+[[ "${RACK_TEST_PROBE:-}" == transport-failure ]] && exit 1
+exit 0
+STUB
+cp "$work/bin/clush" "$work/bin/pdsh"
 for tool in sbatch scancel srun systemctl; do
     cat > "$work/bin/$tool" <<'STUB'
 #!/bin/bash
@@ -54,28 +106,38 @@ STUB
 done
 chmod 755 "$work/bin/"*
 export PATH="$work/bin:$PATH"
-unset SBATCH_NODES RACK_TEST_EXPAND RACK_TEST_SLURM RUN_RACK_JOBS RACK_SAMPLES
+unset SBATCH_NODES RACK_TEST_EXPAND RACK_TEST_SLURM RACK_TEST_PROBE RUN_RACK_JOBS RACK_SAMPLES
 settings() {
-    printf 'BRINGUP_DATA=%q\nRACK_ID=rack-a\nRACK_NODES=%q\nRACK_MEMBERSHIP_FILE=%q\n' \
-        "$work/runtime-must-not-exist" 'node[01-18]' "$RACK_TEST_FIXTURES/membership.tsv" > "$SETTINGS_HOME/SETTINGS"
-    printf 'RUN_JOBS=yes\nEXCLUDE_NODES=\nNODE_FILTER=\n' >> "$SETTINGS_HOME/SETTINGS"
+    printf 'BRINGUP_DATA=%q\nRACK_ID=rack-a\nRACK_NODES=%q\n' \
+        "$work/runtime-must-not-exist" 'node[01-18]' > "$SETTINGS_HOME/SETTINGS"
+    printf 'RUN_JOBS=yes\nEXCLUDE_NODES=\nNODE_FILTER=\nFANOUT_TOOL=clush\nFANOUT_CONNECT_TIMEOUT=10\nFANOUT_COMMAND_TIMEOUT=60\n' >> "$SETTINGS_HOME/SETTINGS"
 }
 run() { out=$(bash "$home/actions/launch_rack_job.sh" --explain "$@" 2>&1); rc=$?; }
 contains() { [[ "$out" == *"$1"* ]]; }
-settings
-while IFS=$'\t' read -r label nodes expected diagnostic; do
+selection() {
+    local name=$1 nodes=$2 expected=$3 diagnostic=$4
     run --nodes "$nodes"
-    check test "$rc" -eq "$expected"
-    label="$label diagnostic"; check contains "$diagnostic"
+    label="$name status"; check test "$rc" -eq "$expected"
+    label="$name diagnostic"; check contains "$diagnostic"
     if [[ "$expected" -ne 0 ]]; then
-        label="$label withholds command"; check contains 'Proposed submission: withheld'
+        label="$name withholds command"; check contains 'Proposed submission: withheld'
     fi
-done < "$RACK_TEST_FIXTURES/selections.tsv"
+}
+settings
+selection valid 'node[01-18]' 0 'VALID: exactly 18'
+probe_count=$(wc -l < "$PROBE_CALLS")
+selection 'wrong count' 'node[01-17]' 1 'expected exactly 18 distinct nodes; found 17'
+selection oversized 'node[01-19]' 1 'expected exactly 18 distinct nodes; found 19'
+selection duplicate 'node[01-18],node01' 1 'duplicate selected node: node01'
+selection 'duplicate masking count' 'node[01-17],node01' 1 'expected exactly 18 distinct nodes; found 17'
+label='invalid counts and duplicates do not trigger remote probes'; check test "$(wc -l < "$PROBE_CALLS")" -eq "$probe_count"
+selection 'hostname patterns do not define membership' 'node[01-17],node19' 0 'VALID: exactly 18'
+selection 'unknown node' 'node[01-17],unknown' 1 'selected node absent from Slurm inventory: unknown'
 run
 label='automatic scheduling defaults off'; check contains 'RUN_RACK_JOBS=no'
 label='sample count defaults to five'; check contains 'RACK_SAMPLES=5'
-label='source path shown'; check contains "Membership source: $RACK_TEST_FIXTURES/membership.tsv"
-label='all expanded nodes shown'; check contains $'  node18\n'
+label='live source shown'; check contains 'Membership source: live nvidia-smi -q ClusterUUID via fanout.sh'
+label='all expanded nodes and identities shown'; check contains 'node18  ClusterUUID=53a24e94-52fa-f566-aa13-60ef67933749'
 command_line=$(printf '%s\n' "$out" | sed -n '/^  env /p')
 expected_list=$(printf 'node%02d,' {1..18}); expected_list=${expected_list%,}
 printf -v expected_list '%q' "$expected_list"
@@ -84,27 +146,21 @@ label='proposal uses exact list through -w'; check proposal_exact
 label='proposal has no allocation count option'; check test "$command_line" = "${command_line//--nodes/}"
 label='proposal has no short count option'; check test "$command_line" = "${command_line// -N/}"
 label='output pattern preserved'; check contains '/nvloom-rack-%j.txt'
-run --membership-file "$work/missing.tsv"
-label='missing membership inventory rejected'; check test "$rc" -eq 1
-label='missing inventory explained'; check contains 'membership inventory unavailable'
-: > "$work/empty.tsv"
-run --membership-file "$work/empty.tsv"
-label='empty inventory rejected'; check contains 'invalid membership header'
-printf 'node\track_id\tnvlink_domain_id\nnode01\t\tdomain-a\n' > "$work/bad.tsv"
-run --membership-file "$work/bad.tsv"
-label='empty field rejected'; check contains 'malformed membership row'
-cat "$RACK_TEST_FIXTURES/membership.tsv" > "$work/duplicate.tsv"
-printf 'node01\track-a\tdomain-a\n' >> "$work/duplicate.tsv"
-run --membership-file "$work/duplicate.tsv"
-label='duplicate inventory rows rejected'; check contains 'duplicate membership row'
-sed 's/domain-b/domain-a/' "$RACK_TEST_FIXTURES/membership.tsv" > "$work/oversized.tsv"
-run --membership-file "$work/oversized.tsv"
-label='larger mapped domain rejected'; check contains 'has 36 mapped members'
-## One member in another domain while retaining the same physical rack.
-sed 's/^node18\track-a\tdomain-a$/node18\track-a\tdomain-other/' \
-    "$RACK_TEST_FIXTURES/membership.tsv" > "$work/same-rack.tsv"
-run --membership-file "$work/same-rack.tsv"
-label='mixed domains within one physical rack rejected'; check contains 'mixed NVLink rack/domain membership'
+for mode in mixed within-node failed empty missing-field na zero malformed duplicate-field missing-node clipped duplicate-completion timeout transport-failure; do
+    export RACK_TEST_PROBE="$mode"
+    run
+    label="$mode evidence blocks validation"; check test "$rc" -eq 1
+    label="$mode evidence withholds command"; check contains 'Proposed submission: withheld'
+done
+RACK_TEST_PROBE=mixed run
+label='mismatch names node and identity'; check contains 'mixed NVLink domains: node18 ClusterUUID=63a24e94'
+RACK_TEST_PROBE=within-node run
+label='within-node disagreement explained'; check contains 'GPUs disagree on ClusterUUID'
+RACK_TEST_PROBE=failed run
+label='remote failure checked even when fan-out exits zero'; check contains 'nvidia-smi probe failed (exit 9)'
+RACK_TEST_PROBE=upper run
+label='UUID comparison ignores hex letter case'; check test "$rc" -eq 0
+unset RACK_TEST_PROBE
 for mode in failed empty missing; do
     export RACK_TEST_SLURM="$mode"
     run
@@ -140,8 +196,8 @@ label='filter honored'; check contains 'filtered node:'
 settings
 SBATCH_NODES=18 run
 label='inherited allocation count blocked'; check contains 'SBATCH_NODES is set'
-run --rack-id other
-label='physical rack selection checked'; check contains 'physical rack mismatch'
+run --rack-id other-label
+label='operator label does not define membership'; check test "$rc" -eq 0
 for switch in RUN_JOBS RUN_RACK_JOBS; do
     settings
     printf '%s=typo\n' "$switch" >> "$SETTINGS_HOME/SETTINGS"
@@ -153,8 +209,19 @@ printf 'JOBS=h200x2\n' >> "$SETTINGS_HOME/SETTINGS"
 run
 label='missing configured rack launcher explained'; check contains 'missing rack launcher:'
 settings
+printf 'FANOUT_TOOL=pdsh\n' >> "$SETTINGS_HOME/SETTINGS"
+run
+label='pdsh identity probe supported'; check test "$rc" -eq 0
+label='pdsh transport explicitly selected'; check grep -q -- '-R ssh -w' "$PROBE_CALLS"
+settings
+printf 'FANOUT_COMMAND_TIMEOUT=0\n' >> "$SETTINGS_HOME/SETTINGS"
+run
+label='unbounded identity probe rejected'; check contains 'require positive fan-out'
+settings
 run --samples 7
 label='sample override used in proposal'; check contains 'RACK_SAMPLES=7 sbatch'
+run --membership-file ignored
+label='membership-file interface removed'; check test "$rc" -eq 2
 run --samples
 label='missing option argument rejected'; check test "$rc" -eq 2
 run --submit

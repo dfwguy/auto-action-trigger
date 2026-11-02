@@ -1,7 +1,0 @@
-valid	node[01-18]	0	VALID: exactly 18
-wrong count	node[01-17]	1	expected exactly 18 distinct nodes; found 17
-oversized	node[01-19]	1	expected exactly 18 distinct nodes; found 19
-duplicate	node[01-18],node01	1	duplicate selected node: node01
-duplicate masking count	node[01-17],node01	1	expected exactly 18 distinct nodes; found 17
-mixed domains	node[01-17],node19	1	mixed NVLink rack/domain membership
-unknown member	node[01-17],unknown	1	unknown membership for selected node: unknown

@@ -99,7 +99,6 @@ fi
 : "${RACK_ID=}"
 : "${RACK_NODES=}"
 : "${RACK_SAMPLES=5}"
-: "${RACK_MEMBERSHIP_FILE=}"
 ## BCM-specific: wait for the command daemon, Slurm daemon and job identity
 ## before submitting after a reboot. Off unless the site explicitly opts in.
 : "${REQUIRE_BCM_BOOTSTRAP_READY:=no}"

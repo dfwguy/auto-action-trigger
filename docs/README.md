@@ -111,7 +111,7 @@ Understanding-oriented. Why it is like this, and what it cost to find out.
 | [architecture.md](explanation/architecture.md) | How the pieces fit together, *silence is the enemy*, why every remote command is a `clush` or a `pdsh`, arming a node |
 | [the-agent-and-the-watchdog.md](explanation/the-agent-and-the-watchdog.md) | What a heartbeat means, whose clock decides, which node states are armed, why the account lingers |
 | [running-unprivileged.md](explanation/running-unprivileged.md) | What still needs root and what no longer does, the sudoers drop-in, why a lost rule stops the run |
-| [nvloom-rack-design.md](explanation/nvloom-rack-design.md) | Proposed fixed 18-node NVLoom coordination, trusted membership input and lifecycle; design only |
+| [nvloom-rack-design.md](explanation/nvloom-rack-design.md) | Proposed fixed 18-node NVLoom coordination, live ClusterUUID evidence and lifecycle; design only |
 | [sequencing.md](explanation/sequencing.md) | One job at a time, stale markers, retry and drain behaviour, what a pause is for |
 | [the-fleet-snapshot.md](explanation/the-fleet-snapshot.md) | Why no compute node asks slurmctld anything, what the watchdog writes for each of them, and what a stale view obliges a node to do |
 | [health-cadence.md](explanation/health-cadence.md) | Why the checks re-run on a timer, the stamp file, and why the golden baseline is a copy |

@@ -1,0 +1,16 @@
+==============NVSMI LOG==============
+Attached GPUs                       : 4
+GPU 00000000:01:00.0
+    Fabric
+        State                       : Completed
+        Status                      : Success
+        ClusterUUID                 : 53a24e94-52fa-f566-aa13-60ef67933749
+GPU 00000000:02:00.0
+    Fabric
+        ClusterUUID                 : 53a24e94-52fa-f566-aa13-60ef67933749
+GPU 00000000:03:00.0
+    Fabric
+        ClusterUUID                 : 53a24e94-52fa-f566-aa13-60ef67933749
+GPU 00000000:04:00.0
+    Fabric
+        ClusterUUID                 : 53a24e94-52fa-f566-aa13-60ef67933749

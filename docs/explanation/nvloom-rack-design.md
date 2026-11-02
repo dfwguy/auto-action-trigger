@@ -1,6 +1,7 @@
 # Fixed 18-node NVLoom rack runs
 
-This records the approved Step 1 design. Step 2 implements only
+This records the rack design, updated to use live ClusterUUID validation.
+Step 2 implements only
 [read-only configuration and membership explanation](../how-to/explain-nvloom-rack.md);
 coordination and submission below remain planned behavior. Existing
 [single-node sequencing](sequencing.md) stays unchanged when no rack request
@@ -10,55 +11,43 @@ its rack submission example in a later step.
 
 ## Membership needs site input
 
-No authoritative node-to-NVLink-domain inventory was found in this checkout.
-`check_rack.sh` reports Slurm state, not membership. Neither Slurm partition
-membership nor a hostname prefix establishes a fabric boundary.
+The site supplies the explicit 18-node selection, not a membership file.
+Membership is established by querying the selected nodes live. The former
+site-owned TSV proposal is superseded by the requirement to compare current
+ClusterUUID values across all 18 nodes. Hostname patterns, physical rack labels,
+Slurm partitions and saved health logs do not establish membership.
 
-The NVL72 health checks record useful observations:
+Step 2 uses the existing health check's read-only `nvidia-smi -q` interface,
+executed through `fanout.sh` with positive connection and command timeouts.
+Require successful completion from every selected node, exactly four valid
+GPU ClusterUUID readings per node, one value within each node, and the same
+value across all 18 nodes. UUID comparison ignores hexadecimal letter case.
+Missing, malformed, all-zero or `N/A` values, incomplete output, failed commands,
+unreachable nodes, timeouts and conflicting values block validation. A remote
+completion marker verifies each command's exit status independently of the
+fan-out tool's aggregate status.
 
-- `14-nvidia-smi-cuuid.sh` records GPU Bus Id, CliqueId and ClusterUUID.
-- `27-imex-node-config.sh` records only an IMEX configuration checksum.
-- `30-imex-status.sh` records a transformed, time-varying IMEX status matrix.
+NVIDIA documents the Fabric ClusterUUID field in the
+[MNNVL user guide](https://docs.nvidia.com/multi-node-nvlink-systems/mnnvl-user-guide/mnnvl-user-guide.pdf).
+Use that live fabric identity consistently; do not compare a ClusterUUID from
+one node with a rackGuid from another. NVLoom's own runtime membership checks
+remain additional protection. Its `rackGuid` output is not assumed to be
+interchangeable with ClusterUUID, and no NVLoom workload is launched to obtain
+identity in the explanation step.
 
-These informational logs are neither a complete, versioned membership source
-nor an approved translation from IMEX addresses to Slurm node names. The
-[node inventory explanation](node-inventory.md#it-is-not-a-baseline) explicitly
-warns against treating one rack's observation as a fleet baseline. NVLoom's
-own ClusterUUID checks remain additional runtime protection; its reported
-`rackGuid` is not assumed to equal ClusterUUID or a physical rack label.
+`RACK_ID` is an operator-supplied label used for organization and future result
+paths. It does not prove physical enclosure identity. The detected ClusterUUID
+identifies the NVLink domain and is reported separately. A common UUID verifies
+the selected nodes' reported fabric identity, not their physical rack location
+or the total number of other nodes in that domain. The workload still requires
+exactly 18 distinct selected nodes. Reject duplicates, unknown Slurm nodes,
+excluded or filtered nodes and incorrect counts; never pad or expand a request.
 
-Use a site-owned inventory export until the site supplies an authoritative
-API and its identifier semantics. Proposed setting `RACK_MEMBERSHIP_FILE`
-names an absolute, shared, readable TSV file outside the release tree. Its
-first line is exactly `node<TAB>rack_id<TAB>nvlink_domain_id`; each subsequent
-line contains one literal Slurm node name, physical rack ID and domain ID.
-There are no hostlists, blank fields, aliases or inferred members. No actual
-membership data is shipped with this design.
-
-The site must attest the export's origin, revision and operational freshness,
-including refresh after fabric changes. Publish it atomically; trust its
-ownership and write permissions only after site review. Reject missing,
-unreadable, malformed or conflicting mappings, duplicate node rows, and
-unknown selections. Record its exact content and digest with each request.
-
-`rack_id` identifies the physical enclosure; `nvlink_domain_id` identifies the
-shared NVLink fabric domain. They are separate fields even where the site has
-one domain per rack. Use the site's canonical fabric identifier (ClusterUUID
-only if the site confirms that meaning), never derive it from `rack_id`.
-IDs must be safe single path components; reject separators, whitespace, `.`
-and `..`. Nodes must also be valid literal Slurm node names.
-
-For this workload a valid group is exactly 18 distinct mapped nodes with one
-physical rack ID and one NVLink domain ID, and all mapped members of that
-domain must be those 18 nodes. Expand an operator hostlist, reject duplicates
-before canonical sorting, and require exact equality to that group. Reject
-short, oversized, mixed, excluded or filtered selections; never pad or expand
-a request to additional nodes. Validate against the current Slurm inventory
-as well. Missing data stops submission with a reason, not a hardware finding.
-
-**Review input still required:** inventory owner/source and export path;
-physical rack label and canonical domain identifier; confirmation of the
-18-node domain boundary. No live inventory or cluster validation was performed.
+A later submission step must repeat the live identity check immediately before
+submission, after existing work has finished and participation is coordinated.
+Do not treat a previous explanation or saved observations as current permission
+to submit. Persist the per-node probe evidence and detected identity with the
+request for diagnosis, without making stored evidence a validation source.
 
 ## Existing assumptions that need explicit integration
 
@@ -84,17 +73,19 @@ manual guide. Correct that documentation when updating the submission guide.
 
 Proposed interfaces are `actions/launch_rack_job.sh` for manual request,
 status and cancellation, and a sourced `rack-jobs.sh` coordinator used by that
-entry point and `agent/supervisor.sh`. Manual submission supplies a domain
-and explicit node selection. The supervisor selects only complete mapped
-groups. Both call the same validation and state transitions as `JOB_USER`.
+entry point and `agent/supervisor.sh`. Manual submission supplies a label
+and explicit node selection. The supervisor uses the configured explicit
+18-node selection and validates its live identity; it does not discover or
+expand groups from an inventory. Both call the same validation and state
+transitions as `JOB_USER`.
 Use a distinct job name `racknvloom-<run-id>`, tied to its request record;
 name matching alone never proves ownership.
 No node agent submits a rack job and no per-node fan-out runs this launcher.
 
 Load configuration through `settings.sh`, including its existing site pointer
 resolution. Step 2 adds `RUN_RACK_JOBS=no`, `RACK_ID` and `RACK_NODES` empty,
-`RACK_SAMPLES=5`, and `RACK_MEMBERSHIP_FILE` empty by default.
-`RACK_ID` selects the physical rack and the mapping supplies its domain.
+and `RACK_SAMPLES=5`. `RACK_ID` is an operator label; live ClusterUUID
+observations supply the domain identity.
 A later step will add
 `RACK_REQUEST_TIMEOUT_MINUTES=120` for preparation and pending time combined.
 The timeout remains a proposed default. Automatic scheduling
@@ -104,7 +95,9 @@ restrictions and a usable configured launcher in `JOBS_DIR`. Missing launcher
 or membership is explained and blocks rack work only.
 
 Initially automatic scheduling makes at most one attempt per domain,
-membership digest and workload configuration digest. Retain terminal history
+canonical selected-node set and workload configuration digest.
+Deduplicate by detected domain identity regardless of the operator label.
+Retain terminal history
 so a failure or supervisor restart cannot create an automatic retry loop.
 An explicit manual request may start another attempt after release. Changing
 `RUN_RACK_JOBS` to `no` prevents new automatic requests; accepted requests still
@@ -132,10 +125,10 @@ rules. A broken reference blocks that node with a trace until reconciled.
 
 Store authoritative run metadata under
 `$BRINGUP_DATA/multinode-results/<rack-id>/<run-id>/`: immutable request and
-membership snapshot, canonical nodes, origin, timestamps, workload/settings
-digest, unique submission token/name, submission response, job ID, transitions,
-cancellation reason and result assessment. Run IDs must be unique across
-domains within the same physical rack. Shared locks/indexes and per-node
+live per-node identity evidence, canonical nodes, origin, timestamps,
+workload/settings digest, unique submission token/name, submission response,
+job ID, transitions, cancellation reason and result assessment. Run IDs must
+be unique within each rack label. Shared locks/indexes and per-node
 participation references are coordination aids, not alternative verdicts.
 Publish records atomically using host/process-specific temporary names.
 
@@ -143,7 +136,7 @@ Publish records atomically using host/process-specific temporary names.
 |---|---|
 | Preparing | Validate and persist the request; claim all selected nodes before waiting for local work to finish. Require fresh node views and no outstanding local submissions or foreign work, and verify the existing health/container readiness prerequisites before submitting. A competing request reports the existing run. |
 | Submitting | Persist the unique token before calling `sbatch` exactly once. Manual and supervisor callers see this same state. A crash, timeout or unparsable response leaves an uncertain submission to reconcile by token, owner and exact requested nodes; never retry it blindly. |
-| Pending / running | Save the job ID; reconcile from the supervisor's fleet query. Keep participation through pending, running, requeue and completing states. Membership changes cannot silently change an accepted request's nodes; block submission on a changed mapping. |
+| Pending / running | Save the job ID; reconcile from the supervisor's fleet query. Keep participation through pending, running, requeue and completing states. Never change an accepted request's nodes silently; a fresh identity mismatch before submission blocks the request. |
 | Cancelling | Unsubmitted requests can terminate directly once absence of a submission is certain. Otherwise request `scancel` for the verified ID; command success alone does not release participation. Pause, explicit cancel, held-launch cleanup or request deadline records the cause. |
 | Terminal | Confirm the allocation is gone with a successful fresh queue query taken after the last submission/cancel action, and obtain terminal job evidence by targeted accounting when available. An absent queue entry can establish release but cannot establish success. Save completed, failed, cancelled or inconclusive assessment before removing only this run's participation references. |
 
@@ -193,7 +186,7 @@ inconclusive quality until a dedicated parser has representative fixtures.
   and completing jobs, failed probes, release and independent reporting.
   Update settings/jobs/operator references and the layout when code lands.
 
-Review the membership input, domain identifier, lifecycle and proposed defaults
-before implementing these interfaces. Later cluster acceptance must verify
+Review the live identity evidence, lifecycle and proposed defaults
+before implementing the remaining interfaces. Later cluster acceptance must verify
 shared locking, Slurm allocation of exactly the validated list, reconciliation
 and release; offline fixtures cannot establish those properties at a site.
