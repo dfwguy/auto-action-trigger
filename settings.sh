@@ -82,6 +82,9 @@ fi
 ## 0 disables the cadence. See docs/explanation/health-cadence.md.
 : "${HEALTH_INTERVAL_HOURS:=4}"
 : "${HEALTH_RETRY_INTERVAL_HOURS:=1}"
+## 0 removes the per-check time cap. See docs/explanation/health-cadence.md#a-check-that-does-not-return.
+: "${HEALTH_CHECK_TIMEOUT_SECONDS:=90}"
+: "${HEALTH_TIMEOUT_LINE:=check timed out -- no result}"
 ## Run and drain switches, all defaulting on (RUN_BURNIN is the one
 ## exception, opt-in) so an empty or unreadable value carries on rather than
 ## stopping the fleet or draining it. See docs/reference/settings.md#run-switches

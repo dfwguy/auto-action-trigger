@@ -181,6 +181,50 @@ the sequencer's volume rotating the health trace away long before it was stale.
 last cycle did, but when the next one is due, read from the stamps across the
 whole fleet.
 
+## A check that does not return
+
+Nothing used to bound a check. The runner starts them one after another inside a
+cycle that also runs `file_copy` and `launch_job`, under one lock. A tool that
+never returned — a wedged GPU driver under `nvidia-smi`, a stuck `mlxlink` —
+stopped the loop where it stood. The checks after it did not run, no stamp was
+written, no drain was made and no trace line said why. Only systemd's
+`TimeoutStartSec=900` ended the cycle, and `launch_job` could not run on that
+node meanwhile. `health.log` went stale, which `check_trigger-log.sh` reads as
+"the agent is not firing": the opposite of what was happening.
+
+Each check now has a time limit, `HEALTH_CHECK_TIMEOUT_SECONDS` (`90`), which one
+check can override with `# timeout: N`. The limit is a setting because the right
+number depends on hardware nobody had timed when it was chosen. The `timing:`
+line gives the data to change it. A check that hits the limit is killed, and its
+log holds one line, `check timed out -- no result`. Three decisions follow.
+
+- **A timeout is a finding, not a pass and not a skip.** The log differs from
+  the baseline, so the check's name goes in the reason and the node drains if
+  drains are on. Recording nothing would pass every check whose healthy output is
+  empty, and a node that cannot answer `nvidia-smi` in a minute and a half is not
+  one to hand work to. An informational check records the timeout and never
+  drains. If the limit is too tight for healthy hardware, the fix is to raise it,
+  and drains being off by default means that mistake costs a trace line, not a
+  node.
+- **The output goes to a file, not into `$(...)`.** A child of the check that
+  survives the kill, because it ignores `TERM` or is stuck in the kernel, keeps
+  the pipe open, and a command substitution waits for it. With a 3-second limit
+  the runner still returned after the child's 20 seconds; writing to a temp file
+  returned after 3.
+- **The baseline refuses it.** A baseline taken during a wedge would pass every
+  node that wedges the same way, so `admin_set-baseline.sh` will not promote a log
+  holding the timeout line.
+
+What the limit does not reach. A child that ignores `TERM`, or sits in an
+uninterruptible state, is orphaned rather than killed: it stays until it
+finishes, so a node that hangs the same tool every cycle collects one per cycle.
+There is no limit on the whole run, so many checks each using their full limit
+could still reach systemd's 900 seconds. And a `timeout` placed in front of one
+tool inside a check does not belong in a pipeline such as `tool | grep || true`,
+where a killed tool reads as empty output, which is what a healthy node prints
+for several checks. A check that bounds one of its own tools has to handle the
+exit status, as `44-bmc-firmware` does.
+
 ## A due time assumes a live node
 
 Everything above is a prediction about a node that is still running cycles, and

@@ -150,6 +150,12 @@ per-rack against a cluster-wide baseline. Read them by hand with
 node is cabled into the wrong rack. See
 [health-checks.md#informational-checks](health-checks.md#informational-checks).
 
+A check name in a reason can also mean the check never answered. Its log under
+`$HEALTH_LOG_DIR/<node>/<check>` then holds the line `check timed out -- no
+result`, and `health.log` has a `TIMEOUT:` line saying how to raise the limit —
+see
+[explanation/health-cadence.md#a-check-that-does-not-return](../explanation/health-cadence.md#a-check-that-does-not-return).
+
 Not every drain is a health check. `slurm-recovery.sh` sorts drains into four
 classes and **an operator drain is never cleared by anything in this tree** —
 see [how-to/manage-drains.md](../how-to/manage-drains.md).

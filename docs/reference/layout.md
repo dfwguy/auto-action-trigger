@@ -333,7 +333,8 @@ listing above. `severity=warning` is the gate, not the ceiling: the info- and
 style-level findings below it are largely deliberate here.
 
 The `test` stage runs the suites — `tests/verdict-test.sh`,
-`tests/health-runner-test.sh`, `tests/recover-test.sh`, `tests/inflight-test.sh`,
+`tests/health-runner-test.sh`, `tests/health-timeouts-test.sh`,
+`tests/recover-test.sh`, `tests/inflight-test.sh`,
 `tests/yield-test.sh`, `tests/help-text-test.sh`, `tests/scan-cache-test.sh`,
 `tests/node-queries-test.sh`,
 `tests/llmb-check-test.sh`, `tests/exclude-test.sh`, `tests/report-format-test.sh`,

@@ -32,6 +32,33 @@ banner when the link does not resolve, because nothing below it is real.
 **Without that third step the new check diffs against a missing file and fails
 on every node.**
 
+## Give a check more time
+
+Every check is killed if it runs longer than `HEALTH_CHECK_TIMEOUT_SECONDS`
+(`90` as shipped), and the node then fails that check. If the check is healthy
+and only slow, raise the limit. Find out which one and by how much from the
+node's trace:
+
+```bash
+grep -E 'TIMEOUT:|timing:' "$HEALTH_LOG_DIR"/<node>/health.log | tail
+```
+
+`TIMEOUT:` names the check that was killed. `timing:` names the slowest check of
+the last run and how long it took.
+
+- **One check:** add `# timeout: 300` among the first 10 lines of the check, next
+  to its `# banner:`. Nothing else changes, and baselines stay valid.
+- **Every check:** set `HEALTH_CHECK_TIMEOUT_SECONDS=<seconds>` in `SETTINGS`.
+  `0` removes the cap.
+
+The next run picks either up — `bash report_health.sh --refresh <node>` runs it
+now. A check that was killed has the line `check timed out -- no result` in its
+log, so take the baseline again only after it has produced a real result; the
+baseline script refuses otherwise. The settings are in
+[reference/settings.md#health-check-cadence](../reference/settings.md#health-check-cadence)
+and the reasoning in
+[explanation/health-cadence.md#a-check-that-does-not-return](../explanation/health-cadence.md#a-check-that-does-not-return).
+
 ## Add a set for another platform
 
 Copy the directory and delete what does not apply — a check that is not there

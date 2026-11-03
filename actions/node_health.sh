@@ -11,6 +11,7 @@
 #   # banner: ########INFO: Check BIOS
 #   # informational: yes      (optional -- recorded, never contributes a reason)
 #   # reason-detail: yes      (optional -- the check's output joins the reason)
+#   # timeout: 300            (optional -- seconds it may run; default HEALTH_CHECK_TIMEOUT_SECONDS)
 #   <commands writing the check's result to stdout>
 #
 # The banner is the first line of the log file and the baseline is a copy of
@@ -266,10 +267,15 @@ fi
 ## one immutable snapshot for the run and let each check select its records.
 ## Standalone check execution retains its own fallback.
 pcie_lspci_snapshot=""
+check_out=""
 cleanup_pcie_lspci_snapshot() {
     [[ -n "$pcie_lspci_snapshot" ]] && rm -f -- "$pcie_lspci_snapshot"
 }
-trap cleanup_pcie_lspci_snapshot EXIT
+cleanup_run_tmp() {
+    cleanup_pcie_lspci_snapshot
+    [[ -n "$check_out" ]] && rm -f -- "$check_out"
+}
+trap cleanup_run_tmp EXIT
 if [[ -f "$HEALTHCHECKS_DIR/20-pcie-lnk-stat.sh" ||
       -f "$HEALTHCHECKS_DIR/21-pcie-acs.sh" ||
       -f "$HEALTHCHECKS_DIR/22-pcie-mrrs.sh" ]]; then
@@ -285,6 +291,25 @@ if [[ -f "$HEALTHCHECKS_DIR/20-pcie-lnk-stat.sh" ||
         unset BRINGUP_PCIE_LSPCI_SNAPSHOT
     fi
 fi
+
+## Seconds one check may run before it is killed. An unreadable value falls back
+## to 90, never to no cap. See docs/explanation/health-cadence.md#a-check-that-does-not-return.
+default_limit=$HEALTH_CHECK_TIMEOUT_SECONDS
+if [[ ! "$default_limit" =~ ^[0-9]+$ ]]; then
+    trace "WARNING: HEALTH_CHECK_TIMEOUT_SECONDS=$default_limit in ${SETTINGS_FILE:-<none>} is not whole seconds -- using 90"
+    default_limit=90
+fi
+default_limit=$((10#$default_limit))
+if ! command -v timeout >/dev/null 2>&1; then
+    trace "WARNING: timeout is not installed -- no check has a time limit, so a hung tool stalls this run"
+elif ! check_out=$(mktemp /tmp/bringup-check.XXXXXX 2>/dev/null); then
+    check_out=""
+    trace "WARNING: cannot create a temp file in /tmp -- no check has a time limit, so a hung tool stalls this run"
+fi
+ran_count=0
+slowest=""
+slowest_secs=0
+run_started=$SECONDS
 
 mkdir -p "$node_health"
 
@@ -327,7 +352,34 @@ for check_file in "$HEALTHCHECKS_DIR"/[0-9]*.sh; do
 
     ## Stderr is kept out of the baseline/diff, but preserved locally for
     ## diagnosis instead of flowing through the service journal.
-    out=$(bash "$check_file" 2>>"$stderrlog")
+    started=$SECONDS
+    if [[ -n "$check_out" ]]; then
+        ## A file, not $(...): a child that outlives the kill holds a pipe open and
+        ## the substitution waits for it. See docs/explanation/health-cadence.md#a-check-that-does-not-return.
+        limit=$(check_meta "$check_file" timeout)
+        if [[ -z "$limit" ]]; then
+            limit=$default_limit
+        elif [[ ! "$limit" =~ ^[0-9]+$ ]]; then
+            trace "WARNING: $check has '# timeout: $limit', not whole seconds -- using ${default_limit}s"
+            limit=$default_limit
+        fi
+        limit=$((10#$limit))
+        timeout -k 5 "$limit" bash "$check_file" </dev/null >"$check_out" 2>>"$stderrlog"
+        check_rc=$?
+        if (( limit > 0 && SECONDS - started >= limit && (check_rc == 124 || check_rc == 137) )); then
+            trace "TIMEOUT: $check ran ${limit}s and was killed -- recorded as no result, not as healthy. Raise HEALTH_CHECK_TIMEOUT_SECONDS in SETTINGS, or put '# timeout: N' in the check"
+            out=$HEALTH_TIMEOUT_LINE
+        else
+            out=$(<"$check_out")
+        fi
+    else
+        out=$(bash "$check_file" 2>>"$stderrlog")
+    fi
+    ran_count=$((ran_count + 1))
+    if [[ -z "$slowest" ]] || (( SECONDS - started > slowest_secs )); then
+        slowest=$check
+        slowest_secs=$((SECONDS - started))
+    fi
 
     printf '%s\n' "$banner" > "$node_health/$check"
     printf '%s\n' "$out"   >> "$node_health/$check"
@@ -346,6 +398,14 @@ for check_file in "$HEALTHCHECKS_DIR"/[0-9]*.sh; do
         fi
     fi
 done
+
+if (( ran_count > 0 )); then
+    cap="${default_limit}s"
+    (( default_limit == 0 )) && cap="none"
+    slow_text="${slowest_secs}s"
+    (( slowest_secs == 0 )) && slow_text="under 1s"
+    trace "timing: $((SECONDS - run_started))s for $ran_count check(s), slowest $slowest ($slow_text); limit per check $cap -- HEALTH_CHECK_TIMEOUT_SECONDS, or '# timeout: N' in a check"
+fi
 
 #echo >> $node_health
 #echo -e "\n########INFO: sysinfo check completed, please review the above information for any potential issue.\n" >> $node_health

@@ -255,6 +255,11 @@ conventions hold, and the same 1 MB / 2000-line trim. Why it is a separate file:
 | `EXIT: HEALTH_INTERVAL_HOURS=0 … the cadence is off` | Both intervals are `0`, so only `--refresh` re-runs anything — see [settings.md#health-check-cadence](settings.md#health-check-cadence) |
 | `last run <n>s ago … past its <n>h interval -- re-checking` | The cadence fired |
 | `--explain: would run <n> check(s) from <dir> against <baseline>` | `-n`. Nothing was written and nothing drained |
+| `WARNING: HEALTH_CHECK_TIMEOUT_SECONDS=<value> … is not whole seconds -- using 90` | The setting is unreadable, so the built-in default applies. Never "no limit" |
+| `WARNING: <check> has '# timeout: <value>', not whole seconds -- using <n>s` | One check's own limit is unreadable, so the default applies to it |
+| `WARNING: timeout is not installed …` / `WARNING: cannot create a temp file in /tmp …` | The runner cannot bound the checks, and says so: a hung tool will stall this run |
+| `TIMEOUT: <check> ran <n>s and was killed -- recorded as no result, not as healthy. …` | The check reached its limit. Its log holds `check timed out -- no result`, and the line says how to raise the limit — see [reference/health-checks.md#time-limits](health-checks.md#time-limits) |
+| `timing: <n>s for <n> check(s), slowest <check> (<n>s); limit per check <n>s -- …` | Once per run, before the verdict. The number to read before changing the limit |
 | `every check matches the baseline` | A clean run. The drain-clearing lines below it, if any, come from `slurm-recovery.sh` — see [explanation/drain-recovery.md](../explanation/drain-recovery.md) |
 | `differs from <baseline>: <checks>` | The run found something. The check names are what a drain would carry |
 | `EXIT: <node> failed health checks, not draining (DRAIN_AFTER_FAILED_HEALTH_CHECK=no)` | Found something, drains off — the shipped configuration. The finding is in the line above and in `logs/<node>/` |

@@ -36,6 +36,20 @@ if [[ ${#checks[@]} -eq 0 ]]; then
 	exit 1
 fi
 
+# A timed-out check is a hang, not a result: promoting it would pass every node
+# that hangs the same way. docs/explanation/health-cadence.md#a-check-that-does-not-return
+timed_out=()
+for name in "${checks[@]}"; do
+	if [[ -f "$logs/$node/$name" ]] && grep -qxF "$HEALTH_TIMEOUT_LINE" "$logs/$node/$name"; then
+		timed_out+=("$name")
+	fi
+done
+if [[ ${#timed_out[@]} -gt 0 ]]; then
+	echo "$node's log for ${timed_out[*]} is a timeout, not a result: the check was killed before it finished." >&2
+	echo "Fix what hung, or raise HEALTH_CHECK_TIMEOUT_SECONDS; the baseline was left as it was." >&2
+	exit 1
+fi
+
 mkdir -p "$valid"
 
 # -e is false for a dangling symlink, so test -L as well, or a stale `default`

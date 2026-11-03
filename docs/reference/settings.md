@@ -266,11 +266,23 @@ against — see
 |---------|---------|---------|
 | `HEALTH_INTERVAL_HOURS` | `4` | How long after a **clean** run `node_health.sh` re-runs the checks |
 | `HEALTH_RETRY_INTERVAL_HOURS` | `1` | How long after a run that **found something** it re-runs them |
+| `HEALTH_CHECK_TIMEOUT_SECONDS` | `90` | The longest one check may run before `node_health.sh` kills it and records a timeout. Whole seconds; `0` removes the cap. **Meant to be changed** — see below |
 | `HEALTH_LOG_DIR` | `$BRINGUP_DATA/logs` | Shared, compute-facing root for per-node check output, cadence state and health trace — see [#accounts-and-paths](#accounts-and-paths) |
 
 Whole hours, and `0` on either disables the cadence in the state it applies to —
 the checks then re-run only when `report_health.sh --refresh` sets the sentinel,
 which is how this tree behaved before the cadence existed.
+
+**The time limit is meant to be changed.** `HEALTH_CHECK_TIMEOUT_SECONDS` in
+`SETTINGS` sets it for every check, and one check can ask for its own with
+`# timeout: N` in its header — see
+[health-checks.md#time-limits](health-checks.md#time-limits) and
+[how-to/add-a-health-check-set.md#give-a-check-more-time](../how-to/add-a-health-check-set.md#give-a-check-more-time).
+The shipped `90` is a starting point chosen before the checks had been timed on
+real hardware. The `timing:` line in `health.log` shows how long the slowest
+check took, and the `TIMEOUT:` line names what was killed. Why a timeout drains
+rather than being set aside:
+[explanation/health-cadence.md#a-check-that-does-not-return](../explanation/health-cadence.md#a-check-that-does-not-return).
 
 The interval is measured from `$HEALTH_LOG_DIR/<node>/.last-check`, which also records
 which of the two applies. `report_health.sh --explain` prints the resulting due

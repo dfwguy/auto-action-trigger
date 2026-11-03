@@ -78,6 +78,10 @@ PYTORCH_TAG=26.08
 ## docs/explanation/health-cadence.md#choosing-the-two-intervals.
 HEALTH_INTERVAL_HOURS=4
 HEALTH_RETRY_INTERVAL_HOURS=1
+## Seconds one check may run before it is killed and recorded as a timeout. 0
+## removes the cap. One check can ask for more with '# timeout: N' in its
+## header. See docs/explanation/health-cadence.md#a-check-that-does-not-return.
+HEALTH_CHECK_TIMEOUT_SECONDS=90
 
 ## ── Run switches ──────────────────────────────────────────────────────────
 RUN_JOBS=yes

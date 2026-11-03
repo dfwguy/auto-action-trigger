@@ -78,6 +78,7 @@ node is next due. See
 # banner: ########INFO: Check BIOS
 # informational: yes      (optional -- recorded, never contributes a reason)
 # reason-detail: yes      (optional -- the check's output joins the reason)
+# timeout: 300            (optional -- seconds it may run; default HEALTH_CHECK_TIMEOUT_SECONDS)
 
 grep -r . /sys/class/dmi/id/bios_* 2>/dev/null | cut -d'/' -f6- | sort | paste -s -d','
 ```
@@ -110,6 +111,31 @@ Checks are mode `644`, not `755`, and that is the same decision as running them
 under `bash "$check_file"`: they are never executed directly, only handed to a
 fresh interpreter by the runner. `755` would invite running one on its own,
 which produces the check's stdout with no banner, no log file and no diff.
+
+## Time limits
+
+Every check has a limit on how long it may run, so one tool that never returns
+cannot stall the rest.
+
+| Where | Value | Meaning |
+|-------|-------|---------|
+| `HEALTH_CHECK_TIMEOUT_SECONDS` in `SETTINGS` | `90` by default; `0` removes the cap | The limit for every check |
+| `# timeout: N` in a check's first 10 lines | Whole seconds | That check's own limit, instead of the default |
+
+A value that is not whole seconds is named in `health.log` and the default is
+used; it never means "no limit". A check that reaches its limit is sent `TERM`,
+and `KILL` five seconds later. Its log then holds the banner and one line,
+`check timed out -- no result`, and `health.log` gets a `TIMEOUT:` line that also
+says how to raise the limit. The log differs from the baseline, so the check's
+name goes in the reason; an informational check records the timeout and never
+drains. `admin_set-baseline.sh` refuses to promote a log holding that line.
+
+Raising a limit is an ordinary edit, not a code change. The `timing:` line in
+`health.log` names the slowest check of the last run and how long it took, which
+is what to read before choosing a number. To change one check or all of them:
+[how-to/add-a-health-check-set.md#give-a-check-more-time](../how-to/add-a-health-check-set.md#give-a-check-more-time).
+Why a timeout is a finding and not a skip, and what a kill does not reach:
+[explanation/health-cadence.md#a-check-that-does-not-return](../explanation/health-cadence.md#a-check-that-does-not-return).
 
 ## Checks that need root
 

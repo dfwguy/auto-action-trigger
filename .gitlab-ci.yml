@@ -203,6 +203,12 @@ health-runner:
   script:
     - ./tests/health-runner-test.sh
 
+health-timeouts:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/health-timeouts-test.sh
+
 pcie-snapshot:
   extends: .base
   stage: test
