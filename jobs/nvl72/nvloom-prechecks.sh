@@ -80,10 +80,12 @@ probe_node_rack() {
     printf '%s %s\n' "$node" "$rack_uuid"
 }
 
+# Called after sourcing: validate the rack, then configure MPI in the batch shell.
 nvloom_prechecks() {
     local helper=${BASH_SOURCE[0]}
     local mpi_iface=${MPI_IFACE:-}
 
+    # Run probe mode on each node; validate the combined records once on the batch host.
     if ! (
         set -o pipefail
         srun --time=0:02:00 --ntasks="${SLURM_JOB_NUM_NODES:?not set}" --ntasks-per-node=1 \
@@ -104,11 +106,14 @@ nvloom_prechecks() {
         return 1
     fi
 
+    # These exports persist in the batch shell for the later NVLoom step.
     export OMPI_MCA_btl_tcp_if_include="$mpi_iface"
     export OMPI_MCA_oob_tcp_if_include="$mpi_iface"
     echo "MPI coordination interface: $mpi_iface"
 }
 
+# Sourcing skips this dispatch; the batch script calls nvloom_prechecks explicitly.
+# Direct execution: no args probes this node; --validate checks records from stdin.
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
     if [[ ${1:-} == --validate ]]; then
         validate_rack_membership
