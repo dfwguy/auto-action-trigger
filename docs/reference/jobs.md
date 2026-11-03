@@ -245,7 +245,10 @@ Logs remain advisory and never feed node state decisions. See the
 | `NVIDIA_VISIBLE_DEVICES` | Both | Exported as `all`; do not add `--gpus-per-task` |
 
 The job files write `PENDING` after a zero workload exit and `FAIL` on a
-preflight or workload failure. `parsers/` is a directory in this repository:
+preflight or workload failure. Both jobs exit `1` on preflight failure and
+otherwise return the workload's `srun` exit status after writing the marker.
+This lets Slurm accounting record execution failures while a zero exit
+still requires result review. `parsers/` is a directory in this repository:
 `PARSERS=nvl72` or `PARSERS=spectrum-x` selects the `verdict.sh` that derives
 the result status. The `nvloom` gate requires a rack GUID, rejects known
 run/CUDA/assertion/MPI errors and requires one distinct parsed rack GUID.
@@ -277,8 +280,8 @@ stops the job unless `MPI_IFACE` supplies an override.
 
 A failed query, missing or invalid UUID, inconsistent GPU UUIDs, duplicate
 or missing node record, cross-rack allocation, or failed `srun` stops the
-job before the NVLoom container starts. The job logs the preflight reason
-and writes `FAIL`. This establishes rack membership from GPU fabric
+job before the NVLoom container starts. The job logs the preflight reason,
+writes `FAIL` and exits `1`. This establishes rack membership from GPU fabric
 identity; it does not establish IMEX readiness or GPU/CPU allocation
 health. The single-node `nvloom` job keeps its separate allocation check.
 A bare `sbatch` submission must export `BRINGUP_HOME` so both the batch

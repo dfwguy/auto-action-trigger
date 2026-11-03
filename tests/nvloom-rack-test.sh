@@ -1,5 +1,5 @@
 #!/bin/bash
-# Offline rack/MPI preflight and launch ordering; see docs/reference/jobs.md#nvloom-rack-preflight.
+# Offline NVLoom exit statuses and rack/MPI preflight; see docs/reference/jobs.md#nvloom-jobs.
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 work=$(mktemp -d)
@@ -46,9 +46,14 @@ while [[ ${1:-} == --* ]]; do shift; done
 if [[ $1 == nvloom_cli ]]; then
     echo workload >> "$RACK_TEST_WORK/steps"
     printf '%s %s\n' "${OMPI_MCA_btl_tcp_if_include:-}" "${OMPI_MCA_oob_tcp_if_include:-}" > "$RACK_TEST_WORK/mpi"
+    [[ $RACK_CASE == workload-failure ]] && exit 42
     exit 0
 fi
 echo probe >> "$RACK_TEST_WORK/steps"
+if [[ $1 == bash && $2 == -c ]]; then
+    [[ $RACK_CASE == allocation-failure ]] && exit 1
+    exit 0
+fi
 rc=0
 for ((i=1; i<=SLURM_JOB_NUM_NODES; i++)); do
     [[ $RACK_CASE == missing && $i == 18 ]] && continue
@@ -65,7 +70,7 @@ chmod +x "$work/bin/"*
 pass=0
 fail=0
 run_case() {
-    local platform=$1 scenario=$2 nodes=$3 expected=$4 detail=$5 out steps mpi routes
+    local platform=$1 scenario=$2 nodes=$3 expected=$4 detail=$5 out steps mpi routes rc=0
     local expected_iface=eth0 expected_routes=''
     export RACK_CASE=$scenario SLURM_JOB_NUM_NODES=$nodes MPI_IFACE=eth0
     case $scenario in
@@ -83,20 +88,37 @@ run_case() {
     out=$(
         unset OMPI_MCA_btl_tcp_if_include OMPI_MCA_oob_tcp_if_include
         bash "$repo/jobs/$platform/nvloom-rack-nvlink.sbatch" 2>&1
-    )
+    ) || rc=$?
     steps=$(cat "$work/steps")
     mpi=$(cat "$work/mpi")
     routes=$(cat "$work/routes")
     if [[ $routes == "$expected_routes" ]] && {
-        [[ $expected == pass && $steps == $'probe\nworkload' && $out == *PENDING* &&
+        [[ $expected == pass && $rc -eq 0 && $steps == $'probe\nworkload' && $out == *PENDING* &&
            $out == *"18 nodes share ClusterUUID="* && $out == *"MPI coordination interface: $expected_iface"* &&
            $mpi == "$expected_iface $expected_iface" ]] ||
-        [[ $expected == fail && $steps == probe && $out == *FAIL* && $out == *"$detail"* && -z $mpi ]]
+        [[ $expected == fail && $rc -eq 1 && $steps == probe && $out == *FAIL* && $out == *"$detail"* && -z $mpi ]] ||
+        [[ $expected == workload-fail && $rc -eq 42 && $steps == $'probe\nworkload' &&
+           $out == *FAIL && $out == *"exit status: 42"* && $mpi == "$expected_iface $expected_iface" ]]
     }; then
         printf '  ok   %s: %s\n' "$platform" "$scenario"
         pass=$((pass + 1))
     else
-        printf '  FAIL %s: %s (steps: %s; MPI: %s; routes: %s)\n%s\n' "$platform" "$scenario" "$steps" "$mpi" "$routes" "$out"
+        printf '  FAIL %s: %s (rc: %s; steps: %s; MPI: %s; routes: %s)\n%s\n' "$platform" "$scenario" "$rc" "$steps" "$mpi" "$routes" "$out"
+        fail=$((fail + 1))
+    fi
+}
+
+run_single_node_case() {
+    local platform=$1 scenario=$2 expected_rc=$3 expected_steps=$4 expected_marker=$5 out steps rc=0
+    export RACK_CASE=$scenario SLURM_JOB_NUM_NODES=1
+    : > "$work/steps"
+    out=$(bash "$repo/jobs/$platform/nvloom.sbatch" 2>&1) || rc=$?
+    steps=$(cat "$work/steps")
+    if [[ $rc -eq $expected_rc && $steps == "$expected_steps" && $out == *"$expected_marker" ]]; then
+        printf '  ok   %s single-node: %s\n' "$platform" "$scenario"
+        pass=$((pass + 1))
+    else
+        printf '  FAIL %s single-node: %s (rc: %s; steps: %s)\n%s\n' "$platform" "$scenario" "$rc" "$steps" "$out"
         fail=$((fail + 1))
     fi
 }
@@ -121,6 +143,10 @@ for platform in nvl72 nvl72-spx; do
     run_case "$platform" too-few 17 fail 'expected 18 allocated nodes'
     run_case "$platform" too-many 19 fail 'expected 18 allocated nodes'
     run_case "$platform" step-failure 18 fail 'membership could not be established'
+    run_case "$platform" workload-failure 18 workload-fail ''
+    run_single_node_case "$platform" success 0 $'probe\nworkload' PENDING
+    run_single_node_case "$platform" allocation-failure 1 probe FAIL
+    run_single_node_case "$platform" workload-failure 42 $'probe\nworkload' FAIL
 done
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

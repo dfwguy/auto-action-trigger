@@ -195,6 +195,9 @@ Inspect the complete log after the job finishes. The final `PENDING` marker
 means the workload exited zero; it is not a quality verdict, and is
 unrelated to Slurm's queued `PENDING` state. `FAIL` means preflight or the
 workload failed. A missing final marker means there is no completed result.
+Both jobs exit `1` on preflight failure and otherwise return the workload's
+`srun` exit status to Slurm. A failed preflight therefore cannot advertise
+successful completion with `ExitCode=0:0`.
 
 For a completed single-node log, set `job_id` to that submission's ID and
 run the configured parser offline:

@@ -38,7 +38,7 @@ srun --ntasks=1 bash -c '
     [[ "$gpus" -eq 4 && "$(nproc)" -ge "${SLURM_CPUS_ON_NODE:-1}" ]]' || {
     echo "preflight: the step did not receive the whole node -- see above"
     echo FAIL
-    exit 0
+    exit 1
 }
 
 ## NOT ENABLED BY DEFAULT -- no published image, and not in BENCHMARKS.
@@ -83,3 +83,4 @@ rc=$?
 ## FAIL came from the verdict.sh gate, which leaves no trace in this file.
 echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL
+exit "$rc"
