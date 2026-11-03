@@ -20,13 +20,9 @@ RACK_SAMPLES=${RACK_SAMPLES:-5}
 # remove inherited slurm CPU/task settings from job environment
 unset SLURM_CPUS_PER_TASK SLURM_TRES_PER_TASK SRUN_CPUS_PER_TASK
 
-RACK_CHECK=${BRINGUP_HOME:?not set -- launch_job.sh exports it; a bare sbatch must too}/jobs/nvl72/check-rack-membership.sh
-if ! (
-    set -o pipefail
-    srun --time=0:02:00 --ntasks="${SLURM_JOB_NUM_NODES:?not set}" --ntasks-per-node=1 \
-        bash "$RACK_CHECK" | bash "$RACK_CHECK" --validate
-); then
-    echo "preflight: rack membership could not be established -- see above"
+NVLOOM_PRECHECKS=${BRINGUP_HOME:?not set -- launch_job.sh exports it; a bare sbatch must too}/jobs/nvl72/nvloom-prechecks.sh
+# shellcheck source=jobs/nvl72/nvloom-prechecks.sh
+if ! source "$NVLOOM_PRECHECKS" || ! nvloom_prechecks; then
     echo FAIL
     exit 0
 fi
@@ -39,19 +35,6 @@ CONT=${NODE_CONTAINER_DIR:-/opt/containers}/$IMG
 [[ -f "$CONT" ]] || CONT=${CONTAINER_DIR:?not set -- launch_job.sh exports it; a bare sbatch must too}/$IMG
 
 export NVIDIA_VISIBLE_DEVICES=all
-
-## Open MPI otherwise considers the Spectrum-X rail/VRF interfaces, whose
-## addresses are not in the default namespace, and can abort MPI_Allgather
-## with EADDRNOTAVAIL. Use the routable host interface for MPI coordination.
-MPI_IFACE=${MPI_IFACE:-$(ip -4 route show default | awk 'NR == 1 { print $5 }')}
-[[ -n "$MPI_IFACE" ]] || {
-    echo "preflight: no default-route interface found for MPI coordination"
-    echo FAIL
-    exit 0
-}
-export OMPI_MCA_btl_tcp_if_include="$MPI_IFACE"
-export OMPI_MCA_oob_tcp_if_include="$MPI_IFACE"
-echo "MPI coordination interface: $MPI_IFACE"
 
 # A note on gpu-to-rack vs pairwise testing: gpu-to-rack is a less exhaustive version of pairwise testing. 
 # Pairwise testing is more comprehensive and will test all possible combinations of GPUs in the rack. 

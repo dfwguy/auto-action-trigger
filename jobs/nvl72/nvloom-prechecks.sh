@@ -80,10 +80,41 @@ probe_node_rack() {
     printf '%s %s\n' "$node" "$rack_uuid"
 }
 
-if [[ ${1:-} == --validate ]]; then
-    validate_rack_membership
-elif [[ $# -eq 0 ]]; then
-    probe_node_rack
-else
-    fail "usage: bash check-rack-membership.sh [--validate]"
+nvloom_prechecks() {
+    local helper=${BASH_SOURCE[0]}
+    local mpi_iface=${MPI_IFACE:-}
+
+    if ! (
+        set -o pipefail
+        srun --time=0:02:00 --ntasks="${SLURM_JOB_NUM_NODES:?not set}" --ntasks-per-node=1 \
+            bash "$helper" | bash "$helper" --validate
+    ); then
+        echo "preflight: rack membership could not be established -- see above" >&2
+        return 1
+    fi
+
+    if [[ -z $mpi_iface ]]; then
+        if ! mpi_iface=$(set -o pipefail; ip -4 route show default | awk 'NR == 1 { print $5 }'); then
+            echo "preflight: cannot query default-route interface for MPI coordination" >&2
+            return 1
+        fi
+    fi
+    if [[ -z $mpi_iface ]]; then
+        echo "preflight: no default-route interface found for MPI coordination" >&2
+        return 1
+    fi
+
+    export OMPI_MCA_btl_tcp_if_include="$mpi_iface"
+    export OMPI_MCA_oob_tcp_if_include="$mpi_iface"
+    echo "MPI coordination interface: $mpi_iface"
+}
+
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+    if [[ ${1:-} == --validate ]]; then
+        validate_rack_membership
+    elif [[ $# -eq 0 ]]; then
+        probe_node_rack
+    else
+        fail "usage: bash nvloom-prechecks.sh [--validate]"
+    fi
 fi

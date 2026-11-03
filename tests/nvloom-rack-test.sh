@@ -1,11 +1,11 @@
 #!/bin/bash
-# Offline rack preflight and launch ordering; see docs/reference/jobs.md#nvloom-rack-preflight.
+# Offline rack/MPI preflight and launch ordering; see docs/reference/jobs.md#nvloom-rack-preflight.
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/bin"
-export BRINGUP_HOME="$repo" NODE_CONTAINER_DIR="$work" MPI_IFACE=eth0
+export BRINGUP_HOME="$repo" NODE_CONTAINER_DIR="$work"
 export PATH="$work/bin:$PATH" RACK_TEST_WORK="$work"
 touch "$work/nvloom-v2.0.0-$(uname -m | sed 's/aarch64/arm/;s/x86_64/x86/').sqsh"
 
@@ -31,11 +31,21 @@ for gpu in 0 1 2 3; do
 done
 STUB
 
+cat > "$work/bin/ip" <<'STUB'
+#!/bin/bash
+echo "$*" >> "$RACK_TEST_WORK/routes"
+[[ $RACK_CASE == mpi-no-route ]] && exit 0
+echo 'default via 192.0.2.1 dev eno1 proto dhcp'
+[[ $RACK_CASE == mpi-route-failure || $RACK_CASE == mpi-override ]] && exit 1
+echo 'default via 192.0.2.2 dev eno2 proto dhcp'
+STUB
+
 cat > "$work/bin/srun" <<'STUB'
 #!/bin/bash
 while [[ ${1:-} == --* ]]; do shift; done
 if [[ $1 == nvloom_cli ]]; then
     echo workload >> "$RACK_TEST_WORK/steps"
+    printf '%s %s\n' "${OMPI_MCA_btl_tcp_if_include:-}" "${OMPI_MCA_oob_tcp_if_include:-}" > "$RACK_TEST_WORK/mpi"
     exit 0
 fi
 echo probe >> "$RACK_TEST_WORK/steps"
@@ -55,17 +65,38 @@ chmod +x "$work/bin/"*
 pass=0
 fail=0
 run_case() {
-    local platform=$1 scenario=$2 nodes=$3 expected=$4 detail=$5 out steps
-    export RACK_CASE=$scenario SLURM_JOB_NUM_NODES=$nodes
+    local platform=$1 scenario=$2 nodes=$3 expected=$4 detail=$5 out steps mpi routes
+    local expected_iface=eth0 expected_routes=''
+    export RACK_CASE=$scenario SLURM_JOB_NUM_NODES=$nodes MPI_IFACE=eth0
+    case $scenario in
+        mpi-default|mpi-empty-override|mpi-no-route|mpi-route-failure)
+            unset MPI_IFACE
+            [[ $scenario == mpi-empty-override ]] && export MPI_IFACE=''
+            expected_iface=eno1
+            expected_routes='-4 route show default'
+            ;;
+        mpi-override) export MPI_IFACE=bond0; expected_iface=bond0 ;;
+    esac
     : > "$work/steps"
-    out=$(bash "$repo/jobs/$platform/nvloom-rack-nvlink.sbatch" 2>&1)
+    : > "$work/mpi"
+    : > "$work/routes"
+    out=$(
+        unset OMPI_MCA_btl_tcp_if_include OMPI_MCA_oob_tcp_if_include
+        bash "$repo/jobs/$platform/nvloom-rack-nvlink.sbatch" 2>&1
+    )
     steps=$(cat "$work/steps")
-    if [[ $expected == pass && $steps == $'probe\nworkload' && $out == *PENDING* && $out == *"18 nodes share ClusterUUID="* ]] ||
-       [[ $expected == fail && $steps == probe && $out == *FAIL* && $out == *"$detail"* ]]; then
+    mpi=$(cat "$work/mpi")
+    routes=$(cat "$work/routes")
+    if [[ $routes == "$expected_routes" ]] && {
+        [[ $expected == pass && $steps == $'probe\nworkload' && $out == *PENDING* &&
+           $out == *"18 nodes share ClusterUUID="* && $out == *"MPI coordination interface: $expected_iface"* &&
+           $mpi == "$expected_iface $expected_iface" ]] ||
+        [[ $expected == fail && $steps == probe && $out == *FAIL* && $out == *"$detail"* && -z $mpi ]]
+    }; then
         printf '  ok   %s: %s\n' "$platform" "$scenario"
         pass=$((pass + 1))
     else
-        printf '  FAIL %s: %s (steps: %s)\n%s\n' "$platform" "$scenario" "$steps" "$out"
+        printf '  FAIL %s: %s (steps: %s; MPI: %s; routes: %s)\n%s\n' "$platform" "$scenario" "$steps" "$mpi" "$routes" "$out"
         fail=$((fail + 1))
     fi
 }
@@ -73,6 +104,11 @@ run_case() {
 for platform in nvl72 nvl72-spx; do
     run_case "$platform" same-rack 18 pass ''
     run_case "$platform" case 18 pass ''
+    run_case "$platform" mpi-default 18 pass ''
+    run_case "$platform" mpi-empty-override 18 pass ''
+    run_case "$platform" mpi-override 18 pass ''
+    run_case "$platform" mpi-no-route 18 fail 'no default-route interface found'
+    run_case "$platform" mpi-route-failure 18 fail 'cannot query default-route interface'
     run_case "$platform" cross-rack 18 fail 'different rack'
     run_case "$platform" mixed-gpus 18 fail 'GPUs have different ClusterUUID'
     run_case "$platform" query-failure 18 fail 'cannot query'

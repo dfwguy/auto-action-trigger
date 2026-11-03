@@ -105,9 +105,10 @@ Submit one `sbatch` for the whole rack. Keep this job out of `BENCHMARKS`,
 per-node decisions rather than coordinating one selected rack allocation.
 
 Leave `MPI_IFACE` unset to use the batch host's default-route interface.
-The rack script exports it through `OMPI_MCA_btl_tcp_if_include` and
-`OMPI_MCA_oob_tcp_if_include` for MPI coordination. If the site needs an
-override, export `MPI_IFACE` before submission and select a routable host
+The sourced `jobs/nvl72/nvloom-prechecks.sh` helper exports it through
+`OMPI_MCA_btl_tcp_if_include` and `OMPI_MCA_oob_tcp_if_include` for MPI
+coordination. If the site needs an override, export `MPI_IFACE` before
+submission and select a routable host
 interface whose name and connectivity work on every selected node. Do not
 choose a Spectrum-X rail/VRF-only interface. This test exercises NVLink;
 it needs no NCCL SPCX plugin or HCA-selection settings.

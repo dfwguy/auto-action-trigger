@@ -250,14 +250,24 @@ submission.
 
 ### NVLoom rack preflight
 
-Both rack job files use `jobs/nvl72/check-rack-membership.sh` before starting
-`nvloom_cli`. The helper is run on the host through `srun`, with one task
-per allocated node and a two-minute step limit. Each task requires an
-18-node allocation and queries `nvidia-smi -q`. All reported GPU
+Both rack job files source `jobs/nvl72/nvloom-prechecks.sh` and call
+`nvloom_prechecks` before starting `nvloom_cli`. The helper runs its host
+probe through `srun`, with one task per allocated node and a two-minute
+step limit. Each task requires an 18-node allocation and queries
+`nvidia-smi -q`. All reported GPU
 `ClusterUUID` values on that node must be valid, nonzero UUIDs and agree.
 The `--validate` mode reads the step's node/UUID records from standard
 input, logs each node's UUID, and requires exactly 18 distinct nodes with
 one shared UUID. UUID comparison ignores letter case.
+
+After rack validation, the helper selects `MPI_IFACE` or the batch host's
+first IPv4 default-route interface and exports it through
+`OMPI_MCA_btl_tcp_if_include` and `OMPI_MCA_oob_tcp_if_include` in the batch
+shell. The workload inherits these settings. This keeps Open MPI from
+selecting Spectrum-X rail/VRF interfaces whose addresses are unavailable
+in the default namespace, which can cause `MPI_Allgather` to fail with
+`EADDRNOTAVAIL`. A failed route query or missing default-route interface
+stops the job unless `MPI_IFACE` supplies an override.
 
 A failed query, missing or invalid UUID, inconsistent GPU UUIDs, duplicate
 or missing node record, cross-rack allocation, or failed `srun` stops the
