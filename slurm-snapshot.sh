@@ -17,8 +17,8 @@ if ! declare -F snapshot_log >/dev/null 2>&1; then
     snapshot_log() { printf '%s\n' "$*"; }
 fi
 
-## Every job name this framework submits under, and the only ones anything here
-## counts or reports. The yield library re-reads the same list at its scancel.
+## Automatic single-node policy only; manual NVLoom is observed separately.
+## The yield library re-reads the same list at its scancel.
 SNAPSHOT_PREFIXES='bringup- burnin-'
 
 ## One file per node beside its heartbeat, never one fleet-wide file every node
@@ -109,7 +109,7 @@ snapshot_jobs_here() {
     return 0
 }
 
-## Every job carrying one of this node's two names, wherever it is in the queue:
+## Per-node jobs and the manual NVLoom coordinator, wherever they are queued:
 ## `id state name reason`, reason last because it is free text.
 snapshot_ours() {
     [[ "${#SNAPSHOT_OURS[@]}" -gt 0 ]] && printf '%s\n' "${SNAPSHOT_OURS[@]}"
@@ -255,7 +255,7 @@ snapshot_query() {
 snapshot_write() {
     local results="$1" now="$2"; shift 2
     local id name user state prio subm endt nodes req sched count reason
-    local n node dir written=0
+    local n node dir owners written=0
     local -A jobs_here=() ours_by_node=() gres=() cputot=()
     local -A state_of=() setter_of=() when_of=() reason_of=()
 
@@ -280,8 +280,16 @@ snapshot_write() {
             ## Keyed on the name, which carries the node it was submitted for: a
             ## PENDING job has no node list at all, and that is precisely the case
             ## the submit guard exists for.
-            ours_by_node[${name#*-}]+="ours"$'\t'"$id"$'\t'"$state"$'\t'"$name"$'\t'"$reason"$'\n'
+            owners=${name#*-}
+        elif [[ "$name" == nvloom-rack-* ]]; then
+            snapshot_expand "$req"
+            owners=${_SNAP_HOSTS:-${name#nvloom-rack-}}
+        else
+            owners=""
         fi
+        for n in $owners; do
+            ours_by_node[$n]+="ours"$'\t'"$id"$'\t'"$state"$'\t'"$name"$'\t'"$reason"$'\n'
+        done
 
         snapshot_expand "$nodes"
         for n in $_SNAP_HOSTS; do

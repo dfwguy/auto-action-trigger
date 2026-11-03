@@ -298,6 +298,13 @@ inflight:
   script:
     - ./tests/inflight-test.sh
 
+multinode-nvloom:
+  extends: .base
+  stage: test
+  script:
+    - ./tests/multinode-nvloom-test.sh
+    - ./tests/nvloom-rack-test.sh
+
 # The only thing in the tree that cancels a job of ours that is working. Every
 # case that must not cancel asserts that scancel was never called.
 yield:

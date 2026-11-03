@@ -13,6 +13,45 @@ Retry state is derived entirely from files already on disk: the newest result
 file's mtime is when the last sweep ran, and the archived `.fail<N>.txt` files
 are the attempt history. There is no state file to keep in sync.
 
+## The only multinode job
+
+`nvloom-rack-nvlink` is the only multinode launch currently supported by
+`actions/launch_job.sh`. It needs both `RUN_MULTINODE_NVLOOM=yes` and a
+standalone `--test nvloom-rack-nvlink`. Normal cycles never submit it,
+including when it is mistakenly added to an automatic list. Single-node
+jobs continue through the existing sequencer.
+
+The operator selects all 18 nodes from rack/domain inventory in
+`MULTINODE_NVLOOM_NODES`. Local `scontrol show hostnames` expands the list;
+it does not contact the controller or establish rack membership. The
+launcher passes the full list and matching node count to `sbatch`. The
+existing allocation preflight then verifies one nonzero GPU ClusterUUID
+across exactly 18 distinct nodes before starting NVLoom. Neither idle
+state nor node-name proximity authorizes choosing a different node.
+
+The manual branch exits before recovery and benchmark verdict handling.
+Its unique output files and submission receipt live under
+`results/.multinode-nvloom/`, outside required per-node results. A failure,
+missing completion marker or long run is evidence for the operator; none
+can drain or resume a node. There is no normal `.in-flight` marker, so the
+watchdog's timeout drain cannot act on this job. The `nvloom-rack-` name is
+also outside its automatic cancellation prefixes.
+
+A shared submission lock and a receipt written before `sbatch` prevent
+two manual callers from racing. Even a failed `sbatch` can represent an
+accepted job, so the receipt is retained until a newer watchdog view can
+establish whether it is still queued. The snapshot writer includes the
+job in the selected nodes' views even while it is pending. Normal launcher
+cycles leave those nodes to the rack job without running recovery or
+submitting more work on a view that shows it. No new controller query is
+added to a node cycle. As with other snapshot guards, work submitted after
+the snapshot can still be queued concurrently; exclusive Slurm allocations
+serialize actual execution.
+
+The [run procedure](../how-to/run-nvloom-tests.md#through-the-launcher)
+documents configuration and repeating a run. This explicit exception is not
+a general multinode scheduling interface.
+
 ## The busy gate
 
 Nothing in this file runs on a node that has a job on it. `node-agent.sh` asks

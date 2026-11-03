@@ -14,6 +14,12 @@ is only ever an operator's. Why each gate answers the way it does is in
 
 ## Sweeping a set of nodes
 
+The sole multinode exception is `--test nvloom-rack-nvlink`: invoke it once
+on one of the 18 explicitly configured rack nodes. It requires
+`RUN_MULTINODE_NVLOOM=yes`, uses separate advisory logs and performs no
+node recovery. Follow [the NVLoom procedure](run-nvloom-tests.md#through-the-launcher)
+instead of applying the per-node fan-out below.
+
 Every decision the script makes is about `$HOSTNAME`, because the agent runs
 on the node it is deciding about. There is no node argument: sweeping a set of
 nodes is a fan-out, and `-v` is worth adding there because stdout across it

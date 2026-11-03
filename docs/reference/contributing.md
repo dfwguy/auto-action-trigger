@@ -141,6 +141,7 @@ awk '/^\+\+\+ /{f=$2} /^\+[^+]/{l=substr($0,2); sub(/^[ \t]+/,"",l);
 ./tests/arm-timer-test.sh      # the timer-is-scheduled and lingering-bus gates, if you touched install-agent.sh
 ./tests/build-containers-test.sh # -a required and the nvcr.io login gate, if you touched build_containers.sh
 ./tests/nvloom-rack-test.sh    # 18-node rack identity and launch ordering, if you touched the NVLoom rack jobs or helper
+./tests/multinode-nvloom-test.sh # opt-in, explicit rack submission, duplicates and advisory isolation, if you touched the launcher or snapshots
 ./tests/priv-test.sh           # the sudo layer, if you touched priv.sh or a check that needs root
 ./tests/fanout-test.sh         # clush before pdsh, if you touched fanout.sh
 ./tests/next-run-test.sh       # the buckets, if you touched check_next-run.sh or either cadence

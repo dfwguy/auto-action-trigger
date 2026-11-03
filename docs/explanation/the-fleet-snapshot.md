@@ -94,9 +94,15 @@ Tab separated, key first, and the free-text fields run to the end of their line:
 | `cputot` | configured CPUs, for a count drain |
 | `fleet` | how many jobs of ours are queued or running fleet-wide |
 | `job` | one per job Slurm has assigned to this node: id, state, user, end epoch, name |
-| `ours` | one per job carrying this node's own two job names, anywhere in the queue: id, state, name, reason |
+| `ours` | one per job carrying this node's own two job names, plus a manual NVLoom job requesting this node, anywhere in the queue: id, state, name, reason |
 | `reason` | the drain reason, free text |
 | `end` | the sentinel — see below |
+
+The manual `nvloom-rack-<coordinator>` exception is joined to its requested
+node list (`%n`) so all 18 nodes see it while it is pending. It remains outside
+`SNAPSHOT_PREFIXES`: reporting its queue state does not authorize automatic
+cancellation or node state changes. See
+[the only multinode job](sequencing.md#the-only-multinode-job).
 
 `job` and `ours` are different questions and both are needed. A PENDING job has
 no node list at all, so it appears under `ours` and never under `job`; that is

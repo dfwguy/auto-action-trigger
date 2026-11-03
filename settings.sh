@@ -96,6 +96,9 @@ fi
 ## See docs/reference/settings.md#run-switches.
 : "${RUN_ARMING:=yes}"
 : "${RUN_BURNIN:=no}"
+## The only supported multinode job; see docs/how-to/run-nvloom-tests.md.
+: "${RUN_MULTINODE_NVLOOM:=no}"
+: "${MULTINODE_NVLOOM_NODES=}"
 ## BCM-specific: wait for the command daemon, Slurm daemon and job identity
 ## before submitting after a reboot. Off unless the site explicitly opts in.
 : "${REQUIRE_BCM_BOOTSTRAP_READY:=no}"

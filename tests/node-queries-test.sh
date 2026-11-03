@@ -38,7 +38,9 @@ for f in "${NODE_SIDE[@]}"; do
     ## Comments and the operator-facing strings scripts *print* are fine: a trace
     ## line telling somebody to run `scancel 123` by hand is not this node doing
     ## it. Strip both, then look at what is left.
-    hits=$(sed -e 's/^[[:space:]]*#.*$//' -e "s/\"[^\"]*\"//g" -e "s/'[^']*'//g" "$f" |
+    # show hostnames expands a supplied hostlist locally, without a controller RPC.
+    hits=$(sed -e 's/^[[:space:]]*#.*$//' -e 's/scontrol show hostnames//g' \
+               -e "s/\"[^\"]*\"//g" -e "s/'[^']*'//g" "$f" |
            grep -nE "(^|[^[:alnum:]_./-])($BANNED)([^[:alnum:]_-]|$)")
     if [[ -n "$hits" ]]; then
         bad "$f runs a controller query -- it must read the node view instead:"

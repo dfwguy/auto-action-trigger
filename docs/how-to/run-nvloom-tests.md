@@ -80,12 +80,76 @@ That path supplies the environment, archives previous results and lets
 ## 4. Submit one rack-wide NVLink test
 
 Select **exactly 18 four-GPU nodes from one NVLink rack/domain** using the
-site's rack/domain inventory. Replace the example list with those nodes:
+site's rack/domain inventory. The framework does not discover a rack from
+node names, partition membership or whichever nodes happen to be idle.
+
+### Through the launcher
+
+`nvloom-rack-nvlink` is the only multinode job supported by
+`actions/launch_job.sh`. In the site's resolved `SETTINGS` file, configure:
+
+```bash
+RUN_MULTINODE_NVLOOM=yes
+MULTINODE_NVLOOM_NODES='node[01-18]'
+```
+
+Both settings ship disabled or empty. Replace the example list with the
+selected rack's nodes. Enabling the switch permits an explicit `--test`
+invocation; normal agent cycles never submit the rack job. Keep it out of
+`BENCHMARKS`, `BURNIN` and `CONTINUE_RUNNING_JOBS`; the launcher traces and
+skips an entry in any of those lists.
+
+As `JOB_USER`, invoke the launcher **once on one selected node**, for
+example `node01`. Preview it, then submit without `--explain`:
+
+```bash
+clush -w node01 '/cluster/bringup/actions/launch_job.sh --test nvloom-rack-nvlink --explain -v'
+pdsh -R ssh -w node01 '/cluster/bringup/actions/launch_job.sh --test nvloom-rack-nvlink --explain -v'
+
+clush -w node01 '/cluster/bringup/actions/launch_job.sh --test nvloom-rack-nvlink -v'
+pdsh -R ssh -w node01 '/cluster/bringup/actions/launch_job.sh --test nvloom-rack-nvlink -v'
+```
+
+Choose either `clush` or `pdsh` for each step. Do not fan this invocation out
+to all 18 nodes or combine it with another `--test` job. The launcher expands
+the configured list, rejects invalid counts or duplicate nodes, and passes
+the complete list with `--nodelist` and its validated count with `--nodes`.
+The sorted first node supplies a stable coordinator name, `nvloom-rack-node01`;
+it does not select the rack and need not be the node issuing the command.
+
+Fresh watchdog views must exist for all selected nodes. Queued framework
+jobs, allocated jobs, in-flight markers and inconclusive views stop submission.
+`SUBMIT_ONLY_WHEN_IDLE=yes` also requires all 18 nodes to be exactly idle.
+The launcher honors `RUN_JOBS=no`, and `--test` cannot bypass
+`RUN_MULTINODE_NVLOOM=no`. Rack membership is still checked inside the
+allocation before the workload starts.
+
+The trace prints the job ID and a unique log under
+`$RESULTS_DIR/.multinode-nvloom/`. This path is advisory: it returns before
+benchmark verdicts, drain recovery, resume and drain logic. It creates no
+per-node `.in-flight` marker, so the watchdog's `MAX_JOB_HOURS` drain does
+not apply. Slurm's job and step time limits still bound execution. Results
+do not enter required benchmark status or authorize any node state change.
+
+A shared lock serializes submissions. The `submission` receipt is written
+before `sbatch`; a second request must see a newer watchdog view confirming
+that the previous request is no longer queued. A failed or timed-out
+submission is not retried automatically because Slurm may have accepted it.
+After the watchdog confirms the queue is clear, another explicit invocation
+can run again; previous logs are retained, including incomplete attempts.
+The `nvloom-rack-` job name is outside the framework's automatic cancellation
+prefixes. `RUN_JOBS=no` stops new submissions; use `scancel <job-id>` yourself
+to stop an already queued or running rack job.
+
+### Direct submission
+
+A direct `sbatch` bypasses the launcher's enable switch, queue guards and
+submission receipt. Supply the node count as well as the selected list:
 
 ```bash
 rack_nodes='node[01-18]'
 scontrol show hostnames "$rack_nodes"
-sbatch -w "$rack_nodes" \
+sbatch --nodes=18 -w "$rack_nodes" \
     --export=ALL,BRINGUP_HOME="$BRINGUP_HOME",CONTAINER_DIR="$CONTAINER_DIR",NODE_CONTAINER_DIR="$NODE_CONTAINER_DIR",RACK_SAMPLES=5 \
     --output="$run_dir/nvloom-rack-nvlink-%j.txt" \
     "$JOBS_DIR/nvloom-rack-nvlink.sbatch"
@@ -99,10 +163,11 @@ ClusterUUID values identify one rack. Failed or inconclusive queries stop
 the job. Node-name order and Slurm partition membership are not evidence
 that nodes share an NVLink domain.
 
-Submit one `sbatch` for the whole rack. Keep this job out of `BENCHMARKS`,
-`BURNIN` and `CONTINUE_RUNNING_JOBS`, and do not fan out
-`launch_job.sh -t nvloom-rack-nvlink` across nodes: that launcher makes
-per-node decisions rather than coordinating one selected rack allocation.
+The job files have no hardcoded `#SBATCH -N` line. The caller supplies the
+count: `-w` names nodes, while Slurm can use a subset or add nodes according
+to the resource request. Matching `--nodes=18` to the 18 selected nodes
+requests the complete rack. See the
+[Slurm nodelist reference](https://slurm.schedmd.com/sbatch.html#OPT_nodelist).
 
 Leave `MPI_IFACE` unset to use the batch host's default-route interface.
 The sourced `jobs/nvl72/nvloom-prechecks.sh` helper exports it through
@@ -115,8 +180,9 @@ it needs no NCCL SPCX plugin or HCA-selection settings.
 
 ## 5. Read the result
 
-Use the recorded job ID to watch the queue and locate the log. For a rack
-test, for example:
+Use the recorded job ID to watch the queue and locate the log. The launcher
+prints the full log path; direct submissions above use `run_dir`. For a
+direct rack test, for example:
 
 ```bash
 job_id=12345

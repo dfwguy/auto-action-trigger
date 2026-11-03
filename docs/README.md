@@ -38,7 +38,7 @@ Task-oriented, for someone who already knows the system.
 |------|--------|
 | [run-a-job-by-hand.md](how-to/run-a-job-by-hand.md) | `launch_job.sh` flags, sweeping a rack over `clush -w`, and `--test` for a job outside the list |
 | [submit-a-job-file-directly.md](how-to/submit-a-job-file-directly.md) | Calling `sbatch` on a job file yourself: the site paths it needs on `--export`, and why `--test` is usually the answer instead |
-| [run-nvloom-tests.md](how-to/run-nvloom-tests.md) | Prepare NVLoom, submit a single-node or manually selected 18-node NVLink rack test, and inspect its results |
+| [run-nvloom-tests.md](how-to/run-nvloom-tests.md) | Prepare NVLoom, opt into the manual 18-node launcher exception or submit directly, and inspect advisory results |
 | [arm-a-node.md](how-to/arm-a-node.md) | Installing the timer, checking a node stayed armed, and what to do when one will not |
 | [install-abup.md](how-to/install-abup.md) | Symlinking `abup` onto `PATH`, the `BRINGUP_HOME` fallback for a detached copy, and what the "cannot find the tree" error means |
 | [enable-lingering-before-installing.md](how-to/enable-lingering-before-installing.md) | Why `install-agent.sh` can enable lingering and still fail in the same run, and how to avoid it |

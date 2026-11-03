@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH -p defq
-#SBATCH -N 18
 #SBATCH --exclusive
 #SBATCH --mem=0
 #SBATCH --gres=gpu:4
@@ -12,7 +11,7 @@
 ## Rack-level NVLink validation with NVLoom.
 ## Intended for single-rack / NVL72-class validation runs.
 ## Submit with an explicit node list for one rack, for example:
-##   sbatch -w node[01-18] jobs/nvl72/nvloom-rack-nvlink.sbatch
+##   sbatch --nodes=18 -w node[01-18] jobs/nvl72/nvloom-rack-nvlink.sbatch
 
 STEP_TIMELIMIT=1:20:00
 RACK_SAMPLES=${RACK_SAMPLES:-5}

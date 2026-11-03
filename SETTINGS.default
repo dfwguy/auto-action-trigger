@@ -24,6 +24,10 @@ EXCLUDE_NODES=""
 ## ── Benchmark list ────────────────────────────────────────────────────────
 BENCHMARKS="dcgmi-r1 dcgmi-r3 dcgmi-r4 nvbandwidth allreduce allreduce-forcesharp alltoall allreduce-nonvlink alltoall-nonvlink llm-pretrain llm-pretrain-solo"
 
+## ── Multinode NVLoom ───────────────────────────────────────────────────────
+RUN_MULTINODE_NVLOOM=no
+MULTINODE_NVLOOM_NODES=""
+
 ## ── Benchmark pass floors ─────────────────────────────────────────────────
 VERDICT_MIN_PEAK_BW_ALLREDUCE=683
 VERDICT_MIN_PEAK_BW_ALLREDUCE_FORCESHARP=665

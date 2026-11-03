@@ -132,6 +132,10 @@ Usage: launch_job.sh [--explain] [--force] [--all] [--test JOB] [--verbose|--qui
   --verbose, -v   mirror the trace to stdout (default when stdout is a tty)
   --quiet,   -q   never mirror the trace to stdout
 
+The only multinode exception is --test nvloom-rack-nvlink. It requires
+RUN_MULTINODE_NVLOOM=yes and MULTINODE_NVLOOM_NODES naming one 18-node rack.
+Run it once on one selected node. See docs/how-to/run-nvloom-tests.md.
+
 Decides about the node it runs on, and takes no node argument. To sweep a set
 of nodes, name them where they can be reached:
 
@@ -167,6 +171,15 @@ while [[ $# -gt 0 ]]; do
     esac
     shift
 done
+
+MULTINODE_NVLOOM_TEST=0
+if [[ " $TEST_LIST " == *" nvloom-rack-nvlink "* ]]; then
+    [[ "$TEST_LIST" == nvloom-rack-nvlink ]] || {
+        echo "ERROR: --test nvloom-rack-nvlink must be submitted alone -- nothing was swept." >&2
+        exit 2
+    }
+    MULTINODE_NVLOOM_TEST=1
+fi
 
 ## Fatal rather than traced and skipped, unlike a bad BENCHMARKS entry: the
 ## operator is standing there, and a name that resolves to no launcher would
@@ -224,6 +237,20 @@ old_setting_present PAUSE_JOBS &&
     trace "WARNING: SETTINGS still sets PAUSE_JOBS -- this key was renamed to RUN_JOBS (RUN_JOBS=no is the equivalent). PAUSE_JOBS is no longer read. Update SETTINGS."
 old_setting_present PAUSE_RECOVERY &&
     trace "WARNING: SETTINGS still sets PAUSE_RECOVERY -- this key was renamed to RUN_RECOVERY (RUN_RECOVERY=no is the equivalent). PAUSE_RECOVERY is no longer read. Update SETTINGS."
+
+## The sole multinode job is manual-only; see docs/how-to/run-nvloom-tests.md.
+for _list in BENCHMARKS BURNIN CONTINUE_RUNNING_JOBS; do
+    _jobs=""
+    for _job in ${!_list}; do
+        if [[ "$_job" == nvloom-rack-nvlink ]]; then
+            trace "skip $_job in $_list: the only supported multinode job requires --test nvloom-rack-nvlink and RUN_MULTINODE_NVLOOM=yes"
+        else
+            _jobs+="${_jobs:+ }$_job"
+        fi
+    done
+    printf -v "$_list" '%s' "$_jobs"
+done
+unset _list _jobs _job
 
 ## ── Extra environment for the jobs ────────────────────────────────────────
 ##
@@ -428,6 +455,166 @@ source "$home/slurm-snapshot.sh"
 snapshot_log() { trace "$@"; }
 SNAPSHOT_OK=0
 snapshot_load "$RESULTS_DIR" "$HOSTNAME" && SNAPSHOT_OK=1
+
+## This manual-only path returns before recovery, verdicts and node updates.
+## See docs/explanation/sequencing.md#the-only-multinode-job.
+multinode_nvloom_test() (
+    local expanded node coordinator nodelist state_dir receipt tmp now output
+    local previous_epoch previous_coordinator previous_nodes previous_output previous_id
+    local line id job_state name reason out rc command submitted_id
+    local -a nodes=() submit=()
+    local -A seen=()
+
+    setting_enabled "$RUN_MULTINODE_NVLOOM" || {
+        trace "EXIT: RUN_MULTINODE_NVLOOM=$RUN_MULTINODE_NVLOOM -- --test does not override this opt-in switch"
+        return 0
+    }
+    setting_disabled "$RUN_JOBS" && {
+        trace "EXIT: RUN_JOBS=$RUN_JOBS -- no multinode NVLoom submission; --test does not override this switch"
+        return 0
+    }
+    [[ -n "$MULTINODE_NVLOOM_NODES" ]] || {
+        trace "EXIT: MULTINODE_NVLOOM_NODES is empty -- explicitly select 18 nodes from one NVLink rack/domain"
+        return 2
+    }
+    for command in timeout flock; do
+        command -v "$command" >/dev/null 2>&1 || {
+            trace "EXIT: $command is missing -- cannot safely submit multinode NVLoom"
+            return 2
+        }
+    done
+    if ! expanded=$(timeout --foreground 10s scontrol show hostnames "$MULTINODE_NVLOOM_NODES" 2>/dev/null); then
+        trace "EXIT: cannot expand MULTINODE_NVLOOM_NODES='$MULTINODE_NVLOOM_NODES' -- no multinode NVLoom submission"
+        return 2
+    fi
+    while IFS= read -r node; do
+        if [[ ! "$node" =~ ^[[:alnum:]][[:alnum:]_.-]*$ || -n "${seen[$node]:-}" ]]; then
+            trace "EXIT: invalid or duplicate node '$node' in MULTINODE_NVLOOM_NODES -- no multinode NVLoom submission"
+            return 2
+        fi
+        seen[$node]=1
+        nodes+=("$node")
+    done <<< "$expanded"
+    [[ "${#nodes[@]}" -eq 18 ]] || {
+        trace "EXIT: MULTINODE_NVLOOM_NODES must name exactly 18 distinct nodes, got ${#nodes[@]} -- no multinode NVLoom submission"
+        return 2
+    }
+    [[ -n "${seen[$HOSTNAME]:-}" ]] || {
+        trace "EXIT: $HOSTNAME is not in MULTINODE_NVLOOM_NODES -- run --test nvloom-rack-nvlink once on one selected node"
+        return 2
+    }
+    mapfile -t nodes < <(printf '%s\n' "${nodes[@]}" | LC_ALL=C sort)
+    coordinator=${nodes[0]}
+    nodelist=$(IFS=,; printf '%s' "${nodes[*]}")
+    state_dir="$RESULTS_DIR/.multinode-nvloom"
+    receipt="$state_dir/submission"
+    if [[ "$EXPLAIN" -eq 0 ]]; then
+        if ! mkdir -p "$state_dir" || ! { exec 8>"$state_dir/lock"; }; then
+            trace "EXIT: cannot write $state_dir -- no multinode NVLoom submission"
+            return 2
+        fi
+        flock -n 8 || {
+            trace "EXIT: cannot acquire $state_dir/lock -- another multinode NVLoom submission holds it, or locking failed; nothing submitted"
+            return 0
+        }
+    fi
+    if [[ -e "$receipt" ]]; then
+        if ! IFS=$'\t' read -r previous_epoch previous_coordinator previous_nodes previous_output previous_id < "$receipt" ||
+           [[ ! "$previous_epoch" =~ ^[0-9]+$ || ! "$previous_coordinator" =~ ^[[:alnum:]][[:alnum:]_.-]*$ ||
+              -z "$previous_nodes" || -z "$previous_output" || ! "$previous_id" =~ ^([0-9]+|unknown)$ ]]; then
+            trace "EXIT: unreadable multinode NVLoom receipt $receipt -- inspect it before submitting again"
+            return 2
+        fi
+        SNAPSHOT_LOADED=0
+        if ! snapshot_load "$RESULTS_DIR" "$previous_coordinator"; then
+            trace "EXIT: multinode NVLoom job $previous_id is not confirmed finished: $SNAPSHOT_WHY -- receipt kept"
+            return 0
+        fi
+        if [[ ! "$RESULTS_DIR/$previous_coordinator/$SNAPSHOT_VIEW" -nt "$receipt" ]]; then
+            trace "EXIT: the node view is not newer than $receipt -- the previous multinode NVLoom submission may still be queued; receipt kept"
+            return 0
+        fi
+        for line in "${SNAPSHOT_OURS[@]}"; do
+            IFS=$'\t' read -r id job_state name reason <<< "$line"
+            if [[ "$name" == "nvloom-rack-$previous_coordinator" ]]; then
+                trace "EXIT: multinode NVLoom job $id is still $job_state${reason:+ ($reason)} -- no duplicate submitted"
+                return 0
+            fi
+        done
+        trace "multinode NVLoom: prior job $previous_id left the queue; advisory log retained at $previous_output"
+    fi
+    for node in "${nodes[@]}"; do
+        node_excluded "$node" && {
+            trace "EXIT: $node is excluded by EXCLUDE_NODES -- no multinode NVLoom submission"
+            return 0
+        }
+        SNAPSHOT_LOADED=0
+        if ! snapshot_load "$RESULTS_DIR" "$node"; then
+            trace "EXIT: multinode NVLoom cannot establish $node readiness: $SNAPSHOT_WHY"
+            return 0
+        fi
+        if [[ "${#SNAPSHOT_OURS[@]}" -gt 0 || -e "$RESULTS_DIR/$node/.in-flight" ]]; then
+            trace "EXIT: $node has a framework job queued or an in-flight marker -- no multinode NVLoom submission"
+            return 0
+        fi
+        if [[ "${#SNAPSHOT_JOBS[@]}" -gt 0 ]]; then
+            trace "EXIT: $node has an allocated job -- no multinode NVLoom submission"
+            return 0
+        fi
+        if [[ -z "$SNAPSHOT_STATE" ]] ||
+           { setting_enabled "$SUBMIT_ONLY_WHEN_IDLE" && [[ "${SNAPSHOT_STATE,,}" != idle ]]; }; then
+            trace "EXIT: $node state is '${SNAPSHOT_STATE:-unknown}' -- no multinode NVLoom submission; no drain or recovery attempted"
+            return 0
+        fi
+    done
+    [[ "$(id -un)" == "$JOB_USER" ]] || {
+        trace "EXIT: multinode NVLoom must be submitted as JOB_USER=$JOB_USER"
+        return 2
+    }
+    now=$(date +%s)
+    output="$state_dir/nvloom-rack-nvlink-$now-$HOSTNAME-$$.txt"
+    submit=(sbatch --nodes="${#nodes[@]}" --nodelist="$nodelist" --job-name="nvloom-rack-$coordinator"
+        "--export=ALL$JOB_ENV_ARGS$SITE_EXPORT" "--output=$output" "$JOBS_DIR/nvloom-rack-nvlink.sbatch")
+    printf -v command '%q ' "${submit[@]}"
+    if [[ "$EXPLAIN" -eq 1 ]]; then
+        trace "WOULD SUBMIT multinode NVLoom (advisory only): $command"
+        return 0
+    fi
+    tmp="$receipt.$HOSTNAME.$$.tmp"
+    if ! printf '%s\t%s\t%s\t%s\tunknown\n' "$now" "$coordinator" "$nodelist" "$output" > "$tmp" ||
+       ! mv -f "$tmp" "$receipt"; then
+        rm -f "$tmp"
+        trace "EXIT: cannot record the multinode NVLoom submission in $receipt -- nothing submitted"
+        return 2
+    fi
+    out=$(timeout --foreground 60s "${submit[@]}" 2>&1); rc=$?
+    submitted_id=$(grep -oE 'Submitted batch job [0-9]+' <<< "$out" | tail -1 | grep -oE '[0-9]+$')
+    if [[ "$rc" -eq 0 && "$submitted_id" =~ ^[0-9]+$ ]]; then
+        if ! printf '%s\t%s\t%s\t%s\t%s\n' "$now" "$coordinator" "$nodelist" "$output" "$submitted_id" > "$tmp" ||
+           ! mv -f "$tmp" "$receipt"; then
+            rm -f "$tmp"
+            trace "WARNING: could not record job $submitted_id in $receipt -- the pre-submission receipt still prevents a blind retry"
+        fi
+        trace "submitted multinode NVLoom: job $submitted_id nodes=$nodelist log=$output -- advisory only; no node state decisions"
+    else
+        trace "SUBMIT FAILED multinode NVLoom: sbatch exited $rc: ${out:-<no output>} -- receipt kept because acceptance may be ambiguous; no automatic retry"
+        return 1
+    fi
+)
+
+if [[ "$MULTINODE_NVLOOM_TEST" -eq 1 ]]; then
+    multinode_nvloom_test
+    exit $?
+fi
+
+for _line in "${SNAPSHOT_OURS[@]}"; do
+    IFS=$'\t' read -r _id _state _name _reason <<< "$_line"
+    if [[ "$_name" == nvloom-rack-* ]]; then
+        trace "EXIT: manual multinode NVLoom job $_id is $_state${_reason:+ ($_reason)} -- leaving this node to it; no recovery or node state decisions"
+        exit 0
+    fi
+done
+unset _line _id _state _name _reason
 
 ## The pass/fail rule, sourced here because the in-flight gate below needs it to
 ## tell a finished job from one still writing. See the header of verdict.sh.

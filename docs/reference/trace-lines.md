@@ -141,6 +141,33 @@ legitimately have nothing to do, so a node that has silently stopped testing
 looks exactly like a node that is quietly idle. See
 [explanation/architecture.md#silence-is-the-enemy](../explanation/architecture.md#silence-is-the-enemy).
 
+## Manual multinode NVLoom
+
+These lines come from `launch_job.sh`; the only supported multinode job is
+`nvloom-rack-nvlink`. Follow [the run procedure](../how-to/run-nvloom-tests.md#through-the-launcher).
+
+| Line | When |
+|------|------|
+| `skip nvloom-rack-nvlink in <list> … requires --test …` | An automatic benchmark, burn-in or continuous list incorrectly names the manual-only job |
+| `EXIT: RUN_MULTINODE_NVLOOM=<value> …` | The explicit opt-in switch is not enabled, including under `--test`, `--force` and `--all` |
+| `EXIT: RUN_JOBS=<value> -- no multinode NVLoom submission …` | Job submission is paused |
+| `EXIT: MULTINODE_NVLOOM_NODES …` / `cannot expand …` / `invalid or duplicate node …` | The rack selection is empty, cannot be expanded or is not exactly 18 distinct valid nodes |
+| `EXIT: <host> is not in MULTINODE_NVLOOM_NODES …` | The caller must run on one selected node |
+| `EXIT: <tool> is missing …` / `cannot write …` / `cannot record …` | Submission cannot be bounded, locked or recorded, so no job is submitted |
+| `EXIT: cannot acquire <path>/lock …` | Another manual caller holds the shared submission lock, or locking failed |
+| `EXIT: unreadable multinode NVLoom receipt …` | Corrupt state requires inspection before another submission |
+| `EXIT: multinode NVLoom job <id> is not confirmed finished …` / `the node view is not newer …` | The queue state cannot establish whether the prior submission was accepted or has ended; the receipt is retained |
+| `EXIT: multinode NVLoom job <id> is still <state> …` | A prior rack job is still queued or running; no duplicate is submitted |
+| `EXIT: multinode NVLoom cannot establish <node> readiness …` | A selected node has a missing, torn or stale view |
+| `EXIT: <node> is excluded …` / `has a framework job queued …` / `has an allocated job …` / `state is …` | A member cannot take the rack test; no drain or recovery is attempted |
+| `EXIT: multinode NVLoom must be submitted as JOB_USER=…` | The caller is not the configured job account |
+| `WOULD SUBMIT multinode NVLoom (advisory only): …` | A preview, without submission state or queue changes |
+| `submitted multinode NVLoom: job <id> nodes=<list> log=<path> …` | One explicit rack test was accepted; the log remains advisory |
+| `SUBMIT FAILED multinode NVLoom … receipt kept …` | `sbatch` failed or timed out; no automatic retry follows an ambiguous acceptance |
+| `WARNING: could not record job <id> …` | The pre-submission receipt is retained even though saving the accepted ID failed |
+| `multinode NVLoom: prior job <id> left the queue …` | A newer watchdog view permits another explicit request; previous logs are retained |
+| `EXIT: manual multinode NVLoom job <id> is <state> …` | A normal cycle sees a rack job requesting this node and leaves it alone, before recovery or further submission |
+
 ## The agent trace
 
 `results/<node>/agent.log`, one line per cycle. It answers "did the timer fire,

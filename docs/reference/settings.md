@@ -394,6 +394,20 @@ The reasoning for all of them is in
 what to expect while paused is
 [how-to/pause-and-resume.md](../how-to/pause-and-resume.md).
 
+## Multinode NVLoom
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `RUN_MULTINODE_NVLOOM` | `no` | Permit an explicit `launch_job.sh --test nvloom-rack-nvlink`; enabling it never schedules a rack job automatically |
+| `MULTINODE_NVLOOM_NODES` | empty | Operator-selected Slurm hostlist naming exactly 18 distinct four-GPU nodes in one NVLink rack/domain |
+
+This is the only multinode job supported by the launcher. It is submitted
+alone, outside `BENCHMARKS`, `BURNIN` and `CONTINUE_RUNNING_JOBS`, and cannot
+drain, resume, restart or otherwise remediate nodes. `RUN_JOBS=no` also
+prevents submission. Results are advisory logs, outside the required
+per-node benchmark columns. See [run NVLoom tests](../how-to/run-nvloom-tests.md#through-the-launcher)
+for node selection, previewing, duplicate guards and repeating a run.
+
 ## Drains
 
 | Setting | Default | Meaning |

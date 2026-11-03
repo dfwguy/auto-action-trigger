@@ -157,7 +157,7 @@ generic header would get wrong.
 - **`nvloom-rack-nvlink` is submitted manually**, using
   `jobs/nvl72/nvloom-rack-nvlink.sbatch` or
   `jobs/nvl72-spx/nvloom-rack-nvlink.sbatch`. Explicitly select 18 four-GPU
-  nodes from one NVLink rack/domain with `sbatch -w <nodelist>`. Its preflight
+  nodes from one NVLink rack/domain with `sbatch --nodes=18 -w <nodelist>`. Its preflight
   requires 18 distinct nodes with the same GPU ClusterUUID. See
   [run NVLoom tests](../how-to/run-nvloom-tests.md).
 - **The `dcgmi-r*` jobs run `dcgmi` in the batch body, not in a step.** That is
@@ -230,7 +230,13 @@ submission and log inspection.
 Both jobs use `nvloom-v2.0.0-<arch>.sqsh`, preferring `NODE_CONTAINER_DIR`
 (default `/opt/containers`) over the required shared `CONTAINER_DIR`
 fallback. Both request exclusive nodes and all memory. The rack job is
-manually submitted and is not an automatic per-node benchmark.
+manually submitted and is not an automatic per-node benchmark. It is the
+only multinode exception in `actions/launch_job.sh`, enabled with
+`RUN_MULTINODE_NVLOOM=yes` and invoked alone with
+`--test nvloom-rack-nvlink`. Its configured node list and validated count
+are passed on the submission command line; the job has no `#SBATCH -N`.
+Logs remain advisory and never feed node state decisions. See the
+[launcher procedure](../how-to/run-nvloom-tests.md#through-the-launcher).
 
 | Parameter | Applies to | Default / behavior |
 |-----------|------------|--------------------|
