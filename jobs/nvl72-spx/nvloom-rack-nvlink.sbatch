@@ -23,7 +23,7 @@ NVLOOM_PRECHECKS=${BRINGUP_HOME:?not set -- launch_job.sh exports it; a bare sba
 # shellcheck source=jobs/nvl72/nvloom-prechecks.sh
 if ! source "$NVLOOM_PRECHECKS" || ! nvloom_prechecks; then
     echo FAIL
-    exit 0
+    exit 1
 fi
 
 # select the correct nvloom container image and locate it (aarch64 vs x86_64)
@@ -47,4 +47,5 @@ rc=$?
 
 echo "exit status: $rc"
 [[ "$rc" -eq 0 ]] && echo PENDING || echo FAIL
+exit "$rc"
 
